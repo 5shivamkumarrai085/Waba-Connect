@@ -57,6 +57,56 @@ public class TemplatesController : ControllerBase
         return Ok(new ApiResponse { Success = true, Message = "Template deleted successfully." });
     }
 
+    [HttpGet("languages")]
+    public ActionResult<ApiResponse<IEnumerable<object>>> GetLanguages()
+    {
+        var data = new[]
+        {
+            new { code = "en", name = "English" },
+            new { code = "es", name = "Spanish" },
+            new { code = "pt", name = "Portuguese" }
+        };
+        return Ok(new ApiResponse<IEnumerable<object>> { Success = true, Data = data });
+    }
+
+    [HttpGet("categories")]
+    public ActionResult<ApiResponse<IEnumerable<object>>> GetCategories()
+    {
+        var data = new[]
+        {
+            new { id = "MARKETING", name = "Marketing" },
+            new { id = "UTILITY", name = "Utility" },
+            new { id = "AUTHENTICATION", name = "Authentication" }
+        };
+        return Ok(new ApiResponse<IEnumerable<object>> { Success = true, Data = data });
+    }
+
+    [HttpGet("statuses")]
+    public ActionResult<ApiResponse<IEnumerable<object>>> GetStatuses()
+    {
+        var data = new[]
+        {
+            new { id = "APPROVED", name = "Approved" },
+            new { id = "PENDING", name = "Pending" },
+            new { id = "REJECTED", name = "Rejected" },
+            new { id = "PAUSED", name = "Paused" },
+            new { id = "DISABLED", name = "Disabled" }
+        };
+        return Ok(new ApiResponse<IEnumerable<object>> { Success = true, Data = data });
+    }
+
+    [HttpGet("types")]
+    public ActionResult<ApiResponse<IEnumerable<object>>> GetTypes()
+    {
+        var data = new[]
+        {
+            new { id = "TEXT", name = "Text" },
+            new { id = "MEDIA", name = "Media" },
+            new { id = "INTERACTIVE", name = "Interactive" }
+        };
+        return Ok(new ApiResponse<IEnumerable<object>> { Success = true, Data = data });
+    }
+
     [HttpPost("sync")]
     public async Task<ActionResult<ApiResponse>> SyncFromWhatsApp()
     {

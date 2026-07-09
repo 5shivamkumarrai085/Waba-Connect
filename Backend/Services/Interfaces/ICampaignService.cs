@@ -18,6 +18,9 @@ public interface ICampaignService
     /// </summary>
     Task<CampaignResponse> CancelAsync(int id);
 
+    Task<CampaignResponse> PauseAsync(int id);
+    Task<CampaignResponse> ResumeAsync(int id);
+
     /// <summary>
     /// Gets per-recipient delivery status for a campaign.
     /// </summary>

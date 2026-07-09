@@ -1,11 +1,5 @@
 /* OmniConnect Design System - index.css */
 
-/* Imports for page and component styles */
-@import './styles/layout.css';
-@import './styles/components.css';
-@import './styles/dashboard.css';
-@import './styles/campaign.css';
-
 :root {
   /* Color Palette */
   --bg-primary: #f8f9fc;

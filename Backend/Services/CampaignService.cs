@@ -204,6 +204,44 @@ public class CampaignService : ICampaignService
         return MapToResponse(campaign);
     }
 
+    public async Task<CampaignResponse> PauseAsync(int id)
+    {
+        var campaign = await _dbContext.Campaigns.Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == id);
+        if (campaign == null)
+            throw new KeyNotFoundException($"Campaign with ID {id} not found.");
+
+        if (campaign.Status is not (CampaignStatus.Scheduled or CampaignStatus.Sending))
+            throw new InvalidOperationException("Can only pause Scheduled or Sending campaigns.");
+
+        campaign.Status = CampaignStatus.Paused;
+        await _dbContext.SaveChangesAsync();
+
+        return MapToResponse(campaign);
+    }
+
+    public async Task<CampaignResponse> ResumeAsync(int id)
+    {
+        var campaign = await _dbContext.Campaigns.Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == id);
+        if (campaign == null)
+            throw new KeyNotFoundException($"Campaign with ID {id} not found.");
+
+        if (campaign.Status != CampaignStatus.Paused)
+            throw new InvalidOperationException("Can only resume Paused campaigns.");
+
+        campaign.Status = campaign.ScheduleType == ScheduleType.Scheduled && campaign.ScheduledAt > DateTime.UtcNow 
+            ? CampaignStatus.Scheduled 
+            : CampaignStatus.Sending;
+            
+        await _dbContext.SaveChangesAsync();
+
+        if (campaign.Status == CampaignStatus.Sending)
+        {
+            _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
+        }
+
+        return MapToResponse(campaign);
+    }
+
     public async Task<PagedResponse<CampaignRecipientResponse>> GetRecipientsAsync(int campaignId, PagedRequest request)
     {
         var query = _dbContext.CampaignContacts

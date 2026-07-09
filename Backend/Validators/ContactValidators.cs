@@ -21,6 +21,10 @@ public class CreateContactValidator : AbstractValidator<CreateContactRequest>
             .NotEmpty().WithMessage("Type is required.")
             .IsEnumName(typeof(ContactType), caseSensitive: false).WithMessage("Invalid Contact Type.");
 
+        RuleFor(x => x.Status)
+            .NotEmpty().WithMessage("Status is required.")
+            .IsEnumName(typeof(ContactStatus), caseSensitive: false).WithMessage("Invalid Contact Status.");
+
         RuleFor(x => x.Source)
             .NotEmpty().WithMessage("Source is required.")
             .IsEnumName(typeof(ContactSource), caseSensitive: false).WithMessage("Invalid Contact Source.");
@@ -41,6 +45,7 @@ public class UpdateContactValidator : AbstractValidator<UpdateContactRequest>
         RuleFor(x => x.Name).NotEmpty().Length(2, 100);
         RuleFor(x => x.Phone).NotEmpty().Matches(@"^\+[1-9]\d{6,14}$");
         RuleFor(x => x.Type).NotEmpty().IsEnumName(typeof(ContactType), false);
+        RuleFor(x => x.Status).NotEmpty().IsEnumName(typeof(ContactStatus), false);
         RuleFor(x => x.Source).NotEmpty().IsEnumName(typeof(ContactSource), false);
         RuleFor(x => x.AssignedTo).MaximumLength(100);
         RuleForEach(x => x.GroupIds).GreaterThan(0).When(x => x.GroupIds != null);

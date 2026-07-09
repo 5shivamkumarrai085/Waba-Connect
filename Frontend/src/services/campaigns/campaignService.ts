@@ -117,11 +117,11 @@ export const campaignService = {
   },
 
   pauseCampaign: async (id: number): Promise<void> => {
-    await apiClient.post(`/Campaigns/${id}/cancel`)
+    await apiClient.post(`/Campaigns/${id}/pause`)
   },
 
-  resumeCampaign: async (_id: number): Promise<void> => {
-    throw new Error('Resume campaign is not implemented in the backend.')
+  resumeCampaign: async (id: number): Promise<void> => {
+    await apiClient.post(`/Campaigns/${id}/resume`)
   }
 }
 export default campaignService

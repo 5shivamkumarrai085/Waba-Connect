@@ -1,5 +1,4 @@
 import React from 'react'
-import { usePreviewStore } from '../store/zustand'
 import { Award, CheckCircle, Info } from 'lucide-react'
 
 interface TableCardProps {
@@ -7,40 +6,10 @@ interface TableCardProps {
   data?: any[]
 }
 
-interface CampaignRow {
-  id: number
-  campaign: string
-  messages: number
-  primaryRate: string
-  secondaryRate: string
-  primaryPercent: number
-  secondaryPercent: number
-}
-
-const readRateMockData: CampaignRow[] = [
-  { id: 1, campaign: 'camp_20260615_01', messages: 1, primaryRate: '100.00%', secondaryRate: '0.00%', primaryPercent: 100, secondaryPercent: 0 },
-  { id: 2, campaign: 'camp_20260617.001', messages: 1, primaryRate: '100.00%', secondaryRate: '0.00%', primaryPercent: 100, secondaryPercent: 0 },
-  { id: 3, campaign: 'POC_CAMP_15', messages: 1, primaryRate: '100.00%', secondaryRate: '0.00%', primaryPercent: 100, secondaryPercent: 0 },
-  { id: 4, campaign: 'Camp_20260615_001', messages: 2, primaryRate: '50.00%', secondaryRate: '50.00%', primaryPercent: 50, secondaryPercent: 50 },
-  { id: 5, campaign: 'Test 12334', messages: 2, primaryRate: '50.00%', secondaryRate: '0.00%', primaryPercent: 50, secondaryPercent: 0 },
-]
-
-const deliveryRateMockData: CampaignRow[] = [
-  { id: 1, campaign: 'camp_20260618_01', messages: 1, primaryRate: '100.00%', secondaryRate: '0.00%', primaryPercent: 100, secondaryPercent: 0 },
-  { id: 2, campaign: 'POC_bulk_5', messages: 1, primaryRate: '100.00%', secondaryRate: '0.00%', primaryPercent: 100, secondaryPercent: 0 },
-  { id: 3, campaign: 'Camp_20260615_001', messages: 2, primaryRate: '50.00%', secondaryRate: '50.00%', primaryPercent: 50, secondaryPercent: 50 },
-  { id: 4, campaign: 'Test Campaign', messages: 4, primaryRate: '50.00%', secondaryRate: '0.00%', primaryPercent: 50, secondaryPercent: 0 },
-  { id: 5, campaign: 'Deepak', messages: 3, primaryRate: '33.33%', secondaryRate: '33.33%', primaryPercent: 33.33, secondaryPercent: 33.33 },
-]
-
 export const TableCard: React.FC<TableCardProps> = ({ type, data: propData }) => {
-  const { previewMode } = usePreviewStore()
-  
   const isReadRate = type === 'read-rate'
   const title = isReadRate ? 'Top Campaigns — Highest Read Rate' : 'Top Campaigns — Highest Delivery Rate'
-  const campaigns = propData && propData.length > 0 
-    ? propData 
-    : (previewMode ? (isReadRate ? readRateMockData : deliveryRateMockData) : [])
+  const campaigns = propData && propData.length > 0 ? propData : []
 
   const footerText = isReadRate
     ? 'Most engaging campaign - Campaign performance ranking - Engagement benchmark'

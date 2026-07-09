@@ -48,6 +48,16 @@ export const CampaignWizard: React.FC = () => {
   const [var1, setVar1] = useState('')
   const [var2, setVar2] = useState('')
 
+  const [canSubmit, setCanSubmit] = useState(false)
+  useEffect(() => {
+    if (activeStep === 3) {
+      const timer = setTimeout(() => setCanSubmit(true), 400)
+      return () => clearTimeout(timer)
+    } else {
+      setCanSubmit(false)
+    }
+  }, [activeStep])
+
   useEffect(() => {
     // Load initial option values
     const fetchWizardOptions = async () => {
@@ -142,6 +152,10 @@ export const CampaignWizard: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!canSubmit) {
+      console.warn('Prevented premature submit click during step transition')
+      return
+    }
     try {
       if (isEditMode && campaignId) {
         await updateCampaign(campaignId)
@@ -285,7 +299,10 @@ export const CampaignWizard: React.FC = () => {
                           type="checkbox"
                           id="select-all-contacts"
                           checked={wizardForm.selectAllContacts}
-                          onChange={(e) => setWizardForm({ selectAllContacts: e.target.checked })}
+                          onChange={(e) => {
+                            setWizardForm({ selectAllContacts: e.target.checked })
+                            toggleSelectAllListed(e.target.checked)
+                          }}
                         />
                         <div className="wizard-label-spacer">
                           <label htmlFor="select-all-contacts" className="upload-main-text">Select all contacts</label>
@@ -531,7 +548,7 @@ export const CampaignWizard: React.FC = () => {
                     type="submit"
                     form="campaign-wizard-form"
                     className="btn-wizard-nav btn-wizard-save"
-                    disabled={isLoading}
+                    disabled={isLoading || !canSubmit}
                   >
                     {isEditMode ? 'Save Changes' : 'Create Campaign'}
                   </button>

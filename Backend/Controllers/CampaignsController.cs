@@ -56,6 +56,20 @@ public class CampaignsController : ControllerBase
         return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign cancelled successfully." });
     }
 
+    [HttpPost("{id}/pause")]
+    public async Task<ActionResult<ApiResponse<CampaignResponse>>> Pause(int id)
+    {
+        var data = await _campaignService.PauseAsync(id);
+        return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign paused successfully." });
+    }
+
+    [HttpPost("{id}/resume")]
+    public async Task<ActionResult<ApiResponse<CampaignResponse>>> Resume(int id)
+    {
+        var data = await _campaignService.ResumeAsync(id);
+        return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign resumed successfully." });
+    }
+
     [HttpGet("{id}/recipients")]
     public async Task<ActionResult<ApiResponse<PagedResponse<CampaignRecipientResponse>>>> GetRecipients(
         int id,

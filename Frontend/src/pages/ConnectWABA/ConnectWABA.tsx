@@ -18,24 +18,24 @@ export const ConnectWABA: React.FC = () => {
     isConnecting,
     isSendingMessage,
     isVerifyingWebhook,
-    
+
     facebookAppId,
     facebookAppSecret,
     wabaId,
     accessToken,
-    
+
     webhookUrl,
     verifyToken,
-    
+
     phoneInfo,
     tokenInfo,
     healthInfo,
-    
+
     setFacebookAppId,
     setFacebookAppSecret,
     setWabaId,
     setAccessToken,
-    
+
     loadWabaData,
     connectApp,
     configureWaba,
@@ -134,16 +134,16 @@ export const ConnectWABA: React.FC = () => {
         </div>
         {isConnected && (
           <div className="waba-top-actions">
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="btn-top-action btn-qr-code"
               onClick={handleGetQrCode}
             >
               <QrCode size={16} />
               <span>Click to get QR Code</span>
             </button>
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="btn-top-action btn-disconnect"
               onClick={handleDisconnectClick}
             >
@@ -162,7 +162,7 @@ export const ConnectWABA: React.FC = () => {
             {/* Step 1 */}
             <div className="waba-setup-card">
               <h3 className="waba-setup-title">Step - 1: Facebook Developer Account & Facebook App</h3>
-              
+
               <form onSubmit={handleConnectApp}>
                 <div className="form-group">
                   <div className="waba-input-label-row">
@@ -199,8 +199,8 @@ export const ConnectWABA: React.FC = () => {
                 </div>
 
                 <div className="waba-card-footer">
-                  <button 
-                    type="submit" 
+                  <button
+                    type="submit"
                     className="btn-waba-action"
                     disabled={isConnecting}
                   >
@@ -209,8 +209,8 @@ export const ConnectWABA: React.FC = () => {
                   </button>
                 </div>
               </form>
-              
-              {isStep1Done && (
+
+              {/* {isStep1Done && (
                 <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-light)', paddingTop: '16px' }}>
                   <div className="form-group">
                     <label className="waba-input-label">Callback URL</label>
@@ -221,7 +221,7 @@ export const ConnectWABA: React.FC = () => {
                     <CopyField value={verifyToken} isSensitive={true} />
                   </div>
                 </div>
-              )}
+              )} */}
             </div>
 
             {/* Step 2 */}
@@ -285,8 +285,8 @@ export const ConnectWABA: React.FC = () => {
                         {showSetupAccessToken ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
                     </div>
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       className="btn-debug-token"
                       onClick={() => window.open('https://developers.facebook.com/tools/debug/accesstoken/', '_blank')}
                       disabled={!isStep1Done}
@@ -298,8 +298,8 @@ export const ConnectWABA: React.FC = () => {
                 </div>
 
                 <div className="waba-card-footer">
-                  <button 
-                    type="submit" 
+                  <button
+                    type="submit"
                     className="btn-waba-action"
                     disabled={isConnecting || !isStep1Done}
                   >
@@ -318,7 +318,7 @@ export const ConnectWABA: React.FC = () => {
               <p className="waba-requirements-intro">
                 You will require the following information to activate your WhatsApp Business Cloud API:
               </p>
-              
+
               <div className="waba-requirements-list">
                 {[
                   {
@@ -437,8 +437,8 @@ export const ConnectWABA: React.FC = () => {
                 </div>
 
                 <div className="waba-card-footer">
-                  <button 
-                    type="submit" 
+                  <button
+                    type="submit"
                     className="btn-waba-action"
                     disabled={isSendingMessage}
                   >
@@ -458,8 +458,8 @@ export const ConnectWABA: React.FC = () => {
                 <h3 className="waba-card-title">Verify Webhook</h3>
               </div>
 
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className="purple-btn-webhook-verify"
                 onClick={handleVerifyWebhook}
                 disabled={isVerifyingWebhook}

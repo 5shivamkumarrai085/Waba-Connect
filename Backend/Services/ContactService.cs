@@ -107,7 +107,7 @@ public class ContactService : IContactService
     public async Task<ContactResponse> CreateAsync(CreateContactRequest request)
     {
         var normalizedPhone = PhoneNumberHelper.NormalizePhoneNumber(request.Phone);
-        var existing = await _dbContext.Contacts.AnyAsync(c => c.Phone == normalizedPhone);
+        var existing = await _dbContext.Contacts.IgnoreQueryFilters().AnyAsync(c => c.Phone == normalizedPhone);
         if (existing)
             throw new InvalidOperationException("A contact with this phone number already exists.");
 
@@ -116,6 +116,7 @@ public class ContactService : IContactService
             Name = request.Name,
             Phone = normalizedPhone,
             Type = Enum.Parse<ContactType>(request.Type, true),
+            Status = Enum.Parse<ContactStatus>(request.Status, true),
             Source = Enum.Parse<ContactSource>(request.Source, true),
             AssignedTo = request.AssignedTo
         };
@@ -150,7 +151,7 @@ public class ContactService : IContactService
         var normalizedPhone = PhoneNumberHelper.NormalizePhoneNumber(request.Phone);
         if (contact.Phone != normalizedPhone)
         {
-            var existing = await _dbContext.Contacts.AnyAsync(c => c.Phone == normalizedPhone);
+            var existing = await _dbContext.Contacts.IgnoreQueryFilters().AnyAsync(c => c.Phone == normalizedPhone);
             if (existing)
                 throw new InvalidOperationException("Another contact with this phone number already exists.");
         }
@@ -158,6 +159,7 @@ public class ContactService : IContactService
         contact.Name = request.Name;
         contact.Phone = normalizedPhone;
         contact.Type = Enum.Parse<ContactType>(request.Type, true);
+        contact.Status = Enum.Parse<ContactStatus>(request.Status, true);
         contact.Source = Enum.Parse<ContactSource>(request.Source, true);
         contact.AssignedTo = request.AssignedTo;
 

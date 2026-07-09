@@ -1,20 +1,11 @@
 import React from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
-import { usePreviewStore } from '../store/zustand'
 import { Image, Info } from 'lucide-react'
 
 // Hours from 00:00 to 23:00
 const hours = Array.from({ length: 24 }, (_, i) => {
   const hr = i.toString().padStart(2, '0')
   return `${hr}:00`
-})
-
-// Generate preview mock data
-const previewData = hours.map((hour) => {
-  if (hour === '15:00') {
-    return { name: hour, sent: 4, errors: 3 }
-  }
-  return { name: hour, sent: 0, errors: 0 }
 })
 
 // Generate empty state data
@@ -29,10 +20,8 @@ interface ChartCardProps {
 }
 
 export const ChartCard: React.FC<ChartCardProps> = ({ data: propData }) => {
-  const { previewMode } = usePreviewStore()
-  
-  // Use propData if available, otherwise fallback to preview/empty mode logic
-  const data = propData && propData.length > 0 ? propData : (previewMode ? previewData : emptyData)
+  // Use propData if available, otherwise fallback to empty mode logic
+  const data = propData && propData.length > 0 ? propData : emptyData
 
   return (
     <div className="dashboard-main-chart">
@@ -41,8 +30,8 @@ export const ChartCard: React.FC<ChartCardProps> = ({ data: propData }) => {
           <h2>Messages Sent Per Day</h2>
           <p>Daily volume trend</p>
           <div className="chart-badges">
-            <span className="chart-badge blue">Lowest: ~{previewMode ? 4 : 0}</span>
-            <span className="chart-badge gray">Highest: ~{previewMode ? 4 : 0}</span>
+            <span className="chart-badge blue">Lowest: ~0</span>
+            <span className="chart-badge gray">Highest: ~0</span>
           </div>
         </div>
         <div className="chart-actions">
@@ -65,7 +54,7 @@ export const ChartCard: React.FC<ChartCardProps> = ({ data: propData }) => {
       </div>
 
       <div className="chart-body">
-        {!previewMode ? (
+        {(!propData || propData.length === 0) ? (
           <div className="chart-empty-container">
             <div className="empty-state chart-empty-state">
               <Info className="empty-state-icon" />
@@ -136,28 +125,6 @@ export const ChartCard: React.FC<ChartCardProps> = ({ data: propData }) => {
           </ResponsiveContainer>
         )}
       </div>
-      
-      {/* Bottom absolute hours tick details showing the 4, 0, 0 metrics underneath as in screenshot 1 */}
-      {previewMode && (
-        <div className="chart-bottom-ticks">
-          <div className="chart-tick-item chart-tick-left">
-            <span>4</span>
-            <div className="chart-tick-sub">02:00-03:00 avg</div>
-          </div>
-          <div className="chart-tick-item chart-tick-center-left">
-            <span>0</span>
-            <div className="chart-tick-sub">08:00-09:00 avg</div>
-          </div>
-          <div className="chart-tick-item chart-tick-center-right">
-            <span className="purple-text">15:00</span>
-            <div className="chart-tick-sub highlight">4 msgs</div>
-          </div>
-          <div className="chart-tick-item chart-tick-right">
-            <span className="error-text">0</span>
-            <div className="chart-tick-sub">19:00-20:00 avg</div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

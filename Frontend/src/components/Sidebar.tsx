@@ -87,7 +87,7 @@ export const Sidebar: React.FC = () => {
       <div className="sidebar-header">
         {!isCollapsed && (
           <div className="sidebar-logo">
-            <img src="/site_logo_1779180395.png" alt="RMA Logo" className="sidebar-logo-img" />
+            <img src="/rma.png" alt="RMA Logo" className="sidebar-logo-img" />
           </div>
         )}
         <button 

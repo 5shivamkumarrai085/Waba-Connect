@@ -20,7 +20,7 @@
   z-index: 100;
   transition: var(--transition-normal);
   flex-shrink: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .sidebar.collapsed {
@@ -35,6 +35,7 @@
   padding: 0 24px;
   border-bottom: 1px solid var(--border-light);
   transition: var(--transition-normal);
+  position: relative;
 }
 
 .sidebar.collapsed .sidebar-header {
@@ -53,7 +54,6 @@
   letter-spacing: -0.5px;
   white-space: nowrap;
   transition: opacity 0.2s ease;
-  visibility: hidden;
 }
 
 .sidebar-logo span {
@@ -96,6 +96,7 @@
 .sidebar-content {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 12px;
   display: flex;
   flex-direction: column;

@@ -163,7 +163,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
     set({ isLoading: true })
     try {
       const res = await contactService.importContacts(fileContent)
-      // Reload mock contacts if import was successful
+      // Reload contacts if import was successful
       const fetched = await contactService.getContacts()
       set({ contacts: fetched })
       return res

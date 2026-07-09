@@ -1,6 +1,5 @@
 import React from 'react'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
-import { usePreviewStore } from '../store/zustand'
 import { CheckCircle2, Eye, Info } from 'lucide-react'
 
 interface TrendCardProps {
@@ -12,18 +11,6 @@ interface TrendCardProps {
 // Hourly values from 00:00 to 23:00
 const hours = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`)
 
-// Mock data generator for delivery (peaks at 15:00 with 25%)
-const deliveryMockData = hours.map((hour) => ({
-  name: hour,
-  value: hour === '15:00' ? 25 : 0
-}))
-
-// Mock data generator for read (peaks at 15:00 with 100%)
-const readMockData = hours.map((hour) => ({
-  name: hour,
-  value: hour === '15:00' ? 100 : 0
-}))
-
 // Empty data
 const emptyData = hours.map((hour) => ({
   name: hour,
@@ -31,20 +18,12 @@ const emptyData = hours.map((hour) => ({
 }))
 
 export const TrendCard: React.FC<TrendCardProps> = ({ type, value: propValue, data: propData }) => {
-  const { previewMode } = usePreviewStore()
-  
   const isDelivery = type === 'delivery'
   const title = isDelivery ? 'Delivery Trend' : 'Read Trend'
   const subtitle = isDelivery ? 'Delivery rate trend' : 'Read/open rate'
   
-  // Dynamic metrics depending on props or preview mode
-  const rateValue = propValue !== undefined 
-    ? propValue 
-    : (previewMode ? (isDelivery ? '25.0%' : '100.0%') : '0.0%')
-    
-  const chartData = propData && propData.length > 0 
-    ? propData 
-    : (previewMode ? (isDelivery ? deliveryMockData : readMockData) : emptyData)
+  const rateValue = propValue !== undefined ? propValue : '0.0%'
+  const chartData = propData && propData.length > 0 ? propData : emptyData
 
   const primaryColor = isDelivery ? '#10b981' : 'var(--primary)'
   const gradientId = isDelivery ? 'colorDelivery' : 'colorRead'
@@ -67,22 +46,25 @@ export const TrendCard: React.FC<TrendCardProps> = ({ type, value: propValue, da
       </div>
 
       <div className="trend-chart-body">
-        {!previewMode ? (
+        {(!propData || propData.length === 0) ? (
           <div className="chart-empty-container">
-            <span className="trend-empty-text">
-              <Info size={12} /> Empty
-            </span>
+            <div className="empty-state chart-empty-state">
+              <Info className="empty-state-icon" />
+              <h3 className="empty-state-title">No Data</h3>
+              <p className="empty-state-desc">No data for this trend.</p>
+            </div>
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
-              data={chartData}
-              margin={{ top: 10, right: 0, left: 0, bottom: 0 }}
-            >
+            <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
               <defs>
-                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={primaryColor} stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor={primaryColor} stopOpacity={0.0}/>
+                <linearGradient id="colorDelivery" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
+                </linearGradient>
+                <linearGradient id="colorRead" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="var(--primary)" stopOpacity={0.0}/>
                 </linearGradient>
               </defs>
               <Area 
@@ -91,8 +73,8 @@ export const TrendCard: React.FC<TrendCardProps> = ({ type, value: propValue, da
                 stroke={primaryColor} 
                 strokeWidth={2}
                 fillOpacity={1} 
-                fill={`url(#${gradientId})`}
-                dot={{ stroke: primaryColor, strokeWidth: 1.5, r: 3, fill: '#fff' }}
+                fill={`url(#${gradientId})`} 
+                isAnimationActive={false}
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -104,43 +86,43 @@ export const TrendCard: React.FC<TrendCardProps> = ({ type, value: propValue, da
           <>
             <div className="trend-metric-item">
               <div className="trend-metric-label">Avg Delivery</div>
-              <div className="trend-metric-value">{propValue !== undefined ? propValue : (previewMode ? '25%' : '0%')}</div>
+              <div className="trend-metric-value">{propValue !== undefined ? propValue : '0%'}</div>
             </div>
             <div className="trend-metric-item trend-metric-border-x">
               <div className="trend-metric-label">Best Day</div>
               <div className="trend-metric-value">
-                {propData && propData.length > 0 ? (propData.reduce((max: any, d: any) => d.value > max.value ? d : max, { name: '-', value: -1 }).name) : (previewMode ? '15:00' : '-')}{' '}
+                {propData && propData.length > 0 ? (propData.reduce((max: any, d: any) => d.value > max.value ? d : max, { name: '-', value: -1 }).name) : '-'}{' '}
                 <span className="trend-metric-sub">
-                  {propData && propData.length > 0 ? `${propData.reduce((max: any, d: any) => d.value > max.value ? d : max, { name: '-', value: -1 }).value}%` : (previewMode ? '25%' : '')}
+                  {propData && propData.length > 0 ? `${propData.reduce((max: any, d: any) => d.value > max.value ? d : max, { name: '-', value: -1 }).value}%` : ''}
                 </span>
               </div>
             </div>
             <div className="trend-metric-item">
               <div className="trend-metric-label">Failed</div>
-              <div className="trend-metric-value error-text">{propData && propData.length > 0 ? '0' : (previewMode ? '3' : '0')}</div>
+              <div className="trend-metric-value error-text">{propData && propData.length > 0 ? '0' : '0'}</div>
             </div>
           </>
         ) : (
           <>
             <div className="trend-metric-item">
               <div className="trend-metric-label">Avg Open Rate</div>
-              <div className="trend-metric-value">{propValue !== undefined ? propValue : (previewMode ? '100%' : '0%')}</div>
+              <div className="trend-metric-value">{propValue !== undefined ? propValue : '0%'}</div>
             </div>
             <div className="trend-metric-item trend-metric-border-x">
               <div className="trend-metric-label">Highest Engagement</div>
               <div className="trend-metric-value">
-                {propData && propData.length > 0 ? (propData.reduce((max: any, d: any) => d.value > max.value ? d : max, { name: '-', value: -1 }).name) : (previewMode ? '15:00' : '-')}{' '}
+                {propData && propData.length > 0 ? (propData.reduce((max: any, d: any) => d.value > max.value ? d : max, { name: '-', value: -1 }).name) : '-'}{' '}
                 <span className="trend-metric-sub">
-                  {propData && propData.length > 0 ? `${propData.reduce((max: any, d: any) => d.value > max.value ? d : max, { name: '-', value: -1 }).value}%` : (previewMode ? '100%' : '')}
+                  {propData && propData.length > 0 ? `${propData.reduce((max: any, d: any) => d.value > max.value ? d : max, { name: '-', value: -1 }).value}%` : ''}
                 </span>
               </div>
             </div>
             <div className="trend-metric-item">
               <div className="trend-metric-label">Campaign Trend</div>
               <div className="trend-metric-value">
-                {propValue !== undefined ? propValue : (previewMode ? '100%' : '0%')}{' '}
+                {propValue !== undefined ? propValue : '0%'}{' '}
                 <span className="trend-metric-sub">
-                  {propData && propData.length > 0 ? 'top campaign' : (previewMode ? 'top campaign' : '')}
+                  {propData && propData.length > 0 ? 'top campaign' : ''}
                 </span>
               </div>
             </div>

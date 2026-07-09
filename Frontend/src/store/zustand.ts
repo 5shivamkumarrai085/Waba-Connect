@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { reportingService } from '../services/reportingService'
+import { activityLogService } from '../services/activityLogService'
 
 // Sidebar state store
 interface SidebarState {
@@ -88,32 +90,160 @@ export const useFilterStore = create<FilterState>((set) => ({
 }))
 
 // Reporting page UI state store
-interface ReportingUIState {
+interface ReportingStoreState {
+  reportingTimeFilter: 'today' | 'week' | 'month' | 'all'
+  setReportingTimeFilter: (filter: 'today' | 'week' | 'month' | 'all') => void
+  
+  // Cache fields
+  metricsCache: Record<string, any[]>
+  accuracyRecords: any[] | null
+  freshnessRecords: any[] | null
+  exportItems: any[] | null
+  features: string[] | null
+  
   isLoading: boolean
+  isBackgroundSyncing: boolean
   setIsLoading: (loading: boolean) => void
+  loadReportingData: (forceShowSkeleton?: boolean) => Promise<void>
 }
 
-export const useReportingStore = create<ReportingUIState>((set) => ({
+export const useReportingStore = create<ReportingStoreState>((set, get) => ({
+  reportingTimeFilter: 'month',
+  setReportingTimeFilter: (reportingTimeFilter) => {
+    set({ reportingTimeFilter })
+    get().loadReportingData()
+  },
+  metricsCache: {},
+  accuracyRecords: null,
+  freshnessRecords: null,
+  exportItems: null,
+  features: null,
   isLoading: false,
+  isBackgroundSyncing: false,
   setIsLoading: (isLoading) => set({ isLoading }),
+  loadReportingData: async (forceShowSkeleton = false) => {
+    const { reportingTimeFilter, metricsCache, accuracyRecords, freshnessRecords, exportItems, features } = get()
+    const hasCache = metricsCache[reportingTimeFilter] && accuracyRecords && freshnessRecords && exportItems && features
+    
+    if (!hasCache || forceShowSkeleton) {
+      set({ isLoading: true })
+    } else {
+      set({ isBackgroundSyncing: true })
+    }
+
+    try {
+      const [
+        fetchedMetrics,
+        fetchedAccuracy,
+        fetchedFreshness,
+        fetchedExports,
+        fetchedFeatures
+      ] = await Promise.all([
+        reportingService.getReportingMetrics(reportingTimeFilter),
+        reportingService.getAccuracyRecords(),
+        reportingService.getFreshnessRecords(),
+        reportingService.getExportItems(),
+        reportingService.getCustomisationFeatures()
+      ])
+
+      set((state) => ({
+        metricsCache: {
+          ...state.metricsCache,
+          [reportingTimeFilter]: fetchedMetrics
+        },
+        accuracyRecords: fetchedAccuracy,
+        freshnessRecords: fetchedFreshness,
+        exportItems: fetchedExports,
+        features: fetchedFeatures,
+        isLoading: false,
+        isBackgroundSyncing: false
+      }))
+    } catch (err) {
+      console.error('Error fetching reporting logs data:', err)
+      set({ isLoading: false, isBackgroundSyncing: false })
+    }
+  }
 }))
 
 // Activity Logs UI state store
-interface ActivityLogUIState {
+interface ActivityLogStoreState {
   activeTab: 'errors' | 'successes' | 'audits'
   searchQuery: string
-  isLoading: boolean
+  activityTimeFilter: 'today' | 'yesterday' | 'week' | 'month' | 'all'
+  
   setActiveTab: (tab: 'errors' | 'successes' | 'audits') => void
   setSearchQuery: (query: string) => void
+  setActivityTimeFilter: (filter: 'today' | 'yesterday' | 'week' | 'month' | 'all') => void
+  
+  // Cache fields
+  metricsCache: Record<string, any[]>
+  successesCache: Record<string, any[]>
+  auditsCache: Record<string, any[]>
+  
+  isLoading: boolean
+  isBackgroundSyncing: boolean
   setIsLoading: (loading: boolean) => void
+  loadActivityData: (forceShowSkeleton?: boolean) => Promise<void>
 }
 
-export const useActivityLogStore = create<ActivityLogUIState>((set) => ({
+export const useActivityLogStore = create<ActivityLogStoreState>((set, get) => ({
   activeTab: 'errors', // Default matches screenshot 4 ("Login Errors")
   searchQuery: '',
-  isLoading: false,
+  activityTimeFilter: 'month',
   setActiveTab: (activeTab) => set({ activeTab }),
-  setSearchQuery: (searchQuery) => set({ searchQuery }),
+  setSearchQuery: (searchQuery) => {
+    set({ searchQuery })
+    get().loadActivityData()
+  },
+  setActivityTimeFilter: (activityTimeFilter) => {
+    set({ activityTimeFilter })
+    get().loadActivityData()
+  },
+  metricsCache: {},
+  successesCache: {},
+  auditsCache: {},
+  isLoading: false,
+  isBackgroundSyncing: false,
   setIsLoading: (isLoading) => set({ isLoading }),
+  loadActivityData: async (forceShowSkeleton = false) => {
+    const { activityTimeFilter, searchQuery, metricsCache, successesCache, auditsCache } = get()
+    
+    // We check if we have cache for the current parameters
+    const hasCache = metricsCache[activityTimeFilter] && 
+                     successesCache[searchQuery] && 
+                     auditsCache[searchQuery]
+                     
+    if (!hasCache || forceShowSkeleton) {
+      set({ isLoading: true })
+    } else {
+      set({ isBackgroundSyncing: true })
+    }
+
+    try {
+      const [
+        fetchedMetrics,
+        fetchedSuccesses,
+        , // skipped unused fetchedErrors
+        fetchedAudits
+      ] = await Promise.all([
+        activityLogService.getActivityMetrics(activityTimeFilter),
+        activityLogService.getLoginSuccesses(searchQuery),
+        activityLogService.getLoginErrors(searchQuery),
+        activityLogService.getAuditLogs(searchQuery)
+      ])
+
+      set((state) => ({
+        metricsCache: { ...state.metricsCache, [activityTimeFilter]: fetchedMetrics },
+        successesCache: { ...state.successesCache, [searchQuery]: fetchedSuccesses },
+        auditsCache: { ...state.auditsCache, [searchQuery]: fetchedAudits },
+        isLoading: false,
+        isBackgroundSyncing: false
+      }))
+    } catch (err) {
+      console.error('Error fetching activity log data:', err)
+      set({ isLoading: false, isBackgroundSyncing: false })
+    }
+  }
 }))
+
 

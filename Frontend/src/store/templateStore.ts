@@ -1,13 +1,18 @@
-// src/store/templateStore.ts
 import { create } from 'zustand'
 import { templateService } from '../services/templates/templateService'
-import type { Template } from '../types/templates'
+import type { Template, TemplateLanguage, TemplateCategory, TemplateStatus, TemplateType } from '../types/templates'
 
 interface TemplateStoreState {
   templates: Template[]
   isLoading: boolean
   isRefreshing: boolean
   searchQuery: string
+  
+  // Cache for dropdowns
+  languages: TemplateLanguage[] | null
+  categories: TemplateCategory[] | null
+  statuses: TemplateStatus[] | null
+  types: TemplateType[] | null
   
   // Specific filters matching Screenshot 1
   nameOperator: 'contains' | 'equals' | string
@@ -36,13 +41,19 @@ interface TemplateStoreState {
   
   loadTemplates: () => Promise<void>
   refreshTemplates: () => Promise<void>
+  loadFilterOptions: () => Promise<void>
 }
 
-export const useTemplateStore = create<TemplateStoreState>((set) => ({
+export const useTemplateStore = create<TemplateStoreState>((set, get) => ({
   templates: [],
   isLoading: false,
   isRefreshing: false,
   searchQuery: '',
+  
+  languages: null,
+  categories: null,
+  statuses: null,
+  types: null,
   
   nameOperator: 'contains',
   nameQuery: '',
@@ -69,13 +80,15 @@ export const useTemplateStore = create<TemplateStoreState>((set) => ({
   setSort: (sortColumn, sortOrder) => set({ sortColumn, sortOrder }),
   
   loadTemplates: async () => {
-    set({ isLoading: true })
+    const hasCache = get().templates.length > 0
+    if (!hasCache) {
+      set({ isLoading: true })
+    }
     try {
       const fetched = await templateService.getTemplates()
-      set({ templates: fetched })
+      set({ templates: fetched, isLoading: false })
     } catch (err) {
       console.error('Error loading templates:', err)
-    } finally {
       set({ isLoading: false })
     }
   },
@@ -84,11 +97,32 @@ export const useTemplateStore = create<TemplateStoreState>((set) => ({
     set({ isRefreshing: true })
     try {
       const fetched = await templateService.refreshTemplates()
-      set({ templates: fetched, currentPage: 1 })
+      set({ templates: fetched, currentPage: 1, isRefreshing: false })
     } catch (err) {
       console.error('Error refreshing templates:', err)
-    } finally {
       set({ isRefreshing: false })
+    }
+  },
+
+  loadFilterOptions: async () => {
+    const { languages, categories, statuses, types } = get()
+    if (languages && categories && statuses && types) return // already cached!
+
+    try {
+      const [lang, cat, stat, typ] = await Promise.all([
+        templateService.getTemplateLanguages(),
+        templateService.getTemplateCategories(),
+        templateService.getTemplateStatuses(),
+        templateService.getTemplateTypes()
+      ])
+      set({
+        languages: lang,
+        categories: cat,
+        statuses: stat,
+        types: typ
+      })
+    } catch (err) {
+      console.error('Error loading template filter options:', err)
     }
   }
 }))

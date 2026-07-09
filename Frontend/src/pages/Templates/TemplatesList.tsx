@@ -1,16 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { useTemplateStore } from '../../store/templateStore'
-import { templateService } from '../../services/templates/templateService'
 import { StatusBadge } from '../../components/StatusBadge/StatusBadge'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
 import toast from 'react-hot-toast'
-import type { 
-  TemplateLanguage, 
-  TemplateCategory, 
-  TemplateStatus, 
-  TemplateType
-} from '../../types/templates'
+import { Skeleton } from '../../components/Skeleton'
 import { 
   Download, 
   Settings, 
@@ -38,6 +32,11 @@ export const TemplatesList: React.FC = () => {
     currentPage,
     pageSize,
     
+    languages,
+    categories,
+    statuses,
+    types,
+    
     setSearchQuery,
     setNameOperator,
     setNameQuery,
@@ -50,14 +49,9 @@ export const TemplatesList: React.FC = () => {
     setPageSize,
     
     loadTemplates,
-    refreshTemplates
+    refreshTemplates,
+    loadFilterOptions
   } = useTemplateStore()
-
-  // Options states
-  const [languages, setLanguages] = useState<TemplateLanguage[]>([])
-  const [categories, setCategories] = useState<TemplateCategory[]>([])
-  const [statuses, setStatuses] = useState<TemplateStatus[]>([])
-  const [types, setTypes] = useState<TemplateType[]>([])
 
   // UI state for showing/hiding filters and columns
   const [showFilters, setShowFilters] = useState(true)
@@ -73,25 +67,7 @@ export const TemplatesList: React.FC = () => {
 
   useEffect(() => {
     loadTemplates()
-    
-    const fetchOptions = async () => {
-      try {
-        const [lang, cat, stat, typ] = await Promise.all([
-          templateService.getTemplateLanguages(),
-          templateService.getTemplateCategories(),
-          templateService.getTemplateStatuses(),
-          templateService.getTemplateTypes()
-        ])
-        setLanguages(lang)
-        setCategories(cat)
-        setStatuses(stat)
-        setTypes(typ)
-      } catch (err) {
-        console.error('Error fetching template filter options:', err)
-      }
-    }
-
-    fetchOptions()
+    loadFilterOptions()
   }, [])
 
   // Filter templates locally based on ALL selected filters
@@ -275,8 +251,9 @@ export const TemplatesList: React.FC = () => {
                 value={languageFilter}
                 onChange={(e) => setLanguageFilter(e.target.value)}
               >
+                {languageFilter !== 'All' && <option value="All">All</option>}
                 <option value="All">All</option>
-                {languages.map(l => (
+                {(languages || []).map(l => (
                   <option key={l.code} value={l.code}>{l.name}</option>
                 ))}
               </select>
@@ -291,7 +268,7 @@ export const TemplatesList: React.FC = () => {
                 onChange={(e) => setCategoryFilter(e.target.value)}
               >
                 <option value="All">All</option>
-                {categories.map(c => (
+                {(categories || []).map(c => (
                   <option key={c.id} value={c.name}>{c.name}</option>
                 ))}
               </select>
@@ -306,7 +283,7 @@ export const TemplatesList: React.FC = () => {
                 onChange={(e) => setTypeFilter(e.target.value)}
               >
                 <option value="All">All</option>
-                {types.map(t => (
+                {(types || []).map(t => (
                   <option key={t.id} value={t.name}>{t.name}</option>
                 ))}
               </select>
@@ -321,7 +298,7 @@ export const TemplatesList: React.FC = () => {
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
                 <option value="All">All</option>
-                {statuses.map(s => (
+                {(statuses || []).map(s => (
                   <option key={s.id} value={s.name}>{s.name}</option>
                 ))}
               </select>
@@ -331,12 +308,8 @@ export const TemplatesList: React.FC = () => {
 
         {/* Dynamic Responsiveness Table */}
         <div className="data-table-wrapper">
-          {isLoadingOrRefreshing ? (
-            <div className="page-loader">
-              <p className="page-loader-text">
-                {isRefreshing ? 'Synchronizing templates from Facebook...' : 'Loading templates list...'}
-              </p>
-            </div>
+          {isLoadingOrRefreshing || !languages || !categories || !statuses || !types ? (
+            <Skeleton variant="table" />
           ) : paginatedTemplates.length === 0 ? (
             <div className="data-table-empty">
               <p>No message templates found matching criteria.</p>

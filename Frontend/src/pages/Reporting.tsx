@@ -1,57 +1,33 @@
-import React, { useEffect, useState } from 'react'
-import { useFilterStore } from '../store/zustand'
-import { reportingService } from '../services/reportingService'
+import React, { useEffect } from 'react'
+import { useReportingStore } from '../store/zustand'
 import { MetricCard } from '../components/MetricCard/MetricCard'
 import { DataTable } from '../components/DataTable/DataTable'
 import { StatusBadge } from '../components/StatusBadge/StatusBadge'
 import { FilterBar } from '../components/FilterBar/FilterBar'
 import { ExportList } from '../components/ExportList/ExportList'
-import type { MetricCardModel, AccuracyRecord, FreshnessRecord, ExportItemModel } from '../types/reporting'
+import type { AccuracyRecord, FreshnessRecord } from '../types/reporting'
 import { Check } from 'lucide-react'
+import { Skeleton } from '../components/Skeleton'
 import './Reporting.css'
 
 export const Reporting: React.FC = () => {
-  const { reportingTimeFilter, setReportingTimeFilter } = useFilterStore()
-  
-  const [metrics, setMetrics] = useState<MetricCardModel[]>([])
-  const [accuracyRecords, setAccuracyRecords] = useState<AccuracyRecord[]>([])
-  const [freshnessRecords, setFreshnessRecords] = useState<FreshnessRecord[]>([])
-  const [exportItems, setExportItems] = useState<ExportItemModel[]>([])
-  const [features, setFeatures] = useState<string[]>([])
-  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const {
+    reportingTimeFilter,
+    setReportingTimeFilter,
+    metricsCache,
+    accuracyRecords,
+    freshnessRecords,
+    exportItems,
+    features,
+    isLoading,
+    loadReportingData
+  } = useReportingStore()
 
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true)
-      try {
-        const [
-          fetchedMetrics,
-          fetchedAccuracy,
-          fetchedFreshness,
-          fetchedExports,
-          fetchedFeatures
-        ] = await Promise.all([
-          reportingService.getReportingMetrics(reportingTimeFilter),
-          reportingService.getAccuracyRecords(),
-          reportingService.getFreshnessRecords(),
-          reportingService.getExportItems(),
-          reportingService.getCustomisationFeatures()
-        ])
+    loadReportingData()
+  }, [])
 
-        setMetrics(fetchedMetrics)
-        setAccuracyRecords(fetchedAccuracy)
-        setFreshnessRecords(fetchedFreshness)
-        setExportItems(fetchedExports)
-        setFeatures(fetchedFeatures)
-      } catch (err) {
-        console.error('Error fetching reporting logs data:', err)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    fetchData()
-  }, [reportingTimeFilter])
+  const metrics = metricsCache[reportingTimeFilter] || []
 
   // Table Headers
   const accuracyHeaders = [
@@ -82,10 +58,24 @@ export const Reporting: React.FC = () => {
     return row[key as keyof FreshnessRecord]
   }
 
-  if (isLoading) {
+  const showSkeleton = isLoading && (!metrics.length || !accuracyRecords || !freshnessRecords || !exportItems || !features)
+
+  if (showSkeleton) {
     return (
-      <div className="fade-in page-loader">
-        <p className="page-loader-text">Loading system metrics...</p>
+      <div className="fade-in">
+        <div className="reporting-header" style={{ marginBottom: 24 }}>
+          <div className="reporting-title-area">
+            <Skeleton variant="title" width={300} height={32} />
+            <Skeleton variant="text" width={500} style={{ marginTop: 8 }} />
+          </div>
+        </div>
+        <div className="stat-cards-grid" style={{ marginBottom: 24 }}>
+          <Skeleton variant="stat-card" count={4} />
+        </div>
+        <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <Skeleton variant="table" />
+          <Skeleton variant="table" />
+        </div>
       </div>
     )
   }
@@ -120,7 +110,7 @@ export const Reporting: React.FC = () => {
         </div>
         <DataTable
           headers={accuracyHeaders}
-          rows={accuracyRecords}
+          rows={accuracyRecords || []}
           renderCell={renderAccuracyCell}
         />
       </div>
@@ -133,7 +123,7 @@ export const Reporting: React.FC = () => {
         </div>
         <DataTable
           headers={freshnessHeaders}
-          rows={freshnessRecords}
+          rows={freshnessRecords || []}
           renderCell={renderFreshnessCell}
         />
       </div>
@@ -147,7 +137,7 @@ export const Reporting: React.FC = () => {
             <p className="reporting-section-subtitle">Flexible reporting options available in the system.</p>
           </div>
           <ul className="customisation-feature-list">
-            {features.map((feature, idx) => (
+            {(features || []).map((feature, idx) => (
               <li key={idx} className="customisation-feature-item">
                 <Check className="customisation-feature-check-icon" size={14} strokeWidth={3} />
                 <span>{feature}</span>
@@ -162,7 +152,7 @@ export const Reporting: React.FC = () => {
             <h2 className="reporting-section-title">Export Functionality</h2>
             <p className="reporting-section-subtitle">Download report data as CSV files.</p>
           </div>
-          <ExportList items={exportItems} />
+          <ExportList items={exportItems || []} />
         </div>
       </div>
     </div>

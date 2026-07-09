@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { useFilterStore, useActivityLogStore } from '../store/zustand'
-import { activityLogService } from '../services/activityLogService'
+import React, { useEffect } from 'react'
+import { useActivityLogStore } from '../store/zustand'
 import { MetricCard } from '../components/MetricCard/MetricCard'
 import { DataTable } from '../components/DataTable/DataTable'
 import { StatusBadge } from '../components/StatusBadge/StatusBadge'
@@ -11,45 +10,31 @@ import type { TabItem } from '../components/Tabs/Tabs'
 import { EmptyState } from '../components/EmptyState/EmptyState'
 import type { LoginSuccessModel, AuditLogModel } from '../types/reporting'
 import { Shield } from 'lucide-react'
+import { Skeleton } from '../components/Skeleton'
 import './ActivityLogs.css'
 
 export const ActivityLogs: React.FC = () => {
-  const { activityTimeFilter, setActivityTimeFilter } = useFilterStore()
-  const { activeTab, setActiveTab, searchQuery, setSearchQuery } = useActivityLogStore()
-
-  const [metrics, setMetrics] = useState<any[]>([])
-  const [successes, setSuccesses] = useState<LoginSuccessModel[]>([])
-  const [audits, setAudits] = useState<AuditLogModel[]>([])
-  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const {
+    activeTab,
+    setActiveTab,
+    searchQuery,
+    setSearchQuery,
+    activityTimeFilter,
+    setActivityTimeFilter,
+    metricsCache,
+    successesCache,
+    auditsCache,
+    isLoading,
+    loadActivityData
+  } = useActivityLogStore()
 
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true)
-      try {
-        const [
-          fetchedMetrics,
-          fetchedSuccesses,
-          , // skipped unused fetchedErrors
-          fetchedAudits
-        ] = await Promise.all([
-          activityLogService.getActivityMetrics(activityTimeFilter),
-          activityLogService.getLoginSuccesses(searchQuery),
-          activityLogService.getLoginErrors(searchQuery),
-          activityLogService.getAuditLogs(searchQuery)
-        ])
+    loadActivityData()
+  }, [])
 
-        setMetrics(fetchedMetrics)
-        setSuccesses(fetchedSuccesses)
-        setAudits(fetchedAudits)
-      } catch (err) {
-        console.error('Error fetching activity log data:', err)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    fetchData()
-  }, [activityTimeFilter, searchQuery])
+  const metrics = metricsCache[activityTimeFilter] || []
+  const successes = successesCache[searchQuery] || []
+  const audits = auditsCache[searchQuery] || []
 
   // Tabs structure
   const tabsList: TabItem[] = [
@@ -97,8 +82,19 @@ export const ActivityLogs: React.FC = () => {
 
   if (isLoading && metrics.length === 0) {
     return (
-      <div className="fade-in page-loader">
-        <p className="page-loader-text">Loading activity logs...</p>
+      <div className="fade-in">
+        <div className="activity-header" style={{ marginBottom: 24 }}>
+          <div className="activity-title-area">
+            <Skeleton variant="title" width={300} height={32} />
+            <Skeleton variant="text" width={500} style={{ marginTop: 8 }} />
+          </div>
+        </div>
+        <div className="stat-cards-grid margin-bottom-24" style={{ marginBottom: 24 }}>
+          <Skeleton variant="stat-card" count={4} />
+        </div>
+        <div className="activity-section-card">
+          <Skeleton variant="table" />
+        </div>
       </div>
     )
   }

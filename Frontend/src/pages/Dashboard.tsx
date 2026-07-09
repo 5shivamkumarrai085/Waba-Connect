@@ -1,70 +1,57 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { StatCard } from '../components/StatCard'
 import { ChartCard } from '../components/ChartCard'
 import { TrendCard } from '../components/TrendCard'
 import { TableCard } from '../components/TableCard'
 import { MessageSquare, Users, Megaphone, FileText, Plus } from 'lucide-react'
-import { dashboardService } from '../services/dashboard/dashboardService'
-import { templateService } from '../services/templates/templateService'
+import { useDashboardStore } from '../store/dashboardStore'
+import { Skeleton } from '../components/Skeleton'
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
-  const [summary, setSummary] = useState<any>(null)
-  const [metrics, setMetrics] = useState({
-    messages: { total: 0, today: 0 },
-    contacts: { total: 0, active: 0 },
-    campaigns: { total: 0, active: 0 },
-    templates: { total: 0, approved: 0 }
-  })
+  const { summary, metrics, isLoading, loadDashboardData } = useDashboardStore()
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        setLoading(true)
-        const summaryRes = await dashboardService.getSummary()
-        const templatesRes = await templateService.getTemplates()
-
-        const sum = summaryRes?.data || {}
-        setSummary(sum)
-        const templates = templatesRes || []
-        
-        const approvedTemplates = templates.filter((t: any) => t.status === 'APPROVED').length
-
-        setMetrics({
-          messages: {
-            total: sum.messagesSent || 0,
-            today: sum.hourlyChartData ? sum.hourlyChartData.reduce((acc: number, val: any) => acc + (val.sent || 0), 0) : 0
-          },
-          contacts: {
-            total: sum.totalContacts || 0,
-            active: sum.totalContacts || 0 
-          },
-          campaigns: {
-            total: sum.totalCampaigns || 0,
-            active: (sum.recentCampaigns || []).filter((c: any) => c.status === 'Running' || c.status === 'Scheduled' || c.status === 'Sending').length || 0
-          },
-          templates: {
-            total: templates.length || 0,
-            approved: approvedTemplates
-          }
-        })
-      } catch (e) {
-        console.error("Failed to load dashboard data", e)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchDashboardData()
+    loadDashboardData()
   }, [])
 
   const handleNewCampaignClick = () => {
     navigate('/campaigns/campaign')
   }
 
-  if (loading) {
-    return <div className="fade-in page-loader"><p className="page-loader-text">Loading Dashboard...</p></div>
+  if (isLoading) {
+    return (
+      <div className="fade-in">
+        {/* Welcome Banner Skeleton */}
+        <div className="dashboard-welcome" style={{ marginBottom: 24 }}>
+          <div className="dashboard-welcome-left">
+            <Skeleton variant="title" width={280} height={32} />
+            <Skeleton variant="text" width={400} style={{ marginTop: 8 }} />
+          </div>
+        </div>
+
+        {/* Statistical Cards Grid Skeleton */}
+        <div className="stat-cards-grid">
+          <Skeleton variant="stat-card" count={4} />
+        </div>
+
+        {/* Main Hourly Chart Skeleton */}
+        <Skeleton variant="chart" />
+
+        {/* Trends Sub-charts Skeleton */}
+        <div className="dashboard-trends-grid">
+          <Skeleton variant="chart" style={{ height: 260 }} />
+          <Skeleton variant="chart" style={{ height: 260 }} />
+        </div>
+
+        {/* Campaign Statistics Tables Skeleton */}
+        <div className="dashboard-tables-grid">
+          <Skeleton variant="table" style={{ height: 380 }} />
+          <Skeleton variant="table" style={{ height: 380 }} />
+        </div>
+      </div>
+    )
   }
 
   return (

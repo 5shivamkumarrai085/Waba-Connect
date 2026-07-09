@@ -99,13 +99,15 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
   resetWizard: () => set({ wizardForm: initialWizardForm, activeStep: 0 }),
   
   loadCampaigns: async () => {
-    set({ isLoading: true })
+    const hasCache = get().campaigns.length > 0
+    if (!hasCache) {
+      set({ isLoading: true })
+    }
     try {
       const fetched = await campaignService.getCampaigns()
-      set({ campaigns: fetched })
+      set({ campaigns: fetched, isLoading: false })
     } catch (err) {
       console.error('Error loading campaigns:', err)
-    } finally {
       set({ isLoading: false })
     }
   },

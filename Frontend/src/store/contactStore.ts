@@ -108,13 +108,15 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
   setSort: (sortColumn, sortOrder) => set({ sortColumn, sortOrder }),
   
   loadContacts: async () => {
-    set({ isLoading: true })
+    const hasCache = get().contacts.length > 0
+    if (!hasCache) {
+      set({ isLoading: true })
+    }
     try {
       const fetched = await contactService.getContacts()
-      set({ contacts: fetched })
+      set({ contacts: fetched, isLoading: false })
     } catch (err) {
       console.error('Error loading contacts:', err)
-    } finally {
       set({ isLoading: false })
     }
   },

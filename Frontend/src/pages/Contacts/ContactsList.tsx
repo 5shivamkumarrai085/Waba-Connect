@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
+import { Skeleton } from '../../components/Skeleton'
 import './ContactsList.css'
 
 export const ContactsList: React.FC = () => {
@@ -217,9 +218,7 @@ export const ContactsList: React.FC = () => {
         {/* Dynamic Responsiveness Table */}
         <div className="data-table-wrapper">
           {isLoading ? (
-            <div className="page-loader">
-              <p className="page-loader-text">Loading contacts list...</p>
-            </div>
+            <Skeleton variant="table" />
           ) : paginatedContacts.length === 0 ? (
             <div className="data-table-empty">
               <p>No contacts found matching criteria.</p>

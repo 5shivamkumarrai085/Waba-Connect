@@ -5,6 +5,7 @@ import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
 import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { Skeleton } from '../../components/Skeleton'
 import './CampaignsList.css'
 
 export const CampaignsList: React.FC = () => {
@@ -216,9 +217,7 @@ export const CampaignsList: React.FC = () => {
         {/* Datatable rows */}
         <div className="data-table-wrapper">
           {isLoading ? (
-            <div className="page-loader">
-              <p className="page-loader-text">Loading campaigns list...</p>
-            </div>
+            <Skeleton variant="table" />
           ) : paginatedCampaigns.length === 0 ? (
             <div className="data-table-empty">
               <p>No campaigns found matching criteria.</p>

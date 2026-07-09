@@ -1,5 +1,5 @@
-import React from 'react'
-import { NavLink } from 'react-router-dom'
+import React, { useEffect } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 import { useSidebarStore } from '../store/zustand'
 import {
   LayoutDashboard,
@@ -18,7 +18,9 @@ import {
   Sliders,
   Cpu,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Menu,
+  X
 } from 'lucide-react'
 
 interface MenuItem {
@@ -33,7 +35,50 @@ interface MenuSection {
 }
 
 export const Sidebar: React.FC = () => {
-  const { isCollapsed, toggleSidebar } = useSidebarStore()
+  const { isCollapsed, toggleSidebar, setCollapsed } = useSidebarStore()
+  const location = useLocation()
+
+  // Auto-close sidebar on route change on mobile/tablet
+  useEffect(() => {
+    if (window.innerWidth < 1200) {
+      setCollapsed(true)
+    }
+  }, [location.pathname])
+
+  // Prevent scroll when sidebar is open on mobile/tablet
+  useEffect(() => {
+    const handleBodyScroll = () => {
+      const isMobile = window.innerWidth < 1200
+      if (isMobile && !isCollapsed) {
+        document.body.classList.add('sidebar-open')
+      } else {
+        document.body.classList.remove('sidebar-open')
+      }
+    }
+    handleBodyScroll()
+    window.addEventListener('resize', handleBodyScroll)
+    return () => {
+      document.body.classList.remove('sidebar-open')
+      window.removeEventListener('resize', handleBodyScroll)
+    }
+  }, [isCollapsed])
+
+  const handlePrefetch = (path: string) => {
+    const loadFns: Record<string, () => Promise<any>> = {
+      '/': () => import('../pages/Dashboard'),
+      '/campaigns/campaign': () => import('../pages/Campaigns/CampaignsList'),
+      '/reporting': () => import('../pages/Reporting'),
+      '/activity-logs': () => import('../pages/ActivityLogs'),
+      '/connect-waba': () => import('../pages/ConnectWABA/ConnectWABA'),
+      '/contacts': () => import('../pages/Contacts/ContactsList'),
+      '/templates': () => import('../pages/Templates/TemplatesList'),
+      '/bulk-campaigns': () => import('../pages/BulkCampaign/BulkCampaign'),
+      '/chat': () => import('../pages/Chat/Chat')
+    }
+    if (loadFns[path]) {
+      loadFns[path]().catch(() => {})
+    }
+  }
 
   const menuSections: MenuSection[] = [
     {
@@ -83,43 +128,62 @@ export const Sidebar: React.FC = () => {
   ]
 
   return (
-    <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
-      <div className="sidebar-header">
-        {!isCollapsed && (
-          <div className="sidebar-logo">
-            <img src="/rma.png" alt="RMA Logo" className="sidebar-logo-img" />
-          </div>
-        )}
-        <button 
-          className="sidebar-toggle-btn" 
-          onClick={toggleSidebar}
-          aria-label={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-        >
-          {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-        </button>
-      </div>
+    <>
+      {/* Floating hamburger button for tablet/mobile */}
+      <button 
+        className="sidebar-hamburger" 
+        onClick={toggleSidebar}
+        aria-label="Toggle Navigation Menu"
+      >
+        {isCollapsed ? <Menu size={20} /> : <X size={20} />}
+      </button>
 
-      <div className="sidebar-content">
-        {menuSections.map((section, idx) => (
-          <div key={idx} className="sidebar-section">
-            {section.title && !isCollapsed && (
-              <h3 className="sidebar-section-title">{section.title}</h3>
-            )}
-            {section.items.map((item) => (
-              <NavLink
-                key={item.name}
-                to={item.path}
-                className={({ isActive }) => 
-                  `sidebar-menu-item ${isActive ? 'active' : ''}`
-                }
-              >
-                <item.icon className="sidebar-menu-icon" size={18} />
-                <span className="sidebar-menu-label">{item.name}</span>
-              </NavLink>
-            ))}
-          </div>
-        ))}
-      </div>
-    </aside>
+      {/* Backdrop overlay for tablet/mobile */}
+      {!isCollapsed && (
+        <div className="sidebar-backdrop" onClick={() => setCollapsed(true)} />
+      )}
+
+      <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
+        <div className="sidebar-header">
+          {!isCollapsed && (
+            <div className="sidebar-logo">
+              <img src="/rma.png" alt="RMA Logo" className="sidebar-logo-img" />
+            </div>
+          )}
+          <button 
+            className="sidebar-toggle-btn" 
+            onClick={toggleSidebar}
+            aria-label={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+          >
+            {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          </button>
+        </div>
+
+        <div className="sidebar-content">
+          {menuSections.map((section, idx) => (
+            <div key={idx} className="sidebar-section">
+              {section.title && !isCollapsed && (
+                <h3 className="sidebar-section-title">{section.title}</h3>
+              )}
+              {section.items.map((item) => (
+                <NavLink
+                  key={item.name}
+                  to={item.path}
+                  className={({ isActive }) => 
+                    `sidebar-menu-item ${isActive ? 'active' : ''}`
+                  }
+                  onMouseEnter={() => handlePrefetch(item.path)}
+                  onFocus={() => handlePrefetch(item.path)}
+                >
+                  <item.icon className="sidebar-menu-icon" size={18} />
+                  <span className="sidebar-menu-label">{item.name}</span>
+                </NavLink>
+              ))}
+            </div>
+          ))}
+        </div>
+      </aside>
+    </>
   )
 }
+export default Sidebar

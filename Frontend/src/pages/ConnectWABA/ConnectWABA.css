@@ -1,0 +1,368 @@
+/* ConnectWABA.css */
+
+.waba-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 16px;
+}
+
+.waba-page-title h1 {
+  font-family: var(--font-title);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.waba-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Header action buttons in connected state */
+.btn-top-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.btn-top-action:hover {
+  background-color: var(--border-light);
+  color: var(--primary);
+}
+
+.btn-qr-code {
+  background-color: #3b82f6;
+  color: #ffffff;
+  border: none;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-qr-code:hover {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
+.btn-disconnect {
+  background-color: #ef4444;
+  color: #ffffff;
+  border: none;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-disconnect:hover {
+  background-color: #dc2626;
+  color: #ffffff;
+}
+
+/* Two-column structural grid */
+.waba-layout-grid {
+  display: grid;
+  grid-template-columns: 1.7fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 992px) {
+  .waba-layout-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Card panels */
+.waba-setup-card {
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+  margin-bottom: 24px;
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+.waba-setup-title {
+  font-family: var(--font-title);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 8px;
+}
+
+/* Connected content structures */
+.waba-card-icon-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.waba-card-icon-box {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background-color: #eff6ff; /* light blue */
+  color: #3b82f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.waba-card-icon-box.green-theme {
+  background-color: #ecfdf5;
+  color: #10b981;
+}
+
+.waba-card-icon-box.purple-theme {
+  background-color: #faf5ff;
+  color: #a855f7;
+}
+
+.waba-card-title {
+  font-family: var(--font-title);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+/* Forms input spacing */
+.waba-input-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.waba-input-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 6px; /* Added base label spacing */
+}
+
+.form-group-no-margin {
+  margin-bottom: 0 !important;
+}
+
+.margin-bottom-2 {
+  margin-bottom: 2px !important;
+}
+
+.waba-help-link {
+  color: #ef4444;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+}
+
+.waba-help-link:hover {
+  text-decoration: underline;
+}
+
+.waba-input-with-button {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.waba-input-with-button input {
+  flex-grow: 1;
+}
+
+.btn-debug-token {
+  font-family: var(--font-family);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  background-color: #e2e8f0;
+  border: 1px solid var(--border-color);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-debug-token:hover {
+  background-color: #cbd5e1;
+}
+
+.waba-card-footer {
+  border-top: 1px solid var(--border-light);
+  padding-top: 16px;
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-waba-action {
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  background-color: #10b981;
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-waba-action:hover {
+  background-color: #059669;
+}
+
+.btn-waba-action:disabled {
+  background-color: var(--border-light);
+  color: var(--text-light);
+  cursor: not-allowed;
+}
+
+/* Connected Scope Badges */
+.waba-scopes-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.waba-scope-badge {
+  font-size: 11px;
+  font-weight: 600;
+  background-color: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.waba-date-text {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-top: 6px;
+}
+
+/* Requirement Sidebar styling */
+.waba-requirements-card {
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.waba-requirements-title {
+  font-family: var(--font-title);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 16px;
+}
+
+.waba-requirements-intro {
+  font-size: 13px;
+  color: var(--text-main);
+  line-height: 1.5;
+  margin-bottom: 20px;
+  padding-left: 12px;
+  border-left: 3px solid var(--primary);
+}
+
+.waba-requirements-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.waba-requirement-item {
+  display: flex;
+  gap: 12px;
+}
+
+.waba-requirement-step-circle {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: var(--primary-light);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.waba-requirement-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.waba-requirement-title-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.waba-requirement-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.purple-btn-webhook-verify {
+  width: 100%;
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  background-color: #a855f7;
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.purple-btn-webhook-verify:hover {
+  background-color: #9333ea;
+}

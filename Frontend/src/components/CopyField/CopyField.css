@@ -1,0 +1,58 @@
+/* CopyField.css */
+
+.copy-field-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.copy-field-input-wrapper {
+  position: relative;
+  flex-grow: 1;
+}
+
+.copy-field-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-family: var(--font-family);
+  font-size: 13px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background-color: #f8fafc;
+  color: var(--text-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.copy-field-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
+  outline: none;
+}
+
+.copy-field-btn {
+  font-family: var(--font-family);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  white-space: nowrap;
+}
+
+.copy-field-btn:hover {
+  background-color: var(--border-light);
+  border-color: var(--text-light);
+}
+
+.copy-field-btn.copied {
+  background-color: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}

@@ -1,0 +1,91 @@
+/* TemplatesList.css */
+
+.templates-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.templates-card {
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+}
+
+/* 5 Column filter grid layout */
+.templates-filter-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+  background-color: #fafbfc;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  align-items: end;
+}
+
+@media (max-width: 992px) {
+  .templates-filter-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 576px) {
+  .templates-filter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.filter-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-transform: capitalize;
+}
+
+.template-name-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.template-name-select-operator {
+  width: 100px;
+  flex-shrink: 0;
+}
+
+/* Custom Table Badges */
+.status-badge.approved {
+  background-color: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.status-badge.rejected {
+  background-color: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+
+.status-badge.pending {
+  background-color: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
+.body-data-cell {
+  white-space: normal !important;
+  max-width: 450px;
+  line-height: 1.5;
+  color: var(--text-main);
+  font-size: 12px;
+}

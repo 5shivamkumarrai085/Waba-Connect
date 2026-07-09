@@ -1,0 +1,65 @@
+/* BulkCampaign.css */
+
+.bulk-campaign-container {
+  max-width: 600px;
+  margin: 0 auto 24px auto;
+}
+
+.bulk-campaign-title {
+  font-family: var(--font-title);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 24px;
+}
+
+.bulk-card-wrapper {
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.bulk-card-body {
+  padding: 24px;
+}
+
+.bulk-card-title {
+  font-family: var(--font-title);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 8px;
+}
+
+.bulk-upload-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.btn-bulk-upload {
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  background-color: var(--primary);
+  border: none;
+  padding: 10px 24px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.btn-bulk-upload:hover {
+  background-color: var(--primary-dark);
+}
+
+.btn-bulk-upload:disabled {
+  background-color: var(--border-light);
+  color: var(--text-light);
+  cursor: not-allowed;
+}

@@ -1,0 +1,71 @@
+/* InfoCard.css */
+
+.info-card {
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 20px;
+  transition: var(--transition-fast);
+}
+
+.info-card.theme-blue {
+  background-color: #f0f9ff;
+  border-color: #bae6fd;
+  color: #0369a1;
+}
+
+.info-card.theme-orange {
+  background-color: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+.info-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.info-card-title {
+  font-family: var(--font-title);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.info-card.theme-blue .info-card-title {
+  color: #0369a1;
+}
+
+.info-card.theme-orange .info-card-title {
+  color: #b45309;
+}
+
+.info-card-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.info-card.theme-blue .info-card-body {
+  color: #0c4a6e;
+}
+
+.info-card.theme-orange .info-card-body {
+  color: #78350f;
+}
+
+.info-card-link {
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.info-card-link:hover {
+  color: var(--primary-dark);
+}

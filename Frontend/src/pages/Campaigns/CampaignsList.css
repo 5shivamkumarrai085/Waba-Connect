@@ -1,0 +1,107 @@
+/* CampaignsList.css */
+
+.campaigns-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.campaigns-card {
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+}
+
+.campaigns-filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+  background-color: #fafbfc;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  align-items: end;
+}
+
+@media (max-width: 768px) {
+  .campaigns-filter-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Campaign Name hover actions styling */
+.campaign-name-cell {
+  display: flex;
+  flex-direction: column;
+  min-height: 42px;
+  justify-content: center;
+}
+
+.campaign-title-text {
+  font-weight: 600;
+  color: var(--primary);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.campaign-hover-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.campaign-name-cell:hover .campaign-hover-actions {
+  opacity: 1;
+  visibility: visible;
+}
+
+.campaign-action-btn {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 500;
+  transition: var(--transition-fast);
+}
+
+.campaign-action-btn:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.action-divider {
+  color: var(--border-color);
+  user-select: none;
+}
+
+/* Specific table columns alignments */
+.relation-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+}
+
+.relation-badge.lead {
+  background-color: #e0f2fe; /* blue */
+  color: #0369a1;
+}
+
+.relation-badge.customer {
+  background-color: #dcfce7; /* green */
+  color: #15803d;
+}
+
+.relation-badge.csv {
+  background-color: #fef3c7; /* yellow */
+  color: #b45309;
+}

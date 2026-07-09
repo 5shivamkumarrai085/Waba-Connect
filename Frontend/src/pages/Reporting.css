@@ -1,0 +1,87 @@
+/* Reporting.css */
+
+.reporting-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.reporting-title-area h1 {
+  font-family: var(--font-title);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.reporting-title-area p {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.reporting-section-card {
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.reporting-section-header {
+  margin-bottom: 16px;
+}
+
+.reporting-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--font-title);
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.reporting-section-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* 2-Column bottom section layout */
+.reporting-bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 992px) {
+  .reporting-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.customisation-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.customisation-feature-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.customisation-feature-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+.customisation-feature-check-icon {
+  color: var(--success);
+  flex-shrink: 0;
+}

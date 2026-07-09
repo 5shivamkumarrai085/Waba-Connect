@@ -1,0 +1,63 @@
+/* Stepper.css */
+
+.stepper-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 24px;
+  width: 100%;
+}
+
+.stepper-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-grow: 1;
+  padding: 10px 16px;
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: var(--transition-fast);
+  padding-bottom: 10px;
+}
+
+.stepper-step::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: transparent;
+  transition: var(--transition-fast);
+}
+
+.stepper-step:hover {
+  color: var(--primary);
+}
+
+.stepper-step.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.stepper-step.active::after {
+  background-color: var(--primary);
+}
+
+/* Remove completed green styling to match original screenshots exactly */
+.stepper-step.completed {
+  color: var(--text-muted);
+}
+.stepper-step.completed::after {
+  background-color: transparent;
+}
+.stepper-step.completed:hover {
+  color: var(--primary);
+}

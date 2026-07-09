@@ -1,0 +1,287 @@
+/* CampaignWizard.css */
+
+.wizard-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.wizard-title {
+  font-family: var(--font-title);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.wizard-badges-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wizard-badge {
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.wizard-badge.purple {
+  border: 1px solid #c084fc;
+  color: #7e22ce;
+  background-color: #faf5ff;
+}
+
+.wizard-badge.yellow {
+  border: 1px solid #fbbf24;
+  color: #b45309;
+  background-color: #fffbeb;
+}
+
+.wizard-badge.green {
+  border: 1px solid #34d399;
+  color: #047857;
+  background-color: #f0fdf4;
+}
+
+/* Two columns grid for form vs preview */
+.wizard-columns-container {
+  display: grid;
+  grid-template-columns: 1.8fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 992px) {
+  .wizard-columns-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.wizard-form-card {
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.wizard-body {
+  padding: 24px;
+}
+
+.wizard-live-preview-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 12px;
+}
+
+/* Scheduling checkcards */
+.scheduling-cards-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+@media (max-width: 576px) {
+  .scheduling-cards-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.scheduling-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  cursor: pointer;
+  display: flex;
+  gap: 16px;
+  transition: var(--transition-fast);
+  background-color: var(--bg-secondary);
+}
+
+.scheduling-card:hover {
+  border-color: var(--primary-light);
+}
+
+.scheduling-card.active.green {
+  border-color: #10b981;
+  background-color: #f0fdf4;
+}
+
+.scheduling-card.active.blue {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+}
+
+.scheduling-card-radio {
+  margin-top: 4px;
+}
+
+.scheduling-card-content {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+}
+
+.scheduling-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.scheduling-card-subtext {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.scheduling-card-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+}
+
+.scheduling-card-badge.green {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.scheduling-card-badge.blue {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+/* Contact selection layout */
+.contacts-count-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.contacts-count-val {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--primary);
+  display: block;
+}
+
+.contacts-filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+
+.contacts-selection-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  background-color: #fafbfc;
+}
+
+.wizard-label-spacer {
+  margin-left: 12px;
+}
+
+.margin-zero {
+  margin: 0 !important;
+}
+
+/* Bottom Navigation Footer Styles */
+.wizard-right-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  justify-content: space-between;
+}
+
+.campaign-wizard-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-top: 32px;
+  padding: 0;
+  background-color: transparent;
+}
+
+.campaign-wizard-right-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.btn-wizard-nav {
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 600;
+  height: 38px;
+  width: 100px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+}
+
+/* Previous Button style */
+.btn-wizard-prev {
+  background-color: #eef2ff; /* var(--primary-light) */
+  color: #5a52e5; /* var(--primary) */
+}
+
+.btn-wizard-prev:hover:not(:disabled) {
+  background-color: #e0e7ff;
+}
+
+.btn-wizard-prev:active:not(:disabled) {
+  background-color: #c7d2fe;
+}
+
+/* Next and Save Buttons style */
+.btn-wizard-next, .btn-wizard-save {
+  background-color: #5a52e5; /* var(--primary) */
+  color: #ffffff;
+}
+
+.btn-wizard-next:hover:not(:disabled), .btn-wizard-save:hover:not(:disabled) {
+  background-color: #473fc7; /* var(--primary-hover) */
+}
+
+.btn-wizard-next:active:not(:disabled), .btn-wizard-save:active:not(:disabled) {
+  background-color: #3730a3;
+}
+
+/* Disabled state */
+.btn-wizard-nav:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Step Indicator text */
+.step-indicator-text {
+  font-family: var(--font-family);
+  font-size: 13px;
+  color: var(--text-muted); /* #6b7280 */
+}
+
+.step-number-active {
+  font-weight: 700;
+  color: var(--text-main); /* #1f2937 */
+}

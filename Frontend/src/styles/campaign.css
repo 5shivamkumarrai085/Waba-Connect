@@ -1,0 +1,64 @@
+/* campaign.css */
+
+.campaign-page-header h1 {
+  font-family: var(--font-title);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 20px;
+}
+
+.campaign-form-card {
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-card);
+  max-width: 600px;
+  width: 100%;
+}
+
+.campaign-form-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.campaign-form-header h2 {
+  font-family: var(--font-title);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.campaign-form-body {
+  padding: 24px;
+}
+
+.datepicker-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.datepicker-wrapper input {
+  padding-right: 40px;
+}
+
+.datepicker-icon {
+  position: absolute;
+  right: 14px;
+  color: var(--text-muted);
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+
+.campaign-form-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-light);
+  background-color: var(--bg-primary);
+  border-bottom-left-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}

@@ -1,0 +1,159 @@
+/* AddContact.css */
+
+.add-contact-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--border-light);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.add-contact-body {
+  padding: 32px;
+}
+
+.add-contact-title {
+  font-family: var(--font-title);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 20px;
+}
+
+/* Multi-column grid for forms */
+.add-contact-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* 3 columns for top row status/source/assigned */
+.add-contact-top-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+@media (max-width: 768px) {
+  .add-contact-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .add-contact-top-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.form-group-required label::before {
+  content: '* ';
+  color: #ef4444;
+  font-weight: 500;
+}
+
+/* Notes section alert box */
+.notes-tab-notice {
+  border: 1px solid #e2e8f0;
+  background-color: #fafbfc;
+  border-radius: 4px;
+  padding: 16px;
+  color: #1e3a8a; /* darker blue text */
+  font-size: 13px;
+  font-weight: 500;
+  border-left: 3px solid #3b82f6; /* add alert-like boundary line similar to screenshot */
+}
+
+/* Footer buttons area */
+.add-contact-footer {
+  background-color: #fafbfc;
+  border-top: 1px solid #e2e8f0;
+  padding: 12px 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn-cancel {
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 0 16px;
+  height: 35px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-cancel:hover {
+  background-color: #cbd5e1;
+}
+
+.btn-add {
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 500;
+  color: #ffffff;
+  background-color: #4f46e5; /* purple color matching the original screenshots */
+  border: none;
+  padding: 0 20px;
+  height: 35px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-add:hover {
+  background-color: #4338ca;
+}
+
+.margin-top-20 {
+  margin-top: 12px !important; /* tighter spacing to match other fields */
+}
+
+/* Phone Flag Input Container */
+.phone-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.phone-flag-selector {
+  position: absolute;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none; /* purely visual overlay */
+  user-select: none;
+}
+
+.flag-emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.flag-arrow {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid #6b7280;
+  margin-left: 2px;
+}
+
+.phone-input {
+  padding-left: 42px !important;
+}

@@ -1,0 +1,56 @@
+/* StatusBadge.css */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: capitalize;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* New, Success, Qualified, Verified */
+.status-badge.new,
+.status-badge.success,
+.status-badge.qualified,
+.status-badge.verified {
+  background-color: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+}
+
+/* In Progress, Contacted, Info */
+.status-badge.in-progress,
+.status-badge.contacted,
+.status-badge.info {
+  background-color: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+/* Pending, Follow Up, Warning */
+.status-badge.pending,
+.status-badge.follow-up,
+.status-badge.warning {
+  background-color: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
+/* Closed, Stale, Error */
+.status-badge.closed,
+.status-badge.stale,
+.status-badge.error {
+  background-color: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.status-badge-icon {
+  display: inline-flex;
+  align-items: center;
+}

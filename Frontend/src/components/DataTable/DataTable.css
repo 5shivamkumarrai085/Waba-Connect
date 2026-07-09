@@ -1,0 +1,73 @@
+/* DataTable.css */
+
+.data-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 4px; /* small, sharp radius */
+  border: 1px solid #e2e8f0;
+  background-color: var(--bg-secondary);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-family: var(--font-family);
+}
+
+.data-table th {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid #e2e8f0;
+  letter-spacing: 0.5px;
+  background-color: #fafbfc;
+}
+
+.data-table td {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 400;
+  border-bottom: 1px solid #e2e8f0;
+  color: var(--text-main);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.data-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.data-table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* Sort indicators styling inside headers */
+.header-cell-content {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sort-icon {
+  font-size: 10px;
+  color: #9ca3af;
+  margin-left: 2px;
+  user-select: none;
+}
+
+.sort-icon.active {
+  color: var(--text-main);
+}

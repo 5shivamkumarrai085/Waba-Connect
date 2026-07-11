@@ -4,6 +4,7 @@ import { useContactStore } from '../../store/contactStore'
 import { UploadArea } from '../../components/UploadArea/UploadArea'
 import toast from 'react-hot-toast'
 import './ImportContacts.css'
+import { getErrorMessage } from '../../utils/errorHelper'
 
 export const ImportContacts: React.FC = () => {
   const navigate = useNavigate()
@@ -20,23 +21,27 @@ export const ImportContacts: React.FC = () => {
 
     setIsUploading(true)
     try {
-      // Read file content
       const reader = new FileReader()
       reader.onload = async (event) => {
-        const text = event.target?.result as string
-        const res = await importContacts(text)
-        if (res.success) {
-          toast.success(res.message)
-          await loadContacts()
-          navigate('/contacts')
-        } else {
-          toast.error(res.message)
+        try {
+          const text = event.target?.result as string
+          const res = await importContacts(text)
+          if (res.success) {
+            toast.success(res.message)
+            await loadContacts()
+            navigate('/contacts')
+          } else {
+            toast.error(res.message)
+          }
+        } catch (err: any) {
+          toast.error(getErrorMessage(err, 'Error importing contacts.'))
+        } finally {
+          setIsUploading(false)
         }
       }
       reader.readAsText(selectedFile)
     } catch (err) {
       toast.error('Error reading CSV file.')
-    } finally {
       setIsUploading(false)
     }
   }

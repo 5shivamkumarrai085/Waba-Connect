@@ -1,0 +1,381 @@
+import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useMessageBotStore } from '../../store/messageBotStore'
+import { Toggle } from '../../components/Toggle/Toggle'
+import { SearchBar } from '../../components/SearchBar/SearchBar'
+import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
+import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
+import { toast } from 'react-hot-toast'
+import './MessageBotList.css'
+
+export const MessageBotList: React.FC = () => {
+  const navigate = useNavigate()
+  
+  const {
+    bots,
+    totalCount,
+    isLoading,
+    page,
+    pageSize,
+    searchQuery,
+    relationTypeFilter,
+    isActiveFilter,
+    setPage,
+    setPageSize,
+    setSearchQuery,
+    setRelationTypeFilter,
+    setIsActiveFilter,
+    loadBots,
+    deleteBot,
+    cloneBot,
+    toggleBotActive
+  } = useMessageBotStore()
+
+  const [showFilters, setShowFilters] = useState(false)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [botToDelete, setBotToDelete] = useState<{ id: number; name: string } | null>(null)
+
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
+    id: true,
+    name: true,
+    type: true,
+    triggerKeyword: true,
+    relationType: true,
+    active: true,
+    createdAt: true
+  })
+
+  useEffect(() => {
+    loadBots()
+  }, [])
+
+  const handleRefresh = async () => {
+    await loadBots()
+    toast.success('Message bots list refreshed successfully!')
+  }
+
+  const handleDeleteClick = (id: number, name: string) => {
+    setBotToDelete({ id, name })
+    setDeleteModalOpen(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (botToDelete) {
+      const success = await deleteBot(botToDelete.id)
+      if (success) {
+        toast.success(`Bot "${botToDelete.name}" deleted successfully.`)
+      } else {
+        toast.error('Failed to delete message bot.')
+      }
+    }
+    setDeleteModalOpen(false)
+    setBotToDelete(null)
+  }
+
+  const handleCloneClick = async (id: number) => {
+    try {
+      const cloned = await cloneBot(id)
+      // Navigate to the edit view of the newly cloned bot and show the clone success toast message matching Screenshot 8
+      sessionStorage.setItem('bot_clone_success', 'true')
+      navigate(`/message-bot/bot/${cloned.id}`)
+    } catch (error) {
+      toast.error('Failed to clone message bot.')
+    }
+  }
+
+  const formatRelativeTime = (dateString: string): string => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    const diffWeeks = Math.floor(diffDays / 7)
+    const diffMonths = Math.floor(diffDays / 30)
+
+    if (diffDays < 1) return 'Today'
+    if (diffDays === 1) return 'Yesterday'
+    if (diffDays < 7) return `${diffDays} days ago`
+    if (diffWeeks === 1) return '1 week ago'
+    if (diffWeeks < 4) return `${diffWeeks} weeks ago`
+    if (diffMonths === 1) return '1 month ago'
+    return `${diffMonths} months ago`
+  }
+
+  const columnHeaders = [
+    { key: 'id', label: 'ID' },
+    { key: 'name', label: 'NAME' },
+    { key: 'type', label: 'TYPE' },
+    { key: 'triggerKeyword', label: 'TRIGGER KEYWORD' },
+    { key: 'relationType', label: 'RELATION TYPE' },
+    { key: 'active', label: 'ACTIVE' },
+    { key: 'createdAt', label: 'CREATED AT' }
+  ]
+
+  const toggleColumnVisibility = (colKey: string) => {
+    setVisibleColumns(prev => ({
+      ...prev,
+      [colKey]: !prev[colKey]
+    }))
+  }
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+  const startIndex = (page - 1) * pageSize
+  const endIndex = Math.min(totalCount, startIndex + pageSize)
+
+  return (
+    <div className="fade-in">
+      {/* Top Toolbar actions */}
+      <div className="message-bots-toolbar">
+        <button 
+          type="button" 
+          className="btn-toolbar"
+          onClick={() => navigate('/message-bot/bot')}
+        >
+          <Plus size={16} />
+          <span>Message Bot</span>
+        </button>
+        <button 
+          type="button" 
+          className="btn-toolbar btn-toolbar-refresh"
+          onClick={handleRefresh}
+          disabled={isLoading}
+        >
+          <RefreshCw size={16} />
+          <span>Refresh</span>
+        </button>
+      </div>
+
+      {/* Grid listing card */}
+      <div className="message-bots-card">
+        {/* Control toolbar */}
+        <div className="contacts-controls-row">
+          <div className="contacts-controls-left">
+            <ColumnSelector
+              columns={columnHeaders}
+              visibleColumns={visibleColumns}
+              onToggle={toggleColumnVisibility}
+            />
+
+            <button
+              type="button"
+              className={`btn-control-icon ${showFilters ? 'active' : ''}`}
+              onClick={() => setShowFilters(!showFilters)}
+              title="Toggle Filters"
+              aria-label="Toggle filters"
+            >
+              <Filter size={16} />
+            </button>
+          </div>
+
+          <div className="contacts-controls-right">
+            <SearchBar
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search..."
+            />
+          </div>
+        </div>
+
+        {/* Dynamic filters panel */}
+        {showFilters && (
+          <div className="message-bots-filter-row fade-in">
+            <div className="filter-group">
+              <span className="filter-label">Relation Type</span>
+              <select
+                className="form-control"
+                value={relationTypeFilter}
+                onChange={(e) => setRelationTypeFilter(e.target.value)}
+              >
+                <option value="">All</option>
+                <option value="Lead">Lead</option>
+                <option value="Customer">Customer</option>
+              </select>
+            </div>
+
+            <div className="filter-group">
+              <span className="filter-label">Status</span>
+              <select
+                className="form-control"
+                value={isActiveFilter === null ? '' : isActiveFilter ? 'true' : 'false'}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setIsActiveFilter(val === '' ? null : val === 'true')
+                }}
+              >
+                <option value="">All</option>
+                <option value="true">Active</option>
+                <option value="false">Inactive</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Datatable rows */}
+        <div className="data-table-wrapper">
+          {isLoading ? (
+            <div className="data-table-empty">
+              <p>Loading message bots...</p>
+            </div>
+          ) : bots.length === 0 ? (
+            <div className="data-table-empty">
+              <p>No message bots found matching criteria.</p>
+            </div>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  {columnHeaders.map((col) => {
+                    const isVisible = visibleColumns[col.key] !== false
+                    if (!isVisible) return null
+                    return <th key={col.key}>{col.label}</th>
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {bots.map((bot) => (
+                  <tr key={bot.id}>
+                    {/* ID Column */}
+                    {visibleColumns.id !== false && (
+                      <td>{bot.id}</td>
+                    )}
+
+                    {/* Name Column with hover actions */}
+                    {visibleColumns.name !== false && (
+                      <td>
+                        <div className="message-bot-name-cell">
+                          <span className="message-bot-title-text">{bot.name}</span>
+                          <div className="message-bot-hover-actions">
+                            <span 
+                              className="message-bot-action-btn"
+                              onClick={() => navigate(`/message-bot/bot/${bot.id}?view=true`)}
+                            >
+                              View
+                            </span>
+                            <span className="action-divider">|</span>
+                            <span 
+                              className="message-bot-action-btn"
+                              onClick={() => navigate(`/message-bot/bot/${bot.id}`)}
+                            >
+                              Edit
+                            </span>
+                            <span className="action-divider">|</span>
+                            <span 
+                              className="message-bot-action-btn destructive"
+                              onClick={() => handleDeleteClick(bot.id, bot.name)}
+                            >
+                              Delete
+                            </span>
+                            <span className="action-divider">|</span>
+                            <span 
+                              className="message-bot-action-btn"
+                              onClick={() => handleCloneClick(bot.id)}
+                            >
+                              Clone
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                    )}
+
+                    {/* Type Column */}
+                    {visibleColumns.type !== false && (
+                      <td>{bot.replyType}</td>
+                    )}
+
+                    {/* Trigger Keyword Column */}
+                    {visibleColumns.triggerKeyword !== false && (
+                      <td>{bot.triggerKeyword}</td>
+                    )}
+
+                    {/* Relation Type Column (colored badge) */}
+                    {visibleColumns.relationType !== false && (
+                      <td>
+                        <span className={`relation-badge ${
+                          bot.relationType === 'Lead' ? 'lead' : 'customer'
+                        }`}>
+                          {bot.relationType}
+                        </span>
+                      </td>
+                    )}
+
+                    {/* Active Switch Column */}
+                    {visibleColumns.active !== false && (
+                      <td>
+                        <Toggle 
+                          checked={bot.isActive} 
+                          onChange={() => toggleBotActive(bot.id)}
+                        />
+                      </td>
+                    )}
+
+                    {/* Created At Column */}
+                    {visibleColumns.createdAt !== false && (
+                      <td>{formatRelativeTime(bot.createdAt)}</td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Footer info & size selector & page indicators */}
+        <div className="contacts-table-footer">
+          <div>
+            <select
+              className="contacts-pager-size-select"
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+            </select>
+          </div>
+
+          <div className="pager-navigation">
+            <span className="contacts-pager-info">
+              Showing {totalCount > 0 ? startIndex + 1 : 0} to {endIndex} of {totalCount} Results
+            </span>
+
+            {/* Pagination buttons */}
+            <div className="contacts-controls-left">
+              <button
+                type="button"
+                className="btn-control-icon"
+                disabled={page === 1}
+                onClick={() => setPage(page - 1)}
+                aria-label="Previous Page"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                type="button"
+                className="btn-control-icon"
+                disabled={page === totalPages}
+                onClick={() => setPage(page + 1)}
+                aria-label="Next Page"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ConfirmationModal
+        isOpen={deleteModalOpen}
+        title="Delete Message Bot"
+        message={`Are you sure you want to delete message bot "${botToDelete?.name}"?`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteModalOpen(false)}
+        isDestructive={true}
+      />
+    </div>
+  )
+}
+
+export default MessageBotList

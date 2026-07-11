@@ -39,6 +39,12 @@ namespace WhatsAppCampaignApi.Services
                 return new DashboardDto { IsConnected = false };
             }
 
+            if (!string.IsNullOrWhiteSpace(config.WebhookUrl) && config.WebhookUrl.EndsWith("/webhook", StringComparison.OrdinalIgnoreCase))
+            {
+                config.WebhookUrl = config.WebhookUrl[..^"/webhook".Length] + "/api/webhook/whatsapp";
+                await _wabaRepository.AddOrUpdateAsync(config);
+            }
+
             if (!config.Connected)
             {
                 return new DashboardDto

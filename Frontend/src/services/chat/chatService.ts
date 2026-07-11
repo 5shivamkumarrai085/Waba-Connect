@@ -1,10 +1,44 @@
 import { apiClient } from '../apiClient'
-import type { Conversation, Message } from '../../types/chat'
+import type { ChatAccount, Conversation, Message } from '../../types/chat'
+
+const getApiErrorMessage = (error: unknown): string => {
+  const err = error as {
+    response?: {
+      data?: {
+        message?: string
+        errors?: string[]
+      }
+    }
+    message?: string
+  }
+
+  const data = err.response?.data
+  if (Array.isArray(data?.errors) && data.errors.length > 0) {
+    return data.errors.join(', ')
+  }
+
+  return data?.message || err.message || 'Failed to send message.'
+}
 
 export const chatService = {
-  getConversations: async (): Promise<Conversation[]> => {
+  getAccounts: async (): Promise<ChatAccount[]> => {
     try {
-      const response = await apiClient.get('/Chat/conversations')
+      const response = await apiClient.get('/Chat/accounts')
+      return response.data?.data || []
+    } catch (error) {
+      console.error('Error fetching chat accounts:', error)
+      return []
+    }
+  },
+
+  getConversations: async (search?: string, filter?: string): Promise<Conversation[]> => {
+    try {
+      const response = await apiClient.get('/Chat/conversations', {
+        params: {
+          search: search || undefined,
+          filter: filter || undefined
+        }
+      })
       return response.data?.data || []
     } catch (error) {
       console.error('Error fetching conversations:', error)
@@ -12,7 +46,7 @@ export const chatService = {
     }
   },
 
-  getConversation: async (id: string): Promise<Conversation | null> => {
+  getConversation: async (id: number): Promise<Conversation | null> => {
     try {
       const response = await apiClient.get(`/Chat/conversations/${id}`)
       return response.data?.data || null
@@ -22,7 +56,7 @@ export const chatService = {
     }
   },
 
-  getMessages: async (convId: string): Promise<Message[]> => {
+  getMessages: async (convId: number): Promise<Message[]> => {
     try {
       const response = await apiClient.get(`/Chat/conversations/${convId}/messages`)
       return response.data?.data || []
@@ -32,13 +66,16 @@ export const chatService = {
     }
   },
 
-  sendMessage: async (convId: string, text: string): Promise<Message | null> => {
+  sendMessage: async (convId: number, text: string, fromPhoneNumberId?: string): Promise<Message | null> => {
     try {
-      const response = await apiClient.post(`/Chat/conversations/${convId}/messages`, { text })
+      const response = await apiClient.post(`/Chat/conversations/${convId}/messages`, {
+        text,
+        fromPhoneNumberId
+      })
       return response.data?.data || null
     } catch (error) {
       console.error('Error sending message:', error)
-      return null
+      throw new Error(getApiErrorMessage(error))
     }
   }
 }

@@ -57,7 +57,7 @@ namespace WhatsAppCampaignApi.Controllers
 
             // Generate webhook verification details
             string verifyToken = "waba_verify_token_" + Guid.NewGuid().ToString("N").Substring(0, 16);
-            string webhookUrl = $"{Request.Scheme}://{Request.Host}/webhook";
+            string webhookUrl = $"{Request.Scheme}://{Request.Host}/api/webhook/whatsapp";
 
             var config = new WabaConfiguration
             {

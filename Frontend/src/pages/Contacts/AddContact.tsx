@@ -13,6 +13,7 @@ import type {
   ContactGroup 
 } from '../../types/contacts'
 import './AddContact.css'
+import { getErrorMessage } from '../../utils/errorHelper'
 
 export const AddContact: React.FC = () => {
   const navigate = useNavigate()
@@ -22,6 +23,8 @@ export const AddContact: React.FC = () => {
   const isViewMode = queryParams.get('view') === 'true'
   const isEditMode = !!id
   const { addContact } = useContactStore()
+  const [isSaving, setIsSaving] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
   // Steps
   const steps = ['Contact Details', 'Other Details', 'Notes']
@@ -128,11 +131,23 @@ export const AddContact: React.FC = () => {
     e.preventDefault()
     
     // Quick validation on required fields
-    if (!firstName || !lastName || !phone || !typeVal || !statusVal || !sourceVal) {
+    const newErrors: Record<string, string> = {}
+    if (!firstName) newErrors.firstName = 'First Name is required.'
+    if (!lastName) newErrors.lastName = 'Last Name is required.'
+    if (!phone) newErrors.phone = 'Phone is required.'
+    if (!typeVal) newErrors.typeVal = 'Type is required.'
+    if (!statusVal) newErrors.statusVal = 'Status is required.'
+    if (!sourceVal) newErrors.sourceVal = 'Source is required.'
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors)
       toast.error('Please fill out all required fields marked with an asterisk (*).')
       setActiveStep(0) // redirect back to first step to correct
       return
     }
+
+    setErrors({})
+    setIsSaving(true)
 
     try {
       const payload = {
@@ -164,9 +179,61 @@ export const AddContact: React.FC = () => {
         toast.success('Contact created successfully!')
       }
       navigate('/contacts')
-    } catch (err) {
-      toast.error(isEditMode ? 'Failed to update contact.' : 'Failed to create contact.')
+    } catch (err: any) {
+      const apiMsg = getErrorMessage(err, isEditMode ? 'Failed to update contact.' : 'Failed to create contact.')
+      
+      const fieldErrors: Record<string, string> = {}
+      const lowerMsg = apiMsg.toLowerCase()
+      if (lowerMsg.includes('phone') || lowerMsg.includes('number')) {
+        fieldErrors.phone = apiMsg
+        setActiveStep(0)
+      } else if (lowerMsg.includes('email')) {
+        fieldErrors.email = apiMsg
+        setActiveStep(0)
+      } else if (lowerMsg.includes('name')) {
+        fieldErrors.firstName = apiMsg
+        setActiveStep(0)
+      }
+      
+      setErrors(fieldErrors)
+      toast.error(apiMsg)
+    } finally {
+      setIsSaving(false)
     }
+  }
+
+  const getFlagEmoji = (code: string) => {
+    switch (code) {
+      case 'IN': return '🇮🇳'
+      case 'MY': return '🇲🇾'
+      case 'SG': return '🇸🇬'
+      case 'US': return '🇺🇸'
+      case 'GB': return '🇬🇧'
+      default: return '🏳️'
+    }
+  }
+
+  const getSelectedDialCode = () => {
+    const sortedCountries = [...countriesList].sort((a, b) => b.dialCode.length - a.dialCode.length);
+    for (const c of sortedCountries) {
+      if (phone.startsWith(c.dialCode)) {
+        return c.dialCode;
+      }
+    }
+    return '+91'; // default to India (+91)
+  }
+
+  const handlePhoneCountryChange = (dialCode: string) => {
+    let nationalNumber = phone;
+    const sortedCountries = [...countriesList].sort((a, b) => b.dialCode.length - a.dialCode.length);
+    for (const c of sortedCountries) {
+      if (phone.startsWith(c.dialCode)) {
+        nationalNumber = phone.slice(c.dialCode.length);
+        break;
+      }
+    }
+    nationalNumber = nationalNumber.replace(/^\+/, '');
+    setPhone(dialCode + nationalNumber);
   }
 
   return (
@@ -192,9 +259,10 @@ export const AddContact: React.FC = () => {
                   <div className="form-group form-group-required">
                     <label className="form-label">Status</label>
                     <select
-                      className="form-control"
+                      className={`form-control ${errors.statusVal ? 'is-invalid' : ''}`}
                       value={statusVal}
                       onChange={(e) => setStatusVal(e.target.value)}
+                      disabled={isSaving}
                       required
                     >
                       <option value="">Select Status</option>
@@ -202,14 +270,16 @@ export const AddContact: React.FC = () => {
                         <option key={s.id} value={s.name}>{s.name}</option>
                       ))}
                     </select>
+                    {errors.statusVal && <span className="invalid-feedback">{errors.statusVal}</span>}
                   </div>
 
                   <div className="form-group form-group-required">
                     <label className="form-label">Source</label>
                     <select
-                      className="form-control"
+                      className={`form-control ${errors.sourceVal ? 'is-invalid' : ''}`}
                       value={sourceVal}
                       onChange={(e) => setSourceVal(e.target.value)}
+                      disabled={isSaving}
                       required
                     >
                       <option value="">Select Source</option>
@@ -217,6 +287,7 @@ export const AddContact: React.FC = () => {
                         <option key={s.id} value={s.name}>{s.name}</option>
                       ))}
                     </select>
+                    {errors.sourceVal && <span className="invalid-feedback">{errors.sourceVal}</span>}
                   </div>
 
                   <div className="form-group">
@@ -240,24 +311,28 @@ export const AddContact: React.FC = () => {
                     <label className="form-label">First Name</label>
                     <input
                       type="text"
-                      className="form-control"
+                      className={`form-control ${errors.firstName ? 'is-invalid' : ''}`}
                       placeholder="Enter First Name"
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
+                      disabled={isSaving}
                       required
                     />
+                    {errors.firstName && <span className="invalid-feedback">{errors.firstName}</span>}
                   </div>
 
                   <div className="form-group form-group-required">
                     <label className="form-label">Last Name</label>
                     <input
                       type="text"
-                      className="form-control"
+                      className={`form-control ${errors.lastName ? 'is-invalid' : ''}`}
                       placeholder="Enter Last Name"
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
+                      disabled={isSaving}
                       required
                     />
+                    {errors.lastName && <span className="invalid-feedback">{errors.lastName}</span>}
                   </div>
 
                   <div className="form-group">
@@ -274,9 +349,10 @@ export const AddContact: React.FC = () => {
                   <div className="form-group form-group-required">
                     <label className="form-label">Type</label>
                     <select
-                      className="form-control"
+                      className={`form-control ${errors.typeVal ? 'is-invalid' : ''}`}
                       value={typeVal}
                       onChange={(e) => setTypeVal(e.target.value)}
+                      disabled={isSaving}
                       required
                     >
                       <option value="">Select Type</option>
@@ -284,35 +360,51 @@ export const AddContact: React.FC = () => {
                         <option key={t.id} value={t.name}>{t.name}</option>
                       ))}
                     </select>
+                    {errors.typeVal && <span className="invalid-feedback">{errors.typeVal}</span>}
                   </div>
 
                   <div className="form-group">
                     <label className="form-label">Email</label>
                     <input
                       type="email"
-                      className="form-control"
+                      className={`form-control ${errors.email ? 'is-invalid' : ''}`}
                       placeholder="Enter Email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
+                      disabled={isSaving}
                     />
+                    {errors.email && <span className="invalid-feedback">{errors.email}</span>}
                   </div>
 
                   <div className="form-group form-group-required">
                     <label className="form-label">Phone</label>
                     <div className="phone-input-container">
-                      <div className="phone-flag-selector">
-                        <span className="flag-emoji">🇮🇳</span>
-                        <span className="flag-arrow"></span>
-                      </div>
+                      <select
+                        className="phone-country-select"
+                        value={getSelectedDialCode()}
+                        onChange={(e) => handlePhoneCountryChange(e.target.value)}
+                      >
+                        {countriesList.length === 0 ? (
+                          <option value="+91">🇮🇳 IN (+91)</option>
+                        ) : (
+                          countriesList.map((c) => (
+                            <option key={c.id} value={c.dialCode}>
+                              {getFlagEmoji(c.code)} {c.code} ({c.dialCode})
+                            </option>
+                          ))
+                        )}
+                      </select>
                       <input
                         type="text"
-                        className="form-control phone-input"
+                        className={`form-control phone-input ${errors.phone ? 'is-invalid' : ''}`}
                         placeholder=""
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
+                        disabled={isSaving}
                         required
                       />
                     </div>
+                    {errors.phone && <span className="invalid-feedback">{errors.phone}</span>}
                   </div>
 
                   <div className="form-group">
@@ -457,6 +549,7 @@ export const AddContact: React.FC = () => {
               type="button"
               className="btn-cancel"
               onClick={() => navigate('/contacts')}
+              disabled={isSaving}
             >
               Cancel
             </button>
@@ -464,6 +557,7 @@ export const AddContact: React.FC = () => {
             <button
               type="submit"
               className="btn-add"
+              disabled={isSaving}
               onClick={(e) => {
                 if (isViewMode) {
                   e.preventDefault();
@@ -471,7 +565,7 @@ export const AddContact: React.FC = () => {
                 }
               }}
             >
-              {isViewMode ? 'Close' : (isEditMode ? 'Save' : 'Add')}
+              {isSaving ? 'Saving...' : (isViewMode ? 'Close' : (isEditMode ? 'Save' : 'Add'))}
             </button>
           </div>
         </form>

@@ -40,6 +40,7 @@ namespace WhatsAppCampaignApi.Services
             bool appValid = false;
             bool businessValid = false;
             bool phoneValid = false;
+            bool webhookPublic = !IsLocalWebhookUrl(config.WebhookUrl);
 
             try
             {
@@ -62,10 +63,10 @@ namespace WhatsAppCampaignApi.Services
             string overallStatus;
             string description;
 
-            if (appValid && businessValid && phoneValid)
+            if (appValid && businessValid && phoneValid && webhookPublic)
             {
                 overallStatus = "AVAILABLE";
-                description = "All systems operational. App ID, WABA configurations, and phone lines checked and validated successfully.";
+                description = "All systems operational. App ID, WABA configurations, phone lines, and public webhook callback checked successfully.";
             }
             else if (!appValid && !businessValid && !phoneValid)
             {
@@ -79,6 +80,7 @@ namespace WhatsAppCampaignApi.Services
                 if (!appValid) issues.Add("App ID Validation Failed");
                 if (!businessValid) issues.Add("WABA Account Retrieval Failed");
                 if (!phoneValid) issues.Add("Phone Numbers Synchronization Failed");
+                if (!webhookPublic) issues.Add("Webhook URL is localhost, so Meta cannot send delivery, read, inbound, or failed-message callbacks");
                 description = $"Degraded performance. Issues detected: {string.Join(", ", issues)}.";
             }
 
@@ -91,6 +93,15 @@ namespace WhatsAppCampaignApi.Services
 
             await _healthLogRepository.AddLogAsync(log);
             return log;
+        }
+
+        private static bool IsLocalWebhookUrl(string webhookUrl)
+        {
+            if (!Uri.TryCreate(webhookUrl, UriKind.Absolute, out var uri)) return false;
+
+            return uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                || uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+                || uri.Host.Equals("::1", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

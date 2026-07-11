@@ -7,6 +7,8 @@ public enum TemplateCategory { Marketing, Utility, Authentication }
 public enum TemplateType { Text, Image, Video, Document }
 public enum HeaderType { None, Text, Image, Video, Document }
 public enum TemplateStatus { Approved, Rejected, Pending }
-public enum CampaignStatus { Draft, Sending, Sent, Scheduled, Failed, Cancelled, Paused }
+public enum CampaignStatus { Draft, Sending, Sent, Scheduled, Paused, Failed, Cancelled }
 public enum ScheduleType { Immediate, Scheduled }
 public enum MessageStatus { Pending, Sent, Delivered, Read, Failed }
+public enum ChatMessageDirection { Incoming, Outgoing, System }
+public enum ChatMessageStatus { Pending, Sent, Delivered, Read, Failed, Received }

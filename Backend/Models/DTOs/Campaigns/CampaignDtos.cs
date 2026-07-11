@@ -44,9 +44,11 @@ public class CampaignDetailResponse : CampaignResponse
 
 public class CampaignRecipientResponse
 {
+    public int Id { get; set; }
     public int ContactId { get; set; }
     public string ContactName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public DateTime? SentAt { get; set; }
     public DateTime? DeliveredAt { get; set; }

@@ -96,7 +96,12 @@ export const ContactsList: React.FC = () => {
   }
 
   const handleBulkChat = () => {
-    toast.success(`Initiating chats with ${selectedIds.length} contacts via WhatsApp...`)
+    if (selectedIds.length === 1) {
+      navigate(`/chat?contactId=${selectedIds[0]}`)
+      return
+    }
+
+    toast.error('Select one contact to open a WhatsApp chat.')
   }
 
   const handleExportSheet = () => {
@@ -330,7 +335,7 @@ export const ContactsList: React.FC = () => {
                         <td className="text-center">
                           <span 
                             className="contact-whatsapp-icon"
-                            onClick={() => console.log(`Opening chat window for: ${contact.phone}`)}
+                            onClick={() => navigate(`/chat?contactId=${contact.id}`)}
                             title="Start WhatsApp Chat"
                           >
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">

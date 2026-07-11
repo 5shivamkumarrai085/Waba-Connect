@@ -29,6 +29,8 @@ public class ChangeValue
     
     public MetadataObj? Metadata { get; set; }
     public List<StatusUpdate>? Statuses { get; set; }
+    public List<IncomingContact>? Contacts { get; set; }
+    public List<IncomingMessage>? Messages { get; set; }
 }
 
 public class MetadataObj
@@ -57,4 +59,39 @@ public class ErrorObj
     public int Code { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
+
+    [JsonPropertyName("error_data")]
+    public ErrorDataObj? ErrorData { get; set; }
+}
+
+public class ErrorDataObj
+{
+    public string Details { get; set; } = string.Empty;
+}
+
+public class IncomingContact
+{
+    [JsonPropertyName("wa_id")]
+    public string WaId { get; set; } = string.Empty;
+
+    public IncomingProfile? Profile { get; set; }
+}
+
+public class IncomingProfile
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public class IncomingMessage
+{
+    public string Id { get; set; } = string.Empty;
+    public string From { get; set; } = string.Empty;
+    public string Timestamp { get; set; } = string.Empty;
+    public string Type { get; set; } = string.Empty;
+    public IncomingText? Text { get; set; }
+}
+
+public class IncomingText
+{
+    public string Body { get; set; } = string.Empty;
 }

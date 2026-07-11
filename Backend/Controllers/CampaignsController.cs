@@ -42,6 +42,13 @@ public class CampaignsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = data.Id }, new ApiResponse<CampaignResponse> { Success = true, Data = data });
     }
 
+    [HttpPut("{id}")]
+    public async Task<ActionResult<ApiResponse<CampaignResponse>>> Update(int id, [FromBody] CreateCampaignRequest request)
+    {
+        var data = await _campaignService.UpdateAsync(id, request);
+        return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign updated successfully." });
+    }
+
     [HttpDelete("{id}")]
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {

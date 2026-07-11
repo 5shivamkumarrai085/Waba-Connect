@@ -73,7 +73,9 @@ export const Sidebar: React.FC = () => {
       '/contacts': () => import('../pages/Contacts/ContactsList'),
       '/templates': () => import('../pages/Templates/TemplatesList'),
       '/bulk-campaigns': () => import('../pages/BulkCampaign/BulkCampaign'),
-      '/chat': () => import('../pages/Chat/Chat')
+      '/chat': () => import('../pages/Chat/Chat'),
+      '/template-bot': () => import('../pages/TemplateBot/TemplateBotList'),
+      '/bot-flow': () => import('../pages/BotFlow/BotFlowList')
     }
     if (loadFns[path]) {
       loadFns[path]().catch(() => {})

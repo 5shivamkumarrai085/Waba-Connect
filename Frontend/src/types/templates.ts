@@ -1,5 +1,11 @@
 // src/types/templates.ts
 
+export interface TemplateVariable {
+  position: number
+  sampleValue?: string
+  description?: string
+}
+
 export interface Template {
   id: number
   name: string
@@ -8,6 +14,10 @@ export interface Template {
   type: string
   status: 'APPROVED' | 'REJECTED' | 'PENDING' | string
   bodyText: string
+  headerType?: string
+  headerContent?: string
+  footerText?: string
+  variables?: TemplateVariable[]
 }
 
 export interface TemplateLanguage {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useCampaignStore } from '../../store/campaignStore'
+import { campaignService } from '../../services/campaigns/campaignService'
 import { contactService } from '../../services/contacts/contactService'
 import { templateService } from '../../services/templates/templateService'
 import { Stepper } from '../../components/Stepper/Stepper'
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import './CampaignWizard.css'
+import { getErrorMessage } from '../../utils/errorHelper'
 
 export const CampaignWizard: React.FC = () => {
   const navigate = useNavigate()
@@ -31,8 +33,7 @@ export const CampaignWizard: React.FC = () => {
     setActiveStep,
     resetWizard,
     createCampaign,
-    updateCampaign,
-    campaigns
+    updateCampaign
   } = useCampaignStore()
 
   // Form selections options
@@ -48,18 +49,9 @@ export const CampaignWizard: React.FC = () => {
   const [var1, setVar1] = useState('')
   const [var2, setVar2] = useState('')
 
-  const [canSubmit, setCanSubmit] = useState(false)
   useEffect(() => {
-    if (activeStep === 3) {
-      const timer = setTimeout(() => setCanSubmit(true), 400)
-      return () => clearTimeout(timer)
-    } else {
-      setCanSubmit(false)
-    }
-  }, [activeStep])
+    let isMounted = true
 
-  useEffect(() => {
-    // Load initial option values
     const fetchWizardOptions = async () => {
       try {
         const [tpls, cts, stats, srcs] = await Promise.all([
@@ -68,10 +60,34 @@ export const CampaignWizard: React.FC = () => {
           contactService.getContactStatuses(),
           contactService.getContactSources()
         ])
+
+        if (!isMounted) return
+
         setTemplatesList(tpls)
         setContactsList(cts)
         setStatuses(stats)
         setSources(srcs)
+
+        if (isEditMode && campaignId) {
+          const details = await campaignService.getCampaignDetails(campaignId)
+          if (!isMounted) return
+
+          const template = tpls.find(t => t.name === details.campaign.templateName)
+          setWizardForm({
+            name: details.campaign.name,
+            relationType: details.campaign.relationType,
+            templateName: details.campaign.templateName,
+            templateId: template?.id || 0,
+            selectedContactIds: details.recipients.map(recipient => recipient.contactId),
+            selectAllContacts: false,
+            sendImmediately: !details.campaign.scheduledAt,
+            scheduledTime: details.campaign.scheduledAt ? toDateTimeLocalValue(details.campaign.scheduledAt) : ''
+          })
+          setActiveStep(0)
+        } else {
+          resetWizard()
+          setActiveStep(0)
+        }
       } catch (err) {
         console.error('Error fetching wizard options:', err)
       }
@@ -79,23 +95,8 @@ export const CampaignWizard: React.FC = () => {
 
     fetchWizardOptions()
 
-    if (isEditMode && campaignId) {
-      // Find the editing campaign properties
-      const existing = campaigns.find(c => c.id === campaignId)
-      if (existing) {
-        setWizardForm({
-          name: existing.name,
-          relationType: existing.relationType,
-          templateName: existing.templateName,
-          templateId: templatesList.find(t => t.name === existing.templateName)?.id || 0,
-          selectedContactIds: Array.from({ length: existing.total }, (_, i) => i + 1),
-          selectAllContacts: existing.total === 8,
-          sendImmediately: existing.scheduledAt === 'Immediately' || !existing.scheduledAt,
-          scheduledTime: existing.scheduledAt !== 'Immediately' ? existing.scheduledAt : ''
-        })
-      }
-    } else {
-      resetWizard()
+    return () => {
+      isMounted = false
     }
   }, [isEditMode, campaignId])
 
@@ -152,10 +153,34 @@ export const CampaignWizard: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!canSubmit) {
-      console.warn('Prevented premature submit click during step transition')
+
+    if (activeStep < 3) {
+      handleNext()
       return
     }
+
+    if (!wizardForm.name || !wizardForm.relationType || !wizardForm.templateId) {
+      toast.error('Please complete campaign name, relation type, and template.')
+      return
+    }
+
+    if (finalRecipientsCount === 0) {
+      toast.error('Please select at least one contact.')
+      return
+    }
+
+    if (!wizardForm.sendImmediately) {
+      if (!wizardForm.scheduledTime) {
+        toast.error('Please choose a schedule date and time.')
+        return
+      }
+
+      if (new Date(wizardForm.scheduledTime) <= new Date()) {
+        toast.error('Scheduled time must be in the future.')
+        return
+      }
+    }
+
     try {
       if (isEditMode && campaignId) {
         await updateCampaign(campaignId)
@@ -167,7 +192,7 @@ export const CampaignWizard: React.FC = () => {
       resetWizard()
       navigate('/campaigns/campaign')
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Error creating/saving campaign.')
+      toast.error(getErrorMessage(err, 'Error creating/saving campaign.'))
     }
   }
 
@@ -256,7 +281,7 @@ export const CampaignWizard: React.FC = () => {
                         <option value="">Select Relation Type</option>
                         <option value="Lead">Lead</option>
                         <option value="Customer">Customer</option>
-                        <option value="Csv_campaign">Csv_campaign</option>
+                        <option value="Vendor">Vendor</option>
                       </select>
                     </div>
 
@@ -299,10 +324,7 @@ export const CampaignWizard: React.FC = () => {
                           type="checkbox"
                           id="select-all-contacts"
                           checked={wizardForm.selectAllContacts}
-                          onChange={(e) => {
-                            setWizardForm({ selectAllContacts: e.target.checked })
-                            toggleSelectAllListed(e.target.checked)
-                          }}
+                          onChange={(e) => setWizardForm({ selectAllContacts: e.target.checked })}
                         />
                         <div className="wizard-label-spacer">
                           <label htmlFor="select-all-contacts" className="upload-main-text">Select all contacts</label>
@@ -459,7 +481,7 @@ export const CampaignWizard: React.FC = () => {
                     {/* Card 1: Immediately */}
                     <div 
                       className={`scheduling-card ${wizardForm.sendImmediately ? 'active green' : ''}`}
-                      onClick={() => setWizardForm({ sendImmediately: true })}
+                      onClick={() => setWizardForm({ sendImmediately: true, scheduledTime: '' })}
                     >
                       <input
                         type="radio"
@@ -480,7 +502,7 @@ export const CampaignWizard: React.FC = () => {
                     {/* Card 2: Schedule for later */}
                     <div 
                       className={`scheduling-card ${!wizardForm.sendImmediately ? 'active blue' : ''}`}
-                      onClick={() => setWizardForm({ sendImmediately: false })}
+                      onClick={() => setWizardForm({ sendImmediately: false, scheduledTime: wizardForm.scheduledTime || getDefaultScheduleTime() })}
                     >
                       <input
                         type="radio"
@@ -548,7 +570,7 @@ export const CampaignWizard: React.FC = () => {
                     type="submit"
                     form="campaign-wizard-form"
                     className="btn-wizard-nav btn-wizard-save"
-                    disabled={isLoading || !canSubmit}
+                    disabled={isLoading}
                   >
                     {isEditMode ? 'Save Changes' : 'Create Campaign'}
                   </button>
@@ -576,4 +598,22 @@ export const CampaignWizard: React.FC = () => {
     </div>
   )
 }
+
+const toDateTimeLocalValue = (value: string) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate())
+  ].join('-') + `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+const getDefaultScheduleTime = () => {
+  const date = new Date(Date.now() + 15 * 60 * 1000)
+  return toDateTimeLocalValue(date.toISOString())
+}
+
 export default CampaignWizard

@@ -38,8 +38,8 @@ public class WebhookController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> ReceiveWebhook([FromBody] WhatsAppWebhookPayload payload)
     {
-        // Respond 200 OK immediately as required by Meta, process in background
-        _ = Task.Run(() => _whatsAppService.ProcessWebhookAsync(payload));
+        // Process inside the request scope so DbContext-backed webhook updates are reliable.
+        await _whatsAppService.ProcessWebhookAsync(payload);
         return Ok();
     }
 }

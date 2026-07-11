@@ -58,6 +58,7 @@ public class CampaignService : ICampaignService
     {
         var campaign = await _dbContext.Campaigns
             .Include(c => c.Template)
+            .Include(c => c.Variables)
             .Include(c => c.CampaignContacts)
                 .ThenInclude(cc => cc.Contact)
             .FirstOrDefaultAsync(c => c.Id == id);
@@ -83,9 +84,11 @@ public class CampaignService : ICampaignService
             UpdatedAt = campaign.UpdatedAt,
             Recipients = campaign.CampaignContacts.Select(cc => new CampaignRecipientResponse
             {
+                Id = cc.Id,
                 ContactId = cc.ContactId,
                 ContactName = cc.Contact.Name,
                 Phone = cc.Contact.Phone,
+                Message = BuildRecipientMessagePreview(campaign, cc),
                 Status = cc.Status.ToString(),
                 SentAt = cc.SentAt,
                 DeliveredAt = cc.DeliveredAt,
@@ -176,6 +179,80 @@ public class CampaignService : ICampaignService
         return MapToResponse(created!);
     }
 
+    public async Task<CampaignResponse> UpdateAsync(int id, CreateCampaignRequest request)
+    {
+        var campaign = await _dbContext.Campaigns
+            .Include(c => c.Template)
+            .Include(c => c.Variables)
+            .Include(c => c.CampaignContacts)
+            .FirstOrDefaultAsync(c => c.Id == id);
+
+        if (campaign == null)
+            throw new KeyNotFoundException($"Campaign with ID {id} not found.");
+
+        if (campaign.Status is CampaignStatus.Sending or CampaignStatus.Sent or CampaignStatus.Cancelled)
+            throw new InvalidOperationException("Your Campaign is already executed");
+
+        var template = await _dbContext.Templates.FindAsync(request.TemplateId);
+        if (template == null)
+            throw new KeyNotFoundException("Template not found.");
+        if (template.Status != TemplateStatus.Approved)
+            throw new InvalidOperationException("Can only use APPROVED templates for campaigns.");
+
+        var contactIds = await ResolveTargetContactIdsAsync(request);
+        if (contactIds.Count == 0)
+            throw new ArgumentException("No active contacts found for the selected targets.");
+
+        var scheduleType = Enum.Parse<ScheduleType>(request.ScheduleType, true);
+
+        campaign.Name = request.Name;
+        campaign.TemplateId = request.TemplateId;
+        campaign.RelationType = Enum.Parse<ContactType>(request.RelationType, true);
+        campaign.ScheduleType = scheduleType;
+        campaign.ScheduledAt = request.ScheduledAt;
+        campaign.Status = scheduleType == ScheduleType.Immediate ? CampaignStatus.Sending : CampaignStatus.Scheduled;
+        campaign.TotalRecipients = contactIds.Count;
+        campaign.DeliveredCount = 0;
+        campaign.ReadCount = 0;
+        campaign.FailedCount = 0;
+
+        _dbContext.CampaignVariables.RemoveRange(campaign.Variables);
+        campaign.Variables.Clear();
+        if (request.Variables != null)
+        {
+            foreach (var variable in request.Variables)
+            {
+                campaign.Variables.Add(new CampaignVariable
+                {
+                    VariableName = variable.VariableName,
+                    VariableValue = variable.VariableValue,
+                    MergeField = variable.MergeField
+                });
+            }
+        }
+
+        _dbContext.CampaignContacts.RemoveRange(campaign.CampaignContacts);
+        campaign.CampaignContacts.Clear();
+        foreach (var contactId in contactIds)
+        {
+            campaign.CampaignContacts.Add(new CampaignContact
+            {
+                ContactId = contactId,
+                Status = MessageStatus.Pending
+            });
+        }
+
+        await _dbContext.SaveChangesAsync();
+
+        if (scheduleType == ScheduleType.Immediate)
+        {
+            _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
+        }
+
+        var updated = await _dbContext.Campaigns.Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == campaign.Id);
+        return MapToResponse(updated!);
+    }
+
     public async Task DeleteAsync(int id)
     {
         var campaign = await _dbContext.Campaigns.FindAsync(id);
@@ -210,8 +287,11 @@ public class CampaignService : ICampaignService
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
 
-        if (campaign.Status is not (CampaignStatus.Scheduled or CampaignStatus.Sending))
-            throw new InvalidOperationException("Can only pause Scheduled or Sending campaigns.");
+        if (campaign.Status == CampaignStatus.Paused)
+            return MapToResponse(campaign);
+
+        if (campaign.Status != CampaignStatus.Scheduled)
+            throw new InvalidOperationException("Your Campaign is already executed");
 
         campaign.Status = CampaignStatus.Paused;
         await _dbContext.SaveChangesAsync();
@@ -226,16 +306,17 @@ public class CampaignService : ICampaignService
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
 
         if (campaign.Status != CampaignStatus.Paused)
-            throw new InvalidOperationException("Can only resume Paused campaigns.");
+            throw new InvalidOperationException("Only paused campaigns can be resumed.");
 
-        campaign.Status = campaign.ScheduleType == ScheduleType.Scheduled && campaign.ScheduledAt > DateTime.UtcNow 
-            ? CampaignStatus.Scheduled 
-            : CampaignStatus.Sending;
-            
-        await _dbContext.SaveChangesAsync();
-
-        if (campaign.Status == CampaignStatus.Sending)
+        if (campaign.ScheduleType == ScheduleType.Scheduled && campaign.ScheduledAt.HasValue && campaign.ScheduledAt > DateTime.UtcNow)
         {
+            campaign.Status = CampaignStatus.Scheduled;
+            await _dbContext.SaveChangesAsync();
+        }
+        else
+        {
+            campaign.Status = CampaignStatus.Sending;
+            await _dbContext.SaveChangesAsync();
             _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
         }
 
@@ -244,6 +325,14 @@ public class CampaignService : ICampaignService
 
     public async Task<PagedResponse<CampaignRecipientResponse>> GetRecipientsAsync(int campaignId, PagedRequest request)
     {
+        var campaign = await _dbContext.Campaigns
+            .Include(c => c.Template)
+            .Include(c => c.Variables)
+            .FirstOrDefaultAsync(c => c.Id == campaignId);
+
+        if (campaign == null)
+            throw new KeyNotFoundException($"Campaign with ID {campaignId} not found.");
+
         var query = _dbContext.CampaignContacts
             .Include(cc => cc.Contact)
             .Where(cc => cc.CampaignId == campaignId);
@@ -255,6 +344,13 @@ public class CampaignService : ICampaignService
             .Take(request.PageSize)
             .ToListAsync();
 
+        var campaignContactIds = items.Select(i => i.Id).ToList();
+        var chatMessageTextByContact = await _dbContext.ChatMessages
+            .Where(m => m.CampaignContactId.HasValue && campaignContactIds.Contains(m.CampaignContactId.Value))
+            .GroupBy(m => m.CampaignContactId!.Value)
+            .Select(g => new { CampaignContactId = g.Key, Text = g.OrderByDescending(m => m.Id).Select(m => m.Text).FirstOrDefault() })
+            .ToDictionaryAsync(m => m.CampaignContactId, m => m.Text ?? string.Empty);
+
         return new PagedResponse<CampaignRecipientResponse>
         {
             TotalCount = totalCount,
@@ -262,9 +358,13 @@ public class CampaignService : ICampaignService
             PageSize = request.PageSize,
             Items = items.Select(cc => new CampaignRecipientResponse
             {
+                Id = cc.Id,
                 ContactId = cc.ContactId,
                 ContactName = cc.Contact.Name,
                 Phone = cc.Contact.Phone,
+                Message = chatMessageTextByContact.TryGetValue(cc.Id, out var messageText) && !string.IsNullOrWhiteSpace(messageText)
+                    ? messageText
+                    : BuildRecipientMessagePreview(campaign, cc),
                 Status = cc.Status.ToString(),
                 SentAt = cc.SentAt,
                 DeliveredAt = cc.DeliveredAt,
@@ -296,6 +396,7 @@ public class CampaignService : ICampaignService
             using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var whatsAppService = scope.ServiceProvider.GetRequiredService<IWhatsAppService>();
+            var chatService = scope.ServiceProvider.GetRequiredService<IChatService>();
 
             var campaign = await dbContext.Campaigns
                 .Include(c => c.Template)
@@ -319,24 +420,31 @@ public class CampaignService : ICampaignService
                     messageVars[v.VariableName] = finalValue;
                 }
 
+                var previewText = BuildCampaignMessagePreview(campaign.Template.BodyText, messageVars);
+                var chatMessage = await chatService.CreateOrUpdateCampaignMessageAsync(campaign, cc, previewText);
+
                 // Send via WhatsApp API
-                var messageId = await whatsAppService.SendTemplateMessageAsync(
+                var sendResult = await whatsAppService.SendTemplateMessageWithResultAsync(
                     cc.Contact.Phone, 
                     campaign.Template.Name, 
                     campaign.Template.Language, 
                     messageVars);
 
-                if (messageId != null)
+                if (sendResult.Success && !string.IsNullOrWhiteSpace(sendResult.MessageId))
                 {
-                    cc.WhatsAppMessageId = messageId;
+                    cc.WhatsAppMessageId = sendResult.MessageId;
+                    await chatService.MarkCampaignMessageSentAsync(chatMessage.Id, sendResult.MessageId);
                     // Note: Status will be updated to Sent/Delivered/Read via webhook
                 }
                 else
                 {
                     cc.Status = MessageStatus.Failed;
-                    cc.ErrorMessage = "Failed to send via WhatsApp Cloud API";
+                    cc.ErrorMessage = sendResult.ErrorMessage ?? "Failed to send via WhatsApp Cloud API";
                     campaign.FailedCount++;
+                    await chatService.MarkCampaignMessageFailedAsync(chatMessage.Id, cc.ErrorMessage);
                 }
+
+                await dbContext.SaveChangesAsync();
 
                 // Add delay to respect rate limits (simple approach)
                 await Task.Delay(100); 
@@ -349,6 +457,60 @@ public class CampaignService : ICampaignService
         {
             _logger.LogError(ex, "Error processing campaign {CampaignId}", campaignId);
         }
+    }
+
+    private static string BuildCampaignMessagePreview(string bodyText, Dictionary<string, string> variables)
+    {
+        var preview = bodyText;
+        foreach (var variable in variables)
+        {
+            preview = preview.Replace("{{" + variable.Key + "}}", variable.Value);
+        }
+
+        return preview;
+    }
+
+    private async Task<HashSet<int>> ResolveTargetContactIdsAsync(CreateCampaignRequest request)
+    {
+        var contactIds = new HashSet<int>();
+
+        if (request.ContactIds != null)
+        {
+            foreach (var contactId in request.ContactIds)
+            {
+                contactIds.Add(contactId);
+            }
+        }
+
+        if (request.GroupIds != null && request.GroupIds.Any())
+        {
+            var groupContacts = await _dbContext.ContactGroupMembers
+                .Where(gm => request.GroupIds.Contains(gm.GroupId))
+                .Select(gm => gm.ContactId)
+                .ToListAsync();
+
+            foreach (var contactId in groupContacts)
+            {
+                contactIds.Add(contactId);
+            }
+        }
+
+        return contactIds;
+    }
+
+    private static string BuildRecipientMessagePreview(Campaign campaign, CampaignContact campaignContact)
+    {
+        var messageVars = new Dictionary<string, string>();
+        foreach (var variable in campaign.Variables)
+        {
+            var finalValue = variable.VariableValue ?? string.Empty;
+            if (variable.MergeField == "@name") finalValue = campaignContact.Contact.Name;
+            else if (variable.MergeField == "@phone") finalValue = campaignContact.Contact.Phone;
+
+            messageVars[variable.VariableName] = finalValue;
+        }
+
+        return BuildCampaignMessagePreview(campaign.Template.BodyText, messageVars);
     }
 
     private static CampaignResponse MapToResponse(Campaign c)

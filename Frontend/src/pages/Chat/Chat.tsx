@@ -1,34 +1,42 @@
-import React, { useEffect, useState, useRef } from 'react'
-import { useChatStore } from '../../store/chatStore'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import toast from 'react-hot-toast'
+import { useSearchParams } from 'react-router-dom'
+import {
+  AlertCircle,
+  Check,
+  CheckCheck,
+  Clock3,
+  FileText,
+  Info,
+  MessageCircle,
+  MessageSquare,
+  MoreVertical,
+  Paperclip,
+  Search,
+  Send,
+  Smile
+} from 'lucide-react'
 import { Avatar } from '../../components/Avatar/Avatar'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
-import toast from 'react-hot-toast'
-import { 
-  Search, 
-  Info, 
-  MessageSquare, 
-  MoreVertical, 
-  Smile, 
-  Paperclip, 
-  FileText, 
-  MessageCircle,
-  Mic, 
-  CheckCheck, 
-  AlertCircle 
-} from 'lucide-react'
+import { useChatStore } from '../../store/chatStore'
+import type { Message } from '../../types/chat'
 import './Chat.css'
 
 export const Chat: React.FC = () => {
+  const [searchParams] = useSearchParams()
   const {
+    accounts,
     conversations,
     activeConversationId,
     messages,
     isLoading,
+    isSending,
     fromNumber,
     conversationsFilter,
     sidebarSearchQuery,
-    
+    loadAccounts,
     loadConversations,
+    refreshActiveMessages,
     selectConversation,
     sendMessage,
     setFromNumber,
@@ -38,68 +46,103 @@ export const Chat: React.FC = () => {
 
   const [messageText, setMessageText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const requestedContactId = Number(searchParams.get('contactId') || 0)
 
   useEffect(() => {
+    loadAccounts()
     loadConversations()
-  }, [])
+  }, [loadAccounts, loadConversations])
 
-  // Auto scroll to bottom when message arrives
+  useEffect(() => {
+    if (accounts.length > 0) return
+
+    const interval = window.setInterval(() => {
+      loadAccounts()
+    }, 5000)
+
+    return () => window.clearInterval(interval)
+  }, [accounts.length, loadAccounts])
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      loadConversations()
+    }, 250)
+
+    return () => window.clearTimeout(timeout)
+  }, [sidebarSearchQuery, conversationsFilter, loadConversations])
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (activeConversationId) {
+        refreshActiveMessages()
+      } else {
+        loadConversations()
+      }
+    }, 2000)
+
+    return () => window.clearInterval(interval)
+  }, [activeConversationId, refreshActiveMessages, loadConversations])
+
+  useEffect(() => {
+    if (!requestedContactId || conversations.length === 0) return
+
+    const requestedConversation = conversations.find((conversation) => conversation.contactId === requestedContactId)
+    if (requestedConversation && requestedConversation.id !== activeConversationId) {
+      void selectConversation(requestedConversation.id)
+    }
+  }, [activeConversationId, conversations, requestedContactId, selectConversation])
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Filter sidebar conversation rows
-  const filteredConversations = conversations.filter((c) => {
-    // 1. Sidebar Search query
-    if (sidebarSearchQuery) {
-      const q = sidebarSearchQuery.toLowerCase()
-      if (!c.name.toLowerCase().includes(q) && !c.phone.includes(q)) return false
-    }
-    
-    // 2. Select dropdown filter
-    if (conversationsFilter === 'Unread Chats') {
-      if (c.unreadCount === 0) return false
-    }
-    
-    return true
-  })
+  const filteredConversations = useMemo(() => {
+    return conversations.filter((conversation) => {
+      if (sidebarSearchQuery) {
+        const q = sidebarSearchQuery.toLowerCase()
+        if (!conversation.name.toLowerCase().includes(q) && !conversation.phone.includes(q)) return false
+      }
 
-  // Handle composer submit
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!messageText.trim()) return
-    sendMessage(messageText.trim())
+      if (conversationsFilter === 'Unread Chats' && conversation.unreadCount === 0) {
+        return false
+      }
+
+      return true
+    })
+  }, [conversations, conversationsFilter, sidebarSearchQuery])
+
+  const activeConversation = conversations.find(c => c.id === activeConversationId)
+  const selectedAccount = accounts.find(account => account.phoneNumberId === fromNumber)
+
+  const sendCurrentMessage = async () => {
+    const text = messageText.trim()
+    if (!text || isSending) return
+
     setMessageText('')
+    await sendMessage(text)
+  }
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await sendCurrentMessage()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (messageText.trim()) {
-        sendMessage(messageText.trim())
-        setMessageText('')
-      }
+      void sendCurrentMessage()
     }
   }
 
-  // Get active conversation metadata details
-  const activeConversation = conversations.find(c => c.id === activeConversationId)
-
-  // Empty State Phone drawing SVG illustration
   const EmptyStateIllustration = () => (
     <svg className="chat-empty-state-illustration" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* Smartphone frame */}
       <rect x="65" y="20" width="70" height="140" rx="12" fill="#E2E8F0" stroke="#94A3B8" strokeWidth="3" />
       <line x1="90" y1="26" x2="110" y2="26" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" />
       <circle cx="100" cy="150" r="5" fill="#94A3B8" />
-      
-      {/* Outgoing bubble left */}
       <rect x="25" y="50" width="35" height="15" rx="6" fill="#D9FDD3" stroke="#A7F3D0" />
       <rect x="30" y="55" width="20" height="2" rx="1" fill="#047857" opacity="0.3" />
       <rect x="30" y="60" width="10" height="2" rx="1" fill="#047857" opacity="0.3" />
       <line x1="57" y1="62" x2="65" y2="65" stroke="#A7F3D0" />
-
-      {/* Incoming bubble right */}
       <rect x="140" y="80" width="35" height="15" rx="6" fill="#FFFFFF" stroke="#CBD5E1" />
       <rect x="145" y="85" width="20" height="2" rx="1" fill="#475569" opacity="0.2" />
       <rect x="145" y="90" width="15" height="2" rx="1" fill="#475569" opacity="0.2" />
@@ -109,21 +152,27 @@ export const Chat: React.FC = () => {
 
   return (
     <div className="fade-in chat-container-layout">
-      
-      {/* Left Conversations Sidebar */}
       <div className="chat-sidebar">
         <div className="chat-sidebar-header">
           <div className="chat-account-display-row">
-            <Avatar name="From Account" size="small" />
+            <Avatar name={selectedAccount?.verifiedName || selectedAccount?.phoneNumber || 'From Account'} size="small" />
             <div className="chat-dropdown-full">
               <span className="upload-sub-text">From:</span>
               <select
                 className="form-control"
                 value={fromNumber}
                 onChange={(e) => setFromNumber(e.target.value)}
+                disabled={accounts.length === 0}
               >
-                <option value="+60108052877">+60108052877</option>
-                <option value="+919499373415">+919499373415</option>
+                {accounts.length === 0 ? (
+                  <option value="">No WABA numbers connected</option>
+                ) : (
+                  accounts.map((account) => (
+                    <option key={account.phoneNumberId} value={account.phoneNumberId}>
+                      {account.phoneNumber || account.verifiedName || account.phoneNumberId}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           </div>
@@ -138,7 +187,6 @@ export const Chat: React.FC = () => {
           </select>
         </div>
 
-        {/* Sidebar Search query input */}
         <div className="chat-sidebar-search">
           <SearchBar
             value={sidebarSearchQuery}
@@ -147,59 +195,53 @@ export const Chat: React.FC = () => {
           />
         </div>
 
-        {/* Conversation rows list */}
         <div className="conversation-list-scroll">
           {isLoading && conversations.length === 0 ? (
             <div className="page-loader">
-              <p className="upload-sub-text">Loading...</p>
+              <p className="upload-sub-text">Loading chats...</p>
             </div>
           ) : filteredConversations.length === 0 ? (
             <div className="data-table-empty">
               <p className="upload-sub-text">No chats found</p>
             </div>
           ) : (
-            filteredConversations.map((conv) => {
-              const isActive = conv.id === activeConversationId
+            filteredConversations.map((conversation) => {
+              const isActive = conversation.id === activeConversationId
               return (
-                <div
-                  key={conv.id}
+                <button
+                  key={conversation.id}
+                  type="button"
                   className={`conversation-item ${isActive ? 'active' : ''}`}
-                  onClick={() => selectConversation(conv.id)}
+                  onClick={() => selectConversation(conversation.id)}
                 >
-                  <Avatar name={conv.name} size="medium" />
-                  
+                  <Avatar name={conversation.name} size="medium" />
                   <div className="conversation-info-row">
                     <div className="conversation-name-badge-row">
-                      <span className="conversation-contact-name">{conv.name}</span>
-                      <span className={`conversation-status-badge ${
-                        conv.status === 'lead' ? 'lead' : conv.status === 'customer' ? 'customer' : 'guest'
-                      }`}>
-                        {conv.status}
+                      <span className="conversation-contact-name">{conversation.name}</span>
+                      <span className={`conversation-status-badge ${normalizeBadge(conversation.status)}`}>
+                        {conversation.status || 'contact'}
                       </span>
                     </div>
-
                     <div className="conversation-msg-preview-row">
-                      <span className="conversation-preview-text">{conv.lastMessage}</span>
+                      <span className="conversation-preview-text">{conversation.lastMessage || 'No messages yet'}</span>
                       <div className="contacts-controls-left">
-                        <span className="conversation-time">{conv.lastMessageTime}</span>
-                        {conv.unreadCount > 0 && (
-                          <div className="unread-count-bubble">{conv.unreadCount}</div>
+                        <span className="conversation-time">{conversation.lastMessageTime}</span>
+                        {conversation.unreadCount > 0 && (
+                          <div className="unread-count-bubble">{conversation.unreadCount}</div>
                         )}
                       </div>
                     </div>
                   </div>
-                </div>
+                </button>
               )
             })
           )}
         </div>
       </div>
 
-      {/* Right Messages chat viewport */}
       <div className="chat-window">
         {activeConversation ? (
           <div className="chat-window-inner-layout">
-            {/* Active Header row */}
             <div className="chat-window-header">
               <div className="chat-header-user-info">
                 <Avatar name={activeConversation.name} size="medium" />
@@ -207,14 +249,11 @@ export const Chat: React.FC = () => {
                   <span className="conversation-contact-name">{activeConversation.name}</span>
                   <p className="upload-sub-text margin-zero">{activeConversation.phone}</p>
                 </div>
-                <span className={`conversation-status-badge ${
-                  activeConversation.status === 'lead' ? 'lead' : activeConversation.status === 'customer' ? 'customer' : 'guest'
-                }`}>
-                  {activeConversation.status}
+                <span className={`conversation-status-badge ${normalizeBadge(activeConversation.status)}`}>
+                  {activeConversation.status || 'contact'}
                 </span>
               </div>
 
-              {/* Header icons list */}
               <div className="chat-header-actions">
                 <Search size={18} className="chat-header-action-icon" />
                 <Info size={18} className="chat-header-action-icon" />
@@ -223,104 +262,164 @@ export const Chat: React.FC = () => {
               </div>
             </div>
 
-            {/* Chat background messages cards scroll */}
             <div className="chat-messages-container">
-              {messages.map((msg, index) => {
-                const isIncoming = msg.type === 'incoming'
-                const isFailed = msg.status === 'failed'
-                
-                // Dynamic injection of date dividers mimicking Screenshot 3
-                const showDate25 = index === 0
-                const showDate7 = msg.id === 4
+              {messages.length === 0 ? (
+                <div className="chat-empty-thread">
+                  <MessageCircle size={28} />
+                  <span>No messages yet</span>
+                </div>
+              ) : (
+                messages.map((message, index) => {
+                  const previous = messages[index - 1]
+                  const showDateDivider = shouldShowDateDivider(message, previous)
 
-                return (
-                  <div key={msg.id} className="chat-bubble-row">
-                    {/* Date Dividers */}
-                    {showDate25 && (
-                      <div className="chat-date-divider">25-June-2026</div>
-                    )}
-                    {showDate7 && (
-                      <div className="chat-date-divider">7-July-2026</div>
-                    )}
+                  return (
+                    <div key={message.id} className="chat-bubble-row">
+                      {showDateDivider && (
+                        <div className="chat-date-divider">{formatDateDivider(message.createdAt)}</div>
+                      )}
 
-                    {/* Chat Bubble card */}
-                    <div className={
-                      isIncoming 
-                        ? 'chat-bubble-incoming' 
-                        : isFailed 
-                          ? 'chat-bubble-failed' 
-                          : 'chat-bubble-outgoing'
-                    }>
-                      <p className="chat-bubble-text-outgoing">{msg.text}</p>
-                      
-                      <div className="chat-bubble-time-row">
-                        <span className="conversation-time">{msg.time}</span>
-                        {!isIncoming && (
-                          <span className={`chat-bubble-status-icon ${isFailed ? 'red-warning' : 'blue-ticks'}`}>
-                            {isFailed ? <AlertCircle size={12} /> : <CheckCheck size={12} />}
-                          </span>
-                        )}
+                      <div className={getBubbleClass(message)}>
+                        <p className="chat-bubble-text-outgoing">{message.text}</p>
+                        <div className="chat-bubble-time-row">
+                          <span className="conversation-time">{message.time}</span>
+                          {message.type === 'outgoing' && (
+                            <span
+                              className={`chat-bubble-status-icon ${getMessageStatusClass(message.status)}`}
+                              title={getMessageStatusTitle(message)}
+                            >
+                              {getStatusIcon(message)}
+                            </span>
+                          )}
+                        </div>
                       </div>
+
+                      {message.errorMessage && (
+                        <div className="chat-system-error-text">
+                          {message.errorMessage}
+                        </div>
+                      )}
                     </div>
-
-                    {/* Red system warning billing notification box */}
-                    {msg.errorMessage && (
-                      <div className="chat-system-error-text">
-                        <span>Message failed to send because your WhatsApp Business account has unsettled payments. Visit </span>
-                        <a 
-                          href="https://business.facebook.com/billing_hub/accounts/details/?business_id=4537482142127&asset_id=577285893804774&wizard_name=PAY_NOW&account_type=whatsapp-business-account"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          business.facebook.com/billing_hub
-                        </a>
-                        <span> to resolve this issue.</span>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+                  )
+                })
+              )}
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Chat composer bottom bar */}
             <form onSubmit={handleSend} className="chat-composer-container">
               <div className="chat-composer-input-row">
                 <textarea
                   className="chat-composer-textarea"
                   rows={1}
-                  placeholder={`Message to ${activeConversation.name} → Shift + Enter for newline, use @ to mention`}
+                  placeholder={`Message to ${activeConversation.name} - Shift + Enter for newline`}
                   value={messageText}
                   onChange={(e) => setMessageText(e.target.value)}
                   onKeyDown={handleKeyDown}
+                  disabled={isSending}
                 />
               </div>
 
               <div className="chat-composer-actions-row">
-                {/* Action buttons list */}
                 <div className="chat-composer-left-actions">
-                  <Smile size={18} className="chat-composer-icon" onClick={() => toast.success('Opening Emoji Picker...')} />
-                  <Paperclip size={18} className="chat-composer-icon" onClick={() => toast.success('Opening Attachments...')} />
-                  <FileText size={18} className="chat-composer-icon" onClick={() => toast.success('Opening Templates list...')} />
-                  <MessageCircle size={18} className="chat-composer-icon" onClick={() => toast.success('Opening Bot Flows...')} />
+                  <Smile size={18} className="chat-composer-icon" onClick={() => toast.success('Emoji picker coming soon')} />
+                  <Paperclip size={18} className="chat-composer-icon" onClick={() => toast.success('Attachments coming soon')} />
+                  <FileText size={18} className="chat-composer-icon" onClick={() => toast.success('Template picker coming soon')} />
+                  <MessageCircle size={18} className="chat-composer-icon" onClick={() => toast.success('Bot flows coming soon')} />
                 </div>
 
-                <button type="submit" className="chat-composer-voice-btn" aria-label="Send Message or Voice">
-                  <Mic size={18} />
+                <button
+                  type="submit"
+                  className="chat-composer-voice-btn"
+                  aria-label="Send message"
+                  disabled={!messageText.trim() || isSending}
+                >
+                  <Send size={18} />
                 </button>
               </div>
             </form>
           </div>
         ) : (
-          /* Empty Chat state */
           <div className="chat-empty-state-container">
             <EmptyStateIllustration />
             <span className="chat-empty-state-text">Click user to chat</span>
           </div>
         )}
       </div>
-
     </div>
   )
 }
+
+const normalizeBadge = (status: string) => {
+  const lower = status?.toLowerCase()
+  if (lower === 'lead') return 'lead'
+  if (lower === 'customer') return 'customer'
+  return 'guest'
+}
+
+const getBubbleClass = (message: Message) => {
+  if (message.type === 'incoming') return 'chat-bubble-incoming'
+  if (message.type === 'system' || message.status === 'failed') return 'chat-bubble-failed'
+  return 'chat-bubble-outgoing'
+}
+
+const getMessageStatusClass = (status?: string) => {
+  if (status === 'failed') return 'red-warning'
+  if (status === 'read') return 'blue-ticks'
+  if (status === 'sending') return 'pending-clock'
+  if (status === 'pending') return 'pending-clock'
+  return 'sent-ticks'
+}
+
+const getStatusIcon = (message: Message) => {
+  switch (message.status) {
+    case 'failed':
+      return <AlertCircle size={12} />
+    case 'sending':
+      return <Clock3 size={12} />
+    case 'pending':
+      return <Clock3 size={12} />
+    case 'sent':
+      return <Check size={12} />
+    case 'delivered':
+    case 'read':
+      return <CheckCheck size={12} />
+    default:
+      return <Clock3 size={12} />
+  }
+}
+
+const getMessageStatusTitle = (message: Message) => {
+  switch (message.status) {
+    case 'sending':
+      return 'Sending to Meta...'
+    case 'pending':
+      return message.whatsAppMessageId
+        ? 'Accepted by Meta. Waiting for WhatsApp delivery webhook.'
+        : 'Waiting for Meta response.'
+    case 'sent':
+      return 'Sent by Meta.'
+    case 'delivered':
+      return 'Delivered on WhatsApp.'
+    case 'read':
+      return 'Read on WhatsApp.'
+    case 'failed':
+      return message.errorMessage || 'Message failed.'
+    default:
+      return 'Message status pending.'
+  }
+}
+
+const shouldShowDateDivider = (message: Message, previous?: Message) => {
+  if (!previous) return true
+  return new Date(message.createdAt).toDateString() !== new Date(previous.createdAt).toDateString()
+}
+
+const formatDateDivider = (value: string) => {
+  return new Intl.DateTimeFormat('en', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  }).format(new Date(value))
+}
+
 export default Chat

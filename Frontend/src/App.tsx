@@ -18,6 +18,12 @@ const ImportContacts = lazy(() => import('./pages/Contacts/ImportContacts').then
 const TemplatesList = lazy(() => import('./pages/Templates/TemplatesList').then(m => ({ default: m.TemplatesList })))
 const BulkCampaign = lazy(() => import('./pages/BulkCampaign/BulkCampaign').then(m => ({ default: m.BulkCampaign })))
 const Chat = lazy(() => import('./pages/Chat/Chat').then(m => ({ default: m.Chat })))
+const MessageBotList = lazy(() => import('./pages/MessageBot/MessageBotList').then(m => ({ default: m.MessageBotList })))
+const MessageBotWizard = lazy(() => import('./pages/MessageBot/MessageBotWizard').then(m => ({ default: m.MessageBotWizard })))
+const TemplateBotList = lazy(() => import('./pages/TemplateBot/TemplateBotList').then(m => ({ default: m.TemplateBotList })))
+const TemplateBotWizard = lazy(() => import('./pages/TemplateBot/TemplateBotWizard').then(m => ({ default: m.TemplateBotWizard })))
+const BotFlowList = lazy(() => import('./pages/BotFlow/BotFlowList').then(m => ({ default: m.BotFlowList })))
+const BotFlowDesigner = lazy(() => import('./pages/BotFlow/BotFlowDesigner').then(m => ({ default: m.BotFlowDesigner })))
 
 // Reusable Loading Fallback
 const LoadingFallback: React.FC = () => (
@@ -49,9 +55,16 @@ const App: React.FC = () => {
             <Route path="/contacts/import" element={<ImportContacts />} />
             <Route path="/templates" element={<TemplatesList />} />
             <Route path="/bulk-campaigns" element={<BulkCampaign />} />
-            <Route path="/message-bot" element={<Placeholder />} />
-            <Route path="/template-bot" element={<Placeholder />} />
-            <Route path="/bot-flow" element={<Placeholder />} />
+            
+            <Route path="/message-bot" element={<MessageBotList />} />
+            <Route path="/message-bot/bot" element={<MessageBotWizard />} />
+            <Route path="/message-bot/bot/:id" element={<MessageBotWizard />} />
+
+            <Route path="/template-bot" element={<TemplateBotList />} />
+            <Route path="/template-bot/bot" element={<TemplateBotWizard />} />
+            <Route path="/template-bot/bot/:id" element={<TemplateBotWizard />} />
+            <Route path="/bot-flow" element={<BotFlowList />} />
+            <Route path="/bot-flow/designer/:id" element={<BotFlowDesigner />} />
             <Route path="/chat" element={<Chat />} />
             <Route path="/system-settings" element={<Placeholder />} />
             <Route path="/omniconnect-settings" element={<Placeholder />} />

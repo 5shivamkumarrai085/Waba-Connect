@@ -40,6 +40,11 @@ namespace WhatsAppCampaignApi.Services
             // Simulate the GET request Meta makes to verify the webhook
             try
             {
+                if (IsLocalWebhookUrl(config.WebhookUrl))
+                {
+                    return false;
+                }
+
                 var client = _httpClientFactory.CreateClient();
                 
                 string mode = "subscribe";
@@ -55,15 +60,21 @@ namespace WhatsAppCampaignApi.Services
                     return responseBody.Trim() == challenge;
                 }
                 
-                // Fallback simulation: If the user inputted localhost or has firewall/network blocking
-                // We'll fall back to verifying locally if the token matches
-                return verifyToken == config.VerifyToken;
+                return false;
             }
             catch
             {
-                // Fallback local verify
-                return verifyToken == config.VerifyToken;
+                return false;
             }
+        }
+
+        private static bool IsLocalWebhookUrl(string webhookUrl)
+        {
+            if (!Uri.TryCreate(webhookUrl, UriKind.Absolute, out var uri)) return true;
+
+            return uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                || uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+                || uri.Host.Equals("::1", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

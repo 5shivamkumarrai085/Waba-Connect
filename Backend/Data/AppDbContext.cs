@@ -15,12 +15,18 @@ public class AppDbContext : DbContext
     public DbSet<Campaign> Campaigns { get; set; } = null!;
     public DbSet<CampaignContact> CampaignContacts { get; set; } = null!;
     public DbSet<CampaignVariable> CampaignVariables { get; set; } = null!;
+    public DbSet<ChatConversation> ChatConversations { get; set; } = null!;
+    public DbSet<ChatMessage> ChatMessages { get; set; } = null!;
 
     // WABA Configuration
     public DbSet<WabaConfiguration> WabaConfigurations { get; set; } = null!;
     public DbSet<WabaPhoneNumber> WabaPhoneNumbers { get; set; } = null!;
     public DbSet<Business> Businesses { get; set; } = null!;
     public DbSet<HealthLog> HealthLogs { get; set; } = null!;
+    public DbSet<MessageBot> MessageBots { get; set; } = null!;
+    public DbSet<TemplateBot> TemplateBots { get; set; } = null!;
+    public DbSet<TemplateBotVariable> TemplateBotVariables { get; set; } = null!;
+    public DbSet<BotFlow> BotFlows { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -73,6 +79,50 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasOne(e => e.Campaign).WithMany(c => c.CampaignContacts).HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Contact).WithMany(c => c.CampaignContacts).HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Chat conversations
+        modelBuilder.Entity<ChatConversation>(entity =>
+        {
+            entity.HasIndex(e => e.ContactId).IsUnique();
+            entity.HasIndex(e => e.LastMessageAt);
+            entity.HasOne(e => e.Contact).WithMany().HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.WabaPhoneNumber).WithMany().HasForeignKey(e => e.WabaPhoneNumberId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // Chat messages
+        modelBuilder.Entity<ChatMessage>(entity =>
+        {
+            entity.HasIndex(e => e.WhatsAppMessageId);
+            entity.HasIndex(e => new { e.ConversationId, e.CreatedAt });
+            entity.Property(e => e.Direction).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
+            entity.HasOne(e => e.Conversation).WithMany(c => c.Messages).HasForeignKey(e => e.ConversationId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Contact).WithMany().HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Campaign).WithMany().HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(e => e.CampaignContact).WithMany().HasForeignKey(e => e.CampaignContactId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // MessageBot configurations
+        modelBuilder.Entity<MessageBot>(entity =>
+        {
+            entity.HasIndex(e => e.Name);
+            entity.HasIndex(e => e.TriggerKeyword);
+        });
+
+        // TemplateBot configurations
+        modelBuilder.Entity<TemplateBot>(entity =>
+        {
+            entity.HasIndex(e => e.Name);
+            entity.HasIndex(e => e.TriggerKeyword);
+            entity.HasOne(e => e.Template).WithMany().HasForeignKey(e => e.TemplateId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasMany(e => e.Variables).WithOne(v => v.TemplateBot).HasForeignKey(v => v.TemplateBotId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // BotFlow configurations
+        modelBuilder.Entity<BotFlow>(entity =>
+        {
+            entity.HasIndex(e => e.Name);
         });
     }
 

@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import { contactService } from '../services/contacts/contactService'
 import type { Contact, ContactFormModel } from '../types/contacts'
+import { getErrorMessage } from '../utils/errorHelper'
 
 interface ContactStoreState {
   contacts: Contact[]
@@ -170,7 +171,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       set({ contacts: fetched })
       return res
     } catch (err: any) {
-      return { success: false, count: 0, message: err?.message || 'Import failed.' }
+      return { success: false, count: 0, message: getErrorMessage(err, 'Import failed.') }
     } finally {
       set({ isLoading: false })
     }

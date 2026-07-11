@@ -11,6 +11,7 @@ public interface ICampaignService
     Task<PagedResponse<CampaignResponse>> GetAllAsync(PagedRequest request, string? status = null);
     Task<CampaignDetailResponse> GetByIdAsync(int id);
     Task<CampaignResponse> CreateAsync(CreateCampaignRequest request);
+    Task<CampaignResponse> UpdateAsync(int id, CreateCampaignRequest request);
     Task DeleteAsync(int id);
 
     /// <summary>
@@ -18,7 +19,14 @@ public interface ICampaignService
     /// </summary>
     Task<CampaignResponse> CancelAsync(int id);
 
+    /// <summary>
+    /// Pauses a campaign that has not executed yet.
+    /// </summary>
     Task<CampaignResponse> PauseAsync(int id);
+
+    /// <summary>
+    /// Resumes a paused campaign.
+    /// </summary>
     Task<CampaignResponse> ResumeAsync(int id);
 
     /// <summary>

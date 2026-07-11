@@ -66,9 +66,9 @@ export const CampaignDetails: React.FC = () => {
   const activeRecipients = (selectedRecipients || []).filter((r) => {
     // 1. Tab check
     if (currentDetailsTab === 'queue') {
-      if (r.sentStatus !== 'Pending') return false
+      if (!isQueuedRecipient(r.sentStatus)) return false
     } else {
-      if (r.sentStatus === 'Pending') return false
+      if (isQueuedRecipient(r.sentStatus)) return false
     }
 
     // 2. Search query check
@@ -97,8 +97,13 @@ export const CampaignDetails: React.FC = () => {
 
   const handlePauseToggle = async () => {
     if (!selectedCampaign) return
-    await toggleCampaignPause(selectedCampaign.id)
-    toast.success(`Campaign status switched!`)
+    try {
+      await toggleCampaignPause(selectedCampaign.id)
+      toast.success(selectedCampaign.status === 'Paused' ? 'Campaign resumed successfully.' : 'Campaign paused successfully.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update campaign status.'
+      toast.error(message)
+    }
   }
 
   return (
@@ -132,8 +137,8 @@ export const CampaignDetails: React.FC = () => {
           <span className="metadata-label">Status</span>
           <div>
             <StatusBadge 
-              type={selectedCampaign.status === 'Success' ? 'success' : selectedCampaign.status === 'Paused' ? 'warning' : 'info'} 
-              text={selectedCampaign.status} 
+              type={getCampaignStatusBadgeType(selectedCampaign.status)} 
+              text={formatCampaignStatus(selectedCampaign.status)} 
             />
           </div>
         </div>
@@ -275,9 +280,12 @@ export const CampaignDetails: React.FC = () => {
                     <td className="body-data-cell">{recipient.message}</td>
                     <td>
                       <StatusBadge 
-                        type={recipient.sentStatus === 'Sent' ? 'success' : recipient.sentStatus === 'Failed' ? 'error' : 'warning'} 
+                        type={getRecipientStatusBadgeType(recipient.sentStatus)} 
                         text={recipient.sentStatus} 
                       />
+                      {recipient.failedReason && (
+                        <div className="campaign-recipient-error">{recipient.failedReason}</div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -333,4 +341,28 @@ export const CampaignDetails: React.FC = () => {
     </div>
   )
 }
+
+const isQueuedRecipient = (status: string) => {
+  return ['Pending'].includes(status)
+}
+
+const getRecipientStatusBadgeType = (status: string) => {
+  if (['Sent', 'Delivered', 'Read'].includes(status)) return 'success'
+  if (status === 'Failed') return 'error'
+  return 'warning'
+}
+
+const getCampaignStatusBadgeType = (status: string) => {
+  if (['Sent', 'Success'].includes(status)) return 'success'
+  if (status === 'Paused') return 'warning'
+  if (['Failed', 'Cancelled'].includes(status)) return 'error'
+  return 'info'
+}
+
+const formatCampaignStatus = (status: string) => {
+  if (status === 'Sent') return 'Success'
+  if (status === 'Sending') return 'In Progress'
+  return status
+}
+
 export default CampaignDetails

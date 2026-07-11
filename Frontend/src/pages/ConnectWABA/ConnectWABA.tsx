@@ -210,7 +210,7 @@ export const ConnectWABA: React.FC = () => {
                 </div>
               </form>
 
-              {/* {isStep1Done && (
+              {isStep1Done && (
                 <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-light)', paddingTop: '16px' }}>
                   <div className="form-group">
                     <label className="waba-input-label">Callback URL</label>
@@ -221,7 +221,7 @@ export const ConnectWABA: React.FC = () => {
                     <CopyField value={verifyToken} isSensitive={true} />
                   </div>
                 </div>
-              )} */}
+              )}
             </div>
 
             {/* Step 2 */}

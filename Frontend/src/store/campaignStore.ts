@@ -99,15 +99,13 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
   resetWizard: () => set({ wizardForm: initialWizardForm, activeStep: 0 }),
   
   loadCampaigns: async () => {
-    const hasCache = get().campaigns.length > 0
-    if (!hasCache) {
-      set({ isLoading: true })
-    }
+    set({ isLoading: true })
     try {
       const fetched = await campaignService.getCampaigns()
-      set({ campaigns: fetched, isLoading: false })
+      set({ campaigns: fetched })
     } catch (err) {
       console.error('Error loading campaigns:', err)
+    } finally {
       set({ isLoading: false })
     }
   },
@@ -205,7 +203,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
   },
   
   toggleCampaignPause: async (id) => {
-    const camp = get().campaigns.find(c => c.id === id)
+    const camp = get().campaigns.find(c => c.id === id) || get().selectedCampaign
     if (!camp) return
     
     set({ isLoading: true })
@@ -222,7 +220,8 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
         const details = await campaignService.getCampaignDetails(id)
         set({
           selectedCampaign: details.campaign,
-          selectedStats: details.statistics
+          selectedStats: details.statistics,
+          selectedRecipients: details.recipients
         })
       }
       

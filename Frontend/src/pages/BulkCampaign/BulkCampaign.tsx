@@ -3,6 +3,7 @@ import { UploadArea } from '../../components/UploadArea/UploadArea'
 import { campaignUploadService } from '../../services/campaigns/campaignUploadService'
 import toast from 'react-hot-toast'
 import './BulkCampaign.css'
+import { getErrorMessage } from '../../utils/errorHelper'
 
 export const BulkCampaign: React.FC = () => {
   const [campaignName, setCampaignName] = useState('')
@@ -31,8 +32,8 @@ export const BulkCampaign: React.FC = () => {
       } else {
         toast.error(res.message)
       }
-    } catch (err) {
-      toast.error('Error uploading bulk campaign CSV.')
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Error uploading bulk campaign CSV.'))
     } finally {
       setIsUploading(false)
     }

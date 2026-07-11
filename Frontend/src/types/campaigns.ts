@@ -8,6 +8,7 @@ export interface Campaign {
   total: number
   deliveredTo: number
   readBy: number
+  failedCount: number
   status: string // e.g. 'Success', 'Paused', 'draft'
   createdAt: string
   scheduledAt?: string
@@ -26,10 +27,12 @@ export interface CampaignStatistics {
 
 export interface CampaignRecipient {
   id: number
+  contactId: number
   name: string
   phone: string
   message: string
   sentStatus: string // e.g. 'Sent', 'Failed', 'Pending'
+  failedReason?: string | null
 }
 
 export interface CampaignWizardForm {

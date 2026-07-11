@@ -28,6 +28,10 @@ builder.Services.AddScoped<IContactService, ContactService>();
 builder.Services.AddScoped<IContactGroupService, ContactGroupService>();
 builder.Services.AddScoped<ITemplateService, TemplateService>();
 builder.Services.AddScoped<ICampaignService, CampaignService>();
+builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IMessageBotService, MessageBotService>();
+builder.Services.AddScoped<ITemplateBotService, TemplateBotService>();
+builder.Services.AddScoped<IBotFlowService, BotFlowService>();
 builder.Services.AddHttpClient<IWhatsAppService, WhatsAppCloudApiService>();
 builder.Services.AddHostedService<CampaignSchedulerService>();
 

@@ -481,10 +481,11 @@ export const ConnectWABA: React.FC = () => {
 
       <ConfirmationModal
         isOpen={isDisconnectModalOpen}
-        title="Disconnect WABA Account"
-        message="Are you sure you want to disconnect your WhatsApp Business Account? This action cannot be undone and will stop all ongoing campaigns."
+        title="Disconnect Account"
+        message="Are You Sure You Want to Disconnect?"
         confirmText="Disconnect"
         isDestructive={true}
+        showWarningIcon={true}
         onConfirm={confirmDisconnect}
         onCancel={() => setIsDisconnectModalOpen(false)}
       />

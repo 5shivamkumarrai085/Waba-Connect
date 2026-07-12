@@ -431,21 +431,21 @@ export const AddContact: React.FC = () => {
                       ))}
                     </select>
                   </div>
-                </div>
 
-                {/* Groups field */}
-                <div className="form-group margin-top-20">
-                  <label className="form-label">Assign to Groups</label>
-                  <select
-                    className="form-control"
-                    value={selectedGroups}
-                    onChange={(e) => setSelectedGroups(e.target.value)}
-                  >
-                    <option value="">Select Groups</option>
-                    {groups.map(g => (
-                      <option key={g.id} value={g.name}>{g.name}</option>
-                    ))}
-                  </select>
+                  {/* Groups field */}
+                  <div className="form-group">
+                    <label className="form-label">Assign to Groups</label>
+                    <select
+                      className="form-control"
+                      value={selectedGroups}
+                      onChange={(e) => setSelectedGroups(e.target.value)}
+                    >
+                      <option value="">Select Groups</option>
+                      {groups.map(g => (
+                        <option key={g.id} value={g.name}>{g.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
             )}

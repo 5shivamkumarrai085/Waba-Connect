@@ -1,4 +1,5 @@
 import React from 'react'
+import { AlertTriangle } from 'lucide-react'
 import './ConfirmationModal.css'
 
 interface ConfirmationModalProps {
@@ -10,6 +11,7 @@ interface ConfirmationModalProps {
   onConfirm: () => void
   onCancel: () => void
   isDestructive?: boolean
+  showWarningIcon?: boolean
 }
 
 export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
@@ -20,14 +22,22 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   cancelText = 'Cancel',
   onConfirm,
   onCancel,
-  isDestructive = false
+  isDestructive = false,
+  showWarningIcon = false
 }) => {
   if (!isOpen) return null
 
   return (
     <div className="modal-overlay">
       <div className="modal-container fade-in-up">
-        <h3 className="modal-title">{title}</h3>
+        <div className="modal-header-row">
+          {showWarningIcon && (
+            <div className="modal-icon-wrapper destructive">
+              <AlertTriangle size={20} />
+            </div>
+          )}
+          <h3 className="modal-title">{title}</h3>
+        </div>
         <p className="modal-message">{message}</p>
         <div className="modal-actions">
           <button className="btn-modal-cancel" onClick={onCancel}>

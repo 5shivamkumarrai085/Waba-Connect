@@ -196,7 +196,7 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
             businessId: dashboard.business?.businessId || '',
             businessStatus: dashboard.business?.status || 'AVAILABLE',
             appId: dashboard.facebookAppId || '',
-            appStatus: dashboard.latestHealthLog?.status || 'AVAILABLE'
+            appStatus: dashboard.latestHealthLog?.appStatus || 'AVAILABLE'
           }
         })
       }

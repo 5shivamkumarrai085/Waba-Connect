@@ -31,9 +31,9 @@
 
 /* Table Controls container card wrapper */
 .contacts-card {
-  background-color: #ffffff;
+  background-color: var(--bg-secondary);
   border-radius: var(--radius-sm); /* 6px */
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-color);
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   padding: 16px 20px;
 }
@@ -61,17 +61,17 @@
   width: 36px;
   height: 35px;
   border-radius: 4px;
-  border: 1px solid #cbd5e1;
-  background-color: #ffffff;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
   color: var(--text-muted);
   cursor: pointer;
   transition: var(--transition-fast);
 }
 
 .btn-control-icon:hover {
-  background-color: #f1f5f9;
+  background-color: var(--bg-hover);
   color: var(--primary);
-  border-color: #94a3b8;
+  border-color: var(--text-muted);
 }
 
 .btn-bulk-delete {
@@ -173,15 +173,15 @@
   justify-content: space-between;
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--border-color);
 }
 
 .contacts-pager-size-select {
   height: 35px;
   padding: 0 32px 0 12px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
-  background-color: #ffffff;
+  background-color: var(--bg-secondary);
   font-family: var(--font-family);
   font-size: 13px;
   color: var(--text-main);

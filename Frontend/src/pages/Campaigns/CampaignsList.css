@@ -20,10 +20,10 @@
   grid-template-columns: 1fr 1fr 1fr;
   gap: 16px;
   margin-bottom: 20px;
-  background-color: #fafbfc;
+  background-color: var(--bg-primary);
   padding: 16px;
   border-radius: var(--radius-md);
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border-color);
   align-items: end;
 }
 

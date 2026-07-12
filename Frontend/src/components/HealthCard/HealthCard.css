@@ -132,9 +132,15 @@
   text-transform: uppercase;
 }
 
-.health-status-badge.available {
+.health-status-badge.available,
+.health-status-badge.approved {
   background-color: #d1fae5;
   color: #065f46;
+}
+
+.health-status-badge.partial {
+  background-color: #fef3c7;
+  color: #92400e;
 }
 
 .health-status-badge.unavailable {

@@ -139,3 +139,26 @@ a {
   }
 }
 
+/* Base Themes (Dark) Overrides */
+.dark-theme {
+  --bg-primary: #0f172a;       /* Dark slate main background */
+  --bg-secondary: #1e293b;     /* Lighter slate card/modal background */
+  --bg-hover: #334155;         /* Hover background */
+  
+  --primary: #818cf8;          /* Brighter purple/indigo accent for dark visibility */
+  --primary-hover: #6366f1;
+  --primary-light: rgba(129, 140, 248, 0.15);
+  
+  --text-main: #f8fafc;        /* White text */
+  --text-muted: #94a3b8;       /* Slate text */
+  --text-light: #64748b;       /* Muted grey text */
+  --text-dark: #f8fafc;
+  
+  --border-color: #334155;     /* Dark slate border color */
+  --border-light: #1e293b;     /* Secondary border color */
+  
+  /* Additional tokens for compatibility */
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+}
+

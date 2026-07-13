@@ -17,7 +17,8 @@ export const contactService = {
       const response = await apiClient.get('/Contacts', {
         params: { pageSize: 10000 }
       })
-      return response.data?.data?.items || []
+      const items = response.data?.data?.items || []
+      return items.map(mapContact)
     } catch (error) {
       console.error('Failed to get contacts', error)
       return []
@@ -124,7 +125,7 @@ export const contactService = {
     }
 
     const response = await apiClient.post('/Contacts', payload)
-    return response.data?.data
+    return mapContact(response.data?.data)
   },
 
   updateContact: async (id: number, form: ContactFormModel): Promise<Contact> => {
@@ -153,7 +154,7 @@ export const contactService = {
     }
 
     const response = await apiClient.put(`/Contacts/${id}`, payload)
-    return response.data?.data
+    return mapContact(response.data?.data)
   },
 
   deleteContact: async (id: number): Promise<void> => {
@@ -162,7 +163,7 @@ export const contactService = {
 
   toggleActive: async (id: number): Promise<Contact> => {
     const response = await apiClient.patch(`/Contacts/${id}/toggle-active`)
-    return response.data?.data
+    return mapContact(response.data?.data)
   },
 
   importContacts: async (_fileContent: string): Promise<{ success: boolean; count: number; message: string }> => {
@@ -171,5 +172,13 @@ export const contactService = {
       count: 0,
       message: 'Import not implemented in backend.'
     })
+  }
+}
+
+const mapContact = (c: any): Contact => {
+  if (!c) return c
+  return {
+    ...c,
+    active: c.isActive ?? c.active ?? true
   }
 }

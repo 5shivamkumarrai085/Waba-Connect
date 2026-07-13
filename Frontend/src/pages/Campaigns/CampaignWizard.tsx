@@ -87,7 +87,7 @@ export const CampaignWizard: React.FC = () => {
         if (!isMounted) return
 
         setTemplatesList(tpls)
-        setContactsList(cts)
+        setContactsList(cts.filter((c: any) => c.active !== false))
         setStatuses(stats)
         setSources(srcs)
 

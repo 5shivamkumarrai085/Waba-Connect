@@ -24,7 +24,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   const sizeClass = size === 'large' ? 'avatar-large' : size === 'small' ? 'avatar-small' : ''
 
   return (
-    <div className={`avatar-wrapper ${sizeClass}`} title={name}>
+    <div className={`avatar-wrapper ${sizeClass}`} {...(name ? { title: name } : {})}>
       {url ? (
         <img src={url} alt={name} />
       ) : name ? (

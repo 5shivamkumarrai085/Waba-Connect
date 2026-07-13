@@ -29,6 +29,8 @@ export interface Contact {
   zipCode?: string
   address?: string
   description?: string
+  assignedTo?: string
+  isActive?: boolean
 }
 
 export interface ContactStatus {

@@ -21,13 +21,14 @@ public class ContactService : IContactService
     public async Task<PagedResponse<ContactResponse>> GetAllAsync(PagedRequest request, string? type = null, string? status = null, bool? isActive = null)
     {
         var query = _dbContext.Contacts
+            .IgnoreQueryFilters()
             .Include(c => c.GroupMemberships)
                 .ThenInclude(gm => gm.Group)
             .AsQueryable();
 
-        if (isActive.HasValue && !isActive.Value)
+        if (isActive.HasValue)
         {
-            query = query.IgnoreQueryFilters().Where(c => c.IsActive == false);
+            query = query.Where(c => c.IsActive == isActive.Value);
         }
 
         if (!string.IsNullOrEmpty(type) && Enum.TryParse<ContactType>(type, true, out var parsedType))
@@ -83,6 +84,7 @@ public class ContactService : IContactService
     public async Task<ContactResponse> GetByIdAsync(int id)
     {
         var contact = await _dbContext.Contacts
+            .IgnoreQueryFilters()
             .Include(c => c.GroupMemberships)
                 .ThenInclude(gm => gm.Group)
             .FirstOrDefaultAsync(c => c.Id == id);
@@ -96,6 +98,7 @@ public class ContactService : IContactService
     public async Task<List<ContactResponse>> GetByIdsAsync(List<int> ids)
     {
         var contacts = await _dbContext.Contacts
+            .IgnoreQueryFilters()
             .Include(c => c.GroupMemberships)
                 .ThenInclude(gm => gm.Group)
             .Where(c => ids.Contains(c.Id))
@@ -142,6 +145,7 @@ public class ContactService : IContactService
     public async Task<ContactResponse> UpdateAsync(int id, UpdateContactRequest request)
     {
         var contact = await _dbContext.Contacts
+            .IgnoreQueryFilters()
             .Include(c => c.GroupMemberships)
             .FirstOrDefaultAsync(c => c.Id == id);
 
@@ -184,7 +188,7 @@ public class ContactService : IContactService
 
     public async Task DeleteAsync(int id)
     {
-        var contact = await _dbContext.Contacts.FindAsync(id);
+        var contact = await _dbContext.Contacts.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Id == id);
         if (contact == null)
             throw new KeyNotFoundException($"Contact with ID {id} not found.");
 

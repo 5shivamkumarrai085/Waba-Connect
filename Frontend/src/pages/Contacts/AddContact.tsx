@@ -48,7 +48,8 @@ export const AddContact: React.FC = () => {
   const [company, setCompany] = useState('')
   const [typeVal, setTypeVal] = useState('')
   const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
+  const [selectedDialCodeVal, setSelectedDialCodeVal] = useState('+91')
+  const [localPhone, setLocalPhone] = useState('')
   const [website, setWebsite] = useState('')
   const [languageVal, setLanguageVal] = useState('')
   const [selectedGroups, setSelectedGroups] = useState('')
@@ -95,7 +96,7 @@ export const AddContact: React.FC = () => {
           if (contact) {
             setStatusVal(contact.status || '')
             setSourceVal(contact.source || '')
-            setAssignedVal(contact.assignedUser?.id || '')
+            setAssignedVal(contact.assignedTo || '')
             if (contact.name && !contact.firstName && !contact.lastName) {
               const parts = contact.name.split(' ')
               setFirstName(parts[0] || '')
@@ -107,7 +108,19 @@ export const AddContact: React.FC = () => {
             setCompany(contact.company || '')
             setTypeVal(contact.type || '')
             setEmail(contact.email || '')
-            setPhone(contact.phone || '')
+            const fullPhone = contact.phone || ''
+            let matchedDialCode = '+91'
+            let matchedLocal = fullPhone
+            const sortedCountries = [...fetchedCountries].sort((a, b) => b.dialCode.length - a.dialCode.length)
+            for (const c of sortedCountries) {
+              if (fullPhone.startsWith(c.dialCode)) {
+                matchedDialCode = c.dialCode
+                matchedLocal = fullPhone.slice(c.dialCode.length)
+                break
+              }
+            }
+            setSelectedDialCodeVal(matchedDialCode)
+            setLocalPhone(matchedLocal)
             setWebsite(contact.website || '')
             setLanguageVal(contact.language || '')
             setSelectedGroups(Array.isArray(contact.groups) ? contact.groups[0]?.id || '' : contact.groups || '')
@@ -134,7 +147,7 @@ export const AddContact: React.FC = () => {
     const newErrors: Record<string, string> = {}
     if (!firstName) newErrors.firstName = 'First Name is required.'
     if (!lastName) newErrors.lastName = 'Last Name is required.'
-    if (!phone) newErrors.phone = 'Phone is required.'
+    if (!localPhone) newErrors.phone = 'Phone is required.'
     if (!typeVal) newErrors.typeVal = 'Type is required.'
     if (!statusVal) newErrors.statusVal = 'Status is required.'
     if (!sourceVal) newErrors.sourceVal = 'Source is required.'
@@ -159,7 +172,7 @@ export const AddContact: React.FC = () => {
         company,
         type: typeVal,
         email,
-        phone,
+        phone: selectedDialCodeVal + localPhone,
         website,
         language: languageVal,
         groups: selectedGroups,
@@ -213,28 +226,7 @@ export const AddContact: React.FC = () => {
     }
   }
 
-  const getSelectedDialCode = () => {
-    const sortedCountries = [...countriesList].sort((a, b) => b.dialCode.length - a.dialCode.length);
-    for (const c of sortedCountries) {
-      if (phone.startsWith(c.dialCode)) {
-        return c.dialCode;
-      }
-    }
-    return '+91'; // default to India (+91)
-  }
 
-  const handlePhoneCountryChange = (dialCode: string) => {
-    let nationalNumber = phone;
-    const sortedCountries = [...countriesList].sort((a, b) => b.dialCode.length - a.dialCode.length);
-    for (const c of sortedCountries) {
-      if (phone.startsWith(c.dialCode)) {
-        nationalNumber = phone.slice(c.dialCode.length);
-        break;
-      }
-    }
-    nationalNumber = nationalNumber.replace(/^\+/, '');
-    setPhone(dialCode + nationalNumber);
-  }
 
   return (
     <div className="fade-in">
@@ -381,8 +373,8 @@ export const AddContact: React.FC = () => {
                     <div className="phone-input-container">
                       <select
                         className="phone-country-select"
-                        value={getSelectedDialCode()}
-                        onChange={(e) => handlePhoneCountryChange(e.target.value)}
+                        value={selectedDialCodeVal}
+                        onChange={(e) => setSelectedDialCodeVal(e.target.value)}
                       >
                         {countriesList.length === 0 ? (
                           <option value="+91">🇮🇳 IN (+91)</option>
@@ -397,9 +389,9 @@ export const AddContact: React.FC = () => {
                       <input
                         type="text"
                         className={`form-control phone-input ${errors.phone ? 'is-invalid' : ''}`}
-                        placeholder=""
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="Enter phone number"
+                        value={localPhone}
+                        onChange={(e) => setLocalPhone(e.target.value.replace(/[^0-9]/g, ''))}
                         disabled={isSaving}
                         required
                       />
@@ -486,7 +478,7 @@ export const AddContact: React.FC = () => {
                         setCountryVal(val)
                         const matched = countriesList.find(c => c.id === val || c.name === val)
                         if (matched && matched.dialCode) {
-                          setPhone(matched.dialCode)
+                          setSelectedDialCodeVal(matched.dialCode)
                         }
                       }}
                       disabled={isViewMode}

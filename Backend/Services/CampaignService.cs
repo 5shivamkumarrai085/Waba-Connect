@@ -414,6 +414,10 @@ public class CampaignService : ICampaignService
 
             foreach (var cc in campaign.CampaignContacts)
             {
+                if (cc.Contact == null)
+                {
+                    continue;
+                }
                 // Process merge fields for this specific contact
                 var messageVars = new Dictionary<string, string>();
                 foreach (var v in campaign.Variables)
@@ -506,6 +510,10 @@ public class CampaignService : ICampaignService
 
     private static string BuildRecipientMessagePreview(Campaign campaign, CampaignContact campaignContact)
     {
+        if (campaignContact.Contact == null)
+        {
+            return "[Inactive Contact]";
+        }
         var messageVars = new Dictionary<string, string>();
         string? attachmentUrl = null;
         foreach (var variable in campaign.Variables)

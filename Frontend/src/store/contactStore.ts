@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { contactService } from '../services/contacts/contactService'
 import type { Contact, ContactFormModel } from '../types/contacts'
 import { getErrorMessage } from '../utils/errorHelper'
+import toast from 'react-hot-toast'
 
 interface ContactStoreState {
   contacts: Contact[]
@@ -155,11 +156,23 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
     const target = contacts.find(c => c.id === id)
     if (!target) return
     
-    console.log(`[API Calling] PUT /api/contacts/${id}/toggle-active`, !target.active)
-    
-    set({
-      contacts: contacts.map(c => c.id === id ? { ...c, active: !c.active } : c)
-    })
+    try {
+      const updatedContact = await contactService.toggleActive(id)
+      const mappedContact = { ...updatedContact, active: updatedContact.isActive ?? updatedContact.active ?? true }
+      
+      set({
+        contacts: contacts.map(c => c.id === id ? mappedContact : c)
+      })
+      
+      if (mappedContact.active) {
+        toast.success('user enabled successfully')
+      } else {
+        toast.success('user disabled successfully')
+      }
+    } catch (err: any) {
+      console.error('Error toggling contact active state:', err)
+      toast.error(getErrorMessage(err, 'Failed to update user active status.'))
+    }
   },
   
   importContacts: async (fileContent) => {

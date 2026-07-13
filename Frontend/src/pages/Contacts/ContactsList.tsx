@@ -19,6 +19,16 @@ import toast from 'react-hot-toast'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { Skeleton } from '../../components/Skeleton'
 import './ContactsList.css'
+import { formatRelativeTime } from '../../utils/dateHelper'
+
+const getAssignedName = (assignedTo?: string) => {
+  if (!assignedTo) return 'Unassigned'
+  const lower = assignedTo.toLowerCase()
+  if (lower === 'superadmin') return 'superAdmin'
+  if (lower === 'johnmicheal') return 'John Micheal'
+  if (lower === 'gunaratnam') return 'Gunaratnam'
+  return assignedTo
+}
 
 export const ContactsList: React.FC = () => {
   const navigate = useNavigate()
@@ -44,6 +54,7 @@ export const ContactsList: React.FC = () => {
   } = useContactStore()
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
 
   useEffect(() => {
     loadContacts()
@@ -80,19 +91,24 @@ export const ContactsList: React.FC = () => {
   const confirmBulkDelete = async () => {
     setIsDeleteModalOpen(false)
     await deleteSelected()
-    toast.success('Selected contacts deleted.')
+    toast.success('user deleted successfully')
+  }
+
+  const confirmSingleDelete = async () => {
+    if (!deleteTarget) return
+    const { id } = deleteTarget
+    setDeleteTarget(null)
+    try {
+      await contactService.deleteContact(id)
+      toast.success('user deleted successfully')
+      await loadContacts()
+    } catch (err) {
+      toast.error('Failed to delete contact.')
+    }
   }
 
   const handleDeleteContact = async (id: number, name: string) => {
-    if (window.confirm(`Are you sure you want to delete contact "${name}"?`)) {
-      try {
-        await contactService.deleteContact(id)
-        toast.success('Contact deleted successfully!')
-        await loadContacts()
-      } catch (err) {
-        toast.error('Failed to delete contact.')
-      }
-    }
+    setDeleteTarget({ id, name })
   }
 
   const handleBulkChat = () => {
@@ -325,8 +341,10 @@ export const ContactsList: React.FC = () => {
 
                       {/* Assigned avatar column */}
                       {visibleColumns.assigned !== false && (
-                        <td className="text-center">
-                          <Avatar name="" size="small" />
+                        <td className="text-center" title={getAssignedName(contact.assignedTo)}>
+                          <div title={getAssignedName(contact.assignedTo)} style={{ display: 'inline-block' }}>
+                            <Avatar name="" size="small" />
+                          </div>
                         </td>
                       )}
 
@@ -383,7 +401,7 @@ export const ContactsList: React.FC = () => {
 
                       {/* Created At column */}
                       {visibleColumns.createdAt !== false && (
-                        <td>{contact.createdAt}</td>
+                        <td>{formatRelativeTime(contact.createdAt)}</td>
                       )}
                     </tr>
                   )
@@ -438,13 +456,20 @@ export const ContactsList: React.FC = () => {
       </div>
 
       <ConfirmationModal
-        isOpen={isDeleteModalOpen}
-        title="Delete Contacts"
-        message={`Are you sure you want to delete ${selectedIds.length} selected contacts? This action cannot be undone.`}
+        isOpen={isDeleteModalOpen || deleteTarget !== null}
+        title="Delete Contact"
+        message={
+          deleteTarget 
+            ? `Are you sure you want to delete contact "${deleteTarget.name}"?` 
+            : `Are you sure you want to delete ${selectedIds.length} selected contacts? This action cannot be undone.`
+        }
         confirmText="Delete"
         isDestructive={true}
-        onConfirm={confirmBulkDelete}
-        onCancel={() => setIsDeleteModalOpen(false)}
+        onConfirm={deleteTarget ? confirmSingleDelete : confirmBulkDelete}
+        onCancel={() => {
+          setIsDeleteModalOpen(false)
+          setDeleteTarget(null)
+        }}
       />
     </div>
   )

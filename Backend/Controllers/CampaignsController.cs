@@ -87,4 +87,49 @@ public class CampaignsController : ControllerBase
         var data = await _campaignService.GetRecipientsAsync(id, request);
         return Ok(new ApiResponse<PagedResponse<CampaignRecipientResponse>> { Success = true, Data = data });
     }
+
+    [HttpPost("upload")]
+    [Consumes("multipart/form-data")]
+    public async Task<ActionResult<ApiResponse<UploadResponse>>> UploadFile(IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new ApiResponse<UploadResponse> { Success = false, Message = "No file uploaded." });
+        }
+
+        var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
+        if (!Directory.Exists(uploadsFolder))
+        {
+            Directory.CreateDirectory(uploadsFolder);
+        }
+
+        var uniqueFileName = $"{Guid.NewGuid()}_{Path.GetFileName(file.FileName)}";
+        var filePath = Path.Combine(uploadsFolder, uniqueFileName);
+
+        using (var fileStream = new FileStream(filePath, FileMode.Create))
+        {
+            await file.CopyToAsync(fileStream);
+        }
+
+        var requestScheme = Request.Scheme;
+        var requestHost = Request.Host.Value;
+        var fileUrl = $"{requestScheme}://{requestHost}/uploads/{uniqueFileName}";
+
+        return Ok(new ApiResponse<UploadResponse>
+        {
+            Success = true,
+            Data = new UploadResponse
+            {
+                Url = fileUrl,
+                FileName = file.FileName
+            },
+            Message = "File uploaded successfully."
+        });
+    }
+}
+
+public class UploadResponse
+{
+    public string Url { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
 }

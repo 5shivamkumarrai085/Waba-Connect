@@ -36,7 +36,7 @@ export const campaignService = {
     }
   },
 
-  getCampaignDetails: async (id: number): Promise<{ campaign: Campaign; statistics: CampaignStatistics; recipients: CampaignRecipient[] }> => {
+  getCampaignDetails: async (id: number): Promise<{ campaign: Campaign; statistics: CampaignStatistics; recipients: CampaignRecipient[]; variables?: any[] }> => {
     try {
       const [detailsRes, recipientsRes] = await Promise.all([
         apiClient.get(`/Campaigns/${id}`),
@@ -73,7 +73,8 @@ export const campaignService = {
           deliveredAt: r.deliveredAt || '-',
           readAt: r.readAt || '-',
           failedReason: r.errorMessage || null
-        }))
+        })),
+        variables: c.variables || []
       }
     } catch (error) {
       console.error(`Failed to get campaign details for ${id}:`, error)
@@ -118,6 +119,17 @@ export const campaignService = {
     } catch (error) {
       throw new Error(getApiErrorMessage(error))
     }
+  },
+
+  uploadFile: async (file: File): Promise<{ url: string; fileName: string }> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await apiClient.post('/Campaigns/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+    return response.data?.data
   }
 }
 export default campaignService
@@ -128,5 +140,6 @@ const buildCampaignPayload = (form: CampaignWizardForm) => ({
   relationType: form.relationType,
   scheduleType: form.sendImmediately ? 'Immediate' : 'Scheduled',
   scheduledAt: form.sendImmediately || !form.scheduledTime ? null : new Date(form.scheduledTime).toISOString(),
-  contactIds: form.selectedContactIds
+  contactIds: form.selectedContactIds,
+  variables: form.variables || []
 })

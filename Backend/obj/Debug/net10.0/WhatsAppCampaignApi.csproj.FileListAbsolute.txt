@@ -421,3 +421,4 @@ C:/Users/Ashok-windows/Downloads/Waba/Backend/obj/Debug/net10.0/ref/WhatsAppCamp
 /Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/WhatsAppCampaignApi.pdb
 /Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/WhatsAppCampaignApi.genruntimeconfig.cache
 /Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/ref/WhatsAppCampaignApi.dll
+/Users/tusharvashisht/Downloads/WabaConnect/Backend/bin/Debug/net10.0/WhatsAppCampaignApi.staticwebassets.runtime.json

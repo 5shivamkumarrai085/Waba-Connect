@@ -148,7 +148,9 @@ export const CampaignDetails: React.FC = () => {
         </div>
         <div className="metadata-item">
           <span className="metadata-label">Scheduled At</span>
-          <span className="metadata-value">{selectedCampaign.scheduledAt || 'N/A'}</span>
+          <span className="metadata-value">
+            {selectedCampaign.scheduledAt ? new Date(selectedCampaign.scheduledAt).toLocaleString() : 'N/A'}
+          </span>
         </div>
       </div>
 

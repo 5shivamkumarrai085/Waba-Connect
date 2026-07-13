@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useCampaignStore } from '../../store/campaignStore'
 import { campaignService } from '../../services/campaigns/campaignService'
@@ -10,9 +10,12 @@ import type { Contact, ContactStatus, ContactSource } from '../../types/contacts
 import type { Template } from '../../types/templates'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { 
-  CheckCircle, 
   Play, 
-  Clock
+  Clock,
+  UploadCloud,
+  FileText,
+  Trash2,
+  Loader2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import './CampaignWizard.css'
@@ -49,6 +52,26 @@ export const CampaignWizard: React.FC = () => {
   const [var1, setVar1] = useState('')
   const [var2, setVar2] = useState('')
 
+  // File Upload states in Step 3
+  const [uploading, setUploading] = useState(false)
+  const [fileUrl, setFileUrl] = useState('')
+  const [fileName, setFileName] = useState('')
+  const [dragActive, setDragActive] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Double click prevent
+  const [cooldownActive, setCooldownActive] = useState(false)
+
+  useEffect(() => {
+    if (activeStep === 3) {
+      setCooldownActive(true)
+      const timer = setTimeout(() => {
+        setCooldownActive(false)
+      }, 800)
+      return () => clearTimeout(timer)
+    }
+  }, [activeStep])
+
   useEffect(() => {
     let isMounted = true
 
@@ -73,6 +96,18 @@ export const CampaignWizard: React.FC = () => {
           if (!isMounted) return
 
           const template = tpls.find(t => t.name === details.campaign.templateName)
+
+          const vars = (details as any).variables || []
+          const v1 = vars.find((v: any) => v.variableName === '1')?.variableValue || ''
+          const v2 = vars.find((v: any) => v.variableName === '2')?.variableValue || ''
+          const fUrl = vars.find((v: any) => v.variableName === 'file')?.variableValue || ''
+          const fName = fUrl ? fUrl.substring(fUrl.lastIndexOf('/') + 1).split('_').slice(1).join('_') : ''
+
+          setVar1(v1)
+          setVar2(v2)
+          setFileUrl(fUrl)
+          setFileName(fName)
+
           setWizardForm({
             name: details.campaign.name,
             relationType: details.campaign.relationType,
@@ -81,11 +116,16 @@ export const CampaignWizard: React.FC = () => {
             selectedContactIds: details.recipients.map(recipient => recipient.contactId),
             selectAllContacts: false,
             sendImmediately: !details.campaign.scheduledAt,
-            scheduledTime: details.campaign.scheduledAt ? toDateTimeLocalValue(details.campaign.scheduledAt) : ''
+            scheduledTime: details.campaign.scheduledAt ? toDateTimeLocalValue(details.campaign.scheduledAt) : '',
+            variables: vars
           })
           setActiveStep(0)
         } else {
           resetWizard()
+          setVar1('')
+          setVar2('')
+          setFileUrl('')
+          setFileName('')
           setActiveStep(0)
         }
       } catch (err) {
@@ -136,6 +176,34 @@ export const CampaignWizard: React.FC = () => {
     return true
   })
 
+  // Sync local variable states to store's wizardForm.variables
+  useEffect(() => {
+    const newVars = []
+    if (wizardForm.templateName === 'test_valid_var_template') {
+      newVars.push({ variableName: '1', variableValue: var1 })
+      newVars.push({ variableName: '2', variableValue: var2 })
+    }
+    if (fileUrl) {
+      newVars.push({ variableName: 'file', variableValue: fileUrl })
+    }
+    setWizardForm({ variables: newVars })
+  }, [var1, var2, fileUrl, wizardForm.templateName])
+
+  const handleFileUpload = async (file: File) => {
+    setUploading(true)
+    try {
+      const res = await campaignService.uploadFile(file)
+      setFileUrl(res.url)
+      setFileName(res.fileName)
+      toast.success('File uploaded successfully!')
+    } catch (err) {
+      console.error(err)
+      toast.error('File upload failed.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   // Handlers
   const handleNext = () => {
     if (activeStep === 0) {
@@ -143,6 +211,9 @@ export const CampaignWizard: React.FC = () => {
         toast.error('Please complete all required fields (*).')
         return
       }
+    }
+    if (activeStep === 2) {
+      setCooldownActive(true)
     }
     setActiveStep(activeStep + 1)
   }
@@ -156,6 +227,11 @@ export const CampaignWizard: React.FC = () => {
 
     if (activeStep < 3) {
       handleNext()
+      return
+    }
+
+    if (cooldownActive) {
+      console.warn('Prevented auto-submit cooldown click')
       return
     }
 
@@ -431,11 +507,80 @@ export const CampaignWizard: React.FC = () => {
                 <div className="fade-in">
                   <div className="form-group">
                     <h3 className="upload-main-text">Variables and Files</h3>
-                    <p className="upload-sub-text">customize your message with variables and media. use @ for merge fields</p>
+                    <p className="upload-sub-text">Customize your message with variables and media template attachments.</p>
+                  </div>
+
+                  {/* Upload Area Component */}
+                  <div className="contacts-selection-card margin-top-20">
+                    <div className="upload-area-header">
+                      <span className="upload-area-label">Template Media / Document Attachment</span>
+                    </div>
+
+                    <div
+                      className={`upload-dropzone ${dragActive ? 'drag-active' : ''}`}
+                      onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+                      onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                      onDragLeave={() => setDragActive(false)}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        setDragActive(false);
+                        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                          await handleFileUpload(e.dataTransfer.files[0]);
+                        }
+                      }}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        className="hidden-input"
+                        style={{ display: 'none' }}
+                        onChange={async (e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            await handleFileUpload(e.target.files[0]);
+                          }
+                        }}
+                      />
+
+                      <div className="upload-icon-wrapper">
+                        {uploading ? (
+                          <Loader2 className="animate-spin" size={44} strokeWidth={1} />
+                        ) : (
+                          <UploadCloud size={44} strokeWidth={1} />
+                        )}
+                      </div>
+
+                      <p className="upload-main-text">
+                        {uploading ? 'Uploading file...' : 'Drag your file here or click in this area.'}
+                      </p>
+                      <p className="upload-sub-text">PDF, DOCX, PNG, JPG up to 10MB</p>
+                    </div>
+
+                    {fileUrl && (
+                      <div className="upload-file-details">
+                        <FileText className="upload-file-icon" size={24} />
+                        <div className="upload-file-info">
+                          <span className="upload-file-name">{fileName}</span>
+                          <span className="upload-file-size">Stored in WABA Campaigns Cloud</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="upload-file-remove-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFileUrl('');
+                            setFileName('');
+                          }}
+                          aria-label="Remove attachment"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Render dynamic inputs if variables template is selected */}
-                  {wizardForm.templateName === 'test_valid_var_template' ? (
+                  {wizardForm.templateName === 'test_valid_var_template' && (
                     <div className="contacts-selection-card margin-top-20">
                       <div className="form-group margin-top-20">
                         <label className="form-label">Variable 1 Value ({"{{1}}"})</label>
@@ -457,12 +602,6 @@ export const CampaignWizard: React.FC = () => {
                           onChange={(e) => setVar2(e.target.value)}
                         />
                       </div>
-                    </div>
-                  ) : (
-                    <div className="page-loader margin-top-20">
-                      <CheckCircle size={32} color="#10b981" />
-                      <p className="upload-main-text margin-top-20">No customization needed</p>
-                      <p className="upload-sub-text margin-zero">This template doesn't require variables or files</p>
                     </div>
                   )}
                 </div>
@@ -570,7 +709,7 @@ export const CampaignWizard: React.FC = () => {
                     type="submit"
                     form="campaign-wizard-form"
                     className="btn-wizard-nav btn-wizard-save"
-                    disabled={isLoading}
+                    disabled={isLoading || cooldownActive}
                   >
                     {isEditMode ? 'Save Changes' : 'Create Campaign'}
                   </button>

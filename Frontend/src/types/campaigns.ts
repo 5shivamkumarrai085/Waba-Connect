@@ -47,4 +47,5 @@ export interface CampaignWizardForm {
   selectAllContacts: boolean
   sendImmediately: boolean
   scheduledTime?: string
+  variables?: { variableName: string; variableValue: string; mergeField?: string }[]
 }

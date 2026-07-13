@@ -82,6 +82,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseSerilogRequestLogging();
 app.UseCors("AllowFrontend");
+app.UseStaticFiles();
 app.UseAuthorization();
 app.MapControllers();
 

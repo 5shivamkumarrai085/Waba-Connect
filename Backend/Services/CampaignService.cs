@@ -94,6 +94,12 @@ public class CampaignService : ICampaignService
                 DeliveredAt = cc.DeliveredAt,
                 ReadAt = cc.ReadAt,
                 ErrorMessage = cc.ErrorMessage
+            }).ToList(),
+            Variables = campaign.Variables.Select(v => new CampaignVariableResponse
+            {
+                VariableName = v.VariableName,
+                VariableValue = v.VariableValue,
+                MergeField = v.MergeField
             }).ToList()
         };
 
@@ -102,7 +108,6 @@ public class CampaignService : ICampaignService
 
     public async Task<CampaignResponse> CreateAsync(CreateCampaignRequest request)
     {
-        // Validate Template
         var template = await _dbContext.Templates.FindAsync(request.TemplateId);
         if (template == null)
             throw new KeyNotFoundException("Template not found.");
@@ -420,7 +425,7 @@ public class CampaignService : ICampaignService
                     messageVars[v.VariableName] = finalValue;
                 }
 
-                var previewText = BuildCampaignMessagePreview(campaign.Template.BodyText, messageVars);
+                var previewText = BuildRecipientMessagePreview(campaign, cc);
                 var chatMessage = await chatService.CreateOrUpdateCampaignMessageAsync(campaign, cc, previewText);
 
                 // Send via WhatsApp API
@@ -433,6 +438,7 @@ public class CampaignService : ICampaignService
                 if (sendResult.Success && !string.IsNullOrWhiteSpace(sendResult.MessageId))
                 {
                     cc.WhatsAppMessageId = sendResult.MessageId;
+                    cc.Status = MessageStatus.Sent;
                     await chatService.MarkCampaignMessageSentAsync(chatMessage.Id, sendResult.MessageId);
                     // Note: Status will be updated to Sent/Delivered/Read via webhook
                 }
@@ -501,8 +507,15 @@ public class CampaignService : ICampaignService
     private static string BuildRecipientMessagePreview(Campaign campaign, CampaignContact campaignContact)
     {
         var messageVars = new Dictionary<string, string>();
+        string? attachmentUrl = null;
         foreach (var variable in campaign.Variables)
         {
+            if (variable.VariableName.Equals("file", StringComparison.OrdinalIgnoreCase))
+            {
+                attachmentUrl = variable.VariableValue;
+                continue;
+            }
+
             var finalValue = variable.VariableValue ?? string.Empty;
             if (variable.MergeField == "@name") finalValue = campaignContact.Contact.Name;
             else if (variable.MergeField == "@phone") finalValue = campaignContact.Contact.Phone;
@@ -510,7 +523,13 @@ public class CampaignService : ICampaignService
             messageVars[variable.VariableName] = finalValue;
         }
 
-        return BuildCampaignMessagePreview(campaign.Template.BodyText, messageVars);
+        var text = BuildCampaignMessagePreview(campaign.Template.BodyText, messageVars);
+        if (!string.IsNullOrEmpty(attachmentUrl))
+        {
+            var fileName = System.IO.Path.GetFileName(attachmentUrl);
+            text = $"[Attachment: {fileName}]\n\n" + text;
+        }
+        return text;
     }
 
     private static CampaignResponse MapToResponse(Campaign c)

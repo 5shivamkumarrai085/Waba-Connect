@@ -7,6 +7,7 @@ import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight } from 'lucide-react
 import toast from 'react-hot-toast'
 import { Skeleton } from '../../components/Skeleton'
 import './CampaignsList.css'
+import { formatRelativeTime } from '../../utils/dateHelper'
 
 export const CampaignsList: React.FC = () => {
   const navigate = useNavigate()
@@ -68,9 +69,10 @@ export const CampaignsList: React.FC = () => {
       if (c.relationType !== relationTypeFilter) return false
     }
 
-    // 4. Created At Date filter (dummy check if search query matches)
+    // 4. Created At Date filter matching relative time
     if (createdAtFilter) {
-      if (!c.createdAt.toLowerCase().includes(createdAtFilter.toLowerCase())) return false
+      const relativeDate = formatRelativeTime(c.createdAt).toLowerCase()
+      if (!relativeDate.includes(createdAtFilter.toLowerCase())) return false
     }
 
     return true
@@ -309,7 +311,7 @@ export const CampaignsList: React.FC = () => {
 
                     {/* Created At Column */}
                     {visibleColumns.createdAt !== false && (
-                      <td>{camp.createdAt}</td>
+                      <td>{formatRelativeTime(camp.createdAt)}</td>
                     )}
                   </tr>
                 ))}

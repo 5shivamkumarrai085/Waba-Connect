@@ -40,6 +40,14 @@ public class CampaignResponse
 public class CampaignDetailResponse : CampaignResponse
 {
     public List<CampaignRecipientResponse> Recipients { get; set; } = [];
+    public List<CampaignVariableResponse>? Variables { get; set; } = [];
+}
+
+public class CampaignVariableResponse
+{
+    public string VariableName { get; set; } = string.Empty;
+    public string? VariableValue { get; set; }
+    public string? MergeField { get; set; }
 }
 
 public class CampaignRecipientResponse

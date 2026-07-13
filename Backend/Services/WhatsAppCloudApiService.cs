@@ -566,15 +566,41 @@ public class WhatsAppCloudApiService : IWhatsAppService
         return null;
     }
 
-    /// <summary>
-    /// Builds the template components array for the WhatsApp API request.
-    /// </summary>
     private static object[]? BuildTemplateComponents(Dictionary<string, string>? variables)
     {
         if (variables == null || variables.Count == 0)
             return null;
 
-        var parameters = variables
+        var componentsList = new System.Collections.Generic.List<object>();
+
+        // Check for media attachment variable
+        var fileVar = variables.FirstOrDefault(v => v.Key.Equals("file", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(fileVar.Value))
+        {
+            var fileUrl = fileVar.Value;
+            var fileName = System.IO.Path.GetFileName(fileUrl) ?? "document.pdf";
+
+            componentsList.Add(new
+            {
+                type = "header",
+                parameters = new object[]
+                {
+                    new
+                    {
+                        type = "document",
+                        document = new
+                        {
+                            link = fileUrl,
+                            filename = fileName
+                        }
+                    }
+                }
+            });
+        }
+
+        // Add regular text variables to the body parameters
+        var bodyParams = variables
+            .Where(v => !v.Key.Equals("file", StringComparison.OrdinalIgnoreCase))
             .OrderBy(v => v.Key)
             .Select(v => new
             {
@@ -583,13 +609,15 @@ public class WhatsAppCloudApiService : IWhatsAppService
             })
             .ToArray();
 
-        return
-        [
-            new
+        if (bodyParams.Length > 0)
+        {
+            componentsList.Add(new
             {
                 type = "body",
-                parameters = (object)parameters
-            }
-        ];
+                parameters = (object)bodyParams
+            });
+        }
+
+        return componentsList.Count > 0 ? componentsList.ToArray() : null;
     }
 }

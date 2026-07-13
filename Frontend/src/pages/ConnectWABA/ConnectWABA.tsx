@@ -7,10 +7,31 @@ import { HealthCard } from '../../components/HealthCard/HealthCard'
 import { InfoCard } from '../../components/InfoCard/InfoCard'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import toast from 'react-hot-toast'
-import { QrCode, HelpCircle, Key, Send, Globe, Link2, RefreshCw, XCircle, Eye, EyeOff } from 'lucide-react'
+import { QrCode, HelpCircle, Key, Send, Globe, Link2, RefreshCw, XCircle, Eye, EyeOff, Camera } from 'lucide-react'
+import html2canvas from 'html2canvas'
 import './ConnectWABA.css'
 
 export const ConnectWABA: React.FC = () => {
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false)
+
+  const handleCaptureScreenshot = async () => {
+    const element = document.body;
+    try {
+      const canvas = await html2canvas(element, {
+        useCORS: true,
+        backgroundColor: '#f8fafc'
+      });
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.download = 'waba-dashboard-screenshot.png';
+      link.href = dataUrl;
+      link.click();
+      toast.success('Screenshot downloaded successfully!');
+    } catch (error) {
+      console.error('Screenshot capture failed:', error);
+      toast.error('Failed to capture screenshot.');
+    }
+  }
   const [showSetupAccessToken, setShowSetupAccessToken] = useState(false)
   const {
     isConnected,
@@ -112,7 +133,7 @@ export const ConnectWABA: React.FC = () => {
   }
 
   const handleGetQrCode = () => {
-    toast.success('QR Code generation triggered successfully! Scan code to initialize chats.')
+    setIsQrModalOpen(true)
   }
 
   if (isLoading && !facebookAppId && !isConnected) {
@@ -134,6 +155,14 @@ export const ConnectWABA: React.FC = () => {
         </div>
         {isConnected && (
           <div className="waba-top-actions">
+            <button
+              type="button"
+              className="btn-top-action btn-camera-screenshot"
+              onClick={handleCaptureScreenshot}
+              title="It helps to check your server and application configurations"
+            >
+              <Camera size={16} />
+            </button>
             <button
               type="button"
               className="btn-top-action btn-qr-code"
@@ -212,10 +241,7 @@ export const ConnectWABA: React.FC = () => {
 
               {isStep1Done && (
                 <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-light)', paddingTop: '16px' }}>
-                  <div className="form-group">
-                    <label className="waba-input-label">Callback URL</label>
-                    <CopyField value={webhookUrl} isSensitive={true} />
-                  </div>
+
                   <div className="form-group form-group-no-margin">
                     <label className="waba-input-label">Verify Token</label>
                     <CopyField value={verifyToken} isSensitive={true} />
@@ -405,10 +431,7 @@ export const ConnectWABA: React.FC = () => {
                 <p className="waba-date-text">{tokenInfo?.issuedAt}</p>
               </div>
 
-              <div className="form-group form-group-no-margin">
-                <label className="waba-input-label">Webhook URL</label>
-                <CopyField value={webhookUrl || tokenInfo?.webhookUrl || ''} isSensitive={true} />
-              </div>
+
             </div>
 
             {/* Send Test Message */}
@@ -489,6 +512,99 @@ export const ConnectWABA: React.FC = () => {
         onConfirm={confirmDisconnect}
         onCancel={() => setIsDisconnectModalOpen(false)}
       />
+
+      {isQrModalOpen && phoneInfo && (
+        <div className="modal-overlay">
+          <div className="qr-modal-container fade-in-up">
+            <div className="qr-modal-header">
+              <div className="qr-modal-header-dot"></div>
+              <h3>Scan QR Code to Start Chat</h3>
+            </div>
+
+            <div className="qr-modal-alert">
+              <span>You can use the following QR Codes to invite people on this platform.</span>
+            </div>
+
+            <div className="qr-modal-body">
+              <div className="qr-modal-subtitle">
+                {phoneInfo.verifiedName} ({phoneInfo.displayPhoneNumber})
+              </div>
+
+              <div className="qr-image-card">
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent("https://wa.me/" + phoneInfo.displayPhoneNumber.replace(/[^\d+]/g, '').replace(/^\+/, ''))}`} 
+                  alt="WhatsApp QR Code" 
+                  className="qr-image-el" 
+                />
+              </div>
+
+              <div className="qr-phone-section">
+                <div className="qr-phone-label">Phone</div>
+                <div className="qr-phone-value">{phoneInfo.displayPhoneNumber}</div>
+              </div>
+
+              <div className="qr-copy-field">
+                <label>URL for QR Image</label>
+                <div className="qr-copy-input-row">
+                  <input 
+                    type="text" 
+                    readOnly 
+                    value={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent("https://wa.me/" + phoneInfo.displayPhoneNumber.replace(/[^\d+]/g, '').replace(/^\+/, ''))}`} 
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const val = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent("https://wa.me/" + phoneInfo.displayPhoneNumber.replace(/[^\d+]/g, '').replace(/^\+/, ''))}`;
+                      navigator.clipboard.writeText(val);
+                      toast.success('QR URL copied to clipboard!');
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+
+              <div className="qr-copy-field">
+                <label>WhatsApp URL</label>
+                <div className="qr-copy-input-row">
+                  <input 
+                    type="text" 
+                    readOnly 
+                    value={`https://wa.me/${phoneInfo.displayPhoneNumber.replace(/[^\d+]/g, '').replace(/^\+/, '')}`} 
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const val = `https://wa.me/${phoneInfo.displayPhoneNumber.replace(/[^\d+]/g, '').replace(/^\+/, '')}`;
+                      navigator.clipboard.writeText(val);
+                      toast.success('WhatsApp URL copied to clipboard!');
+                    }}
+                  >
+                    Copy
+                  </button>
+                  <button 
+                    type="button"
+                    className="btn-whatsapp-now" 
+                    onClick={() => window.open(`https://wa.me/${phoneInfo.displayPhoneNumber.replace(/[^\d+]/g, '').replace(/^\+/, '')}`, '_blank')}
+                  >
+                    WhatsApp Now
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="qr-modal-footer">
+              <button 
+                type="button"
+                className="btn-qr-modal-close" 
+                onClick={() => setIsQrModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

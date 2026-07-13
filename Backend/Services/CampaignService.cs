@@ -108,6 +108,12 @@ public class CampaignService : ICampaignService
 
     public async Task<CampaignResponse> CreateAsync(CreateCampaignRequest request)
     {
+        // Check for duplicate campaign name
+        var normalizedName = request.Name.Trim().ToLower();
+        var exists = await _dbContext.Campaigns.AnyAsync(c => c.Name.ToLower() == normalizedName);
+        if (exists)
+            throw new InvalidOperationException("The campaign name has already been taken.");
+
         var template = await _dbContext.Templates.FindAsync(request.TemplateId);
         if (template == null)
             throw new KeyNotFoundException("Template not found.");
@@ -186,6 +192,12 @@ public class CampaignService : ICampaignService
 
     public async Task<CampaignResponse> UpdateAsync(int id, CreateCampaignRequest request)
     {
+        // Check for duplicate campaign name
+        var normalizedName = request.Name.Trim().ToLower();
+        var exists = await _dbContext.Campaigns.AnyAsync(c => c.Id != id && c.Name.ToLower() == normalizedName);
+        if (exists)
+            throw new InvalidOperationException("The campaign name has already been taken.");
+
         var campaign = await _dbContext.Campaigns
             .Include(c => c.Template)
             .Include(c => c.Variables)

@@ -15,6 +15,7 @@ interface ContactStoreState {
   sortColumn: string
   sortOrder: 'asc' | 'desc'
   visibleColumns: Record<string, boolean>
+  groupNotAssignedText: string
   
   setSearchQuery: (query: string) => void
   setSelectedIds: (ids: number[]) => void
@@ -41,6 +42,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
   pageSize: 10,
   sortColumn: 'id',
   sortOrder: 'desc',
+  groupNotAssignedText: 'group not assigned',
   visibleColumns: {
     id: true,
     name: true,
@@ -115,8 +117,15 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       set({ isLoading: true })
     }
     try {
-      const fetched = await contactService.getContacts()
-      set({ contacts: fetched, isLoading: false })
+      const [fetched, settings] = await Promise.all([
+        contactService.getContacts(),
+        contactService.getSettings()
+      ])
+      set({ 
+        contacts: fetched, 
+        groupNotAssignedText: settings?.groupNotAssignedText || 'group not assigned',
+        isLoading: false 
+      })
     } catch (err) {
       console.error('Error loading contacts:', err)
       set({ isLoading: false })

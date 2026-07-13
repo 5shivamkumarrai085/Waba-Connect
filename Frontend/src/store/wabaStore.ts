@@ -86,15 +86,35 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
             messagesSent: dashboard.phoneNumbers[0].messagesSent || 0,
             messageLimit: parseInt(dashboard.phoneNumbers[0].messageLimit) || 1000
           } : null,
-          healthInfo: {
-            lastChecked: dashboard.latestHealthLog ? dashboard.latestHealthLog.checkedAt : new Date().toISOString(),
-            wabaId: dashboard.wabaId || '',
-            wabaStatus: dashboard.latestHealthLog?.status || 'AVAILABLE',
-            businessId: dashboard.business?.businessId || '',
-            businessStatus: dashboard.business?.status || 'AVAILABLE',
-            appId: dashboard.facebookAppId || '',
-            appStatus: dashboard.latestHealthLog?.appStatus || 'AVAILABLE'
-          }
+          healthInfo: (() => {
+            const hasLog = !!dashboard.latestHealthLog;
+            const logStatus = dashboard.latestHealthLog?.status || 'AVAILABLE';
+            const logDesc = dashboard.latestHealthLog?.description || '';
+
+            let appStat = 'AVAILABLE';
+            let bizStat = 'AVAILABLE';
+            let wabaStat = 'AVAILABLE';
+
+            if (logStatus === 'UNAVAILABLE') {
+              appStat = 'UNAVAILABLE';
+              bizStat = 'UNAVAILABLE';
+              wabaStat = 'UNAVAILABLE';
+            } else if (logStatus === 'PARTIAL') {
+              if (logDesc.includes('App ID Validation Failed')) appStat = 'UNAVAILABLE';
+              if (logDesc.includes('WABA Account Retrieval Failed')) bizStat = 'UNAVAILABLE';
+              if (logDesc.includes('Phone Numbers Synchronization Failed')) wabaStat = 'UNAVAILABLE';
+            }
+
+            return {
+              lastChecked: hasLog ? dashboard.latestHealthLog.checkedAt : new Date().toISOString(),
+              wabaId: dashboard.wabaId || '',
+              wabaStatus: wabaStat,
+              businessId: dashboard.business?.businessId || '',
+              businessStatus: bizStat,
+              appId: dashboard.facebookAppId || '',
+              appStatus: appStat
+            };
+          })()
         })
       }
     } catch (err) {
@@ -189,15 +209,35 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
       const dashboard = await wabaService.refreshHealth()
       if (dashboard) {
         set({
-          healthInfo: {
-            lastChecked: dashboard.latestHealthLog ? dashboard.latestHealthLog.checkedAt : new Date().toISOString(),
-            wabaId: dashboard.wabaId || '',
-            wabaStatus: dashboard.latestHealthLog?.status || 'AVAILABLE',
-            businessId: dashboard.business?.businessId || '',
-            businessStatus: dashboard.business?.status || 'AVAILABLE',
-            appId: dashboard.facebookAppId || '',
-            appStatus: dashboard.latestHealthLog?.appStatus || 'AVAILABLE'
-          }
+          healthInfo: (() => {
+            const hasLog = !!dashboard.latestHealthLog;
+            const logStatus = dashboard.latestHealthLog?.status || 'AVAILABLE';
+            const logDesc = dashboard.latestHealthLog?.description || '';
+
+            let appStat = 'AVAILABLE';
+            let bizStat = 'AVAILABLE';
+            let wabaStat = 'AVAILABLE';
+
+            if (logStatus === 'UNAVAILABLE') {
+              appStat = 'UNAVAILABLE';
+              bizStat = 'UNAVAILABLE';
+              wabaStat = 'UNAVAILABLE';
+            } else if (logStatus === 'PARTIAL') {
+              if (logDesc.includes('App ID Validation Failed')) appStat = 'UNAVAILABLE';
+              if (logDesc.includes('WABA Account Retrieval Failed')) bizStat = 'UNAVAILABLE';
+              if (logDesc.includes('Phone Numbers Synchronization Failed')) wabaStat = 'UNAVAILABLE';
+            }
+
+            return {
+              lastChecked: hasLog ? dashboard.latestHealthLog.checkedAt : new Date().toISOString(),
+              wabaId: dashboard.wabaId || '',
+              wabaStatus: wabaStat,
+              businessId: dashboard.business?.businessId || '',
+              businessStatus: bizStat,
+              appId: dashboard.facebookAppId || '',
+              appStatus: appStat
+            };
+          })()
         })
       }
     } catch (err) {

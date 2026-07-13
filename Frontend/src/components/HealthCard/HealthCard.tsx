@@ -56,14 +56,14 @@ export const HealthCard: React.FC<HealthCardProps> = ({ healthInfo, onRefresh })
           </div>
         </div>
 
-        {/* Box 2: WARA (or WABA) */}
+        {/* Box 2: WABA */}
         <div className="health-item-box">
           <div className="health-item-top">
             <div className="health-item-icon-wrapper">
               <MessageSquare size={16} />
             </div>
             <div className="health-item-info">
-              <span className="health-item-name">WARA</span>
+              <span className="health-item-name">WABA</span>
               <span className="health-item-id">ID: {wabaId}</span>
             </div>
           </div>

@@ -50,7 +50,7 @@ export const Header: React.FC = () => {
             onClick={() => navigate(-1)}
             aria-label="Go Back"
           >
-            <ArrowLeft size={16} />
+            <ArrowLeft size={20} strokeWidth={2.5} />
           </button>
         )}
         <span className="header-breadcrumb">{getBreadcrumb()}</span>

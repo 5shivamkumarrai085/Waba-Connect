@@ -50,7 +50,8 @@ export const ContactsList: React.FC = () => {
     
     loadContacts,
     deleteSelected,
-    toggleContactActive
+    toggleContactActive,
+    groupNotAssignedText
   } = useContactStore()
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
@@ -379,15 +380,23 @@ export const ContactsList: React.FC = () => {
                       )}
 
                       {/* Group column */}
-                      {visibleColumns.group !== false && (
-                        <td>
-                          <span className={contact.groups === 'Groups not found' ? 'contact-group-orange' : ''}>
-                            {Array.isArray(contact.groups) 
-                              ? contact.groups.map((g: any) => g?.name || g?.groupName || '').join(', ') 
-                              : (typeof contact.groups === 'object' && contact.groups !== null ? (contact.groups as any).name || (contact.groups as any).groupName : contact.groups)}
-                          </span>
-                        </td>
-                      )}
+                      {visibleColumns.group !== false && (() => {
+                        const groupsList = Array.isArray(contact.groups) 
+                          ? contact.groups.map((g: any) => g?.name || g?.groupName || '').filter(Boolean).join(', ') 
+                          : (typeof contact.groups === 'object' && contact.groups !== null ? (contact.groups as any).name || (contact.groups as any).groupName : contact.groups);
+                        
+                        const hasGroup = groupsList && groupsList !== 'Groups not found' && groupsList.trim() !== '';
+
+                        return (
+                          <td>
+                            {hasGroup ? (
+                              <span>{groupsList}</span>
+                            ) : (
+                              <span style={{ color: '#ef4444', fontWeight: 500 }}>{groupNotAssignedText}</span>
+                            )}
+                          </td>
+                        );
+                      })()}
 
                       {/* Active toggle column */}
                       {visibleColumns.active !== false && (

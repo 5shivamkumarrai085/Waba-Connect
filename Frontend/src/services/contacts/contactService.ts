@@ -172,6 +172,15 @@ export const contactService = {
       count: 0,
       message: 'Import not implemented in backend.'
     })
+  },
+
+  getSettings: async (): Promise<{ groupNotAssignedText: string }> => {
+    try {
+      const response = await apiClient.get('/Contacts/settings')
+      return response.data?.data || { groupNotAssignedText: 'group not assigned' }
+    } catch {
+      return { groupNotAssignedText: 'group not assigned' }
+    }
   }
 }
 

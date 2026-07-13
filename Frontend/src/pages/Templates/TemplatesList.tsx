@@ -22,7 +22,6 @@ export const TemplatesList: React.FC = () => {
     isRefreshing,
     searchQuery,
     
-    nameOperator,
     nameQuery,
     languageFilter,
     categoryFilter,
@@ -38,7 +37,6 @@ export const TemplatesList: React.FC = () => {
     types,
     
     setSearchQuery,
-    setNameOperator,
     setNameQuery,
     setLanguageFilter,
     setCategoryFilter,
@@ -83,12 +81,7 @@ export const TemplatesList: React.FC = () => {
 
     // 2. Specific Template Name filter
     if (nameQuery) {
-      const nq = nameQuery.toLowerCase()
-      if (nameOperator === 'contains') {
-        if (!t.name.toLowerCase().includes(nq)) return false
-      } else if (nameOperator === 'equals') {
-        if (t.name.toLowerCase() !== nq) return false
-      }
+      if (t.name !== nameQuery) return false
     }
 
     // 3. Languages select filter
@@ -138,12 +131,12 @@ export const TemplatesList: React.FC = () => {
 
   const columnHeaders = [
     { key: 'id', label: 'ID' },
-    { key: 'name', label: 'Template Name' },
-    { key: 'languages', label: 'Languages' },
-    { key: 'category', label: 'Category' },
-    { key: 'type', label: 'Template Type' },
-    { key: 'status', label: 'Status' },
-    { key: 'bodyText', label: 'Body Text' }
+    { key: 'name', label: 'TEMPLATE NAME' },
+    { key: 'languages', label: 'LANGUAGES' },
+    { key: 'category', label: 'CATEGORY' },
+    { key: 'type', label: 'TEMPLATE TYPE' },
+    { key: 'status', label: 'STATUS' },
+    { key: 'bodyText', label: 'BODY DATA' }
   ]
 
   const toggleColumnVisibility = (colKey: string) => {
@@ -221,26 +214,19 @@ export const TemplatesList: React.FC = () => {
         {/* 5 Column filter section grid */}
         {showFilters && (
           <div className="templates-filter-grid fade-in">
-            {/* Filter 1: Template Name Contains/Equals Input */}
+            {/* Filter 1: Template Name Select Dropdown */}
             <div className="filter-group">
               <span className="filter-label">Template Name</span>
-              <div className="template-name-input-row">
-                <select
-                  className="form-control template-name-select-operator"
-                  value={nameOperator}
-                  onChange={(e) => setNameOperator(e.target.value)}
-                >
-                  <option value="contains">Contains</option>
-                  <option value="equals">Equals</option>
-                </select>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="Template Name"
-                  value={nameQuery}
-                  onChange={(e) => setNameQuery(e.target.value)}
-                />
-              </div>
+              <select
+                className="form-control"
+                value={nameQuery}
+                onChange={(e) => setNameQuery(e.target.value)}
+              >
+                <option value="">All</option>
+                {Array.from(new Set(templates.map(t => t.name))).map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
             </div>
 
             {/* Filter 2: Languages selection */}
@@ -251,7 +237,6 @@ export const TemplatesList: React.FC = () => {
                 value={languageFilter}
                 onChange={(e) => setLanguageFilter(e.target.value)}
               >
-                {languageFilter !== 'All' && <option value="All">All</option>}
                 <option value="All">All</option>
                 {(languages || []).map(l => (
                   <option key={l.code} value={l.code}>{l.name}</option>

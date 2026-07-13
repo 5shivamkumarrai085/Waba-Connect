@@ -101,6 +101,13 @@ public class ContactsController : ControllerBase
         return Ok(list);
     }
 
+    [HttpGet("settings")]
+    public IActionResult GetSettings()
+    {
+        var config = new { groupNotAssignedText = "group not assigned" };
+        return Ok(new ApiResponse<object> { Success = true, Data = config });
+    }
+
     [HttpGet("assigned-users")]
     public IActionResult GetAssignedUsers()
     {

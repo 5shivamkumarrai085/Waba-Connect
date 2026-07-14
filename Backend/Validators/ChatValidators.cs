@@ -9,6 +9,7 @@ public class SendChatMessageValidator : AbstractValidator<SendChatMessageRequest
     {
         RuleFor(x => x.Text)
             .NotEmpty().WithMessage("Message text is required.")
+            .Unless(x => !string.IsNullOrEmpty(x.MediaUrl))
             .MaximumLength(4096).WithMessage("Message text cannot exceed 4096 characters.");
 
         RuleFor(x => x.FromPhoneNumberId)

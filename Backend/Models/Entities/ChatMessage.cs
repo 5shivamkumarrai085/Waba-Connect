@@ -31,6 +31,15 @@ public class ChatMessage
     public bool IsTemplate { get; set; }
 
     [MaxLength(1000)]
+    public string? MediaUrl { get; set; }
+
+    [MaxLength(50)]
+    public string? MediaType { get; set; }
+
+    [MaxLength(255)]
+    public string? MediaFileName { get; set; }
+
+    [MaxLength(1000)]
     public string? ErrorMessage { get; set; }
 
     public DateTime? SentAt { get; set; }

@@ -489,3 +489,9 @@ progress.app-progress.gray::-webkit-progress-value {
   background-color: var(--text-light);
 }
 
+
+.dashboard-welcome-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}

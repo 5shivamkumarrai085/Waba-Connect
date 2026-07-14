@@ -52,4 +52,18 @@ public class ChatController : ControllerBase
         var data = await _chatService.SendMessageAsync(id, request);
         return Ok(new ApiResponse<ChatMessageResponse> { Success = true, Data = data });
     }
+
+    [HttpPost("send-template-to-contact")]
+    public async Task<ActionResult<ApiResponse<ChatMessageResponse>>> SendTemplateToContact([FromBody] SendTemplateToContactRequest request)
+    {
+        var data = await _chatService.SendTemplateToContactAsync(request);
+        return Ok(new ApiResponse<ChatMessageResponse> { Success = true, Data = data });
+    }
+
+    [HttpDelete("conversations/{id}")]
+    public async Task<ActionResult<ApiResponse>> DeleteConversation(int id)
+    {
+        await _chatService.DeleteConversationAsync(id);
+        return Ok(new ApiResponse { Success = true, Message = "Conversation deleted successfully." });
+    }
 }

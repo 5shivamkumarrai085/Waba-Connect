@@ -552,6 +552,16 @@ public class CampaignService : ICampaignService
         return text;
     }
 
+    public async Task<bool> CheckNameExistsAsync(string name, int? excludeId = null)
+    {
+        var query = _dbContext.Campaigns.AsQueryable();
+        if (excludeId.HasValue)
+        {
+            query = query.Where(c => c.Id != excludeId.Value);
+        }
+        return await query.AnyAsync(c => c.Name.ToLower() == name.Trim().ToLower());
+    }
+
     private static CampaignResponse MapToResponse(Campaign c)
     {
         return new CampaignResponse

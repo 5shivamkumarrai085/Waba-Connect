@@ -13,6 +13,7 @@ public interface ICampaignService
     Task<CampaignResponse> CreateAsync(CreateCampaignRequest request);
     Task<CampaignResponse> UpdateAsync(int id, CreateCampaignRequest request);
     Task DeleteAsync(int id);
+    Task<bool> CheckNameExistsAsync(string name, int? excludeId = null);
 
     /// <summary>
     /// Cancels a scheduled campaign.

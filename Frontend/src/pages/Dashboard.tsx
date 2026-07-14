@@ -7,10 +7,18 @@ import { TableCard } from '../components/TableCard'
 import { MessageSquare, Users, Megaphone, FileText, Plus } from 'lucide-react'
 import { useDashboardStore } from '../store/dashboardStore'
 import { Skeleton } from '../components/Skeleton'
+import { FilterBar } from '../components/FilterBar/FilterBar'
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate()
-  const { summary, metrics, isLoading, loadDashboardData } = useDashboardStore()
+  const { 
+    summary, 
+    metrics, 
+    isLoading, 
+    loadDashboardData, 
+    dashboardTimeFilter, 
+    setDashboardTimeFilter 
+  } = useDashboardStore()
 
   useEffect(() => {
     loadDashboardData()
@@ -62,7 +70,12 @@ export const Dashboard: React.FC = () => {
           <h1>Welcome Back, super ! 👋</h1>
           <p>Here's what's happening with your WhatsApp business today.</p>
         </div>
-        <div>
+        <div className="dashboard-welcome-right">
+          <FilterBar
+            options={['today', 'week', 'month', 'all']}
+            activeOption={dashboardTimeFilter}
+            onChange={setDashboardTimeFilter}
+          />
           <button className="btn btn-primary" onClick={handleNewCampaignClick}>
             <Plus size={16} /> New Campaign
           </button>

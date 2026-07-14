@@ -205,10 +205,16 @@ export const CampaignWizard: React.FC = () => {
   }
 
   // Handlers
-  const handleNext = () => {
+  const handleNext = async () => {
     if (activeStep === 0) {
       if (!wizardForm.name || !wizardForm.relationType || !wizardForm.templateName) {
         toast.error('Please complete all required fields (*).')
+        return
+      }
+
+      const exists = await campaignService.checkNameExists(wizardForm.name, campaignId || undefined)
+      if (exists) {
+        toast.error('same name campaign already executed')
         return
       }
     }
@@ -226,7 +232,7 @@ export const CampaignWizard: React.FC = () => {
     e.preventDefault()
 
     if (activeStep < 3) {
-      handleNext()
+      await handleNext()
       return
     }
 

@@ -25,6 +25,10 @@ public class ChatConversationResponse
     public string? AvatarUrl { get; set; }
     public string? FromPhoneNumber { get; set; }
     public string? FromPhoneNumberId { get; set; }
+    public string? AssignedTo { get; set; }
+    public string? Source { get; set; }
+    public DateTime ContactCreatedAt { get; set; }
+    public List<string> ContactGroups { get; set; } = [];
 }
 
 public class ChatMessageResponse
@@ -37,6 +41,9 @@ public class ChatMessageResponse
     public string Status { get; set; } = string.Empty;
     public bool IsTemplate { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? MediaUrl { get; set; }
+    public string? MediaType { get; set; }
+    public string? MediaFileName { get; set; }
     public DateTime? SentAt { get; set; }
     public DateTime? DeliveredAt { get; set; }
     public DateTime? ReadAt { get; set; }
@@ -48,4 +55,14 @@ public class SendChatMessageRequest
 {
     public string Text { get; set; } = string.Empty;
     public string? FromPhoneNumberId { get; set; }
+    public string? MediaUrl { get; set; }
+    public string? MediaType { get; set; }
+    public string? MediaFileName { get; set; }
+}
+
+public class SendTemplateToContactRequest
+{
+    public int ContactId { get; set; }
+    public int TemplateId { get; set; }
+    public Dictionary<string, string>? Variables { get; set; }
 }

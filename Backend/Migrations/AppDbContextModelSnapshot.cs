@@ -109,15 +109,6 @@ namespace WhatsAppCampaignApi.Migrations
                     b.Property<int>("FailedCount")
                         .HasColumnType("integer");
 
-                    b.Property<string>("FileName")
-                        .HasColumnType("text");
-
-                    b.Property<string>("FileType")
-                        .HasColumnType("text");
-
-                    b.Property<string>("FileUrl")
-                        .HasColumnType("text");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -324,6 +315,18 @@ namespace WhatsAppCampaignApi.Migrations
                     b.Property<bool>("IsTemplate")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("MediaFileName")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("MediaType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("MediaUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
                     b.Property<DateTime?>("ReadAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -463,6 +466,32 @@ namespace WhatsAppCampaignApi.Migrations
                         .IsUnique();
 
                     b.ToTable("ContactGroupMembers");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ContactNote", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ContactId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContactId");
+
+                    b.ToTable("ContactNotes");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.HealthLog", b =>
@@ -977,6 +1006,17 @@ namespace WhatsAppCampaignApi.Migrations
                     b.Navigation("Contact");
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ContactNote", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Contact", "Contact")
+                        .WithMany()
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Contact");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.TemplateBot", b =>

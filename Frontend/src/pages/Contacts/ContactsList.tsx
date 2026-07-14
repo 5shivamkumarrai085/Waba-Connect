@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
+import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
 import { Skeleton } from '../../components/Skeleton'
 import './ContactsList.css'
 import { formatRelativeTime } from '../../utils/dateHelper'
@@ -56,6 +57,8 @@ export const ContactsList: React.FC = () => {
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
+  const [isInitiateModalOpen, setIsInitiateModalOpen] = useState(false)
+  const [selectedContactForTemplate, setSelectedContactForTemplate] = useState<{ id: number; name: string; phone: string } | null>(null)
 
   useEffect(() => {
     loadContacts()
@@ -114,8 +117,16 @@ export const ContactsList: React.FC = () => {
 
   const handleBulkChat = () => {
     if (selectedIds.length === 1) {
-      navigate(`/chat?contactId=${selectedIds[0]}`)
-      return
+      const selectedContact = contacts.find(c => c.id === selectedIds[0])
+      if (selectedContact) {
+        setSelectedContactForTemplate({
+          id: selectedContact.id,
+          name: selectedContact.name || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim(),
+          phone: selectedContact.phone
+        })
+        setIsInitiateModalOpen(true)
+        return
+      }
     }
 
     toast.error('Select one contact to open a WhatsApp chat.')
@@ -354,7 +365,14 @@ export const ContactsList: React.FC = () => {
                         <td className="text-center">
                           <span 
                             className="contact-whatsapp-icon"
-                            onClick={() => navigate(`/chat?contactId=${contact.id}`)}
+                            onClick={() => {
+                              setSelectedContactForTemplate({
+                                id: contact.id,
+                                name: contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+                                phone: contact.phone
+                              })
+                              setIsInitiateModalOpen(true)
+                            }}
                             title="Start WhatsApp Chat"
                           >
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
@@ -479,6 +497,15 @@ export const ContactsList: React.FC = () => {
           setIsDeleteModalOpen(false)
           setDeleteTarget(null)
         }}
+      />
+
+      <InitiateChatModal
+        isOpen={isInitiateModalOpen}
+        onClose={() => {
+          setIsInitiateModalOpen(false)
+          setSelectedContactForTemplate(null)
+        }}
+        contact={selectedContactForTemplate}
       />
     </div>
   )

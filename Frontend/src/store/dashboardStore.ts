@@ -12,6 +12,8 @@ interface DashboardState {
   }
   isLoading: boolean
   isBackgroundSyncing: boolean
+  dashboardTimeFilter: string
+  setDashboardTimeFilter: (filter: string) => void
   loadDashboardData: (forceShowSkeleton?: boolean) => Promise<void>
 }
 
@@ -25,6 +27,11 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   },
   isLoading: false,
   isBackgroundSyncing: false,
+  dashboardTimeFilter: 'today',
+  setDashboardTimeFilter: (filter) => {
+    set({ dashboardTimeFilter: filter })
+    get().loadDashboardData(true)
+  },
   loadDashboardData: async (forceShowSkeleton = false) => {
     const hasCache = get().summary !== null
     
@@ -35,12 +42,31 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     }
 
     try {
-      const summaryRes = await dashboardService.getSummary()
+      const summaryRes = await dashboardService.getSummary(get().dashboardTimeFilter)
       const templatesRes = await templateService.getTemplates()
 
       const sum = summaryRes?.data || {}
       const templates = templatesRes || []
-      const approvedTemplates = templates.filter((t: any) => t.status === 'APPROVED').length
+      
+      // Local filtering of templates by time
+      const filter = get().dashboardTimeFilter
+      let filteredTemplates = templates
+      if (filter !== 'all') {
+        const now = new Date()
+        let cutoff = new Date()
+        if (filter === 'today') {
+          cutoff = new Date(now.setHours(0,0,0,0))
+        } else if (filter === 'week') {
+          cutoff = new Date(now.setDate(now.getDate() - 7))
+        } else if (filter === 'month') {
+          cutoff = new Date(now.setMonth(now.getMonth() - 1))
+        }
+        filteredTemplates = templates.filter((t: any) => {
+          if (!t.createdAt) return false
+          return new Date(t.createdAt) >= cutoff
+        })
+      }
+      const approvedTemplates = filteredTemplates.filter((t: any) => t.status === 'APPROVED').length
 
       set({
         summary: sum,
@@ -58,7 +84,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
             active: (sum.recentCampaigns || []).filter((c: any) => c.status === 'Running' || c.status === 'Scheduled' || c.status === 'Sending').length || 0
           },
           templates: {
-            total: templates.length || 0,
+            total: filteredTemplates.length || 0,
             approved: approvedTemplates
           }
         },

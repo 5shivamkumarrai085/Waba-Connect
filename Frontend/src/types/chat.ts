@@ -13,6 +13,10 @@ export interface Conversation {
   avatarUrl?: string
   fromPhoneNumber?: string | null
   fromPhoneNumberId?: string | null
+  assignedTo?: string | null
+  source?: string | null
+  contactCreatedAt?: string
+  contactGroups?: string[]
 }
 
 export interface Message {
@@ -29,6 +33,9 @@ export interface Message {
   readAt?: string | null
   campaignId?: number | null
   whatsAppMessageId?: string | null
+  mediaUrl?: string | null
+  mediaType?: string | null
+  mediaFileName?: string | null
 }
 
 export interface ChatAccount {

@@ -81,6 +81,8 @@ public class WhatsAppCloudApiService : IWhatsAppService
         try
         {
             var whatsAppPhone = PhoneNumberHelper.FormatForWhatsApp(recipientPhone);
+            var template = await _dbContext.Templates.FirstOrDefaultAsync(t => t.Name == templateName);
+            var headerType = template?.HeaderType ?? HeaderType.None;
 
             var messagePayload = new
             {
@@ -91,7 +93,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 {
                     name = templateName,
                     language = new { code = languageCode },
-                    components = BuildTemplateComponents(variables)
+                    components = BuildTemplateComponents(variables, headerType)
                 }
             };
 
@@ -566,36 +568,64 @@ public class WhatsAppCloudApiService : IWhatsAppService
         return null;
     }
 
-    private static object[]? BuildTemplateComponents(Dictionary<string, string>? variables)
+    private static object[]? BuildTemplateComponents(Dictionary<string, string>? variables, HeaderType headerType)
     {
         if (variables == null || variables.Count == 0)
             return null;
 
         var componentsList = new System.Collections.Generic.List<object>();
 
-        // Check for media attachment variable
+        // Check for media attachment variable and valid header type
         var fileVar = variables.FirstOrDefault(v => v.Key.Equals("file", StringComparison.OrdinalIgnoreCase));
-        if (!string.IsNullOrEmpty(fileVar.Value))
+        if (headerType != HeaderType.None && !string.IsNullOrEmpty(fileVar.Value))
         {
             var fileUrl = fileVar.Value;
             var fileName = System.IO.Path.GetFileName(fileUrl) ?? "document.pdf";
+            object? headerParam = null;
 
-            componentsList.Add(new
+            if (headerType == HeaderType.Document)
             {
-                type = "header",
-                parameters = new object[]
+                headerParam = new
                 {
-                    new
+                    type = "document",
+                    document = new
                     {
-                        type = "document",
-                        document = new
-                        {
-                            link = fileUrl,
-                            filename = fileName
-                        }
+                        link = fileUrl,
+                        filename = fileName
                     }
-                }
-            });
+                };
+            }
+            else if (headerType == HeaderType.Image)
+            {
+                headerParam = new
+                {
+                    type = "image",
+                    image = new
+                    {
+                        link = fileUrl
+                    }
+                };
+            }
+            else if (headerType == HeaderType.Video)
+            {
+                headerParam = new
+                {
+                    type = "video",
+                    video = new
+                    {
+                        link = fileUrl
+                    }
+                };
+            }
+
+            if (headerParam != null)
+            {
+                componentsList.Add(new
+                {
+                    type = "header",
+                    parameters = new object[] { headerParam }
+                });
+            }
         }
 
         // Add regular text variables to the body parameters
@@ -619,5 +649,92 @@ public class WhatsAppCloudApiService : IWhatsAppService
         }
 
         return componentsList.Count > 0 ? componentsList.ToArray() : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<WhatsAppSendResult> SendMediaMessageAsync(
+        string recipientPhone,
+        string mediaUrl,
+        string mediaType,
+        string? filename = null,
+        string? caption = null,
+        string? fromPhoneNumberId = null)
+    {
+        try
+        {
+            var whatsAppPhone = PhoneNumberHelper.FormatForWhatsApp(recipientPhone);
+
+            // Construct payload based on media type
+            object mediaObject = mediaType.ToLower() switch
+            {
+                "image" => new { link = mediaUrl, caption = caption },
+                "video" => new { link = mediaUrl, caption = caption },
+                "document" => new { link = mediaUrl, filename = filename ?? Path.GetFileName(mediaUrl) },
+                _ => throw new ArgumentException($"Unsupported media type: {mediaType}")
+            };
+
+            var messagePayload = new
+            {
+                messaging_product = "whatsapp",
+                to = whatsAppPhone,
+                type = mediaType.ToLower(),
+                image = mediaType.ToLower() == "image" ? mediaObject : null,
+                video = mediaType.ToLower() == "video" ? mediaObject : null,
+                document = mediaType.ToLower() == "document" ? mediaObject : null
+            };
+
+            // Remove null properties from payload serialization
+            var json = JsonSerializer.Serialize(messagePayload, new JsonSerializerOptions 
+            { 
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
+
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            _logger.LogInformation(
+                "Sending WhatsApp {MediaType} message to {Phone}",
+                mediaType, whatsAppPhone);
+
+            var (accessToken, activePhoneNumberId, _) = await GetActiveConfigAsync();
+            var finalPhoneNumberId = fromPhoneNumberId ?? activePhoneNumberId;
+
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/{finalPhoneNumberId}/messages")
+            {
+                Content = content
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            var response = await _httpClient.SendAsync(request);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError(
+                    "Failed to send WhatsApp media message. Status: {Status}, Response: {Response}",
+                    response.StatusCode, responseBody);
+
+                var errorMessage = ExtractMetaErrorMessage(responseBody)
+                    ?? $"WhatsApp API rejected the {mediaType} message with status {response.StatusCode}.";
+
+                return WhatsAppSendResult.Failed(errorMessage);
+            }
+
+            using var doc = JsonDocument.Parse(responseBody);
+            var messageId = doc.RootElement
+                .GetProperty("messages")[0]
+                .GetProperty("id")
+                .GetString();
+
+            _logger.LogInformation(
+                "WhatsApp media message sent successfully. MessageId: {MessageId}", messageId);
+
+            return WhatsAppSendResult.Sent(messageId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending WhatsApp {MediaType} message to {Phone}", mediaType, recipientPhone);
+            return WhatsAppSendResult.Failed(ex.Message);
+        }
     }
 }

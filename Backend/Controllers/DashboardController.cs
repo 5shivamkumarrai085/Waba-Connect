@@ -17,12 +17,37 @@ public class DashboardController : ControllerBase
     }
 
     [HttpGet("summary")]
-    public async Task<IActionResult> GetSummary()
+    public async Task<IActionResult> GetSummary([FromQuery] string timeFilter = "all")
     {
-        var totalContacts = await _dbContext.Contacts.CountAsync();
-        var totalCampaigns = await _dbContext.Campaigns.CountAsync();
+        var queryContacts = _dbContext.Contacts.AsQueryable();
+        var queryCampaigns = _dbContext.Campaigns.AsQueryable();
+        var queryContactsWithSentAt = _dbContext.CampaignContacts.Where(cc => cc.SentAt != null).AsQueryable();
 
-        var campaigns = await _dbContext.Campaigns.ToListAsync();
+        if (timeFilter != "all")
+        {
+            var cutoff = DateTime.UtcNow;
+            if (timeFilter == "today")
+            {
+                cutoff = DateTime.UtcNow.Date;
+            }
+            else if (timeFilter == "week")
+            {
+                cutoff = DateTime.UtcNow.AddDays(-7);
+            }
+            else if (timeFilter == "month")
+            {
+                cutoff = DateTime.UtcNow.AddDays(-30);
+            }
+
+            queryContacts = queryContacts.Where(c => c.CreatedAt >= cutoff);
+            queryCampaigns = queryCampaigns.Where(c => c.CreatedAt >= cutoff);
+            queryContactsWithSentAt = queryContactsWithSentAt.Where(cc => cc.SentAt >= cutoff);
+        }
+
+        var totalContacts = await queryContacts.CountAsync();
+        var totalCampaigns = await queryCampaigns.CountAsync();
+
+        var campaigns = await queryCampaigns.ToListAsync();
         
         var messagesSent = campaigns.Sum(c => c.TotalRecipients);
         var messagesDelivered = campaigns.Sum(c => c.DeliveredCount);
@@ -42,10 +67,7 @@ public class DashboardController : ControllerBase
             })
             .ToList();
 
-        // Calculate dynamic trends and hourly metrics from CampaignContacts
-        var contactsWithSentAt = await _dbContext.CampaignContacts
-            .Where(cc => cc.SentAt != null)
-            .ToListAsync();
+        var contactsWithSentAt = await queryContactsWithSentAt.ToListAsync();
 
         var latestDate = contactsWithSentAt.Any() 
             ? contactsWithSentAt.Max(cc => cc.SentAt!.Value.Date) 

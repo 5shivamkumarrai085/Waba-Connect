@@ -130,6 +130,18 @@ export const campaignService = {
       }
     })
     return response.data?.data
+  },
+
+  checkNameExists: async (name: string, excludeId?: number): Promise<boolean> => {
+    try {
+      const response = await apiClient.get('/Campaigns/exists', {
+        params: { name, excludeId }
+      })
+      return response.data?.data || false
+    } catch (error) {
+      console.error('Error checking campaign name existence:', error)
+      return false
+    }
   }
 }
 export default campaignService

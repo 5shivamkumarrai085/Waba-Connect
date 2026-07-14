@@ -17,6 +17,7 @@ public class AppDbContext : DbContext
     public DbSet<CampaignVariable> CampaignVariables { get; set; } = null!;
     public DbSet<ChatConversation> ChatConversations { get; set; } = null!;
     public DbSet<ChatMessage> ChatMessages { get; set; } = null!;
+    public DbSet<ContactNote> ContactNotes { get; set; } = null!;
 
     // WABA Configuration
     public DbSet<WabaConfiguration> WabaConfigurations { get; set; } = null!;

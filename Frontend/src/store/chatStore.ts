@@ -18,7 +18,8 @@ interface ChatStoreState {
   loadConversations: () => Promise<void>
   refreshActiveMessages: () => Promise<void>
   selectConversation: (id: number | null) => Promise<void>
-  sendMessage: (text: string) => Promise<void>
+  sendMessage: (text: string, mediaUrl?: string, mediaType?: string, mediaFileName?: string) => Promise<void>
+  deleteActiveConversation: () => Promise<void>
   setFromNumber: (fromNumber: string) => void
   setConversationsFilter: (filter: string) => void
   setSidebarSearchQuery: (query: string) => void
@@ -100,19 +101,26 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }
   },
 
-  sendMessage: async (text) => {
+  sendMessage: async (text, mediaUrl, mediaType, mediaFileName) => {
     const { activeConversationId, fromNumber } = get()
     if (!activeConversationId) return
 
     const tempId = -Date.now()
+    const displayBody = mediaUrl 
+      ? (text ? `[Attachment: ${mediaFileName || 'file'}]\n\n${text}` : `[Attachment: ${mediaFileName || 'file'}]`)
+      : text;
+
     const tempMessage: Message = {
       id: tempId,
       type: 'outgoing',
-      text,
+      text: displayBody,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       createdAt: new Date().toISOString(),
       status: 'sending',
-      isTemplate: false
+      isTemplate: false,
+      mediaUrl,
+      mediaType,
+      mediaFileName
     }
 
     set({ isSending: true })
@@ -120,13 +128,20 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       messages: [...state.messages, tempMessage],
       conversations: state.conversations.map((conversation) =>
         conversation.id === activeConversationId
-          ? { ...conversation, lastMessage: text, lastMessageTime: 'Now' }
+          ? { ...conversation, lastMessage: displayBody, lastMessageTime: 'Now' }
           : conversation
       )
     }))
 
     try {
-      const newMsg = await chatService.sendMessage(activeConversationId, text, fromNumber || undefined)
+      const newMsg = await chatService.sendMessage(
+        activeConversationId,
+        text,
+        fromNumber || undefined,
+        mediaUrl,
+        mediaType,
+        mediaFileName
+      )
       if (newMsg) {
         set((state) => ({
           messages: upsertMessage(state.messages, newMsg, tempId)
@@ -166,7 +181,18 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
   setFromNumber: (fromNumber) => set({ fromNumber }),
   setConversationsFilter: (conversationsFilter) => set({ conversationsFilter }),
-  setSidebarSearchQuery: (sidebarSearchQuery) => set({ sidebarSearchQuery })
+  setSidebarSearchQuery: (sidebarSearchQuery) => set({ sidebarSearchQuery }),
+
+  deleteActiveConversation: async () => {
+    const { activeConversationId } = get()
+    if (!activeConversationId) return
+    await chatService.deleteConversation(activeConversationId)
+    set((state) => ({
+      activeConversationId: null,
+      messages: [],
+      conversations: state.conversations.filter(c => c.id !== activeConversationId)
+    }))
+  }
 }))
 
 export default useChatStore

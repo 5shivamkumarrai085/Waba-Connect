@@ -1,6 +1,354 @@
 /* OmniConnect Design System - index.css */
 
 :root {
+  /* Reference Dashboard Design Tokens */
+  --livewire-progress-bar-color: #2299dd;
+  --iti-hover-color: rgba(0, 0, 0, .05);
+  --iti-border-color: #ccc;
+  --iti-dialcode-color: #999;
+  --iti-dropdown-bg: white;
+  --iti-spacer-horizontal: 8px;
+  --iti-flag-height: 12px;
+  --iti-flag-width: 16px;
+  --iti-border-width: 1px;
+  --iti-arrow-height: 4px;
+  --iti-arrow-width: 6px;
+  --iti-triangle-border: calc(var(--iti-arrow-width) / 2);
+  --iti-arrow-padding: 6px;
+  --iti-arrow-color: #555;
+  --iti-flag-sprite-width: 3904px;
+  --iti-flag-sprite-height: 12px;
+  --iti-mobile-popup-margin: 30px;
+
+  --color-slate-50: 248, 250, 252;
+  --color-slate-100: 241, 245, 249;
+  --color-slate-200: 226, 232, 240;
+  --color-slate-300: 203, 213, 225;
+  --color-slate-400: 148, 163, 184;
+  --color-slate-500: 100, 116, 139;
+  --color-slate-600: 71, 85, 105;
+  --color-slate-700: 51, 65, 85;
+  --color-slate-800: 30, 41, 59;
+  --color-slate-900: 15, 23, 42;
+
+  --color-gray-50: 249, 250, 251;
+  --color-gray-100: 243, 244, 246;
+  --color-gray-200: 229, 231, 235;
+  --color-gray-300: 209, 213, 219;
+  --color-gray-400: 156, 163, 175;
+  --color-gray-500: 107, 114, 128;
+  --color-gray-600: 75, 85, 99;
+  --color-gray-700: 55, 65, 81;
+  --color-gray-800: 31, 41, 55;
+  --color-gray-900: 17, 24, 39;
+
+  --color-zinc-50: 250, 250, 250;
+  --color-zinc-100: 244, 244, 245;
+  --color-zinc-200: 228, 228, 231;
+  --color-zinc-300: 212, 212, 216;
+  --color-zinc-400: 161, 161, 170;
+  --color-zinc-500: 113, 113, 122;
+  --color-zinc-600: 82, 82, 91;
+  --color-zinc-700: 63, 63, 70;
+  --color-zinc-800: 39, 39, 42;
+  --color-zinc-900: 24, 24, 27;
+
+  --color-stone-50: 250, 250, 249;
+  --color-stone-100: 245, 245, 244;
+  --color-stone-200: 231, 229, 228;
+  --color-stone-300: 214, 211, 209;
+  --color-stone-400: 168, 162, 158;
+  --color-stone-500: 120, 113, 108;
+  --color-stone-600: 87, 83, 78;
+  --color-stone-700: 68, 64, 60;
+  --color-stone-800: 41, 37, 36;
+  --color-stone-900: 28, 25, 23;
+
+  --color-red-50: 254, 242, 242;
+  --color-red-100: 254, 226, 226;
+  --color-red-200: 254, 202, 202;
+  --color-red-300: 252, 165, 165;
+  --color-red-400: 248, 113, 113;
+  --color-red-500: 239, 68, 68;
+  --color-red-600: 220, 38, 38;
+  --color-red-700: 185, 28, 28;
+  --color-red-800: 153, 27, 27;
+  --color-red-900: 127, 29, 29;
+
+  --color-orange-50: 255, 247, 237;
+  --color-orange-100: 255, 237, 213;
+  --color-orange-200: 254, 215, 170;
+  --color-orange-300: 253, 186, 116;
+  --color-orange-400: 251, 146, 60;
+  --color-orange-500: 249, 115, 22;
+  --color-orange-600: 234, 88, 12;
+  --color-orange-700: 194, 65, 12;
+  --color-orange-800: 154, 52, 18;
+  --color-orange-900: 124, 45, 18;
+
+  --color-amber-50: 255, 251, 235;
+  --color-amber-100: 254, 243, 199;
+  --color-amber-200: 253, 230, 138;
+  --color-amber-300: 252, 211, 77;
+  --color-amber-400: 251, 191, 36;
+  --color-amber-500: 245, 158, 11;
+  --color-amber-600: 217, 119, 6;
+  --color-amber-700: 180, 83, 9;
+  --color-amber-800: 146, 64, 14;
+  --color-amber-900: 120, 53, 15;
+
+  --color-yellow-50: 254, 252, 232;
+  --color-yellow-100: 254, 249, 195;
+  --color-yellow-200: 254, 240, 138;
+  --color-yellow-300: 253, 224, 71;
+  --color-yellow-400: 250, 204, 21;
+  --color-yellow-500: 234, 179, 8;
+  --color-yellow-600: 202, 138, 4;
+  --color-yellow-700: 161, 98, 7;
+  --color-yellow-800: 133, 77, 14;
+  --color-yellow-900: 113, 63, 18;
+
+  --color-lime-50: 247, 254, 231;
+  --color-lime-100: 236, 252, 203;
+  --color-lime-200: 217, 249, 157;
+  --color-lime-300: 190, 242, 100;
+  --color-lime-400: 163, 230, 53;
+  --color-lime-500: 132, 204, 22;
+  --color-lime-600: 101, 163, 13;
+  --color-lime-700: 77, 124, 15;
+  --color-lime-800: 63, 98, 18;
+  --color-lime-900: 54, 83, 20;
+
+  --color-green-50: 240, 253, 244;
+  --color-green-100: 220, 252, 231;
+  --color-green-200: 187, 247, 208;
+  --color-green-300: 134, 239, 172;
+  --color-green-400: 74, 222, 128;
+  --color-green-500: 34, 197, 94;
+  --color-green-600: 22, 163, 74;
+  --color-green-700: 21, 128, 61;
+  --color-green-800: 22, 101, 52;
+  --color-green-900: 20, 83, 45;
+
+  --color-emerald-50: 236, 253, 245;
+  --color-emerald-100: 209, 250, 229;
+  --color-emerald-200: 167, 243, 208;
+  --color-emerald-300: 110, 231, 183;
+  --color-emerald-400: 52, 211, 153;
+  --color-emerald-500: 16, 185, 129;
+  --color-emerald-600: 5, 150, 105;
+  --color-emerald-700: 4, 120, 87;
+  --color-emerald-800: 6, 95, 70;
+  --color-emerald-900: 6, 78, 59;
+
+  --color-teal-50: 240, 253, 250;
+  --color-teal-100: 204, 251, 241;
+  --color-teal-200: 153, 246, 228;
+  --color-teal-300: 94, 234, 212;
+  --color-teal-400: 45, 212, 191;
+  --color-teal-500: 20, 184, 166;
+  --color-teal-600: 13, 148, 136;
+  --color-teal-700: 15, 118, 110;
+  --color-teal-800: 17, 94, 89;
+  --color-teal-900: 19, 78, 74;
+
+  --color-cyan-50: 236, 254, 255;
+  --color-cyan-100: 207, 250, 254;
+  --color-cyan-200: 165, 243, 252;
+  --color-cyan-300: 103, 232, 249;
+  --color-cyan-400: 34, 211, 238;
+  --color-cyan-500: 6, 182, 212;
+  --color-cyan-600: 8, 145, 178;
+  --color-cyan-700: 14, 116, 144;
+  --color-cyan-800: 21, 94, 117;
+  --color-cyan-900: 22, 78, 99;
+
+  --color-sky-50: 240, 249, 255;
+  --color-sky-100: 224, 242, 254;
+  --color-sky-200: 186, 230, 253;
+  --color-sky-300: 125, 211, 252;
+  --color-sky-400: 56, 189, 248;
+  --color-sky-500: 14, 165, 233;
+  --color-sky-600: 2, 132, 199;
+  --color-sky-700: 3, 105, 161;
+  --color-sky-800: 7, 89, 133;
+  --color-sky-900: 12, 74, 110;
+
+  --color-blue-50: 239, 246, 255;
+  --color-blue-100: 219, 234, 254;
+  --color-blue-200: 191, 219, 254;
+  --color-blue-300: 147, 197, 253;
+  --color-blue-400: 96, 165, 250;
+  --color-blue-500: 59, 130, 246;
+  --color-blue-600: 37, 99, 235;
+  --color-blue-700: 29, 78, 216;
+  --color-blue-800: 30, 64, 175;
+  --color-blue-900: 30, 58, 138;
+
+  --color-indigo-50: 238, 242, 255;
+  --color-indigo-100: 224, 231, 255;
+  --color-indigo-200: 199, 210, 254;
+  --color-indigo-300: 165, 180, 252;
+  --color-indigo-400: 129, 140, 248;
+  --color-indigo-500: 99, 102, 241;
+  --color-indigo-600: 79, 70, 229;
+  --color-indigo-700: 67, 56, 202;
+  --color-indigo-800: 55, 48, 163;
+  --color-indigo-900: 49, 46, 129;
+
+  --color-violet-50: 245, 243, 255;
+  --color-violet-100: 237, 233, 254;
+  --color-violet-200: 221, 214, 254;
+  --color-violet-300: 196, 181, 253;
+  --color-violet-400: 167, 139, 250;
+  --color-violet-500: 139, 92, 246;
+  --color-violet-600: 124, 58, 237;
+  --color-violet-700: 109, 40, 217;
+  --color-violet-800: 91, 33, 182;
+  --color-violet-900: 76, 29, 149;
+
+  --color-purple-50: 250, 245, 255;
+  --color-purple-100: 243, 232, 255;
+  --color-purple-200: 233, 213, 255;
+  --color-purple-300: 216, 180, 254;
+  --color-purple-400: 192, 132, 252;
+  --color-purple-500: 168, 85, 247;
+  --color-purple-600: 147, 51, 234;
+  --color-purple-700: 126, 34, 206;
+  --color-purple-800: 107, 33, 168;
+  --color-purple-900: 88, 28, 135;
+
+  --color-fuchsia-50: 253, 244, 255;
+  --color-fuchsia-100: 250, 232, 255;
+  --color-fuchsia-200: 245, 208, 254;
+  --color-fuchsia-300: 240, 171, 252;
+  --color-fuchsia-400: 232, 121, 249;
+  --color-fuchsia-500: 217, 70, 239;
+  --color-fuchsia-600: 192, 38, 211;
+  --color-fuchsia-700: 162, 28, 175;
+  --color-fuchsia-800: 134, 25, 143;
+  --color-fuchsia-900: 112, 26, 117;
+
+  --color-pink-50: 253, 242, 248;
+  --color-pink-100: 252, 231, 243;
+  --color-pink-200: 251, 207, 232;
+  --color-pink-300: 249, 168, 212;
+  --color-pink-400: 244, 114, 182;
+  --color-pink-500: 236, 72, 153;
+  --color-pink-600: 219, 39, 119;
+  --color-pink-700: 190, 24, 93;
+  --color-pink-800: 157, 23, 77;
+  --color-pink-900: 131, 24, 67;
+
+  --color-rose-50: 255, 241, 242;
+  --color-rose-100: 255, 228, 230;
+  --color-rose-200: 254, 205, 211;
+  --color-rose-300: 253, 164, 175;
+  --color-rose-400: 251, 113, 133;
+  --color-rose-500: 244, 63, 94;
+  --color-rose-600: 225, 29, 72;
+  --color-rose-700: 190, 18, 60;
+  --color-rose-800: 159, 18, 57;
+  --color-rose-900: 136, 19, 55;
+
+  --color-primary-0: 255, 255, 255 !important;
+  --color-primary-50: 242, 242, 253 !important;
+  --color-primary-100: 225, 224, 251 !important;
+  --color-primary-200: 195, 192, 246 !important;
+  --color-primary-300: 165, 161, 242 !important;
+  --color-primary-400: 135, 130, 237 !important;
+  --color-primary-500: 109, 103, 234 !important;
+  --color-primary-600: 79, 70, 229 !important;
+  --color-primary-700: 36, 28, 197 !important;
+  --color-primary-800: 24, 18, 130 !important;
+  --color-primary-900: 12, 9, 67 !important;
+  --color-primary-950: 6, 4, 31 !important;
+  --color-primary-1000: 0, 0, 0 !important;
+
+  --color-danger-0: 255, 255, 255 !important;
+  --color-danger-50: 252, 237, 237 !important;
+  --color-danger-100: 249, 220, 220 !important;
+  --color-danger-200: 244, 185, 185 !important;
+  --color-danger-300: 237, 145, 145 !important;
+  --color-danger-400: 232, 110, 110 !important;
+  --color-danger-500: 226, 75, 75 !important;
+  --color-danger-600: 220, 38, 38 !important;
+  --color-danger-700: 167, 27, 27 !important;
+  --color-danger-800: 110, 18, 18 !important;
+  --color-danger-900: 57, 9, 9 !important;
+  --color-danger-950: 26, 4, 4 !important;
+  --color-danger-1000: 0, 0, 0 !important;
+
+  --color-warning-0: 255, 255, 255 !important;
+  --color-warning-50: 255, 247, 230 !important;
+  --color-warning-100: 254, 238, 205 !important;
+  --color-warning-200: 253, 222, 155 !important;
+  --color-warning-300: 252, 205, 105 !important;
+  --color-warning-400: 251, 189, 55 !important;
+  --color-warning-500: 250, 172, 5 !important;
+  --color-warning-600: 202, 138, 4 !important;
+  --color-warning-700: 150, 103, 3 !important;
+  --color-warning-800: 100, 69, 2 !important;
+  --color-warning-900: 50, 34, 1 !important;
+  --color-warning-950: 25, 17, 0 !important;
+  --color-warning-1000: 0, 0, 0 !important;
+
+  --color-success-0: 255, 255, 255 !important;
+  --color-success-50: 233, 252, 240 !important;
+  --color-success-100: 206, 248, 221 !important;
+  --color-success-200: 161, 242, 191 !important;
+  --color-success-300: 111, 236, 157 !important;
+  --color-success-400: 66, 230, 126 !important;
+  --color-success-500: 29, 211, 95 !important;
+  --color-success-600: 22, 163, 74 !important;
+  --color-success-700: 16, 121, 55 !important;
+  --color-success-800: 11, 81, 37 !important;
+  --color-success-900: 5, 40, 18 !important;
+  --color-success-950: 3, 22, 10 !important;
+  --color-success-1000: 0, 0, 0 !important;
+
+  --color-info-0: 255, 255, 255 !important;
+  --color-info-50: 230, 246, 255 !important;
+  --color-info-100: 205, 238, 254 !important;
+  --color-info-200: 154, 221, 254 !important;
+  --color-info-300: 104, 203, 253 !important;
+  --color-info-400: 53, 186, 253 !important;
+  --color-info-500: 3, 169, 252 !important;
+  --color-info-600: 2, 132, 199 !important;
+  --color-info-700: 2, 101, 151 !important;
+  --color-info-800: 1, 68, 101 !important;
+  --color-info-900: 1, 34, 50 !important;
+  --color-info-950: 0, 17, 25 !important;
+  --color-info-1000: 0, 0, 0 !important;
+
+  --color-neutral-0: 255, 255, 255 !important;
+  --color-neutral-50: 240, 240, 240 !important;
+  --color-neutral-100: 227, 227, 227 !important;
+  --color-neutral-200: 196, 196, 196 !important;
+  --color-neutral-300: 168, 168, 168 !important;
+  --color-neutral-400: 140, 140, 140 !important;
+  --color-neutral-500: 112, 112, 112 !important;
+  --color-neutral-600: 82, 82, 82 !important;
+  --color-neutral-700: 61, 61, 61 !important;
+  --color-neutral-800: 41, 41, 41 !important;
+  --color-neutral-900: 20, 20, 20 !important;
+  --color-neutral-950: 10, 10, 10 !important;
+  --color-neutral-1000: 0, 0, 0 !important;
+
+  --color-secondary-0: 255, 255, 255 !important;
+  --color-secondary-50: 240, 242, 244 !important;
+  --color-secondary-100: 223, 226, 231 !important;
+  --color-secondary-200: 191, 198, 207 !important;
+  --color-secondary-300: 159, 169, 182 !important;
+  --color-secondary-400: 127, 140, 158 !important;
+  --color-secondary-500: 99, 112, 131 !important;
+  --color-secondary-600: 75, 85, 99 !important;
+  --color-secondary-700: 57, 65, 75 !important;
+  --color-secondary-800: 37, 42, 49 !important;
+  --color-secondary-900: 20, 22, 26 !important;
+  --color-secondary-950: 9, 10, 12 !important;
+  --color-secondary-1000: 0, 0, 0 !important;
+
   /* Color Palette */
   --bg-primary: #f8f9fc;
   --bg-secondary: #ffffff;
@@ -109,18 +457,18 @@ a {
 
 /* Scrollbar Styles */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 3px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary);
+  background-color: rgb(var(--color-primary-200, 225, 224, 251)) !important;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--text-light);
+  background-color: rgb(var(--color-primary-400, 135, 130, 237)) !important;
   border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+  background: #bac4d8;
 }
 
 /* Animations */

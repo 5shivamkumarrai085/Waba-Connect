@@ -24,19 +24,6 @@ export const Header: React.FC = () => {
     document.documentElement.className = theme === 'light' ? 'light-theme' : 'dark-theme'
   }, [theme])
 
-  // Dynamic header path indicator
-  const getBreadcrumb = () => {
-    const path = location.pathname
-    if (path === '/') return 'Dashboard'
-    if (path === '/campaigns/campaign') return 'Campaign'
-    
-    // Format other paths: /connect-waba -> Connect Waba
-    const cleaned = path.replace('/', '').split('-').map(
-      word => word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ')
-    return cleaned
-  }
-
   const handleCreateCampaignClick = () => {
     navigate('/campaigns/campaign')
   }
@@ -53,7 +40,6 @@ export const Header: React.FC = () => {
             <ArrowLeft size={20} strokeWidth={2.5} />
           </button>
         )}
-        <span className="header-breadcrumb">{getBreadcrumb()}</span>
       </div>
 
       <div className="header-right">

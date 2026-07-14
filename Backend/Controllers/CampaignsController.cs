@@ -56,6 +56,13 @@ public class CampaignsController : ControllerBase
         return Ok(new ApiResponse { Success = true, Message = "Campaign deleted successfully." });
     }
 
+    [HttpGet("exists")]
+    public async Task<ActionResult<ApiResponse<bool>>> CheckNameExists([FromQuery] string name, [FromQuery] int? excludeId = null)
+    {
+        var exists = await _campaignService.CheckNameExistsAsync(name, excludeId);
+        return Ok(new ApiResponse<bool> { Success = true, Data = exists });
+    }
+
     [HttpPost("{id}/cancel")]
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Cancel(int id)
     {

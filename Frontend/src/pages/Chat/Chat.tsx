@@ -14,13 +14,33 @@ import {
   Paperclip,
   Search,
   Send,
-  Smile
+  Smile,
+  X,
+  User,
+  Plus,
+  Trash2
 } from 'lucide-react'
 import { Avatar } from '../../components/Avatar/Avatar'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { useChatStore } from '../../store/chatStore'
+import { campaignService } from '../../services/campaigns/campaignService'
+import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
+import { apiClient } from '../../services/apiClient'
 import type { Message } from '../../types/chat'
 import './Chat.css'
+
+const EMOJIS = [
+  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇',
+  '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚',
+  '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🥸',
+  '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️',
+  '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡',
+  '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓',
+  '🤗', '🤔', '🫣', '🤭', '🫢', '🫡', '🤫', '🫠', '✍️', '👍',
+  '👎', '👊', '✊', '🤛', '🤜', '👏', '🙌', '👐', '🤝', '🙏',
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔',
+  '🔥', '✨', '🎉', '🚀', '💡', '💯', '💬', '📞', '🔔', '🔒'
+]
 
 export const Chat: React.FC = () => {
   const [searchParams] = useSearchParams()
@@ -39,6 +59,7 @@ export const Chat: React.FC = () => {
     refreshActiveMessages,
     selectConversation,
     sendMessage,
+    deleteActiveConversation,
     setFromNumber,
     setConversationsFilter,
     setSidebarSearchQuery
@@ -47,6 +68,51 @@ export const Chat: React.FC = () => {
   const [messageText, setMessageText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const requestedContactId = Number(searchParams.get('contactId') || 0)
+
+  // Popover & Upload States
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false)
+  const [uploadingMedia, setUploadingMedia] = useState(false)
+  const mediaFileInputRef = useRef<HTMLInputElement>(null)
+  const [attachmentType, setAttachmentType] = useState<'image' | 'video' | 'document' | null>(null)
+
+  const insertEmoji = (emoji: string) => {
+    setMessageText(prev => prev + emoji)
+    setShowEmojiPicker(false)
+  }
+
+  const triggerMediaUpload = (type: 'image' | 'video' | 'document') => {
+    setAttachmentType(type)
+    setShowAttachmentMenu(false)
+    setTimeout(() => {
+      mediaFileInputRef.current?.click()
+    }, 50)
+  }
+
+  const handleMediaFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0] || !attachmentType) return
+    const file = e.target.files[0]
+    setUploadingMedia(true)
+    try {
+      const res = await campaignService.uploadFile(file)
+      await sendMessage('', res.url, attachmentType, res.fileName)
+      toast.success(`${attachmentType} sent successfully!`)
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to upload and send attachment.')
+    } finally {
+      setUploadingMedia(false)
+      setAttachmentType(null)
+      if (mediaFileInputRef.current) mediaFileInputRef.current.value = ''
+    }
+  }
+
+  const getAcceptTypes = (type: 'image' | 'video' | 'document' | null) => {
+    if (type === 'image') return 'image/*'
+    if (type === 'video') return 'video/*'
+    if (type === 'document') return 'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain'
+    return undefined
+  }
 
   useEffect(() => {
     loadAccounts()
@@ -111,7 +177,150 @@ export const Chat: React.FC = () => {
     })
   }, [conversations, conversationsFilter, sidebarSearchQuery])
 
-  const activeConversation = conversations.find(c => c.id === activeConversationId)
+  // 1. Template Modal
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
+
+  // 2. Delete Menu
+  const [showDeleteMenu, setShowDeleteMenu] = useState(false)
+
+  // 3. User Info Drawer & Notes
+  const [showInfoDrawer, setShowInfoDrawer] = useState(false)
+  const [notes, setNotes] = useState<any[]>([])
+  const [loadingNotes, setLoadingNotes] = useState(false)
+  const [newNoteContent, setNewNoteContent] = useState('')
+  const [showAddNoteInput, setShowAddNoteInput] = useState(false)
+
+  // 6. Local Search Bar
+  const [showMsgSearch, setShowMsgSearch] = useState(false)
+  const [msgSearchQuery, setMsgSearchQuery] = useState('')
+
+  const activeConversation = useMemo(() => {
+    return conversations.find(c => c.id === activeConversationId) || null
+  }, [conversations, activeConversationId])
+
+  const lastIncomingMessage = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].type === 'incoming') {
+        return messages[i]
+      }
+    }
+    return null
+  }, [messages])
+
+  const windowStatus = useMemo(() => {
+    if (!lastIncomingMessage) return { active: false, text: 'No incoming messages' }
+    
+    const lastTime = new Date(lastIncomingMessage.createdAt).getTime()
+    const limit = lastTime + 24 * 60 * 60 * 1000
+    const now = Date.now()
+    const remainingMs = limit - now
+
+    if (remainingMs <= 0) {
+      return { active: false, text: '24h customer window expired' }
+    }
+
+    const hours = Math.floor(remainingMs / (60 * 60 * 1000))
+    const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000))
+    return { 
+      active: true, 
+      text: `${hours}h ${minutes}m remaining of 24h window` 
+    }
+  }, [lastIncomingMessage])
+
+  const searchedMessages = useMemo(() => {
+    if (!msgSearchQuery.trim()) return messages
+    const q = msgSearchQuery.toLowerCase()
+    return messages.filter(m => m.text.toLowerCase().includes(q))
+  }, [messages, msgSearchQuery])
+
+  // Note CRUD handlers
+  const loadNotes = async (contactId: number) => {
+    setLoadingNotes(true)
+    try {
+      const res = await apiClient.get(`/Contacts/${contactId}/notes`)
+      setNotes(res.data?.data || [])
+    } catch (err) {
+      console.error('Failed to load notes', err)
+    } finally {
+      setLoadingNotes(false)
+    }
+  }
+
+  const handleAddNote = async () => {
+    if (!newNoteContent.trim() || !activeConversation) return
+    try {
+      const res = await apiClient.post(`/Contacts/${activeConversation.contactId}/notes`, {
+        content: newNoteContent.trim()
+      })
+      if (res.data?.success) {
+        setNotes(prev => [res.data.data, ...prev])
+        setNewNoteContent('')
+        setShowAddNoteInput(false)
+        toast.success('Note added successfully')
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to add note')
+    }
+  }
+
+  const handleDeleteNote = async (noteId: number) => {
+    if (!activeConversation) return
+    try {
+      const res = await apiClient.delete(`/Contacts/${activeConversation.contactId}/notes/${noteId}`)
+      if (res.data?.success) {
+        setNotes(prev => prev.filter(n => n.id !== noteId))
+        toast.success('Note deleted successfully')
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to delete note')
+    }
+  }
+
+  const handleDeleteChat = async () => {
+    setShowDeleteMenu(false)
+    if (!activeConversationId) return
+    
+    if (window.confirm("Are you sure you want to delete this chat? This will remove all messages from the database.")) {
+      try {
+        await deleteActiveConversation()
+        toast.success("Chat deleted successfully!")
+      } catch (err) {
+        console.error(err)
+        toast.error("Failed to delete conversation.")
+      }
+    }
+  }
+
+  const renderMessageText = (text: string, search: string) => {
+    let cleanText = text
+    const attachmentRegex = /\[Attachment:[^\]]+\]\s*/g
+    if (cleanText.match(attachmentRegex)) {
+      cleanText = cleanText.replace(attachmentRegex, '')
+    }
+
+    if (!search.trim()) return cleanText
+
+    const parts = cleanText.split(new RegExp(`(${search})`, 'gi'))
+    return (
+      <>
+        {parts.map((part, i) => 
+          part.toLowerCase() === search.toLowerCase() 
+            ? <mark key={i} className="search-highlight">{part}</mark> 
+            : part
+        )}
+      </>
+    )
+  }
+
+  // Load notes when opening drawer
+  useEffect(() => {
+    if (showInfoDrawer && activeConversation) {
+      loadNotes(activeConversation.contactId)
+    }
+  }, [showInfoDrawer, activeConversationId])
+
   const selectedAccount = accounts.find(account => account.phoneNumberId === fromNumber)
 
   const sendCurrentMessage = async () => {
@@ -244,99 +453,365 @@ export const Chat: React.FC = () => {
           <div className="chat-window-inner-layout">
             <div className="chat-window-header">
               <div className="chat-header-user-info">
-                <Avatar name={activeConversation.name} size="medium" />
-                <div>
-                  <span className="conversation-contact-name">{activeConversation.name}</span>
-                  <p className="upload-sub-text margin-zero">{activeConversation.phone}</p>
-                </div>
-                <span className={`conversation-status-badge ${normalizeBadge(activeConversation.status)}`}>
-                  {activeConversation.status || 'contact'}
-                </span>
+                {!showMsgSearch ? (
+                  <>
+                    <Avatar name={activeConversation.name} size="medium" />
+                    <div>
+                      <span className="conversation-contact-name">{activeConversation.name}</span>
+                      <p className="upload-sub-text margin-zero">{activeConversation.phone}</p>
+                    </div>
+                    <span className={`conversation-status-badge ${normalizeBadge(activeConversation.status)}`}>
+                      {activeConversation.status || 'contact'}
+                    </span>
+                  </>
+                ) : (
+                  <div className="chat-messages-search-bar">
+                    <input
+                      type="text"
+                      className="form-control msg-search-input"
+                      placeholder="Search Messages..."
+                      value={msgSearchQuery}
+                      onChange={(e) => setMsgSearchQuery(e.target.value)}
+                      autoFocus
+                    />
+                    <button type="button" className="msg-search-close-btn" onClick={() => { setMsgSearchQuery(''); setShowMsgSearch(false); }}>
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="chat-header-actions">
-                <Search size={18} className="chat-header-action-icon" />
-                <Info size={18} className="chat-header-action-icon" />
-                <MessageSquare size={18} className="chat-header-action-icon whatsapp-green" />
-                <MoreVertical size={18} className="chat-header-action-icon" />
+                <span title="Search Messages">
+                  <Search size={18} className="chat-header-action-icon" onClick={() => setShowMsgSearch(!showMsgSearch)} />
+                </span>
+                
+                {windowStatus.active && (
+                  <div 
+                    className="chat-header-window-dot active" 
+                    title={windowStatus.text}
+                  />
+                )}
+                {!windowStatus.active && (
+                  <div 
+                    className="chat-header-window-dot expired" 
+                    title={windowStatus.text}
+                  />
+                )}
+
+                {activeConversation.assignedTo && (
+                  <div className="chat-header-assigned-user" title={`Assigned Member: ${activeConversation.assignedTo}`}>
+                    <User size={18} className="chat-header-action-icon assigned-user-icon" />
+                  </div>
+                )}
+
+                <span title="User Information">
+                  <Info size={18} className={`chat-header-action-icon ${showInfoDrawer ? 'active' : ''}`} onClick={() => setShowInfoDrawer(!showInfoDrawer)} />
+                </span>
+                <span title="Initiate Chat">
+                  <MessageSquare size={18} className="chat-header-action-icon whatsapp-green" onClick={() => setIsTemplateModalOpen(true)} />
+                </span>
+                
+                <div className="chat-header-more-menu-wrapper">
+                  <MoreVertical size={18} className="chat-header-action-icon" onClick={() => setShowDeleteMenu(!showDeleteMenu)} />
+                  {showDeleteMenu && (
+                    <div className="chat-header-delete-menu">
+                      <button type="button" className="chat-header-delete-btn" onClick={handleDeleteChat}>
+                        <Trash2 size={14} />
+                        Delete Chat
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="chat-messages-container">
-              {messages.length === 0 ? (
-                <div className="chat-empty-thread">
-                  <MessageCircle size={28} />
-                  <span>No messages yet</span>
-                </div>
-              ) : (
-                messages.map((message, index) => {
-                  const previous = messages[index - 1]
-                  const showDateDivider = shouldShowDateDivider(message, previous)
+            <div className="chat-window-content-row">
+              <div className="chat-window-messages-column">
+                <div className="chat-messages-container">
+                  {searchedMessages.length === 0 ? (
+                    <div className="chat-empty-thread">
+                      <MessageCircle size={28} />
+                      <span>{msgSearchQuery.trim() ? 'No matching messages found' : 'No messages yet'}</span>
+                    </div>
+                  ) : (
+                    searchedMessages.map((message, index) => {
+                      const previous = searchedMessages[index - 1]
+                      const showDateDivider = shouldShowDateDivider(message, previous)
 
-                  return (
-                    <div key={message.id} className="chat-bubble-row">
-                      {showDateDivider && (
-                        <div className="chat-date-divider">{formatDateDivider(message.createdAt)}</div>
-                      )}
+                      return (
+                        <div key={message.id} className="chat-bubble-row">
+                          {showDateDivider && (
+                            <div className="chat-date-divider">{formatDateDivider(message.createdAt)}</div>
+                          )}
 
-                      <div className={getBubbleClass(message)}>
-                        <p className="chat-bubble-text-outgoing">{message.text}</p>
-                        <div className="chat-bubble-time-row">
-                          <span className="conversation-time">{message.time}</span>
-                          {message.type === 'outgoing' && (
-                            <span
-                              className={`chat-bubble-status-icon ${getMessageStatusClass(message.status)}`}
-                              title={getMessageStatusTitle(message)}
-                            >
-                              {getStatusIcon(message)}
-                            </span>
+                          <div className={getBubbleClass(message)}>
+                            {message.mediaUrl && (
+                              <div className="chat-bubble-media-wrapper">
+                                {message.mediaType === 'image' && (
+                                  <img
+                                    src={message.mediaUrl}
+                                    alt={message.mediaFileName || 'Image'}
+                                    className="chat-bubble-media-image"
+                                    onClick={() => window.open(message.mediaUrl || undefined, '_blank')}
+                                  />
+                                )}
+                                {message.mediaType === 'video' && (
+                                  <video
+                                    src={message.mediaUrl}
+                                    controls
+                                    className="chat-bubble-media-video"
+                                  />
+                                )}
+                                {message.mediaType === 'document' && (
+                                  <a
+                                    href={message.mediaUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="chat-bubble-media-document-card"
+                                  >
+                                    <FileText size={24} className="document-card-icon" />
+                                    <div className="document-card-info">
+                                      <span className="document-card-name" title={message.mediaFileName || undefined}>
+                                        {message.mediaFileName || 'document.pdf'}
+                                      </span>
+                                      <span className="document-card-size">
+                                        Click to View/Download
+                                      </span>
+                                    </div>
+                                  </a>
+                                )}
+                              </div>
+                            )}
+
+                            {(!message.mediaUrl || (message.text && message.text.replace(/\[Attachment:[^\]]+\]\s*/g, '').trim().length > 0)) && (
+                              <p className="chat-bubble-text-outgoing">
+                                {renderMessageText(message.text, msgSearchQuery)}
+                              </p>
+                            )}
+
+                            <div className="chat-bubble-time-row">
+                              <span className="conversation-time">{message.time}</span>
+                              {message.type === 'outgoing' && (
+                                <span
+                                  className={`chat-bubble-status-icon ${getMessageStatusClass(message.status)}`}
+                                  title={getMessageStatusTitle(message)}
+                                >
+                                  {getStatusIcon(message)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {message.errorMessage && (
+                            <div className="chat-system-error-text">
+                              {message.errorMessage}
+                            </div>
                           )}
                         </div>
+                      )
+                    })
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                <form onSubmit={handleSend} className="chat-composer-container">
+                  <div className="chat-composer-input-row">
+                    <textarea
+                      className="chat-composer-textarea"
+                      rows={1}
+                      placeholder={`Message to ${activeConversation.name} - Shift + Enter for newline`}
+                      value={messageText}
+                      onChange={(e) => setMessageText(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      disabled={isSending}
+                    />
+                  </div>
+
+                  <div className="chat-composer-actions-row">
+                    <input
+                      ref={mediaFileInputRef}
+                      type="file"
+                      style={{ display: 'none' }}
+                      onChange={handleMediaFileChange}
+                      accept={getAcceptTypes(attachmentType)}
+                    />
+
+                    <div className="chat-composer-left-actions">
+                      <div className="chat-composer-popover-anchor">
+                        <Smile size={18} className="chat-composer-icon" onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowAttachmentMenu(false); }} />
+                        {showEmojiPicker && (
+                          <div className="emoji-picker-popover">
+                            {EMOJIS.map(emoji => (
+                              <button key={emoji} type="button" className="emoji-btn" onClick={() => insertEmoji(emoji)}>
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
-                      {message.errorMessage && (
-                        <div className="chat-system-error-text">
-                          {message.errorMessage}
+                      <div className="chat-composer-popover-anchor">
+                        <Paperclip size={18} className="chat-composer-icon" onClick={() => { setShowAttachmentMenu(!showAttachmentMenu); setShowEmojiPicker(false); }} />
+                        {showAttachmentMenu && (
+                          <div className="attachment-menu-popover">
+                            <button type="button" className="attachment-menu-item" onClick={() => triggerMediaUpload('image')}>
+                              Image
+                            </button>
+                            <button type="button" className="attachment-menu-item" onClick={() => triggerMediaUpload('document')}>
+                              Document
+                            </button>
+                            <button type="button" className="attachment-menu-item" onClick={() => triggerMediaUpload('video')}>
+                              Video
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <FileText size={18} className="chat-composer-icon" onClick={() => toast.success('Template picker coming soon')} />
+                      <MessageCircle size={18} className="chat-composer-icon" onClick={() => toast.success('Bot flows coming soon')} />
+                      
+                      {uploadingMedia && (
+                        <span className="upload-loading-indicator">Uploading media...</span>
+                      )}
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="chat-composer-voice-btn"
+                      aria-label="Send message"
+                      disabled={(!messageText.trim() && !uploadingMedia) || isSending}
+                    >
+                      <Send size={18} />
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {showInfoDrawer && (
+                <div className="chat-info-drawer">
+                  <div className="info-drawer-header">
+                    <h3>User Info</h3>
+                    <button type="button" className="info-drawer-close" onClick={() => setShowInfoDrawer(false)}>
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <div className="info-drawer-body">
+                    <div className="info-drawer-user-card">
+                      <Avatar name={activeConversation.name} size="large" />
+                      <span className="info-drawer-name">{activeConversation.name}</span>
+                      <span className={`conversation-status-badge ${normalizeBadge(activeConversation.status)}`}>
+                        {activeConversation.status || 'contact'}
+                      </span>
+                    </div>
+
+                    <div className="info-drawer-section">
+                      <h4 className="info-drawer-section-title">Details</h4>
+                      <div className="info-details-list">
+                        <div className="info-detail-item">
+                          <span className="info-detail-label">Source</span>
+                          <span className="info-detail-value">{activeConversation.source || 'Unknown'}</span>
+                        </div>
+                        <div className="info-detail-item">
+                          <span className="info-detail-label">Groups</span>
+                          <span className="info-detail-value">
+                            {activeConversation.contactGroups && activeConversation.contactGroups.length > 0
+                              ? activeConversation.contactGroups.join(', ')
+                              : 'No groups assigned'}
+                          </span>
+                        </div>
+                        <div className="info-detail-item">
+                          <span className="info-detail-label">Creation Time</span>
+                          <span className="info-detail-value">
+                            {activeConversation.contactCreatedAt 
+                              ? new Date(activeConversation.contactCreatedAt).toLocaleString() 
+                              : '-'}
+                          </span>
+                        </div>
+                        <div className="info-detail-item">
+                          <span className="info-detail-label">Last Activity</span>
+                          <span className="info-detail-value">
+                            {activeConversation.lastMessageAt 
+                              ? new Date(activeConversation.lastMessageAt).toLocaleString() 
+                              : activeConversation.lastMessageTime || '-'}
+                          </span>
+                        </div>
+                        <div className="info-detail-item">
+                          <span className="info-detail-label">Phone</span>
+                          <span className="info-detail-value">{activeConversation.phone}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="info-drawer-section">
+                      <div className="info-drawer-section-header">
+                        <h4 className="info-drawer-section-title">Notes</h4>
+                        <button type="button" className="add-note-btn" onClick={() => setShowAddNoteInput(!showAddNoteInput)}>
+                          <Plus size={16} />
+                        </button>
+                      </div>
+
+                      {showAddNoteInput && (
+                        <div className="add-note-input-container">
+                          <textarea
+                            className="form-control note-textarea"
+                            placeholder="Write a note..."
+                            value={newNoteContent}
+                            onChange={(e) => setNewNoteContent(e.target.value)}
+                            rows={3}
+                          />
+                          <div className="note-input-actions">
+                            <button type="button" className="btn btn-sm btn-light" onClick={() => setShowAddNoteInput(false)}>
+                              Cancel
+                            </button>
+                            <button type="button" className="btn btn-sm btn-primary" onClick={handleAddNote}>
+                              Save
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {loadingNotes ? (
+                        <p className="loading-notes-text">Loading notes...</p>
+                      ) : notes.length === 0 ? (
+                        <p className="no-notes-text">No notes yet</p>
+                      ) : (
+                        <div className="notes-list">
+                          {notes.map(note => (
+                            <div key={note.id} className="note-item">
+                              <div className="note-item-header">
+                                <span className="note-date">
+                                  {new Date(note.createdAt).toLocaleDateString()}
+                                </span>
+                                <button type="button" className="delete-note-btn" onClick={() => handleDeleteNote(note.id)}>
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                              <p className="note-content">{note.content}</p>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
-                  )
-                })
+                  </div>
+                </div>
               )}
-              <div ref={messagesEndRef} />
             </div>
 
-            <form onSubmit={handleSend} className="chat-composer-container">
-              <div className="chat-composer-input-row">
-                <textarea
-                  className="chat-composer-textarea"
-                  rows={1}
-                  placeholder={`Message to ${activeConversation.name} - Shift + Enter for newline`}
-                  value={messageText}
-                  onChange={(e) => setMessageText(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  disabled={isSending}
-                />
-              </div>
-
-              <div className="chat-composer-actions-row">
-                <div className="chat-composer-left-actions">
-                  <Smile size={18} className="chat-composer-icon" onClick={() => toast.success('Emoji picker coming soon')} />
-                  <Paperclip size={18} className="chat-composer-icon" onClick={() => toast.success('Attachments coming soon')} />
-                  <FileText size={18} className="chat-composer-icon" onClick={() => toast.success('Template picker coming soon')} />
-                  <MessageCircle size={18} className="chat-composer-icon" onClick={() => toast.success('Bot flows coming soon')} />
-                </div>
-
-                <button
-                  type="submit"
-                  className="chat-composer-voice-btn"
-                  aria-label="Send message"
-                  disabled={!messageText.trim() || isSending}
-                >
-                  <Send size={18} />
-                </button>
-              </div>
-            </form>
+            <InitiateChatModal
+              isOpen={isTemplateModalOpen}
+              onClose={() => setIsTemplateModalOpen(false)}
+              contact={{
+                id: activeConversation.contactId,
+                name: activeConversation.name,
+                phone: activeConversation.phone
+              }}
+              onSuccess={() => {
+                setIsTemplateModalOpen(false)
+                void refreshActiveMessages()
+              }}
+            />
           </div>
         ) : (
           <div className="chat-empty-state-container">

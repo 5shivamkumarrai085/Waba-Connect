@@ -29,6 +29,17 @@ public interface IWhatsAppService
     Task<WhatsAppSendResult> SendTextMessageAsync(string recipientPhone, string text, string? fromPhoneNumberId = null);
 
     /// <summary>
+    /// Sends an outbound media message (image, video, document) to a recipient via WhatsApp Cloud API.
+    /// </summary>
+    Task<WhatsAppSendResult> SendMediaMessageAsync(
+        string recipientPhone,
+        string mediaUrl,
+        string mediaType,
+        string? filename = null,
+        string? caption = null,
+        string? fromPhoneNumberId = null);
+
+    /// <summary>
     /// Fetches all templates from the WhatsApp Business Account.
     /// </summary>
     Task<List<WhatsAppTemplateInfo>> GetTemplatesAsync();

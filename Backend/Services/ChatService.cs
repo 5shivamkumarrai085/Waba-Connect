@@ -11,11 +11,13 @@ public class ChatService : IChatService
 {
     private readonly AppDbContext _dbContext;
     private readonly IWhatsAppService _whatsAppService;
+    private readonly ITemplateService _templateService;
 
-    public ChatService(AppDbContext dbContext, IWhatsAppService whatsAppService)
+    public ChatService(AppDbContext dbContext, IWhatsAppService whatsAppService, ITemplateService templateService)
     {
         _dbContext = dbContext;
         _whatsAppService = whatsAppService;
+        _templateService = templateService;
     }
 
     public async Task<List<ChatAccountResponse>> GetAccountsAsync()
@@ -33,6 +35,8 @@ public class ChatService : IChatService
 
         var query = _dbContext.ChatConversations
             .Include(c => c.Contact)
+                .ThenInclude(contact => contact.GroupMemberships)
+                    .ThenInclude(membership => membership.Group)
             .Include(c => c.WabaPhoneNumber)
             .AsQueryable();
 
@@ -61,6 +65,8 @@ public class ChatService : IChatService
     {
         var conversation = await _dbContext.ChatConversations
             .Include(c => c.Contact)
+                .ThenInclude(contact => contact.GroupMemberships)
+                    .ThenInclude(membership => membership.Group)
             .Include(c => c.WabaPhoneNumber)
             .FirstOrDefaultAsync(c => c.Id == id);
 
@@ -99,9 +105,18 @@ public class ChatService : IChatService
         if (conversation == null)
             throw new KeyNotFoundException($"Chat conversation with ID {conversationId} not found.");
 
-        var text = request.Text.Trim();
-        if (string.IsNullOrWhiteSpace(text))
+        var text = request.Text?.Trim() ?? string.Empty;
+        var isMedia = !string.IsNullOrWhiteSpace(request.MediaUrl) && !string.IsNullOrWhiteSpace(request.MediaType);
+
+        if (string.IsNullOrWhiteSpace(text) && !isMedia)
             throw new ArgumentException("Message text is required.");
+
+        var dbText = text;
+        if (isMedia)
+        {
+            var fileName = request.MediaFileName ?? (!string.IsNullOrEmpty(request.MediaUrl) ? Path.GetFileName(request.MediaUrl) : "file");
+            dbText = string.IsNullOrWhiteSpace(text) ? $"[Attachment: {fileName}]" : $"[Attachment: {fileName}]\n\n{text}";
+        }
 
         var account = await ResolveAccountAsync(request.FromPhoneNumberId, conversation);
         if (account != null)
@@ -115,23 +130,40 @@ public class ChatService : IChatService
             ContactId = conversation.ContactId,
             Direction = ChatMessageDirection.Outgoing,
             Status = ChatMessageStatus.Pending,
-            Text = text,
-            IsTemplate = false
+            Text = dbText,
+            IsTemplate = false,
+            MediaUrl = request.MediaUrl,
+            MediaType = request.MediaType,
+            MediaFileName = request.MediaFileName
         };
 
         _dbContext.ChatMessages.Add(message);
-        UpdateConversationPreview(conversation, text);
+        UpdateConversationPreview(conversation, dbText);
         await _dbContext.SaveChangesAsync();
 
-        var result = await _whatsAppService.SendTextMessageAsync(
-            conversation.Contact.Phone,
-            text,
-            account?.PhoneNumberId);
+        WhatsAppSendResult result;
+        if (isMedia)
+        {
+            result = await _whatsAppService.SendMediaMessageAsync(
+                conversation.Contact.Phone,
+                request.MediaUrl!,
+                request.MediaType!,
+                request.MediaFileName,
+                string.IsNullOrWhiteSpace(text) ? null : text,
+                account?.PhoneNumberId);
+        }
+        else
+        {
+            result = await _whatsAppService.SendTextMessageAsync(
+                conversation.Contact.Phone,
+                text,
+                account?.PhoneNumberId);
+        }
 
         if (result.Success)
         {
             message.WhatsAppMessageId = result.MessageId;
-            message.Status = ChatMessageStatus.Pending;
+            message.Status = ChatMessageStatus.Sent;
         }
         else
         {
@@ -140,6 +172,49 @@ public class ChatService : IChatService
         }
 
         await _dbContext.SaveChangesAsync();
+        return MapMessage(message);
+    }
+
+    public async Task<ChatMessageResponse> SendTemplateToContactAsync(SendTemplateToContactRequest request)
+    {
+        var contact = await _dbContext.Contacts
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(c => c.Id == request.ContactId);
+        if (contact == null)
+            throw new KeyNotFoundException($"Contact with ID {request.ContactId} not found.");
+
+        var template = await _dbContext.Templates
+            .FirstOrDefaultAsync(t => t.Id == request.TemplateId);
+        if (template == null)
+            throw new KeyNotFoundException($"Template with ID {request.TemplateId} not found.");
+
+        var preview = await _templateService.GetPreviewAsync(request.TemplateId, request.Variables);
+        var messageText = preview.PreviewText;
+
+        var result = await _whatsAppService.SendTemplateMessageWithResultAsync(
+            contact.Phone,
+            template.Name,
+            template.Language,
+            request.Variables);
+
+        var conversation = await GetOrCreateConversationAsync(contact.Id);
+
+        var message = new ChatMessage
+        {
+            ConversationId = conversation.Id,
+            ContactId = contact.Id,
+            Direction = ChatMessageDirection.Outgoing,
+            Status = result.Success ? ChatMessageStatus.Sent : ChatMessageStatus.Failed,
+            Text = messageText,
+            IsTemplate = true,
+            WhatsAppMessageId = result.Success ? result.MessageId : null,
+            ErrorMessage = result.Success ? null : (result.ErrorMessage ?? "Failed to send template message via WhatsApp Cloud API.")
+        };
+
+        _dbContext.ChatMessages.Add(message);
+        UpdateConversationPreview(conversation, messageText);
+        await _dbContext.SaveChangesAsync();
+
         return MapMessage(message);
     }
 
@@ -186,7 +261,7 @@ public class ChatService : IChatService
         if (message == null) return;
 
         message.WhatsAppMessageId = whatsAppMessageId;
-        message.Status = ChatMessageStatus.Pending;
+        message.Status = ChatMessageStatus.Sent;
         await _dbContext.SaveChangesAsync();
     }
 
@@ -298,7 +373,14 @@ public class ChatService : IChatService
             LastMessageAt = conversation.LastMessageAt,
             LastMessageTime = FormatConversationTime(conversation.LastMessageAt),
             FromPhoneNumber = conversation.WabaPhoneNumber?.PhoneNumber,
-            FromPhoneNumberId = conversation.WabaPhoneNumber?.PhoneNumberId
+            FromPhoneNumberId = conversation.WabaPhoneNumber?.PhoneNumberId,
+            AssignedTo = conversation.Contact.AssignedTo,
+            Source = conversation.Contact.Source.ToString().ToLowerInvariant(),
+            ContactCreatedAt = conversation.Contact.CreatedAt,
+            ContactGroups = conversation.Contact.GroupMemberships?
+                .Select(gm => gm.Group?.Name ?? "")
+                .Where(name => !string.IsNullOrEmpty(name))
+                .ToList() ?? new List<string>()
         };
     }
 
@@ -314,6 +396,9 @@ public class ChatService : IChatService
             Status = message.Status.ToString().ToLowerInvariant(),
             IsTemplate = message.IsTemplate,
             ErrorMessage = message.ErrorMessage,
+            MediaUrl = message.MediaUrl,
+            MediaType = message.MediaType,
+            MediaFileName = message.MediaFileName,
             SentAt = message.SentAt,
             DeliveredAt = message.DeliveredAt,
             ReadAt = message.ReadAt,
@@ -336,5 +421,19 @@ public class ChatService : IChatService
             return local.ToString("MMM d");
 
         return local.ToString("MMM d, yyyy");
+    }
+
+    public async Task DeleteConversationAsync(int conversationId)
+    {
+        var conversation = await _dbContext.ChatConversations
+            .Include(c => c.Messages)
+            .FirstOrDefaultAsync(c => c.Id == conversationId);
+
+        if (conversation == null)
+            return;
+
+        _dbContext.ChatMessages.RemoveRange(conversation.Messages);
+        _dbContext.ChatConversations.Remove(conversation);
+        await _dbContext.SaveChangesAsync();
     }
 }

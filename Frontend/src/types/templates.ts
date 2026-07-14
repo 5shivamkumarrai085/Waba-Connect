@@ -18,6 +18,7 @@ export interface Template {
   headerContent?: string
   footerText?: string
   variables?: TemplateVariable[]
+  createdAt?: string
 }
 
 export interface TemplateLanguage {

@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Contacts;
+using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Services.Interfaces;
 
 namespace WhatsAppCampaignApi.Controllers;
@@ -10,10 +13,12 @@ namespace WhatsAppCampaignApi.Controllers;
 public class ContactsController : ControllerBase
 {
     private readonly IContactService _contactService;
+    private readonly AppDbContext _dbContext;
 
-    public ContactsController(IContactService contactService)
+    public ContactsController(IContactService contactService, AppDbContext dbContext)
     {
         _contactService = contactService;
+        _dbContext = dbContext;
     }
 
     [HttpGet]
@@ -155,5 +160,54 @@ public class ContactsController : ControllerBase
             new { id = "UnitedKingdom", name = "United Kingdom (+44)", code = "GB", dialCode = "+44" }
         };
         return Ok(list);
+    }
+
+    [HttpGet("{contactId}/notes")]
+    public async Task<ActionResult<ApiResponse<List<ContactNote>>>> GetNotes(int contactId)
+    {
+        var notes = await _dbContext.ContactNotes
+            .Where(n => n.ContactId == contactId)
+            .OrderByDescending(n => n.CreatedAt)
+            .ToListAsync();
+        return Ok(new ApiResponse<List<ContactNote>> { Success = true, Data = notes });
+    }
+
+    public class CreateNoteRequest
+    {
+        public string Content { get; set; } = string.Empty;
+    }
+
+    [HttpPost("{contactId}/notes")]
+    public async Task<ActionResult<ApiResponse<ContactNote>>> CreateNote(int contactId, [FromBody] CreateNoteRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Content))
+            return BadRequest(new ApiResponse { Success = false, Message = "Note content is required." });
+
+        var note = new ContactNote
+        {
+            ContactId = contactId,
+            Content = request.Content.Trim(),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _dbContext.ContactNotes.Add(note);
+        await _dbContext.SaveChangesAsync();
+
+        return Ok(new ApiResponse<ContactNote> { Success = true, Data = note });
+    }
+
+    [HttpDelete("{contactId}/notes/{noteId}")]
+    public async Task<ActionResult<ApiResponse>> DeleteNote(int contactId, int noteId)
+    {
+        var note = await _dbContext.ContactNotes
+            .FirstOrDefaultAsync(n => n.ContactId == contactId && n.Id == noteId);
+
+        if (note == null)
+            return NotFound(new ApiResponse { Success = false, Message = "Note not found." });
+
+        _dbContext.ContactNotes.Remove(note);
+        await _dbContext.SaveChangesAsync();
+
+        return Ok(new ApiResponse { Success = true, Message = "Note deleted successfully." });
     }
 }

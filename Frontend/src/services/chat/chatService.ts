@@ -66,15 +66,48 @@ export const chatService = {
     }
   },
 
-  sendMessage: async (convId: number, text: string, fromPhoneNumberId?: string): Promise<Message | null> => {
+  sendMessage: async (
+    convId: number,
+    text: string,
+    fromPhoneNumberId?: string,
+    mediaUrl?: string,
+    mediaType?: string,
+    mediaFileName?: string
+  ): Promise<Message | null> => {
     try {
       const response = await apiClient.post(`/Chat/conversations/${convId}/messages`, {
         text,
-        fromPhoneNumberId
+        fromPhoneNumberId,
+        mediaUrl,
+        mediaType,
+        mediaFileName
       })
       return response.data?.data || null
     } catch (error) {
       console.error('Error sending message:', error)
+      throw new Error(getApiErrorMessage(error))
+    }
+  },
+
+  sendTemplateMessage: async (contactId: number, templateId: number, variables: Record<string, string>): Promise<Message | null> => {
+    try {
+      const response = await apiClient.post('/Chat/send-template-to-contact', {
+        contactId,
+        templateId,
+        variables
+      })
+      return response.data?.data || null
+    } catch (error) {
+      console.error('Error sending template message:', error)
+      throw new Error(getApiErrorMessage(error))
+    }
+  },
+
+  deleteConversation: async (id: number): Promise<void> => {
+    try {
+      await apiClient.delete(`/Chat/conversations/${id}`)
+    } catch (error) {
+      console.error('Error deleting conversation:', error)
       throw new Error(getApiErrorMessage(error))
     }
   }

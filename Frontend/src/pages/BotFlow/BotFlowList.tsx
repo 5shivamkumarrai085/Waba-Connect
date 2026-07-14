@@ -169,8 +169,8 @@ export const BotFlowList: React.FC = () => {
                 </tr>
               ) : flows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-4 text-muted">
-                    No bot flows found matching criteria.
+                  <td colSpan={5} className="no-records-row">
+                    No records found
                   </td>
                 </tr>
               ) : (

@@ -11,7 +11,16 @@ public interface IContactService
     /// <summary>
     /// Gets a paginated list of contacts with optional filtering.
     /// </summary>
-    Task<PagedResponse<ContactResponse>> GetAllAsync(PagedRequest request, string? type = null, string? status = null, bool? isActive = null);
+    Task<PagedResponse<ContactResponse>> GetAllAsync(
+        PagedRequest request, 
+        string? type = null, 
+        string? status = null, 
+        bool? isActive = null,
+        string? assignedTo = null,
+        string? source = null,
+        int? groupId = null,
+        DateTime? startDate = null,
+        DateTime? endDate = null);
 
     /// <summary>
     /// Gets a single contact by ID.

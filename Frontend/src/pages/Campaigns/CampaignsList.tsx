@@ -8,6 +8,8 @@ import toast from 'react-hot-toast'
 import { Skeleton } from '../../components/Skeleton'
 import './CampaignsList.css'
 import { formatRelativeTime } from '../../utils/dateHelper'
+import { templateService } from '../../services/templates/templateService'
+import { contactService } from '../../services/contacts/contactService'
 
 export const CampaignsList: React.FC = () => {
   const navigate = useNavigate()
@@ -44,8 +46,24 @@ export const CampaignsList: React.FC = () => {
     createdAt: true
   })
 
+  const [templates, setTemplates] = useState<any[]>([])
+  const [relationTypes, setRelationTypes] = useState<any[]>([])
+
   useEffect(() => {
     loadCampaigns()
+    const fetchMetadata = async () => {
+      try {
+        const [templatesData, relationTypesData] = await Promise.all([
+          templateService.getTemplates(),
+          contactService.getContactTypes()
+        ])
+        setTemplates(templatesData || [])
+        setRelationTypes(relationTypesData || [])
+      } catch (err) {
+        console.error('Failed to fetch filter metadata:', err)
+      }
+    }
+    fetchMetadata()
   }, [])
 
   // Local Filter logic
@@ -184,8 +202,9 @@ export const CampaignsList: React.FC = () => {
                 onChange={(e) => setTemplateFilter(e.target.value)}
               >
                 <option value="All">All</option>
-                <option value="camp_platinum_credit_card_1">camp_platinum_credit_card_1</option>
-                <option value="hello_world">hello_world</option>
+                {templates.map(t => (
+                  <option key={t.id} value={t.name}>{t.name}</option>
+                ))}
               </select>
             </div>
 
@@ -197,8 +216,9 @@ export const CampaignsList: React.FC = () => {
                 onChange={(e) => setRelationTypeFilter(e.target.value)}
               >
                 <option value="All">All</option>
-                <option value="Lead">Lead</option>
-                <option value="Customer">Customer</option>
+                {relationTypes.map(t => (
+                  <option key={t.id} value={t.id}>{t.id}</option>
+                ))}
                 <option value="Csv_campaign">Csv_campaign</option>
               </select>
             </div>
@@ -220,10 +240,6 @@ export const CampaignsList: React.FC = () => {
         <div className="data-table-wrapper">
           {isLoading ? (
             <Skeleton variant="table" />
-          ) : paginatedCampaigns.length === 0 ? (
-            <div className="data-table-empty">
-              <p>No campaigns found matching criteria.</p>
-            </div>
           ) : (
             <table className="data-table">
               <thead>
@@ -236,85 +252,96 @@ export const CampaignsList: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {paginatedCampaigns.map((camp) => (
-                  <tr key={camp.id}>
-                    {/* ID Column */}
-                    {visibleColumns.id !== false && (
-                      <td>{camp.id}</td>
-                    )}
-
-                    {/* Campaign Name Column with hover view/edit/delete menu */}
-                    {visibleColumns.name !== false && (
-                      <td>
-                        <div className="campaign-name-cell">
-                          <span className="campaign-title-text">{camp.name}</span>
-                          <div className="campaign-hover-actions">
-                            <span 
-                              className="campaign-action-btn"
-                              onClick={() => navigate(`/campaigns/campaign/details/${camp.id}`)}
-                            >
-                              View
-                            </span>
-                            <span className="action-divider">|</span>
-                            <span 
-                              className="campaign-action-btn"
-                              onClick={() => navigate(`/campaigns/campaign/edit/${camp.id}`)}
-                            >
-                              Edit
-                            </span>
-                            {['Draft', 'Failed', 'Cancelled'].includes(camp.status) && (
-                              <>
-                                <span className="action-divider">|</span>
-                                <span 
-                                  className="campaign-action-btn"
-                                  onClick={() => handleDelete(camp.id, camp.name)}
-                                >
-                                  Delete
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                    )}
-
-                    {/* Template Column */}
-                    {visibleColumns.template !== false && (
-                      <td>{camp.templateName}</td>
-                    )}
-
-                    {/* Relation Type Column (colored badge) */}
-                    {visibleColumns.relation !== false && (
-                      <td>
-                        <span className={`relation-badge ${
-                          camp.relationType === 'Lead' ? 'lead' : camp.relationType === 'Customer' ? 'customer' : 'csv'
-                        }`}>
-                          {camp.relationType}
-                        </span>
-                      </td>
-                    )}
-
-                    {/* Total Column */}
-                    {visibleColumns.total !== false && (
-                      <td>{camp.total}</td>
-                    )}
-
-                    {/* Delivered Column */}
-                    {visibleColumns.delivered !== false && (
-                      <td>{camp.deliveredTo}</td>
-                    )}
-
-                    {/* Read Column */}
-                    {visibleColumns.read !== false && (
-                      <td>{camp.readBy}</td>
-                    )}
-
-                    {/* Created At Column */}
-                    {visibleColumns.createdAt !== false && (
-                      <td>{formatRelativeTime(camp.createdAt)}</td>
-                    )}
+                {paginatedCampaigns.length === 0 ? (
+                  <tr>
+                    <td 
+                      colSpan={columnHeaders.filter(c => visibleColumns[c.key] !== false).length}
+                      className="no-records-row"
+                    >
+                      No records found
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  paginatedCampaigns.map((camp) => (
+                    <tr key={camp.id}>
+                      {/* ID Column */}
+                      {visibleColumns.id !== false && (
+                        <td>{camp.id}</td>
+                      )}
+
+                      {/* Campaign Name Column with hover view/edit/delete menu */}
+                      {visibleColumns.name !== false && (
+                        <td>
+                          <div className="campaign-name-cell">
+                            <span className="campaign-title-text">{camp.name}</span>
+                            <div className="campaign-hover-actions">
+                              <span 
+                                className="campaign-action-btn"
+                                onClick={() => navigate(`/campaigns/campaign/details/${camp.id}`)}
+                              >
+                                View
+                              </span>
+                              <span className="action-divider">|</span>
+                              <span 
+                                className="campaign-action-btn"
+                                onClick={() => navigate(`/campaigns/campaign/edit/${camp.id}`)}
+                              >
+                                Edit
+                              </span>
+                              {['Draft', 'Failed', 'Cancelled'].includes(camp.status) && (
+                                <>
+                                  <span className="action-divider">|</span>
+                                  <span 
+                                    className="campaign-action-btn"
+                                    onClick={() => handleDelete(camp.id, camp.name)}
+                                  >
+                                    Delete
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      )}
+
+                      {/* Template Column */}
+                      {visibleColumns.template !== false && (
+                        <td>{camp.templateName}</td>
+                      )}
+
+                      {/* Relation Type Column (colored badge) */}
+                      {visibleColumns.relation !== false && (
+                        <td>
+                          <span className={`relation-badge ${
+                            camp.relationType === 'Lead' ? 'lead' : camp.relationType === 'Customer' ? 'customer' : 'csv'
+                          }`}>
+                            {camp.relationType}
+                          </span>
+                        </td>
+                      )}
+
+                      {/* Total Column */}
+                      {visibleColumns.total !== false && (
+                        <td>{camp.total}</td>
+                      )}
+
+                      {/* Delivered Column */}
+                      {visibleColumns.delivered !== false && (
+                        <td>{camp.deliveredTo}</td>
+                      )}
+
+                      {/* Read Column */}
+                      {visibleColumns.read !== false && (
+                        <td>{camp.readBy}</td>
+                      )}
+
+                      {/* Created At Column */}
+                      {visibleColumns.createdAt !== false && (
+                        <td>{formatRelativeTime(camp.createdAt)}</td>
+                      )}
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           )}

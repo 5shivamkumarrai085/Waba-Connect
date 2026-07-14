@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Linq;
 using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Contacts;
 using WhatsAppCampaignApi.Models.Entities;
+using WhatsAppCampaignApi.Models.Enums;
 using WhatsAppCampaignApi.Services.Interfaces;
 
 namespace WhatsAppCampaignApi.Controllers;
@@ -30,7 +32,12 @@ public class ContactsController : ControllerBase
         [FromQuery] bool? isActive = null,
         [FromQuery] string? search = null,
         [FromQuery] string? sortBy = null,
-        [FromQuery] bool sortDescending = false)
+        [FromQuery] bool sortDescending = false,
+        [FromQuery] string? assignedTo = null,
+        [FromQuery] string? source = null,
+        [FromQuery] int? groupId = null,
+        [FromQuery] DateTime? startDate = null,
+        [FromQuery] DateTime? endDate = null)
     {
         var request = new PagedRequest
         {
@@ -41,7 +48,16 @@ public class ContactsController : ControllerBase
             SortDescending = sortDescending
         };
 
-        var data = await _contactService.GetAllAsync(request, type, status, isActive);
+        var data = await _contactService.GetAllAsync(
+            request, 
+            type, 
+            status, 
+            isActive,
+            assignedTo,
+            source,
+            groupId,
+            startDate,
+            endDate);
         return Ok(new ApiResponse<PagedResponse<ContactResponse>> { Success = true, Data = data });
     }
 
@@ -109,7 +125,7 @@ public class ContactsController : ControllerBase
     [HttpGet("settings")]
     public IActionResult GetSettings()
     {
-        var config = new { groupNotAssignedText = "group not assigned" };
+        var config = new { groupNotAssignedText = "Group not assigned" };
         return Ok(new ApiResponse<object> { Success = true, Data = config });
     }
 
@@ -128,11 +144,9 @@ public class ContactsController : ControllerBase
     [HttpGet("types")]
     public IActionResult GetTypes()
     {
-        var list = new[]
-        {
-            new { id = "Lead", name = "lead" },
-            new { id = "Customer", name = "customer" }
-        };
+        var list = System.Enum.GetNames(typeof(ContactType))
+            .Select(name => new { id = name, name = name.ToLower() })
+            .ToArray();
         return Ok(list);
     }
 

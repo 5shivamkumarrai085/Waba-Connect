@@ -51,8 +51,7 @@ export const ContactsList: React.FC = () => {
     
     loadContacts,
     deleteSelected,
-    toggleContactActive,
-    groupNotAssignedText
+    toggleContactActive
   } = useContactStore()
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
@@ -60,27 +59,143 @@ export const ContactsList: React.FC = () => {
   const [isInitiateModalOpen, setIsInitiateModalOpen] = useState(false)
   const [selectedContactForTemplate, setSelectedContactForTemplate] = useState<{ id: number; name: string; phone: string } | null>(null)
 
+  // Custom filters states
+  const [showFilters, setShowFilters] = useState(false)
+  const [filterType, setFilterType] = useState('All')
+  const [filterAssigned, setFilterAssigned] = useState('All')
+  const [filterStatus, setFilterStatus] = useState('All')
+  const [filterSource, setFilterSource] = useState('All')
+  const [filterGroup, setFilterGroup] = useState('All')
+  const [filterStartDate, setFilterStartDate] = useState('')
+  const [filterEndDate, setFilterEndDate] = useState('')
+
+  // Export popover state
+  const [showExportDropdown, setShowExportDropdown] = useState(false)
+
+  // Sort states
+  const [sortCol, setSortCol] = useState<string>('id')
+  const [sortOrd, setSortOrd] = useState<'asc' | 'desc'>('desc')
+
+  // Dynamic dropdown options fetched from backend
+  const [assignedUsers, setAssignedUsers] = useState<any[]>([])
+  const [statuses, setStatuses] = useState<any[]>([])
+  const [sources, setSources] = useState<any[]>([])
+  const [groups, setGroups] = useState<any[]>([])
+  const [contactTypes, setContactTypes] = useState<any[]>([])
+
   useEffect(() => {
     loadContacts()
+    const fetchMetadata = async () => {
+      try {
+        const [usersData, statusesData, sourcesData, groupsData, typesData] = await Promise.all([
+          contactService.getAssignedUsers(),
+          contactService.getContactStatuses(),
+          contactService.getContactSources(),
+          contactService.getContactGroups(),
+          contactService.getContactTypes()
+        ])
+        setAssignedUsers(usersData || [])
+        setStatuses(statusesData || [])
+        setSources(sourcesData || [])
+        setGroups(groupsData || [])
+        setContactTypes(typesData || [])
+      } catch (err) {
+        console.error('Failed to fetch metadata:', err)
+      }
+    }
+    fetchMetadata()
   }, [])
 
-  // Filter contacts locally based on search query
+  // Filter contacts locally based on search query and custom filter dropdowns
   const filteredContacts = contacts.filter((c: any) => {
+    // 1. Search Query filter
     const q = searchQuery.toLowerCase()
     const contactName = c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim()
-    return (
+    const matchesSearch = (
       contactName.toLowerCase().includes(q) ||
       (c.phone || '').includes(q) ||
       (c.type || '').toLowerCase().includes(q) ||
       (c.company && c.company.toLowerCase().includes(q))
     )
+    if (!matchesSearch) return false
+
+    // 2. Type filter
+    if (filterType !== 'All') {
+      const typeLower = (c.type || '').toLowerCase()
+      if (typeLower !== filterType.toLowerCase()) return false
+    }
+
+    // 3. Assigned filter
+    if (filterAssigned !== 'All') {
+      const assignedVal = getAssignedName(c.assignedTo)
+      if (assignedVal !== filterAssigned) return false
+    }
+
+    // 4. Status filter
+    if (filterStatus !== 'All') {
+      const statusLower = (c.status || '').toLowerCase()
+      if (statusLower !== filterStatus.toLowerCase()) return false
+    }
+
+    // 5. Source filter
+    if (filterSource !== 'All') {
+      const sourceLower = (c.source || '').toLowerCase()
+      if (sourceLower !== filterSource.toLowerCase()) return false
+    }
+
+    // 6. Group filter
+    if (filterGroup !== 'All') {
+      const groupList = Array.isArray(c.groups)
+        ? c.groups.map((g: any) => g?.name || g?.groupName || '').filter(Boolean)
+        : [];
+      if (!groupList.includes(filterGroup)) return false
+    }
+
+    // 7. Date range filter
+    if (filterStartDate) {
+      const start = new Date(filterStartDate).getTime()
+      const created = new Date(c.createdAt).getTime()
+      if (created < start) return false
+    }
+    if (filterEndDate) {
+      const end = new Date(filterEndDate).getTime() + 24 * 60 * 60 * 1000 - 1
+      const created = new Date(c.createdAt).getTime()
+      if (created > end) return false
+    }
+
+    return true
   })
 
+  // Sort contacts locally
+  const sortedContacts = [...filteredContacts].sort((a: any, b: any) => {
+    let aVal = a[sortCol];
+    let bVal = b[sortCol];
+
+    if (sortCol === 'name') {
+      aVal = (a.name || `${a.firstName || ''} ${a.lastName || ''}`).toLowerCase();
+      bVal = (b.name || `${b.firstName || ''} ${b.lastName || ''}`).toLowerCase();
+    } else if (typeof aVal === 'string') {
+      aVal = aVal.toLowerCase();
+      bVal = (bVal || '').toLowerCase();
+    } else if (sortCol === 'createdAt') {
+      aVal = new Date(aVal || 0).getTime();
+      bVal = new Date(bVal || 0).getTime();
+    }
+
+    if (aVal === bVal) return 0;
+    
+    if (sortOrd === 'asc') {
+      return aVal > bVal ? 1 : -1;
+    } else {
+      return aVal < bVal ? 1 : -1;
+    }
+  });
+
   // Pagination calculation
-  const totalResults = filteredContacts.length
+  const totalResults = sortedContacts.length
   const startIndex = (currentPage - 1) * pageSize
   const endIndex = Math.min(totalResults, startIndex + pageSize)
-  const paginatedContacts = filteredContacts.slice(startIndex, endIndex)
+  const paginatedContacts = sortedContacts.slice(startIndex, endIndex)
   const totalPages = Math.max(1, Math.ceil(totalResults / pageSize))
 
   const handleRefresh = async () => {
@@ -132,12 +247,74 @@ export const ContactsList: React.FC = () => {
     toast.error('Select one contact to open a WhatsApp chat.')
   }
 
-  const handleExportSheet = () => {
-    toast.success('Exporting contacts to spreadsheet CSV...')
+  const handleExport = (format: 'csv' | 'xlsx', scope: 'all' | 'selected') => {
+    const list = scope === 'selected' 
+      ? contacts.filter(c => selectedIds.includes(c.id)) 
+      : filteredContacts;
+      
+    if (list.length === 0) {
+      toast.error('No contacts to export.');
+      return;
+    }
+
+    const headers = ['ID', 'Name', 'Type', 'Phone', 'Assigned', 'Status', 'Source', 'Groups', 'Created At'];
+    const dataRows = list.map(c => [
+      c.id,
+      c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim(),
+      c.type || '',
+      c.phone || '',
+      c.assignedTo || 'Unassigned',
+      c.status || '',
+      c.source || '',
+      Array.isArray(c.groups) 
+        ? c.groups.map((g: any) => g?.name || g?.groupName || '').filter(Boolean).join(', ')
+        : (c.groups || ''),
+      c.createdAt ? new Date(c.createdAt).toLocaleString() : ''
+    ]);
+
+    if (format === 'csv') {
+      const csvContent = [
+        headers.join(','),
+        ...dataRows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+      ].join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `contacts_${scope}_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success('CSV file downloaded successfully!');
+    } else {
+      let html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
+      html += '<head><meta charset="utf-8" /><style>table { border-collapse: collapse; } th, td { border: 1px solid #ddd; padding: 8px; }</style></head><body>';
+      html += '<table><thead><tr>';
+      headers.forEach(h => { html += `<th>${h}</th>`; });
+      html += '</tr></thead><tbody>';
+      dataRows.forEach(row => {
+        html += '<tr>';
+        row.forEach(val => { html += `<td>${val}</td>`; });
+        html += '</tr>';
+      });
+      html += '</tbody></table></body></html>';
+
+      const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `contacts_${scope}_${new Date().toISOString().slice(0,10)}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success('XLSX file downloaded successfully!');
+    }
+    setShowExportDropdown(false);
   }
 
   const handleFilterToggle = () => {
-    toast.success('Entity filters active. Filtering by Lead status & WhatsApp sources.')
+    setShowFilters(prev => !prev)
   }
 
   // Column headers list mapping for selector dropdown
@@ -193,15 +370,49 @@ export const ContactsList: React.FC = () => {
         {/* Table controls bar */}
         <div className="contacts-controls-row">
           <div className="contacts-controls-left">
-            <button 
-              type="button" 
-              className="btn-control-icon"
-              onClick={handleExportSheet}
-              title="Export Spreadsheet"
-              aria-label="Export spreadsheet"
-            >
-              <FileSpreadsheet size={16} />
-            </button>
+            <div className="export-popover-anchor">
+              <button 
+                type="button" 
+                className={`btn-control-icon ${showExportDropdown ? 'active' : ''}`}
+                onClick={() => setShowExportDropdown(!showExportDropdown)}
+                title="Export Spreadsheet"
+                aria-label="Export spreadsheet"
+              >
+                <FileSpreadsheet size={16} />
+              </button>
+              {showExportDropdown && (
+                <div className="export-menu-popover">
+                  <div className="export-row">
+                    <span className="export-format">XLSX</span>
+                    <button type="button" className="export-action" onClick={() => handleExport('xlsx', 'all')}>
+                      ({filteredContacts.length}) All
+                    </button>
+                    <button 
+                      type="button" 
+                      className="export-action" 
+                      onClick={() => handleExport('xlsx', 'selected')}
+                      disabled={selectedIds.length === 0}
+                    >
+                      ({selectedIds.length}) Selected
+                    </button>
+                  </div>
+                  <div className="export-row">
+                    <span className="export-format">Csv</span>
+                    <button type="button" className="export-action" onClick={() => handleExport('csv', 'all')}>
+                      ({filteredContacts.length}) All
+                    </button>
+                    <button 
+                      type="button" 
+                      className="export-action" 
+                      onClick={() => handleExport('csv', 'selected')}
+                      disabled={selectedIds.length === 0}
+                    >
+                      ({selectedIds.length}) Selected
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             
             {/* Custom eye visibility selector dropdown */}
             <ColumnSelector
@@ -212,7 +423,7 @@ export const ContactsList: React.FC = () => {
 
             <button 
               type="button" 
-              className="btn-control-icon"
+              className={`btn-control-icon ${showFilters ? 'active' : ''}`}
               onClick={handleFilterToggle}
               title="Filter List"
               aria-label="Filter list"
@@ -248,14 +459,116 @@ export const ContactsList: React.FC = () => {
           </div>
         </div>
 
+        {showFilters && (
+          <div className="contacts-filters-grid">
+            <div className="filter-field">
+              <label>Type</label>
+              <select
+                className="contacts-pager-size-select width-full"
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+              >
+                <option value="All">All</option>
+                {contactTypes.map((t: any) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name.charAt(0).toUpperCase() + t.name.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label>Assigned</label>
+              <select
+                className="contacts-pager-size-select width-full"
+                value={filterAssigned}
+                onChange={(e) => setFilterAssigned(e.target.value)}
+              >
+                <option value="All">All</option>
+                {assignedUsers.map((user: any) => {
+                  const label = getAssignedName(user.name);
+                  return (
+                    <option key={user.id} value={label}>
+                      {label}
+                    </option>
+                  )
+                })}
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label>Status</label>
+              <select
+                className="contacts-pager-size-select width-full"
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+              >
+                <option value="All">All</option>
+                {statuses.map((status: any) => (
+                  <option key={status.id} value={status.name}>
+                    {status.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label>Source</label>
+              <select
+                className="contacts-pager-size-select width-full"
+                value={filterSource}
+                onChange={(e) => setFilterSource(e.target.value)}
+              >
+                <option value="All">All</option>
+                {sources.map((source: any) => (
+                  <option key={source.id} value={source.name}>
+                    {source.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label>group</label>
+              <select
+                className="contacts-pager-size-select width-full"
+                value={filterGroup}
+                onChange={(e) => setFilterGroup(e.target.value)}
+              >
+                <option value="All">All</option>
+                {groups.map((group: any) => (
+                  <option key={group.id} value={group.name || group.groupName}>
+                    {group.name || group.groupName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-field">
+              <label>Created At</label>
+              <div className="date-filter-inputs">
+                <input
+                  type="date"
+                  className="contacts-pager-size-select padding-date"
+                  value={filterStartDate}
+                  onChange={(e) => setFilterStartDate(e.target.value)}
+                />
+                <span className="date-separator">to</span>
+                <input
+                  type="date"
+                  className="contacts-pager-size-select padding-date"
+                  value={filterEndDate}
+                  onChange={(e) => setFilterEndDate(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Dynamic Responsiveness Table */}
         <div className="data-table-wrapper">
           {isLoading ? (
             <Skeleton variant="table" />
-          ) : paginatedContacts.length === 0 ? (
-            <div className="data-table-empty">
-              <p>No contacts found matching criteria.</p>
-            </div>
           ) : (
             <table className="data-table">
               <thead>
@@ -271,13 +584,28 @@ export const ContactsList: React.FC = () => {
                     const isVisible = visibleColumns[col.key] !== false
                     if (!isVisible) return null
                     const isSortable = col.key !== 'initiateChat' && col.key !== 'group'
+                    
+                    const handleHeaderClick = () => {
+                      if (!isSortable) return
+                      if (sortCol === col.key) {
+                        setSortOrd(sortOrd === 'asc' ? 'desc' : 'asc')
+                      } else {
+                        setSortCol(col.key)
+                        setSortOrd('asc')
+                      }
+                    }
+
                     return (
-                      <th key={col.key} className={`col-width-${col.key}`}>
+                      <th 
+                        key={col.key} 
+                        className={`col-width-${col.key} ${isSortable ? 'sortable-header' : ''}`}
+                        onClick={handleHeaderClick}
+                      >
                         <div className="header-cell-content">
                           <span>{col.label}</span>
                           {isSortable && (
-                            <span className={`sort-icon ${col.key === 'createdAt' ? 'active' : ''}`}>
-                              {col.key === 'createdAt' ? '▲' : '⇅'}
+                            <span className={`sort-icon ${sortCol === col.key ? 'active' : ''}`}>
+                              {sortCol === col.key ? (sortOrd === 'asc' ? '▲' : '▼') : '⇅'}
                             </span>
                           )}
                         </div>
@@ -287,152 +615,180 @@ export const ContactsList: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {paginatedContacts.map((contact) => {
-                  const isRowSelected = selectedIds.includes(contact.id)
-                  
-                  return (
-                    <tr key={contact.id}>
-                      <td className="checkbox-cell">
-                        <input
-                          type="checkbox"
-                          checked={isRowSelected}
-                          onChange={() => toggleRowSelection(contact.id)}
-                        />
-                      </td>
+                {paginatedContacts.length === 0 ? (
+                  <tr>
+                    <td 
+                      colSpan={1 + columnHeaders.filter(c => visibleColumns[c.key] !== false).length}
+                      className="no-records-row"
+                    >
+                      No records found
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedContacts.map((contact) => {
+                    const isRowSelected = selectedIds.includes(contact.id)
+                    
+                    return (
+                      <tr key={contact.id}>
+                        <td className="checkbox-cell">
+                          <input
+                            type="checkbox"
+                            checked={isRowSelected}
+                            onChange={() => toggleRowSelection(contact.id)}
+                          />
+                        </td>
 
-                      {/* ID column */}
-                      {visibleColumns.id !== false && (
-                        <td>{contact.id}</td>
-                      )}
+                        {/* ID column */}
+                        {visibleColumns.id !== false && (
+                          <td>{contact.id}</td>
+                        )}
 
-                      {/* Name column with link styling */}
-                      {visibleColumns.name !== false && (
-                        <td>
-                          <div className="contact-name-cell">
-                            <span 
-                              className="contact-link-name"
-                              onClick={() => navigate(`/contacts/contact/edit/${contact.id}?view=true`)}
-                            >
-                              {contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim()}
-                            </span>
-                            <div className="contact-hover-actions">
+                        {/* Name column with link styling */}
+                        {visibleColumns.name !== false && (
+                          <td>
+                            <div className="contact-name-cell">
                               <span 
-                                className="contact-action-btn"
+                                className="contact-link-name"
                                 onClick={() => navigate(`/contacts/contact/edit/${contact.id}?view=true`)}
                               >
-                                View
+                                {contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim()}
                               </span>
-                              <span className="action-divider">|</span>
-                              <span 
-                                className="contact-action-btn"
-                                onClick={() => navigate(`/contacts/contact/edit/${contact.id}`)}
-                              >
-                                Edit
-                              </span>
-                              <span className="action-divider">|</span>
-                              <span 
-                                className="contact-action-btn"
-                                onClick={() => handleDeleteContact(contact.id, contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim())}
-                              >
-                                Delete
-                              </span>
+                              <div className="contact-hover-actions">
+                                <span 
+                                  className="contact-action-btn"
+                                  onClick={() => navigate(`/contacts/contact/edit/${contact.id}?view=true`)}
+                                >
+                                  View
+                                </span>
+                                <span className="action-divider">|</span>
+                                <span 
+                                  className="contact-action-btn"
+                                  onClick={() => navigate(`/contacts/contact/edit/${contact.id}`)}
+                                >
+                                  Edit
+                                </span>
+                                <span className="action-divider">|</span>
+                                <span 
+                                  className="contact-action-btn"
+                                  onClick={() => handleDeleteContact(contact.id, contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim())}
+                                >
+                                  Delete
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        </td>
-                      )}
-
-                      {/* Type column */}
-                      {visibleColumns.type !== false && (
-                        <td>{contact.type}</td>
-                      )}
-
-                      {/* Phone column */}
-                      {visibleColumns.phone !== false && (
-                        <td>{contact.phone}</td>
-                      )}
-
-                      {/* Assigned avatar column */}
-                      {visibleColumns.assigned !== false && (
-                        <td className="text-center" title={getAssignedName(contact.assignedTo)}>
-                          <div title={getAssignedName(contact.assignedTo)} style={{ display: 'inline-block' }}>
-                            <Avatar name="" size="small" />
-                          </div>
-                        </td>
-                      )}
-
-                      {/* Initiate Chat column (WhatsApp green bubble icon) */}
-                      {visibleColumns.initiateChat !== false && (
-                        <td className="text-center">
-                          <span 
-                            className="contact-whatsapp-icon"
-                            onClick={() => {
-                              setSelectedContactForTemplate({
-                                id: contact.id,
-                                name: contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
-                                phone: contact.phone
-                              })
-                              setIsInitiateModalOpen(true)
-                            }}
-                            title="Start WhatsApp Chat"
-                          >
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                              <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.73-1.464L0 24zm6.59-4.846c1.6.95 3.198 1.483 4.85 1.486 5.435.002 9.859-4.383 9.862-9.794.002-2.622-1.018-5.086-2.87-6.941C16.576 2.05 14.133 1.03 11.518 1.03c-5.412 0-9.82 4.384-9.824 9.795-.002 1.71.458 3.38 1.332 4.887l-.99 3.615 3.73-.977zm11.306-6.837c-.3-.15-1.77-.875-2.045-.975-.275-.1-.475-.15-.675.15-.2.3-.775.975-.95 1.175-.175.2-.35.225-.65.075-.3-.15-1.265-.467-2.41-1.485-.89-.79-1.492-1.77-1.667-2.07-.175-.3-.02-.463.13-.61.137-.133.3-.35.45-.525.15-.175.2-.3.3-.5.1-.2.05-.375-.025-.525-.075-.15-.675-1.625-.925-2.225-.244-.588-.49-.508-.675-.518-.175-.01-.375-.01-.575-.01-.2 0-.525.075-.8 1.025-.275.3-.8 1.625-1.125 2.275-.325.65-.65 1.3-.9 1.95a6.015 6.015 0 00-.5 2.525c0 1.25.625 2.45 1.15 3.125.175.225 3.163 4.83 7.663 6.775 1.07.462 1.905.738 2.555.945 1.076.342 2.055.294 2.83.178.863-.128 2.65-.65 3.025-1.625.375-.975.375-1.8.263-1.975-.113-.175-.3-.275-.6-.425z"/>
-                            </svg>
-                          </span>
-                        </td>
-                      )}
-
-                      {/* Status column */}
-                      {visibleColumns.status !== false && (
-                        <td className="text-center">
-                          <StatusBadge 
-                            type={contact.status} 
-                            text={contact.status} 
-                          />
-                        </td>
-                      )}
-
-                      {/* Source column */}
-                      {visibleColumns.source !== false && (
-                        <td>{contact.source}</td>
-                      )}
-
-                      {/* Group column */}
-                      {visibleColumns.group !== false && (() => {
-                        const groupsList = Array.isArray(contact.groups) 
-                          ? contact.groups.map((g: any) => g?.name || g?.groupName || '').filter(Boolean).join(', ') 
-                          : (typeof contact.groups === 'object' && contact.groups !== null ? (contact.groups as any).name || (contact.groups as any).groupName : contact.groups);
-                        
-                        const hasGroup = groupsList && groupsList !== 'Groups not found' && groupsList.trim() !== '';
-
-                        return (
-                          <td>
-                            {hasGroup ? (
-                              <span>{groupsList}</span>
-                            ) : (
-                              <span style={{ color: '#ef4444', fontWeight: 500 }}>{groupNotAssignedText}</span>
-                            )}
                           </td>
-                        );
-                      })()}
+                        )}
 
-                      {/* Active toggle column */}
-                      {visibleColumns.active !== false && (
-                        <td className="text-center">
-                          <Toggle
-                            checked={contact.active}
-                            onChange={() => toggleContactActive(contact.id)}
-                          />
-                        </td>
-                      )}
+                        {/* Type column */}
+                        {visibleColumns.type !== false && (
+                          <td>{contact.type}</td>
+                        )}
 
-                      {/* Created At column */}
-                      {visibleColumns.createdAt !== false && (
-                        <td>{formatRelativeTime(contact.createdAt)}</td>
-                      )}
-                    </tr>
-                  )
-                })}
+                        {/* Phone column */}
+                        {visibleColumns.phone !== false && (
+                          <td>{contact.phone}</td>
+                        )}
+
+                        {/* Assigned avatar column */}
+                        {visibleColumns.assigned !== false && (
+                          <td className="text-center" title={getAssignedName(contact.assignedTo)}>
+                            <div title={getAssignedName(contact.assignedTo)} style={{ display: 'inline-block' }}>
+                              <Avatar name="" size="small" />
+                            </div>
+                          </td>
+                        )}
+
+                        {/* Initiate Chat column (WhatsApp green outlined icon) */}
+                        {visibleColumns.initiateChat !== false && (
+                          <td className="text-center">
+                            <span 
+                              className="contact-whatsapp-icon"
+                              onClick={() => {
+                                setSelectedContactForTemplate({
+                                  id: contact.id,
+                                  name: contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+                                  phone: contact.phone
+                                })
+                                setIsInitiateModalOpen(true)
+                              }}
+                              title="Start WhatsApp Chat"
+                            >
+                              <svg viewBox="0 0 448 512" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="25" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                                <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L32 503l139.7-36.6c32.7 17.8 69.4 27.2 107.1 27.2 122.4 0 222-99.6 222-222 0-59.3-23.2-115-65.1-115.5zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-83.1 21.8 22.2-81-4.4-7c-18.4-29.3-28.1-63.1-28.1-97.9 0-101.9 83-184.8 185-184.8 49.3 0 95.7 19.2 130.6 54.1 34.8 34.9 54 81.2 54 130.6 0 102-83 184.8-185 184.8zm110.2-151c-6-3-35.6-17.6-41.2-19.6-5.5-2-9.6-3-13.6 3-4 6-15.6 19.6-19.1 23.6-3.5 4-7 4.5-13 1.5-6-3-25.3-9.3-48.2-29.8-17.8-15.9-29.8-35.5-33.3-41.5-3.5-6-.4-9.2 2.7-12.2 2.7-2.7 6-7 9-10.5 3-3.5 4-6 6-10 2-4 1-7.5-.5-10.5-1.5-3-13.6-32.8-18.6-45-5-12-10-10.4-13.6-10.6-3.5-.2-7.6-.2-11.6-.2-4 0-10.6 1.5-16.1 7.5-5.5 6-21.1 20.6-21.1 50.2 0 29.7 21.6 58.3 24.6 62.3 3 4 42.5 64.9 103 91 14.4 6.2 25.6 9.9 34.3 12.7 14.5 4.6 27.7 4 38.1 2.5 11.6-1.7 35.6-14.6 40.6-28.7 5-14 5-26.1 3.5-28.7-1.5-2.6-5.5-4.1-11.5-7.1z" fill="none" stroke="currentColor" strokeWidth="25" />
+                              </svg>
+                            </span>
+                          </td>
+                        )}
+
+                        {/* Status column */}
+                        {visibleColumns.status !== false && (
+                          <td className="text-center">
+                            <StatusBadge 
+                              type={contact.status} 
+                              text={contact.status} 
+                            />
+                          </td>
+                        )}
+
+                        {/* Source column */}
+                        {visibleColumns.source !== false && (
+                          <td>{contact.source}</td>
+                        )}
+
+                        {/* Group column with VIP Lead / Customer colors */}
+                        {visibleColumns.group !== false && (() => {
+                          const groupsArray = Array.isArray(contact.groups)
+                            ? contact.groups.map((g: any) => g?.name || g?.groupName || '').filter(Boolean)
+                            : typeof contact.groups === 'string' && contact.groups.trim() !== ''
+                              ? contact.groups.split(',').map(s => s.trim())
+                              : [];
+
+                          const hasGroup = groupsArray.length > 0;
+
+                          return (
+                            <td>
+                              {hasGroup ? (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                  {groupsArray.map((gName, idx) => {
+                                    const nameLower = gName.toLowerCase();
+                                    let badgeClass = 'group-badge-default';
+                                    if (nameLower.includes('vip lead')) {
+                                      badgeClass = 'group-badge-vip-lead';
+                                    } else if (nameLower.includes('vip customer')) {
+                                      badgeClass = 'group-badge-vip-customer';
+                                    }
+                                    return (
+                                      <span key={idx} className={badgeClass}>
+                                        {gName}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <span className="contact-group-orange">Groups not found</span>
+                              )}
+                            </td>
+                          );
+                        })()}
+
+                        {/* Active toggle column */}
+                        {visibleColumns.active !== false && (
+                          <td className="text-center">
+                            <Toggle
+                              checked={contact.active}
+                              onChange={() => toggleContactActive(contact.id)}
+                            />
+                          </td>
+                        )}
+
+                        {/* Created At column */}
+                        {visibleColumns.createdAt !== false && (
+                          <td>{formatRelativeTime(contact.createdAt)}</td>
+                        )}
+                      </tr>
+                    )
+                  })
+                )}
               </tbody>
             </table>
           )}

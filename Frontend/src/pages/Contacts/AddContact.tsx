@@ -434,7 +434,7 @@ export const AddContact: React.FC = () => {
                     >
                       <option value="">Select Groups</option>
                       {groups.map(g => (
-                        <option key={g.id} value={g.name}>{g.name}</option>
+                        <option key={g.id} value={g.id}>{g.name}</option>
                       ))}
                     </select>
                   </div>

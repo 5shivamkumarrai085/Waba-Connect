@@ -18,7 +18,16 @@ public class ContactService : IContactService
         _dbContext = dbContext;
     }
 
-    public async Task<PagedResponse<ContactResponse>> GetAllAsync(PagedRequest request, string? type = null, string? status = null, bool? isActive = null)
+    public async Task<PagedResponse<ContactResponse>> GetAllAsync(
+        PagedRequest request, 
+        string? type = null, 
+        string? status = null, 
+        bool? isActive = null,
+        string? assignedTo = null,
+        string? source = null,
+        int? groupId = null,
+        DateTime? startDate = null,
+        DateTime? endDate = null)
     {
         var query = _dbContext.Contacts
             .IgnoreQueryFilters()
@@ -39,6 +48,31 @@ public class ContactService : IContactService
         if (!string.IsNullOrEmpty(status) && Enum.TryParse<ContactStatus>(status, true, out var parsedStatus))
         {
             query = query.Where(c => c.Status == parsedStatus);
+        }
+
+        if (!string.IsNullOrEmpty(assignedTo))
+        {
+            query = query.Where(c => c.AssignedTo == assignedTo);
+        }
+
+        if (!string.IsNullOrEmpty(source) && Enum.TryParse<ContactSource>(source, true, out var parsedSource))
+        {
+            query = query.Where(c => c.Source == parsedSource);
+        }
+
+        if (groupId.HasValue)
+        {
+            query = query.Where(c => c.GroupMemberships.Any(gm => gm.GroupId == groupId.Value));
+        }
+
+        if (startDate.HasValue)
+        {
+            query = query.Where(c => c.CreatedAt >= startDate.Value);
+        }
+
+        if (endDate.HasValue)
+        {
+            query = query.Where(c => c.CreatedAt <= endDate.Value);
         }
 
         if (!string.IsNullOrEmpty(request.Search))
@@ -169,7 +203,9 @@ public class ContactService : IContactService
 
         if (request.GroupIds != null)
         {
-            _dbContext.ContactGroupMembers.RemoveRange(contact.GroupMemberships);
+            var existingMemberships = await _dbContext.ContactGroupMembers.Where(gm => gm.ContactId == contact.Id).ToListAsync();
+            _dbContext.ContactGroupMembers.RemoveRange(existingMemberships);
+            contact.GroupMemberships.Clear();
             
             foreach (var groupId in request.GroupIds)
             {

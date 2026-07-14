@@ -16,7 +16,7 @@ interface ContactStoreState {
   sortOrder: 'asc' | 'desc'
   visibleColumns: Record<string, boolean>
   groupNotAssignedText: string
-  
+
   setSearchQuery: (query: string) => void
   setSelectedIds: (ids: number[]) => void
   toggleRowSelection: (id: number) => void
@@ -25,7 +25,7 @@ interface ContactStoreState {
   setCurrentPage: (page: number) => void
   setPageSize: (size: number) => void
   setSort: (column: string, order: 'asc' | 'desc') => void
-  
+
   loadContacts: () => Promise<void>
   addContact: (form: ContactFormModel) => Promise<Contact>
   deleteSelected: () => Promise<void>
@@ -42,7 +42,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
   pageSize: 10,
   sortColumn: 'id',
   sortOrder: 'desc',
-  groupNotAssignedText: 'group not assigned',
+  groupNotAssignedText: 'Group not assigned',
   visibleColumns: {
     id: true,
     name: true,
@@ -56,10 +56,10 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
     active: true,
     createdAt: true
   },
-  
+
   setSearchQuery: (searchQuery) => set({ searchQuery, currentPage: 1 }),
   setSelectedIds: (selectedIds) => set({ selectedIds }),
-  
+
   toggleRowSelection: (id) => {
     const { selectedIds } = get()
     if (selectedIds.includes(id)) {
@@ -68,10 +68,10 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       set({ selectedIds: [...selectedIds, id] })
     }
   },
-  
+
   toggleAllRowSelection: () => {
     const { selectedIds, searchQuery } = get()
-    
+
     // Filter contacts based on search query first
     const filtered = get().contacts.filter(c => {
       const q = searchQuery.toLowerCase()
@@ -82,10 +82,10 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
         (c.type || '').toLowerCase().includes(q)
       )
     })
-    
+
     const filteredIds = filtered.map(c => c.id)
     const allSelected = filteredIds.every(id => selectedIds.includes(id))
-    
+
     if (allSelected) {
       // Unselect all filtered rows
       set({ selectedIds: selectedIds.filter(id => !filteredIds.includes(id)) })
@@ -95,7 +95,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       set({ selectedIds: newSelected })
     }
   },
-  
+
   toggleColumnVisibility: (col) => {
     const { visibleColumns } = get()
     set({
@@ -105,12 +105,12 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       }
     })
   },
-  
+
   setCurrentPage: (currentPage) => set({ currentPage }),
   setPageSize: (pageSize) => set({ pageSize, currentPage: 1 }),
-  
+
   setSort: (sortColumn, sortOrder) => set({ sortColumn, sortOrder }),
-  
+
   loadContacts: async () => {
     const hasCache = get().contacts.length > 0
     if (!hasCache) {
@@ -121,17 +121,17 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
         contactService.getContacts(),
         contactService.getSettings()
       ])
-      set({ 
-        contacts: fetched, 
-        groupNotAssignedText: settings?.groupNotAssignedText || 'group not assigned',
-        isLoading: false 
+      set({
+        contacts: fetched,
+        groupNotAssignedText: settings?.groupNotAssignedText || 'Group not assigned',
+        isLoading: false
       })
     } catch (err) {
       console.error('Error loading contacts:', err)
       set({ isLoading: false })
     }
   },
-  
+
   addContact: async (form) => {
     try {
       const newContact = await contactService.addContact(form)
@@ -142,37 +142,37 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       throw err
     }
   },
-  
+
   deleteSelected: async () => {
     const { selectedIds, contacts } = get()
     if (selectedIds.length === 0) return
-    
+
     console.log(`[API Calling] DELETE /api/contacts/bulk-delete`, selectedIds)
     set({ isLoading: true })
-    
+
     // Simulate API delay
     await new Promise((resolve) => setTimeout(resolve, 100))
-    
+
     set({
       contacts: contacts.filter(c => !selectedIds.includes(c.id)),
       selectedIds: [],
       isLoading: false
     })
   },
-  
+
   toggleContactActive: async (id) => {
     const { contacts } = get()
     const target = contacts.find(c => c.id === id)
     if (!target) return
-    
+
     try {
       const updatedContact = await contactService.toggleActive(id)
       const mappedContact = { ...updatedContact, active: updatedContact.isActive ?? updatedContact.active ?? true }
-      
+
       set({
         contacts: contacts.map(c => c.id === id ? mappedContact : c)
       })
-      
+
       if (mappedContact.active) {
         toast.success('user enabled successfully')
       } else {
@@ -183,7 +183,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       toast.error(getErrorMessage(err, 'Failed to update user active status.'))
     }
   },
-  
+
   importContacts: async (fileContent) => {
     set({ isLoading: true })
     try {

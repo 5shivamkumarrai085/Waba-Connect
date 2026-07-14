@@ -209,7 +209,7 @@
 }
 
 /* Table wrapper & Table styles */
-.data-table-wrapper {
+.templates-card .data-table-wrapper {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 8px;
@@ -218,14 +218,14 @@
   margin-bottom: 24px;
 }
 
-.data-table {
+.templates-card .data-table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
   font-size: 13px;
 }
 
-.data-table th {
+.templates-card .data-table th {
   background-color: var(--bg-primary);
   color: var(--text-muted);
   font-weight: 700;
@@ -237,22 +237,23 @@
   user-select: none;
 }
 
-.data-table td {
+.templates-card .data-table td {
   padding: 16px;
   color: var(--text-main);
   border-bottom: 1px solid var(--border-color);
   vertical-align: middle;
+  white-space: normal; /* override nowrap */
 }
 
-.data-table tbody tr {
+.templates-card .data-table tbody tr {
   transition: background-color 0.15s ease;
 }
 
-.data-table tbody tr:nth-child(even) {
+.templates-card .data-table tbody tr:nth-child(even) {
   background-color: var(--table-stripe, transparent);
 }
 
-.data-table tbody tr:hover {
+.templates-card .data-table tbody tr:hover {
   background-color: var(--bg-hover);
 }
 
@@ -289,9 +290,9 @@
 }
 
 /* Body text truncation */
-.table-cell-truncate {
+.templates-card .data-table td.table-cell-truncate {
   max-width: 450px;
-  white-space: pre-wrap;
+  white-space: pre-wrap !important; /* enforce wrapping */
   overflow: visible;
   text-overflow: clip;
   font-family: inherit;
@@ -301,22 +302,22 @@
 }
 
 /* Custom Scrollbar for wrappers */
-.data-table-wrapper::-webkit-scrollbar {
+.templates-card .data-table-wrapper::-webkit-scrollbar {
   height: 8px;
   width: 8px;
 }
 
-.data-table-wrapper::-webkit-scrollbar-track {
+.templates-card .data-table-wrapper::-webkit-scrollbar-track {
   background: #f1f5f9;
   border-radius: 4px;
 }
 
-.data-table-wrapper::-webkit-scrollbar-thumb {
+.templates-card .data-table-wrapper::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 4px;
 }
 
-.data-table-wrapper::-webkit-scrollbar-thumb:hover {
+.templates-card .data-table-wrapper::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
 

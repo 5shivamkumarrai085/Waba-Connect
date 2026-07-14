@@ -1,0 +1,8 @@
+- [x] Update GetAllAsync in IContactService.cs and ContactService.cs to support custom filters
+- [x] Update ContactsController.cs to accept custom filter query parameters and pass to service
+- [x] Add filters to contactStore.ts and contactService.ts to support passing query parameters
+- [x] Implement export XLSX/CSV dropdown menu with Selected/All choices in ContactsList.tsx
+- [x] Implement XLSX and CSV download utility functions
+- [x] Implement custom filter row container in ContactsList.tsx with selectors for Type, Assigned, Status, Source, Group, and Created At period
+- [x] Align style sheet spacings, buttons, headers, and Group not found badges in ContactsList.css
+- [x] Build and verify everything compiles and runs successfully

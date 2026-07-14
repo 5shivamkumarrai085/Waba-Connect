@@ -1,5 +1,4 @@
 import React from 'react'
-import { User } from 'lucide-react'
 import './Avatar.css'
 
 interface AvatarProps {
@@ -30,7 +29,9 @@ export const Avatar: React.FC<AvatarProps> = ({
       ) : name ? (
         <span>{getInitials(name)}</span>
       ) : (
-        <User size={14} />
+        <svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor" style={{ color: '#cbd5e1', backgroundColor: '#f1f5f9', display: 'block' }}>
+          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v3h16v-3c0-2.66-5.33-4-8-4z" />
+        </svg>
       )}
     </div>
   )

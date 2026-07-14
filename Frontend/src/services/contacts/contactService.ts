@@ -177,9 +177,9 @@ export const contactService = {
   getSettings: async (): Promise<{ groupNotAssignedText: string }> => {
     try {
       const response = await apiClient.get('/Contacts/settings')
-      return response.data?.data || { groupNotAssignedText: 'group not assigned' }
+      return response.data?.data || { groupNotAssignedText: 'Group not assigned' }
     } catch {
-      return { groupNotAssignedText: 'group not assigned' }
+      return { groupNotAssignedText: 'Group not assigned' }
     }
   }
 }

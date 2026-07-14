@@ -295,10 +295,6 @@ export const TemplatesList: React.FC = () => {
         <div className="data-table-wrapper">
           {isLoadingOrRefreshing || !languages || !categories || !statuses || !types ? (
             <Skeleton variant="table" />
-          ) : paginatedTemplates.length === 0 ? (
-            <div className="data-table-empty">
-              <p>No message templates found matching criteria.</p>
-            </div>
           ) : (
             <table className="data-table">
               <thead>
@@ -311,51 +307,62 @@ export const TemplatesList: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {paginatedTemplates.map((template) => (
-                  <tr key={template.id}>
-                    {/* ID column */}
-                    {visibleColumns.id !== false && (
-                      <td>{template.id}</td>
-                    )}
-
-                    {/* Template Name column */}
-                    {visibleColumns.name !== false && (
-                      <td>{template.name}</td>
-                    )}
-
-                    {/* Languages column */}
-                    {visibleColumns.languages !== false && (
-                      <td>{template.language}</td>
-                    )}
-
-                    {/* Category column */}
-                    {visibleColumns.category !== false && (
-                      <td>{template.category}</td>
-                    )}
-
-                    {/* Template Type column */}
-                    {visibleColumns.type !== false && (
-                      <td>{template.type}</td>
-                    )}
-
-                    {/* Status badge column */}
-                    {visibleColumns.status !== false && (
-                      <td>
-                        <StatusBadge 
-                          type={template.status === 'APPROVED' ? 'approved' : template.status === 'REJECTED' ? 'rejected' : 'pending'} 
-                          text={template.status} 
-                        />
-                      </td>
-                    )}
-
-                    {/* Body Data text column */}
-                    {visibleColumns.bodyText !== false && (
-                      <td className="table-cell-truncate" title={template.bodyText}>
-                        {template.bodyText}
-                      </td>
-                    )}
+                {paginatedTemplates.length === 0 ? (
+                  <tr>
+                    <td 
+                      colSpan={columnHeaders.filter(c => visibleColumns[c.key] !== false).length}
+                      className="no-records-row"
+                    >
+                      No records found
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  paginatedTemplates.map((template) => (
+                    <tr key={template.id}>
+                      {/* ID column */}
+                      {visibleColumns.id !== false && (
+                        <td>{template.id}</td>
+                      )}
+
+                      {/* Template Name column */}
+                      {visibleColumns.name !== false && (
+                        <td>{template.name}</td>
+                      )}
+
+                      {/* Languages column */}
+                      {visibleColumns.languages !== false && (
+                        <td>{template.language}</td>
+                      )}
+
+                      {/* Category column */}
+                      {visibleColumns.category !== false && (
+                        <td>{template.category}</td>
+                      )}
+
+                      {/* Template Type column */}
+                      {visibleColumns.type !== false && (
+                        <td>{template.type}</td>
+                      )}
+
+                      {/* Status badge column */}
+                      {visibleColumns.status !== false && (
+                        <td>
+                          <StatusBadge 
+                            type={template.status === 'APPROVED' ? 'approved' : template.status === 'REJECTED' ? 'rejected' : 'pending'} 
+                            text={template.status} 
+                          />
+                        </td>
+                      )}
+
+                      {/* Body Data text column */}
+                      {visibleColumns.bodyText !== false && (
+                        <td className="table-cell-truncate" title={template.bodyText}>
+                          {template.bodyText}
+                        </td>
+                      )}
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           )}

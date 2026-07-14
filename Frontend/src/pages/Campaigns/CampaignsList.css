@@ -105,3 +105,47 @@
   background-color: #fef3c7; /* yellow */
   color: #b45309;
 }
+
+/* Campaigns List Datatable styling */
+.campaigns-card .data-table-wrapper {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow-x: auto;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  margin-bottom: 24px;
+}
+
+.campaigns-card .data-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.campaigns-card .data-table th {
+  background-color: var(--bg-primary);
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 14px 16px;
+  border-bottom: 2px solid var(--border-color);
+  user-select: none;
+}
+
+.campaigns-card .data-table td {
+  padding: 16px;
+  color: var(--text-main);
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.campaigns-card .data-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.campaigns-card .data-table tbody tr:hover {
+  background-color: var(--bg-hover);
+}

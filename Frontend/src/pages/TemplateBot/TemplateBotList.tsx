@@ -237,8 +237,19 @@ export const TemplateBotList: React.FC = () => {
                 </tr>
               ) : bots.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-4 text-muted">
-                    No template bots found matching criteria.
+                  <td 
+                    colSpan={
+                      (visibleColumns.id !== false ? 1 : 0) +
+                      (visibleColumns.name !== false ? 1 : 0) +
+                      (visibleColumns.replyType !== false ? 1 : 0) +
+                      (visibleColumns.triggerKeyword !== false ? 1 : 0) +
+                      (visibleColumns.relationType !== false ? 1 : 0) +
+                      (visibleColumns.active !== false ? 1 : 0) +
+                      (visibleColumns.createdAt !== false ? 1 : 0)
+                    } 
+                    className="no-records-row"
+                  >
+                    No records found
                   </td>
                 </tr>
               ) : (

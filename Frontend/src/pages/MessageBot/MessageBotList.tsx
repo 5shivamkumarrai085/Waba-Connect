@@ -217,10 +217,6 @@ export const MessageBotList: React.FC = () => {
             <div className="data-table-empty">
               <p>Loading message bots...</p>
             </div>
-          ) : bots.length === 0 ? (
-            <div className="data-table-empty">
-              <p>No message bots found matching criteria.</p>
-            </div>
           ) : (
             <table className="data-table">
               <thead>
@@ -233,7 +229,17 @@ export const MessageBotList: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {bots.map((bot) => (
+                {bots.length === 0 ? (
+                  <tr>
+                    <td 
+                      colSpan={columnHeaders.filter(c => visibleColumns[c.key] !== false).length}
+                      className="no-records-row"
+                    >
+                      No records found
+                    </td>
+                  </tr>
+                ) : (
+                  bots.map((bot) => (
                   <tr key={bot.id}>
                     {/* ID Column */}
                     {visibleColumns.id !== false && (
@@ -314,9 +320,10 @@ export const MessageBotList: React.FC = () => {
                       <td>{formatRelativeTime(bot.createdAt)}</td>
                     )}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                ))
+              )}
+            </tbody>
+          </table>
           )}
         </div>
 

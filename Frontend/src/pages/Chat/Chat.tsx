@@ -18,7 +18,10 @@ import {
   X,
   User,
   Plus,
-  Trash2
+  Trash2,
+  Calendar,
+  Users,
+  Phone
 } from 'lucide-react'
 import { Avatar } from '../../components/Avatar/Avatar'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
@@ -410,8 +413,14 @@ export const Chat: React.FC = () => {
               <p className="upload-sub-text">Loading chats...</p>
             </div>
           ) : filteredConversations.length === 0 ? (
-            <div className="data-table-empty">
-              <p className="upload-sub-text">No chats found</p>
+            <div className="chat-sidebar-empty-state">
+              <MessageSquare size={36} className="chat-sidebar-empty-icon" />
+              <span className="chat-sidebar-empty-title">No chats found</span>
+              <p className="chat-sidebar-empty-desc">
+                {conversationsFilter === 'Unread Chats'
+                  ? 'There are no unread chats.'
+                  : 'Try adjusting your search query.'}
+              </p>
             </div>
           ) : (
             filteredConversations.map((conversation) => {
@@ -710,36 +719,51 @@ export const Chat: React.FC = () => {
                       <h4 className="info-drawer-section-title">Details</h4>
                       <div className="info-details-list">
                         <div className="info-detail-item">
-                          <span className="info-detail-label">Source</span>
-                          <span className="info-detail-value">{activeConversation.source || 'Unknown'}</span>
+                          <div className="info-detail-label-row">
+                            <MessageSquare size={14} className="info-detail-icon text-orange" />
+                            <span className="info-detail-label">Source</span>
+                            <span className="info-detail-value text-blue inline">{activeConversation.source || 'Unknown'}</span>
+                          </div>
                         </div>
                         <div className="info-detail-item">
-                          <span className="info-detail-label">Groups</span>
-                          <span className="info-detail-value">
+                          <div className="info-detail-label-row">
+                            <Users size={14} className="info-detail-icon text-purple" />
+                            <span className="info-detail-label">groups</span>
+                          </div>
+                          <div className="info-detail-value text-gray block">
                             {activeConversation.contactGroups && activeConversation.contactGroups.length > 0
                               ? activeConversation.contactGroups.join(', ')
                               : 'No groups assigned'}
-                          </span>
+                          </div>
                         </div>
                         <div className="info-detail-item">
-                          <span className="info-detail-label">Creation Time</span>
-                          <span className="info-detail-value">
+                          <div className="info-detail-label-row">
+                            <Calendar size={14} className="info-detail-icon text-sky" />
+                            <span className="info-detail-label">Creation Time</span>
+                          </div>
+                          <div className="info-detail-value text-purple block">
                             {activeConversation.contactCreatedAt 
                               ? new Date(activeConversation.contactCreatedAt).toLocaleString() 
                               : '-'}
-                          </span>
+                          </div>
                         </div>
                         <div className="info-detail-item">
-                          <span className="info-detail-label">Last Activity</span>
-                          <span className="info-detail-value">
+                          <div className="info-detail-label-row">
+                            <Clock3 size={14} className="info-detail-icon text-amber" />
+                            <span className="info-detail-label">Last Activity</span>
+                          </div>
+                          <div className="info-detail-value text-purple block">
                             {activeConversation.lastMessageAt 
                               ? new Date(activeConversation.lastMessageAt).toLocaleString() 
                               : activeConversation.lastMessageTime || '-'}
-                          </span>
+                          </div>
                         </div>
                         <div className="info-detail-item">
-                          <span className="info-detail-label">Phone</span>
-                          <span className="info-detail-value">{activeConversation.phone}</span>
+                          <div className="info-detail-label-row">
+                            <Phone size={14} className="info-detail-icon text-green" />
+                            <span className="info-detail-label">Phone</span>
+                            <span className="info-detail-value text-blue inline">{activeConversation.phone}</span>
+                          </div>
                         </div>
                       </div>
                     </div>

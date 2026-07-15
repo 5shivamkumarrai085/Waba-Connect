@@ -92,14 +92,17 @@
   gap: 6px;
 }
 
+
 .conversation-contact-name {
-  font-size: 13px;
+  font-family: var(--font-title);
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-main);
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
 }
+
 
 .conversation-status-badge {
   font-size: 10px;
@@ -133,8 +136,9 @@
   gap: 8px;
 }
 
+
 .conversation-preview-text {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   text-overflow: ellipsis;
   overflow: hidden;
@@ -142,11 +146,14 @@
   flex-grow: 1;
 }
 
+
+
 .conversation-time {
-  font-size: 10px;
-  color: var(--text-light);
+  font-size: 11px;
+  color: var(--text-muted);
   white-space: nowrap;
 }
+
 
 .unread-count-bubble {
   background-color: var(--primary);
@@ -230,39 +237,47 @@
   width: 100%;
 }
 
+
 .chat-bubble-incoming {
   align-self: flex-start;
   background-color: #ffffff;
   border-radius: 0 8px 8px 8px;
-  padding: 8px 12px;
+  padding: 10px 14px;
   max-width: 75%;
-  box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.13);
+  box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.1);
 }
+
+
 
 .chat-bubble-outgoing {
   align-self: flex-end;
-  background-color: #d9fdd3; /* WhatsApp light green */
+  background-color: #e0e7ff; /* Soft lavender/indigo periwinkle matching screenshots */
   border-radius: 8px 0px 8px 8px;
-  padding: 8px 12px;
+  padding: 10px 14px;
   max-width: 75%;
-  box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.13);
+  box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.1);
 }
+
+
 
 .chat-bubble-failed {
   align-self: flex-end;
   background-color: #fee2e2; /* light red fail */
   border: 1px solid #fca5a5;
   border-radius: 8px 0px 8px 8px;
-  padding: 8px 12px;
+  padding: 10px 14px;
   max-width: 75%;
-  box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.13);
+  box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.1);
 }
 
+
+
 .chat-bubble-text-outgoing {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   color: #111b21;
 }
+
 
 .chat-bubble-time-row {
   display: flex;
@@ -777,20 +792,39 @@
   letter-spacing: 0.05em;
 }
 
+
 .info-details-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .info-detail-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.info-detail-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.info-detail-label-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.info-detail-icon {
+  flex-shrink: 0;
 }
 
 .info-detail-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   font-weight: 500;
 }
@@ -799,6 +833,45 @@
   font-size: 13px;
   font-weight: 500;
 }
+
+.info-detail-value.inline {
+  margin-left: 4px;
+}
+
+.info-detail-value.block {
+  padding-left: 22px;
+  margin-top: 2px;
+}
+
+/* Specific text colors for info values and icons */
+.text-orange {
+  color: #ea580c; /* Brand orange */
+}
+
+.text-purple {
+  color: #8b5cf6; /* Purple badge color */
+}
+
+.text-blue {
+  color: #2563eb; /* Active blue link */
+}
+
+.text-gray {
+  color: #64748b; /* Muted slate text */
+}
+
+.text-sky {
+  color: #0ea5e9; /* Sky blue */
+}
+
+.text-amber {
+  color: #d97706; /* Warm amber */
+}
+
+.text-green {
+  color: #10b981; /* Success green */
+}
+
 
 /* Notes List & Creator styles */
 .add-note-btn {
@@ -995,3 +1068,39 @@
   background-color: #fef2f2;
 }
 
+
+
+/* Sidebar empty state styling */
+.chat-sidebar-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  height: 100%;
+  min-height: 300px;
+  box-sizing: border-box;
+}
+
+.chat-sidebar-empty-icon {
+  color: var(--text-light);
+  margin-bottom: 12px;
+  opacity: 0.75;
+}
+
+.chat-sidebar-empty-title {
+  font-family: var(--font-title);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.chat-sidebar-empty-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 220px;
+  line-height: 1.45;
+}

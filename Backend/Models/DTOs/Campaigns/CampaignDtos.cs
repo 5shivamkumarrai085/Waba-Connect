@@ -63,3 +63,14 @@ public class CampaignRecipientResponse
     public DateTime? ReadAt { get; set; }
     public string? ErrorMessage { get; set; }
 }
+
+public class CreateCsvCampaignRequest
+{
+    public string Name { get; set; } = string.Empty;
+    public string CsvFileUrl { get; set; } = string.Empty;
+    public int TemplateId { get; set; }
+    public string RelationType { get; set; } = string.Empty;
+    public string ScheduleType { get; set; } = "Immediate";
+    public DateTime? ScheduledAt { get; set; }
+    public List<CampaignVariableRequest>? Variables { get; set; }
+}

@@ -666,4 +666,200 @@ public class CampaignService : ICampaignService
             return "video";
         return "document";
     }
+
+    public async Task<CampaignResponse> CreateCsvCampaignAsync(CreateCsvCampaignRequest request)
+    {
+        var normalizedName = request.Name.Trim().ToLower();
+        var exists = await _dbContext.Campaigns.AnyAsync(c => c.Name.ToLower() == normalizedName);
+        if (exists)
+            throw new InvalidOperationException("The campaign name has already been taken.");
+
+        var uri = new Uri(request.CsvFileUrl);
+        var fileName = Path.GetFileName(uri.LocalPath);
+        var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", fileName);
+
+        if (!File.Exists(filePath))
+        {
+            var csvFolderFile = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "csv", fileName);
+            if (File.Exists(csvFolderFile))
+            {
+                filePath = csvFolderFile;
+            }
+            else
+            {
+                throw new FileNotFoundException($"CSV file not found: {fileName}");
+            }
+        }
+
+        var lines = await File.ReadAllLinesAsync(filePath);
+        if (lines.Length < 2)
+            throw new ArgumentException("CSV file must contain a header row and at least one data row.");
+
+        var headers = SplitCsvRow(lines[0]).Select(h => h.ToLower().Trim()).ToList();
+        
+        int phoneIdx = headers.FindIndex(h => h == "phone" || h == "phoneno" || h == "phone number" || h == "telephone");
+        int firstNameIdx = headers.FindIndex(h => h == "firstname" || h == "first name" || h == "name");
+        int lastNameIdx = headers.FindIndex(h => h == "lastname" || h == "last name");
+        int emailIdx = headers.FindIndex(h => h == "email" || h == "email address");
+        int countryIdx = headers.FindIndex(h => h == "country");
+
+        if (phoneIdx == -1)
+            throw new ArgumentException("cannot upload wrong format csv file (Missing phone column)");
+        if (firstNameIdx == -1)
+            throw new ArgumentException("cannot upload wrong format csv file (Missing name/firstname column)");
+
+        var contactIds = new HashSet<int>();
+        var phoneRegex = new System.Text.RegularExpressions.Regex(@"^\+[1-9]\d{6,14}$");
+
+        for (int i = 1; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            if (string.IsNullOrWhiteSpace(line)) continue;
+
+            var fields = SplitCsvRow(line);
+            if (fields.Count <= Math.Max(phoneIdx, firstNameIdx)) continue;
+
+            var phoneVal = fields[phoneIdx].Trim();
+            var cleanedPhone = phoneVal.Replace(" ", "").Replace("-", "").Replace("(", "").Replace(")", "");
+            if (!cleanedPhone.StartsWith("+"))
+            {
+                cleanedPhone = "+" + cleanedPhone;
+            }
+
+            if (!phoneRegex.IsMatch(cleanedPhone))
+            {
+                continue;
+            }
+
+            var firstName = fields[firstNameIdx].Trim();
+            var lastName = lastNameIdx != -1 && lastNameIdx < fields.Count ? fields[lastNameIdx].Trim() : string.Empty;
+            var emailVal = emailIdx != -1 && emailIdx < fields.Count ? fields[emailIdx].Trim() : string.Empty;
+            var countryVal = countryIdx != -1 && countryIdx < fields.Count ? fields[countryIdx].Trim() : string.Empty;
+
+            var fullName = string.IsNullOrEmpty(lastName) ? firstName : $"{firstName} {lastName}".Trim();
+            if (fullName.Length < 2)
+            {
+                fullName = "CSV User";
+            }
+
+            var contact = await _dbContext.Contacts.FirstOrDefaultAsync(c => c.Phone == cleanedPhone);
+            if (contact == null)
+            {
+                contact = new Contact
+                {
+                    Name = fullName,
+                    Phone = cleanedPhone,
+                    Type = Enum.Parse<ContactType>(request.RelationType, true),
+                    Status = ContactStatus.New,
+                    Source = ContactSource.Import,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _dbContext.Contacts.Add(contact);
+                await _dbContext.SaveChangesAsync();
+            }
+
+            contactIds.Add(contact.Id);
+        }
+
+        var template = await _dbContext.Templates.FindAsync(request.TemplateId);
+        if (template == null)
+            throw new KeyNotFoundException("Template not found.");
+
+        if (contactIds.Count == 0)
+            throw new ArgumentException("No valid contacts found in the CSV file.");
+
+        var campaign = new Campaign
+        {
+            Name = request.Name,
+            TemplateId = request.TemplateId,
+            RelationType = Enum.Parse<ContactType>(request.RelationType, true),
+            ScheduleType = Enum.Parse<ScheduleType>(request.ScheduleType, true),
+            ScheduledAt = request.ScheduledAt,
+            Status = Enum.Parse<ScheduleType>(request.ScheduleType, true) == ScheduleType.Immediate ? CampaignStatus.Sending : CampaignStatus.Scheduled,
+            TotalRecipients = contactIds.Count
+        };
+
+        if (request.Variables != null)
+        {
+            foreach (var v in request.Variables)
+            {
+                campaign.Variables.Add(new CampaignVariable
+                {
+                    VariableName = v.VariableName,
+                    VariableValue = v.VariableValue,
+                    MergeField = v.MergeField
+                });
+            }
+
+            var fileVar = request.Variables.FirstOrDefault(v => v.VariableName.Equals("file", StringComparison.OrdinalIgnoreCase));
+            if (fileVar != null && !string.IsNullOrEmpty(fileVar.VariableValue))
+            {
+                campaign.FileUrl = fileVar.VariableValue;
+                campaign.FileName = System.IO.Path.GetFileName(fileVar.VariableValue);
+                campaign.FileType = GetMediaTypeFromUrl(fileVar.VariableValue);
+            }
+        }
+
+        foreach (var cid in contactIds)
+        {
+            campaign.CampaignContacts.Add(new CampaignContact
+            {
+                ContactId = cid,
+                Status = MessageStatus.Pending
+            });
+        }
+
+        _dbContext.Campaigns.Add(campaign);
+        await _dbContext.SaveChangesAsync();
+
+        if (campaign.Status == CampaignStatus.Sending)
+        {
+            _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
+        }
+
+        var response = new CampaignResponse
+        {
+            Id = campaign.Id,
+            Name = campaign.Name,
+            TemplateName = template.Name,
+            RelationType = campaign.RelationType.ToString(),
+            ScheduleType = campaign.ScheduleType.ToString(),
+            ScheduledAt = campaign.ScheduledAt,
+            Status = campaign.Status.ToString(),
+            TotalRecipients = campaign.TotalRecipients,
+            CreatedAt = campaign.CreatedAt,
+            UpdatedAt = campaign.UpdatedAt
+        };
+
+        return response;
+    }
+
+    private static List<string> SplitCsvRow(string line)
+    {
+        var result = new List<string>();
+        var inQuotes = false;
+        var currentField = new System.Text.StringBuilder();
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (c == ',' && !inQuotes)
+            {
+                result.Add(currentField.ToString().Trim(' ', '"'));
+                currentField.Clear();
+            }
+            else
+            {
+                currentField.Append(c);
+            }
+        }
+        result.Add(currentField.ToString().Trim(' ', '"'));
+        return result;
+    }
 }

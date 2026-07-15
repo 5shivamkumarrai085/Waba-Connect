@@ -6,11 +6,13 @@ import './UploadArea.css'
 interface UploadAreaProps {
   onFileSelect: (file: File) => void
   selectedFile: File | null
+  onDownloadSampleClick?: () => void
 }
 
 export const UploadArea: React.FC<UploadAreaProps> = ({
   onFileSelect,
-  selectedFile
+  selectedFile,
+  onDownloadSampleClick
 }) => {
   const [dragActive, setDragActive] = useState<boolean>(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -69,9 +71,16 @@ export const UploadArea: React.FC<UploadAreaProps> = ({
       <div className="upload-area-header">
         <span className="upload-area-label">Choose CSV File</span>
         <button 
+          type="button"
           className="upload-area-link"
-          onClick={() => {
-            toast.success('Downloading sample contacts CSV layout...')
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            if (onDownloadSampleClick) {
+              onDownloadSampleClick()
+            } else {
+              toast.success('Downloading sample contacts CSV layout...')
+            }
           }}
         >
           Download Sample File & Read Rules

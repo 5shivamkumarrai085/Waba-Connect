@@ -423,3 +423,10 @@ C:/Users/Ashok-windows/Downloads/Waba/Backend/obj/Debug/net10.0/ref/WhatsAppCamp
 /Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/ref/WhatsAppCampaignApi.dll
 /Users/tusharvashisht/Downloads/WabaConnect/Backend/bin/Debug/net10.0/WhatsAppCampaignApi.staticwebassets.runtime.json
 /Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/9i8on3vbg8-{0}-yeeef5xjb7-yeeef5xjb7.gz
+/Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/l2w9es7p3n-{0}-r94agjpflu-r94agjpflu.gz
+/Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/b98jn5vkvn-{0}-euc5e9nx6m-euc5e9nx6m.gz
+/Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/6nufyd2ksf-{0}-euc5e9nx6m-euc5e9nx6m.gz
+/Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/hfw15d7qqg-{0}-euc5e9nx6m-euc5e9nx6m.gz
+/Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/doc3o48vrs-{0}-euc5e9nx6m-euc5e9nx6m.gz
+/Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/ei9r2cuxg0-{0}-euc5e9nx6m-euc5e9nx6m.gz
+/Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/my5nbxjbeq-{0}-fum7fn0bmi-fum7fn0bmi.gz

@@ -3,8 +3,10 @@ import toast from 'react-hot-toast'
 import { useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
+  AlertTriangle,
   Check,
   CheckCheck,
+  Clock,
   Clock3,
   FileText,
   Info,
@@ -186,6 +188,9 @@ export const Chat: React.FC = () => {
   // 2. Delete Menu
   const [showDeleteMenu, setShowDeleteMenu] = useState(false)
 
+  // 24h timer banner visibility state
+  const [showTimeBanner, setShowTimeBanner] = useState(false)
+
   // 3. User Info Drawer & Notes
   const [showInfoDrawer, setShowInfoDrawer] = useState(false)
   const [notes, setNotes] = useState<any[]>([])
@@ -201,19 +206,20 @@ export const Chat: React.FC = () => {
     return conversations.find(c => c.id === activeConversationId) || null
   }, [conversations, activeConversationId])
 
-  const lastIncomingMessage = useMemo(() => {
+  const lastActiveMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].type === 'incoming') {
-        return messages[i]
+      const m = messages[i]
+      if (m.type === 'incoming' || (m.type === 'outgoing' && m.isTemplate && m.status !== 'failed')) {
+        return m
       }
     }
     return null
   }, [messages])
 
   const windowStatus = useMemo(() => {
-    if (!lastIncomingMessage) return { active: false, text: 'No incoming messages' }
+    if (!lastActiveMessage) return { active: false, text: 'No messages exchange yet' }
     
-    const lastTime = new Date(lastIncomingMessage.createdAt).getTime()
+    const lastTime = new Date(lastActiveMessage.createdAt).getTime()
     const limit = lastTime + 24 * 60 * 60 * 1000
     const now = Date.now()
     const remainingMs = limit - now
@@ -226,9 +232,9 @@ export const Chat: React.FC = () => {
     const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000))
     return { 
       active: true, 
-      text: `${hours}h ${minutes}m remaining of 24h window` 
+      text: `Reply within ${hours} hours and ${minutes} minutes remaining` 
     }
-  }, [lastIncomingMessage])
+  }, [lastActiveMessage])
 
   const searchedMessages = useMemo(() => {
     if (!msgSearchQuery.trim()) return messages
@@ -498,7 +504,8 @@ export const Chat: React.FC = () => {
                 {windowStatus.active && (
                   <div 
                     className="chat-header-window-dot active" 
-                    title={windowStatus.text}
+                    title="Click to view time remaining"
+                    onClick={() => setShowTimeBanner(!showTimeBanner)}
                   />
                 )}
                 {!windowStatus.active && (
@@ -538,6 +545,12 @@ export const Chat: React.FC = () => {
             <div className="chat-window-content-row">
               <div className="chat-window-messages-column">
                 <div className="chat-messages-container">
+                  {windowStatus.active && showTimeBanner && (
+                    <div className="chat-window-time-remaining-banner">
+                      <Clock size={14} className="chat-window-time-remaining-icon" />
+                      <span>{windowStatus.text}</span>
+                    </div>
+                  )}
                   {searchedMessages.length === 0 ? (
                     <div className="chat-empty-thread">
                       <MessageCircle size={28} />
@@ -624,77 +637,99 @@ export const Chat: React.FC = () => {
                   <div ref={messagesEndRef} />
                 </div>
 
-                <form onSubmit={handleSend} className="chat-composer-container">
-                  <div className="chat-composer-input-row">
-                    <textarea
-                      className="chat-composer-textarea"
-                      rows={1}
-                      placeholder={`Message to ${activeConversation.name} - Shift + Enter for newline`}
-                      value={messageText}
-                      onChange={(e) => setMessageText(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      disabled={isSending}
-                    />
-                  </div>
-
-                  <div className="chat-composer-actions-row">
-                    <input
-                      ref={mediaFileInputRef}
-                      type="file"
-                      style={{ display: 'none' }}
-                      onChange={handleMediaFileChange}
-                      accept={getAcceptTypes(attachmentType)}
-                    />
-
-                    <div className="chat-composer-left-actions">
-                      <div className="chat-composer-popover-anchor">
-                        <Smile size={18} className="chat-composer-icon" onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowAttachmentMenu(false); }} />
-                        {showEmojiPicker && (
-                          <div className="emoji-picker-popover">
-                            {EMOJIS.map(emoji => (
-                              <button key={emoji} type="button" className="emoji-btn" onClick={() => insertEmoji(emoji)}>
-                                {emoji}
-                              </button>
-                            ))}
-                          </div>
-                        )}
+                {!windowStatus.active ? (
+                  <div className="chat-window-limit-banner">
+                    <div className="chat-window-limit-left">
+                      <AlertTriangle size={20} className="chat-window-limit-icon" />
+                      <div className="chat-window-limit-text-group">
+                        <span className="chat-window-limit-title">24 hours limit</span>
+                        <span className="chat-window-limit-description">
+                          WhatsApp blocks messages 24 hours after the customer last replied.
+                        </span>
                       </div>
-
-                      <div className="chat-composer-popover-anchor">
-                        <Paperclip size={18} className="chat-composer-icon" onClick={() => { setShowAttachmentMenu(!showAttachmentMenu); setShowEmojiPicker(false); }} />
-                        {showAttachmentMenu && (
-                          <div className="attachment-menu-popover">
-                            <button type="button" className="attachment-menu-item" onClick={() => triggerMediaUpload('image')}>
-                              Image
-                            </button>
-                            <button type="button" className="attachment-menu-item" onClick={() => triggerMediaUpload('document')}>
-                              Document
-                            </button>
-                            <button type="button" className="attachment-menu-item" onClick={() => triggerMediaUpload('video')}>
-                              Video
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      <FileText size={18} className="chat-composer-icon" onClick={() => toast.success('Template picker coming soon')} />
-                      <MessageCircle size={18} className="chat-composer-icon" onClick={() => toast.success('Bot flows coming soon')} />
-                      
-                      {uploadingMedia && (
-                        <span className="upload-loading-indicator">Uploading media...</span>
-                      )}
                     </div>
-
-                    <button
-                      type="submit"
-                      className="chat-composer-voice-btn"
-                      aria-label="Send message"
-                      disabled={(!messageText.trim() && !uploadingMedia) || isSending}
+                    <button 
+                      type="button" 
+                      className="chat-window-limit-btn"
+                      onClick={() => setIsTemplateModalOpen(true)}
                     >
-                      <Send size={18} />
+                      <MessageSquare size={16} />
+                      <span>Initiate Chat</span>
                     </button>
                   </div>
-                </form>
+                ) : (
+                  <form onSubmit={handleSend} className="chat-composer-container">
+                    <div className="chat-composer-input-row">
+                      <textarea
+                        className="chat-composer-textarea"
+                        rows={1}
+                        placeholder={`Message to ${activeConversation.name} - Shift + Enter for newline`}
+                        value={messageText}
+                        onChange={(e) => setMessageText(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        disabled={isSending}
+                      />
+                    </div>
+
+                    <div className="chat-composer-actions-row">
+                      <input
+                        ref={mediaFileInputRef}
+                        type="file"
+                        style={{ display: 'none' }}
+                        onChange={handleMediaFileChange}
+                        accept={getAcceptTypes(attachmentType)}
+                      />
+
+                      <div className="chat-composer-left-actions">
+                        <div className="chat-composer-popover-anchor">
+                          <Smile size={18} className="chat-composer-icon" onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowAttachmentMenu(false); }} />
+                          {showEmojiPicker && (
+                            <div className="emoji-picker-popover">
+                              {EMOJIS.map(emoji => (
+                                <button key={emoji} type="button" className="emoji-btn" onClick={() => insertEmoji(emoji)}>
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="chat-composer-popover-anchor">
+                          <Paperclip size={18} className="chat-composer-icon" onClick={() => { setShowAttachmentMenu(!showAttachmentMenu); setShowEmojiPicker(false); }} />
+                          {showAttachmentMenu && (
+                            <div className="attachment-menu-popover">
+                              <button type="button" className="attachment-menu-item" onClick={() => triggerMediaUpload('image')}>
+                                Image
+                              </button>
+                              <button type="button" className="attachment-menu-item" onClick={() => triggerMediaUpload('document')}>
+                                Document
+                              </button>
+                              <button type="button" className="attachment-menu-item" onClick={() => triggerMediaUpload('video')}>
+                                Video
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        <FileText size={18} className="chat-composer-icon" onClick={() => toast.success('Template picker coming soon')} />
+                        <MessageCircle size={18} className="chat-composer-icon" onClick={() => toast.success('Bot flows coming soon')} />
+                        
+                        {uploadingMedia && (
+                          <span className="upload-loading-indicator">Uploading media...</span>
+                        )}
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="chat-composer-voice-btn"
+                        aria-label="Send message"
+                        disabled={(!messageText.trim() && !uploadingMedia) || isSending}
+                      >
+                        <Send size={18} />
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
 
               {showInfoDrawer && (

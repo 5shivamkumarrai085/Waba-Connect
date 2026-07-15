@@ -27,6 +27,10 @@ public class Campaign
     [MaxLength(100)]
     public string? CreatedBy { get; set; }
     
+    public string? FileName { get; set; }
+    public string? FileType { get; set; }
+    public string? FileUrl { get; set; }
+    
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

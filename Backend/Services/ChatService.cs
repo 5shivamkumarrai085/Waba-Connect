@@ -218,7 +218,13 @@ public class ChatService : IChatService
         return MapMessage(message);
     }
 
-    public async Task<ChatMessage> CreateOrUpdateCampaignMessageAsync(Campaign campaign, CampaignContact campaignContact, string text)
+    public async Task<ChatMessage> CreateOrUpdateCampaignMessageAsync(
+        Campaign campaign, 
+        CampaignContact campaignContact, 
+        string text, 
+        string? mediaUrl = null, 
+        string? mediaType = null, 
+        string? mediaFileName = null)
     {
         var conversation = await GetOrCreateConversationAsync(campaignContact.ContactId);
 
@@ -232,6 +238,9 @@ public class ChatService : IChatService
             existing.Status = ChatMessageStatus.Pending;
             existing.ErrorMessage = null;
             existing.IsTemplate = true;
+            existing.MediaUrl = mediaUrl;
+            existing.MediaType = mediaType;
+            existing.MediaFileName = mediaFileName;
             UpdateConversationPreview(conversation, text);
             await _dbContext.SaveChangesAsync();
             return existing;
@@ -246,7 +255,10 @@ public class ChatService : IChatService
             Direction = ChatMessageDirection.Outgoing,
             Status = ChatMessageStatus.Pending,
             Text = text,
-            IsTemplate = true
+            IsTemplate = true,
+            MediaUrl = mediaUrl,
+            MediaType = mediaType,
+            MediaFileName = mediaFileName
         };
 
         _dbContext.ChatMessages.Add(message);
@@ -301,7 +313,7 @@ public class ChatService : IChatService
         await _dbContext.SaveChangesAsync();
     }
 
-    private async Task<ChatConversation> GetOrCreateConversationAsync(int contactId)
+    public async Task<ChatConversation> GetOrCreateConversationAsync(int contactId)
     {
         var conversation = await _dbContext.ChatConversations
             .FirstOrDefaultAsync(c => c.ContactId == contactId);

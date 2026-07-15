@@ -165,6 +165,14 @@ public class CampaignService : ICampaignService
                     MergeField = v.MergeField
                 });
             }
+
+            var fileVar = request.Variables.FirstOrDefault(v => v.VariableName.Equals("file", StringComparison.OrdinalIgnoreCase));
+            if (fileVar != null && !string.IsNullOrEmpty(fileVar.VariableValue))
+            {
+                campaign.FileUrl = fileVar.VariableValue;
+                campaign.FileName = System.IO.Path.GetFileName(fileVar.VariableValue);
+                campaign.FileType = GetMediaTypeFromUrl(fileVar.VariableValue);
+            }
         }
 
         // Add Contacts
@@ -235,6 +243,10 @@ public class CampaignService : ICampaignService
 
         _dbContext.CampaignVariables.RemoveRange(campaign.Variables);
         campaign.Variables.Clear();
+        campaign.FileUrl = null;
+        campaign.FileName = null;
+        campaign.FileType = null;
+
         if (request.Variables != null)
         {
             foreach (var variable in request.Variables)
@@ -245,6 +257,14 @@ public class CampaignService : ICampaignService
                     VariableValue = variable.VariableValue,
                     MergeField = variable.MergeField
                 });
+            }
+
+            var fileVar = request.Variables.FirstOrDefault(v => v.VariableName.Equals("file", StringComparison.OrdinalIgnoreCase));
+            if (fileVar != null && !string.IsNullOrEmpty(fileVar.VariableValue))
+            {
+                campaign.FileUrl = fileVar.VariableValue;
+                campaign.FileName = System.IO.Path.GetFileName(fileVar.VariableValue);
+                campaign.FileType = GetMediaTypeFromUrl(fileVar.VariableValue);
             }
         }
 
@@ -441,8 +461,31 @@ public class CampaignService : ICampaignService
                     messageVars[v.VariableName] = finalValue;
                 }
 
+                // Check if there is an attachment on the campaign object
+                string? attachmentUrl = campaign.FileUrl;
+                string? mediaType = null;
+                string? mediaFileName = null;
+                if (!string.IsNullOrEmpty(attachmentUrl))
+                {
+                    mediaType = GetMediaTypeFromUrl(attachmentUrl);
+                    mediaFileName = campaign.FileName ?? System.IO.Path.GetFileName(attachmentUrl);
+                }
+
                 var previewText = BuildRecipientMessagePreview(campaign, cc);
-                var chatMessage = await chatService.CreateOrUpdateCampaignMessageAsync(campaign, cc, previewText);
+
+                // Determine template header type
+                var hasMediaHeader = campaign.Template.HeaderType != HeaderType.None;
+
+                // Create the campaign message log
+                // If the template has a media header, the media is part of the template, so log it with the template ChatMessage
+                // If it does NOT have a media header, we only log the template text in the template ChatMessage
+                var chatMessage = await chatService.CreateOrUpdateCampaignMessageAsync(
+                    campaign, 
+                    cc, 
+                    previewText,
+                    hasMediaHeader ? attachmentUrl : null,
+                    hasMediaHeader ? mediaType : null,
+                    hasMediaHeader ? mediaFileName : null);
 
                 // Send via WhatsApp API
                 var sendResult = await whatsAppService.SendTemplateMessageWithResultAsync(
@@ -456,7 +499,37 @@ public class CampaignService : ICampaignService
                     cc.WhatsAppMessageId = sendResult.MessageId;
                     cc.Status = MessageStatus.Sent;
                     await chatService.MarkCampaignMessageSentAsync(chatMessage.Id, sendResult.MessageId);
-                    // Note: Status will be updated to Sent/Delivered/Read via webhook
+                    
+                    // Case B: No media header in template, but attachment is present
+                    // We must send the attachment as a SEPARATE media message!
+                    if (!hasMediaHeader && !string.IsNullOrEmpty(attachmentUrl))
+                    {
+                        var mediaSendResult = await whatsAppService.SendMediaMessageAsync(
+                            cc.Contact.Phone,
+                            attachmentUrl,
+                            mediaType!,
+                            mediaFileName);
+
+                        if (mediaSendResult.Success)
+                        {
+                            // Create a ChatMessage log for the separate media message
+                            var conversation = await chatService.GetOrCreateConversationAsync(cc.ContactId);
+                            var mediaMessage = new ChatMessage
+                            {
+                                ConversationId = conversation.Id,
+                                ContactId = cc.ContactId,
+                                Direction = ChatMessageDirection.Outgoing,
+                                Status = ChatMessageStatus.Sent,
+                                Text = $"[Attachment: {mediaFileName}]",
+                                IsTemplate = false,
+                                MediaUrl = attachmentUrl,
+                                MediaType = mediaType,
+                                MediaFileName = mediaFileName,
+                                WhatsAppMessageId = mediaSendResult.MessageId
+                            };
+                            dbContext.ChatMessages.Add(mediaMessage);
+                        }
+                    }
                 }
                 else
                 {
@@ -581,5 +654,16 @@ public class CampaignService : ICampaignService
             CreatedAt = c.CreatedAt,
             UpdatedAt = c.UpdatedAt
         };
+    }
+
+    private static string GetMediaTypeFromUrl(string url)
+    {
+        if (string.IsNullOrEmpty(url)) return "document";
+        var ext = System.IO.Path.GetExtension(url).Split('?')[0].ToLower();
+        if (ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".gif" || ext == ".webp")
+            return "image";
+        if (ext == ".mp4" || ext == ".avi" || ext == ".mov" || ext == ".mkv" || ext == ".3gp")
+            return "video";
+        return "document";
     }
 }

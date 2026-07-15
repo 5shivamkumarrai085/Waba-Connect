@@ -430,3 +430,5 @@ C:/Users/Ashok-windows/Downloads/Waba/Backend/obj/Debug/net10.0/ref/WhatsAppCamp
 /Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/doc3o48vrs-{0}-euc5e9nx6m-euc5e9nx6m.gz
 /Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/ei9r2cuxg0-{0}-euc5e9nx6m-euc5e9nx6m.gz
 /Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/my5nbxjbeq-{0}-fum7fn0bmi-fum7fn0bmi.gz
+/Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/sc27da8zlp-{0}-k3sx40xien-k3sx40xien.gz
+/Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/Debug/net10.0/compressed/i7scz0zgdw-{0}-euc5e9nx6m-euc5e9nx6m.gz

@@ -166,12 +166,27 @@ export const contactService = {
     return mapContact(response.data?.data)
   },
 
-  importContacts: async (_fileContent: string): Promise<{ success: boolean; count: number; message: string }> => {
-    return Promise.resolve({
-      success: true,
-      count: 0,
-      message: 'Import not implemented in backend.'
-    })
+  importContacts: async (file: File): Promise<{ success: boolean; message: string }> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+      const response = await apiClient.post('/Contacts/csv-import', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      })
+      return {
+        success: response.data?.success ?? true,
+        message: response.data?.message || 'Contacts imported successfully.'
+      }
+    } catch (err: any) {
+      console.error(err)
+      const msg = err.response?.data?.message || 'wrong format csv file'
+      return {
+        success: false,
+        message: msg
+      }
+    }
   },
 
   getSettings: async (): Promise<{ groupNotAssignedText: string }> => {

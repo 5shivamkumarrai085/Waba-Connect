@@ -8,6 +8,7 @@ import './styles/Skeleton.css'
 import './styles/responsive.css'
 
 /* Eager page-level stylesheet imports to resolve lazy-load race conditions & HMR CSS loss */
+import './components/DataTable/DataTable.css'
 import './pages/ActivityLogs.css'
 import './pages/Reporting.css'
 import './pages/Templates/TemplatesList.css'

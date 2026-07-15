@@ -30,7 +30,7 @@ interface ContactStoreState {
   addContact: (form: ContactFormModel) => Promise<Contact>
   deleteSelected: () => Promise<void>
   toggleContactActive: (id: number) => Promise<void>
-  importContacts: (fileContent: string) => Promise<{ success: boolean; count: number; message: string }>
+  importContacts: (file: File) => Promise<{ success: boolean; message: string }>
 }
 
 export const useContactStore = create<ContactStoreState>((set, get) => ({
@@ -184,16 +184,15 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
     }
   },
 
-  importContacts: async (fileContent) => {
+  importContacts: async (file) => {
     set({ isLoading: true })
     try {
-      const res = await contactService.importContacts(fileContent)
-      // Reload contacts if import was successful
+      const res = await contactService.importContacts(file)
       const fetched = await contactService.getContacts()
       set({ contacts: fetched })
       return res
     } catch (err: any) {
-      return { success: false, count: 0, message: getErrorMessage(err, 'Import failed.') }
+      return { success: false, message: getErrorMessage(err, 'Import failed.') }
     } finally {
       set({ isLoading: false })
     }

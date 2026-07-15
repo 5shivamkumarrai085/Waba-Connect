@@ -67,3 +67,212 @@
   color: var(--text-light);
   cursor: not-allowed;
 }
+
+.btn-cancel {
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  background-color: transparent;
+  border: 1px solid var(--border-color);
+  padding: 10px 24px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-cancel:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--text-muted);
+}
+
+/* Modal Popup Styles */
+.modal-overlay-custom {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+  padding: 20px;
+}
+
+.modal-content-custom {
+  background-color: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  width: 100%;
+  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header-custom {
+  padding: 16px 24px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-title-custom {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+
+.btn-modal-close-custom {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.btn-modal-close-custom:hover {
+  background-color: #f1f5f9;
+  color: #475569;
+}
+
+.modal-body-custom {
+  padding: 24px;
+  overflow-y: auto;
+  max-height: calc(100vh - 200px);
+}
+
+.modal-footer-custom {
+  padding: 16px 24px;
+  border-top: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+  display: flex;
+  gap: 12px;
+}
+
+.justify-end {
+  justify-content: flex-end;
+}
+
+/* Warnings and Instructions Box */
+.sample-rules-alert {
+  background-color: #e0f2fe;
+  border-left: 4px solid #0284c7;
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.rule-item {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #0369a1;
+  margin: 0;
+}
+
+.rule-item:not(:last-child) {
+  margin-bottom: 12px;
+}
+
+/* Modal Table Title and Download button */
+.modal-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-table-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.btn-download-sample-modal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: #10b981; /* bright green */
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.btn-download-sample-modal:hover {
+  background-color: #059669;
+}
+
+/* CSV Sample Table layout */
+.sample-csv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+
+.sample-csv-table th,
+.sample-csv-table td {
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.sample-csv-table th {
+  background-color: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+}
+
+.sample-csv-table td {
+  color: #64748b;
+  background-color: #ffffff;
+}
+
+.required-asterisk {
+  color: #ef4444; /* red */
+  font-weight: bold;
+}
+
+.margin-bottom-20 {
+  margin-bottom: 20px;
+}
+
+.margin-bottom-15 {
+  margin-bottom: 15px;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}

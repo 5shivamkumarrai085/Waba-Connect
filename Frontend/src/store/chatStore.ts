@@ -8,6 +8,7 @@ interface ChatStoreState {
   conversations: Conversation[]
   activeConversationId: number | null
   messages: Message[]
+  messagesCache: Record<number, Message[]>
   isLoading: boolean
   isSending: boolean
   fromNumber: string
@@ -30,6 +31,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   messages: [],
+  messagesCache: {},
   isLoading: false,
   isSending: false,
   fromNumber: '',
@@ -71,7 +73,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         chatService.getMessages(activeConversationId),
         chatService.getConversations(get().sidebarSearchQuery, get().conversationsFilter)
       ])
-      set({ messages, conversations })
+      set((state) => ({
+        messages,
+        messagesCache: {
+          ...state.messagesCache,
+          [activeConversationId]: messages
+        },
+        conversations
+      }))
     } catch (err) {
       console.error('Error refreshing chat:', err)
     }
@@ -84,12 +93,22 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       return
     }
 
-    set({ isLoading: true })
+    const cache = get().messagesCache
+    const cachedMsgs = cache[id] || []
+    set({ messages: cachedMsgs })
+
+    if (cachedMsgs.length === 0) {
+      set({ isLoading: true })
+    }
+
     try {
       const msgs = await chatService.getMessages(id)
-      set({ messages: msgs })
-
       set((state) => ({
+        messages: msgs,
+        messagesCache: {
+          ...state.messagesCache,
+          [id]: msgs
+        },
         conversations: state.conversations.map(c =>
           c.id === id ? { ...c, unreadCount: 0 } : c
         )
@@ -124,14 +143,21 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }
 
     set({ isSending: true })
-    set((state) => ({
-      messages: [...state.messages, tempMessage],
-      conversations: state.conversations.map((conversation) =>
-        conversation.id === activeConversationId
-          ? { ...conversation, lastMessage: displayBody, lastMessageTime: 'Now' }
-          : conversation
-      )
-    }))
+    set((state) => {
+      const updatedMsgs = [...state.messages, tempMessage]
+      return {
+        messages: updatedMsgs,
+        messagesCache: {
+          ...state.messagesCache,
+          [activeConversationId]: updatedMsgs
+        },
+        conversations: state.conversations.map((conversation) =>
+          conversation.id === activeConversationId
+            ? { ...conversation, lastMessage: displayBody, lastMessageTime: 'Now' }
+            : conversation
+        )
+      }
+    })
 
     try {
       const newMsg = await chatService.sendMessage(
@@ -143,9 +169,16 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         mediaFileName
       )
       if (newMsg) {
-        set((state) => ({
-          messages: upsertMessage(state.messages, newMsg, tempId)
-        }))
+        set((state) => {
+          const updatedMsgs = upsertMessage(state.messages, newMsg, tempId)
+          return {
+            messages: updatedMsgs,
+            messagesCache: {
+              ...state.messagesCache,
+              [activeConversationId]: updatedMsgs
+            }
+          }
+        })
       }
 
       const list = await chatService.getConversations(get().sidebarSearchQuery, get().conversationsFilter)
@@ -164,16 +197,23 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         errorMessage
       }
 
-      set((state) => ({
-        messages: state.messages.map((message) => (
+      set((state) => {
+        const updatedMsgs = state.messages.map((message) => (
           message.id === tempId ? failedMessage : message
-        )),
-        conversations: state.conversations.map((conversation) =>
-          conversation.id === activeConversationId
-            ? { ...conversation, lastMessage: text, lastMessageTime: 'Now' }
-            : conversation
-        )
-      }))
+        ))
+        return {
+          messages: updatedMsgs,
+          messagesCache: {
+            ...state.messagesCache,
+            [activeConversationId]: updatedMsgs
+          },
+          conversations: state.conversations.map((conversation) =>
+            conversation.id === activeConversationId
+              ? { ...conversation, lastMessage: text, lastMessageTime: 'Now' }
+              : conversation
+          )
+        }
+      })
     } finally {
       set({ isSending: false })
     }

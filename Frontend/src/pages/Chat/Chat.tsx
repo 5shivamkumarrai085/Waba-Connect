@@ -71,7 +71,10 @@ export const Chat: React.FC = () => {
   } = useChatStore()
 
   const [messageText, setMessageText] = useState('')
+  const [showTimeBanner, setShowTimeBanner] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const prevMessagesCountRef = useRef(0)
+  const prevActiveConvIdRef = useRef<number | null>(null)
   const requestedContactId = Number(searchParams.get('contactId') || 0)
 
   // Popover & Upload States
@@ -164,8 +167,25 @@ export const Chat: React.FC = () => {
   }, [activeConversationId, conversations, requestedContactId, selectConversation])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    const hasConvChanged = activeConversationId !== prevActiveConvIdRef.current
+    const hasNewMessage = messages.length > prevMessagesCountRef.current
+
+    if (hasConvChanged || hasNewMessage) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+
+    prevMessagesCountRef.current = messages.length
+    prevActiveConvIdRef.current = activeConversationId
+  }, [messages, activeConversationId])
+
+  useEffect(() => {
+    if (showTimeBanner) {
+      const timer = setTimeout(() => {
+        setShowTimeBanner(false)
+      }, 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [showTimeBanner])
 
   const filteredConversations = useMemo(() => {
     return conversations.filter((conversation) => {
@@ -188,8 +208,7 @@ export const Chat: React.FC = () => {
   // 2. Delete Menu
   const [showDeleteMenu, setShowDeleteMenu] = useState(false)
 
-  // 24h timer banner visibility state
-  const [showTimeBanner, setShowTimeBanner] = useState(false)
+
 
   // 3. User Info Drawer & Notes
   const [showInfoDrawer, setShowInfoDrawer] = useState(false)
@@ -468,32 +487,14 @@ export const Chat: React.FC = () => {
           <div className="chat-window-inner-layout">
             <div className="chat-window-header">
               <div className="chat-header-user-info">
-                {!showMsgSearch ? (
-                  <>
-                    <Avatar name={activeConversation.name} size="medium" />
-                    <div>
-                      <span className="conversation-contact-name">{activeConversation.name}</span>
-                      <p className="upload-sub-text margin-zero">{activeConversation.phone}</p>
-                    </div>
-                    <span className={`conversation-status-badge ${normalizeBadge(activeConversation.status)}`}>
-                      {activeConversation.status || 'contact'}
-                    </span>
-                  </>
-                ) : (
-                  <div className="chat-messages-search-bar">
-                    <input
-                      type="text"
-                      className="form-control msg-search-input"
-                      placeholder="Search Messages..."
-                      value={msgSearchQuery}
-                      onChange={(e) => setMsgSearchQuery(e.target.value)}
-                      autoFocus
-                    />
-                    <button type="button" className="msg-search-close-btn" onClick={() => { setMsgSearchQuery(''); setShowMsgSearch(false); }}>
-                      <X size={16} />
-                    </button>
-                  </div>
-                )}
+                <Avatar name={activeConversation.name} size="medium" />
+                <div>
+                  <span className="conversation-contact-name">{activeConversation.name}</span>
+                  <p className="upload-sub-text margin-zero">{activeConversation.phone}</p>
+                </div>
+                <span className={`conversation-status-badge ${normalizeBadge(activeConversation.status)}`}>
+                  {activeConversation.status || 'contact'}
+                </span>
               </div>
 
               <div className="chat-header-actions">
@@ -505,7 +506,7 @@ export const Chat: React.FC = () => {
                   <div 
                     className="chat-header-window-dot active" 
                     title="Click to view time remaining"
-                    onClick={() => setShowTimeBanner(!showTimeBanner)}
+                    onClick={() => setShowTimeBanner(true)}
                   />
                 )}
                 {!windowStatus.active && (
@@ -544,14 +545,50 @@ export const Chat: React.FC = () => {
 
             <div className="chat-window-content-row">
               <div className="chat-window-messages-column">
-                <div className="chat-messages-container">
-                  {windowStatus.active && showTimeBanner && (
-                    <div className="chat-window-time-remaining-banner">
-                      <Clock size={14} className="chat-window-time-remaining-icon" />
-                      <span>{windowStatus.text}</span>
+                {windowStatus.active && showTimeBanner && (
+                  <div className="chat-window-time-remaining-banner-floating">
+                    <Clock size={14} className="chat-window-time-remaining-icon" />
+                    <span>{windowStatus.text}</span>
+                  </div>
+                )}
+
+                {showMsgSearch && (
+                  <div className="chat-window-search-banner-floating">
+                    <div className="chat-window-search-input-wrapper">
+                      <Search size={16} className="chat-window-search-icon" />
+                      <input
+                        type="text"
+                        className="chat-window-search-input"
+                        placeholder="Search Messages..."
+                        value={msgSearchQuery}
+                        onChange={(e) => setMsgSearchQuery(e.target.value)}
+                        autoFocus
+                      />
+                      {msgSearchQuery && (
+                        <X 
+                          size={16} 
+                          className="chat-window-search-clear-icon" 
+                          onClick={() => setMsgSearchQuery('')} 
+                        />
+                      )}
                     </div>
-                  )}
-                  {searchedMessages.length === 0 ? (
+                    <button 
+                      type="button" 
+                      className="chat-window-search-close-btn" 
+                      onClick={() => { setMsgSearchQuery(''); setShowMsgSearch(false); }}
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                )}
+
+                <div className="chat-messages-container">
+                  {isLoading && searchedMessages.length === 0 ? (
+                    <div className="chat-thread-loader">
+                      <div className="chat-spinner" />
+                      <span>Loading messages...</span>
+                    </div>
+                  ) : searchedMessages.length === 0 ? (
                     <div className="chat-empty-thread">
                       <MessageCircle size={28} />
                       <span>{msgSearchQuery.trim() ? 'No matching messages found' : 'No messages yet'}</span>

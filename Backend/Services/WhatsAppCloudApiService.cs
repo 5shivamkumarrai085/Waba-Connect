@@ -84,6 +84,25 @@ public class WhatsAppCloudApiService : IWhatsAppService
             var template = await _dbContext.Templates.FirstOrDefaultAsync(t => t.Name == templateName);
             var headerType = template?.HeaderType ?? HeaderType.None;
 
+            var (accessToken, phoneNumberId, _) = await GetActiveConfigAsync();
+
+            string? mediaId = null;
+            if (headerType != HeaderType.None && variables != null)
+            {
+                var fileVar = variables.FirstOrDefault(v => v.Key.Equals("file", StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrEmpty(fileVar.Value) && (fileVar.Value.Contains("localhost") || fileVar.Value.Contains("127.0.0.1") || !fileVar.Value.StartsWith("http", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var mediaTypeStr = headerType switch
+                    {
+                        HeaderType.Image => "image",
+                        HeaderType.Video => "video",
+                        HeaderType.Document => "document",
+                        _ => "document"
+                    };
+                    mediaId = await UploadMediaToWhatsAppAsync(fileVar.Value, mediaTypeStr, Path.GetFileName(fileVar.Value) ?? "file", accessToken, phoneNumberId);
+                }
+            }
+
             var messagePayload = new
             {
                 messaging_product = "whatsapp",
@@ -93,7 +112,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 {
                     name = templateName,
                     language = new { code = languageCode },
-                    components = BuildTemplateComponents(variables, headerType)
+                    components = BuildTemplateComponents(variables, headerType, mediaId)
                 }
             };
 
@@ -103,8 +122,6 @@ public class WhatsAppCloudApiService : IWhatsAppService
             _logger.LogInformation(
                 "Sending WhatsApp template message to {Phone} using template '{Template}'",
                 whatsAppPhone, templateName);
-
-            var (accessToken, phoneNumberId, _) = await GetActiveConfigAsync();
 
             var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/{phoneNumberId}/messages")
             {
@@ -568,7 +585,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
         return null;
     }
 
-    private static object[]? BuildTemplateComponents(Dictionary<string, string>? variables, HeaderType headerType)
+    private static object[]? BuildTemplateComponents(Dictionary<string, string>? variables, HeaderType headerType, string? mediaId = null)
     {
         if (variables == null || variables.Count == 0)
             return null;
@@ -585,7 +602,15 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
             if (headerType == HeaderType.Document)
             {
-                headerParam = new
+                headerParam = !string.IsNullOrEmpty(mediaId) ? new
+                {
+                    type = "document",
+                    document = new
+                    {
+                        id = mediaId,
+                        filename = fileName
+                    }
+                } : new
                 {
                     type = "document",
                     document = new
@@ -597,7 +622,14 @@ public class WhatsAppCloudApiService : IWhatsAppService
             }
             else if (headerType == HeaderType.Image)
             {
-                headerParam = new
+                headerParam = !string.IsNullOrEmpty(mediaId) ? new
+                {
+                    type = "image",
+                    image = new
+                    {
+                        id = mediaId
+                    }
+                } : new
                 {
                     type = "image",
                     image = new
@@ -608,7 +640,14 @@ public class WhatsAppCloudApiService : IWhatsAppService
             }
             else if (headerType == HeaderType.Video)
             {
-                headerParam = new
+                headerParam = !string.IsNullOrEmpty(mediaId) ? new
+                {
+                    type = "video",
+                    video = new
+                    {
+                        id = mediaId
+                    }
+                } : new
                 {
                     type = "video",
                     video = new
@@ -663,15 +702,38 @@ public class WhatsAppCloudApiService : IWhatsAppService
         try
         {
             var whatsAppPhone = PhoneNumberHelper.FormatForWhatsApp(recipientPhone);
+            var (accessToken, activePhoneNumberId, _) = await GetActiveConfigAsync(fromPhoneNumberId);
+            var finalPhoneNumberId = fromPhoneNumberId ?? activePhoneNumberId;
 
-            // Construct payload based on media type
-            object mediaObject = mediaType.ToLower() switch
+            // 1. Try to upload local/localhost media to WhatsApp
+            string? mediaId = null;
+            if (!string.IsNullOrWhiteSpace(mediaUrl) && (mediaUrl.Contains("localhost") || mediaUrl.Contains("127.0.0.1") || !mediaUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)))
             {
-                "image" => new { link = mediaUrl, caption = caption },
-                "video" => new { link = mediaUrl, caption = caption },
-                "document" => new { link = mediaUrl, filename = filename ?? Path.GetFileName(mediaUrl) },
-                _ => throw new ArgumentException($"Unsupported media type: {mediaType}")
-            };
+                mediaId = await UploadMediaToWhatsAppAsync(mediaUrl, mediaType, filename ?? "file", accessToken, finalPhoneNumberId);
+            }
+
+            // Construct payload based on media type using mediaId if available, otherwise link
+            object mediaObject;
+            if (!string.IsNullOrEmpty(mediaId))
+            {
+                mediaObject = mediaType.ToLower() switch
+                {
+                    "image" => new { id = mediaId, caption = caption },
+                    "video" => new { id = mediaId, caption = caption },
+                    "document" => new { id = mediaId, filename = filename ?? Path.GetFileName(mediaUrl) },
+                    _ => throw new ArgumentException($"Unsupported media type: {mediaType}")
+                };
+            }
+            else
+            {
+                mediaObject = mediaType.ToLower() switch
+                {
+                    "image" => new { link = mediaUrl, caption = caption },
+                    "video" => new { link = mediaUrl, caption = caption },
+                    "document" => new { link = mediaUrl, filename = filename ?? Path.GetFileName(mediaUrl) },
+                    _ => throw new ArgumentException($"Unsupported media type: {mediaType}")
+                };
+            }
 
             var messagePayload = new
             {
@@ -695,9 +757,6 @@ public class WhatsAppCloudApiService : IWhatsAppService
             _logger.LogInformation(
                 "Sending WhatsApp {MediaType} message to {Phone}",
                 mediaType, whatsAppPhone);
-
-            var (accessToken, activePhoneNumberId, _) = await GetActiveConfigAsync();
-            var finalPhoneNumberId = fromPhoneNumberId ?? activePhoneNumberId;
 
             var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/{finalPhoneNumberId}/messages")
             {
@@ -735,6 +794,90 @@ public class WhatsAppCloudApiService : IWhatsAppService
         {
             _logger.LogError(ex, "Error sending WhatsApp {MediaType} message to {Phone}", mediaType, recipientPhone);
             return WhatsAppSendResult.Failed(ex.Message);
+        }
+    }
+
+    private async Task<string?> UploadMediaToWhatsAppAsync(string mediaUrl, string mediaType, string filename, string accessToken, string phoneNumberId)
+    {
+        try
+        {
+            // 1. Download file from our local server or local path
+            byte[] fileBytes;
+            if (mediaUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                using var tempClient = new HttpClient();
+                fileBytes = await tempClient.GetByteArrayAsync(mediaUrl);
+            }
+            else
+            {
+                var relativePath = mediaUrl.Replace("/", Path.DirectorySeparatorChar.ToString());
+                if (relativePath.StartsWith(Path.DirectorySeparatorChar))
+                {
+                    relativePath = relativePath.Substring(1);
+                }
+                var absolutePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", relativePath);
+                if (!File.Exists(absolutePath))
+                {
+                    _logger.LogError("File does not exist: {Path}", absolutePath);
+                    return null;
+                }
+                fileBytes = await File.ReadAllBytesAsync(absolutePath);
+            }
+
+            // 2. Prepare MultipartFormDataContent
+            using var form = new MultipartFormDataContent();
+            form.Add(new StringContent("whatsapp"), "messaging_product");
+            
+            var mimeType = mediaType.ToLower() switch
+            {
+                "image" => "image/jpeg",
+                "video" => "video/mp4",
+                "document" => "application/pdf",
+                _ => "application/octet-stream"
+            };
+
+            var ext = Path.GetExtension(filename).ToLower();
+            if (ext == ".jpg" || ext == ".jpeg") mimeType = "image/jpeg";
+            else if (ext == ".png") mimeType = "image/png";
+            else if (ext == ".gif") mimeType = "image/gif";
+            else if (ext == ".mp4") mimeType = "video/mp4";
+            else if (ext == ".pdf") mimeType = "application/pdf";
+            else if (ext == ".txt") mimeType = "text/plain";
+            else if (ext == ".doc") mimeType = "application/msword";
+            else if (ext == ".docx") mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            else if (ext == ".xls") mimeType = "application/vnd.ms-excel";
+            else if (ext == ".xlsx") mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+            var fileContent = new ByteArrayContent(fileBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
+            form.Add(fileContent, "file", filename);
+
+            // 3. Make HTTP request to Meta
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/{phoneNumberId}/media");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+            request.Content = form;
+
+            var response = await _httpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Meta media upload failed: {Error}", errorContent);
+                return null;
+            }
+
+            var responseJson = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(responseJson);
+            if (doc.RootElement.TryGetProperty("id", out var idProp))
+            {
+                return idProp.GetString();
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error uploading media to WhatsApp");
+            return null;
         }
     }
 }

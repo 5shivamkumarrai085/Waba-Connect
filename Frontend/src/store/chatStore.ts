@@ -14,6 +14,7 @@ interface ChatStoreState {
   fromNumber: string
   conversationsFilter: string
   sidebarSearchQuery: string
+  activeAbortController: AbortController | null
 
   loadAccounts: () => Promise<void>
   loadConversations: () => Promise<void>
@@ -32,6 +33,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   activeConversationId: null,
   messages: [],
   messagesCache: {},
+  activeAbortController: null,
   isLoading: false,
   isSending: false,
   fromNumber: '',
@@ -68,55 +70,69 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     if (!activeConversationId) return
     if (isSending) return
 
+    const fetchId = activeConversationId
+
     try {
       const [messages, conversations] = await Promise.all([
-        chatService.getMessages(activeConversationId),
+        chatService.getMessages(fetchId),
         chatService.getConversations(get().sidebarSearchQuery, get().conversationsFilter)
       ])
-      set((state) => ({
-        messages,
-        messagesCache: {
-          ...state.messagesCache,
-          [activeConversationId]: messages
-        },
-        conversations
-      }))
+      
+      if (get().activeConversationId === fetchId) {
+        set((state) => ({
+          messages,
+          messagesCache: {
+            ...state.messagesCache,
+            [fetchId]: messages
+          },
+          conversations
+        }))
+      }
     } catch (err) {
       console.error('Error refreshing chat:', err)
     }
   },
 
   selectConversation: async (id) => {
-    set({ activeConversationId: id })
-    if (!id) {
-      set({ messages: [] })
-      return
+    const previousController = get().activeAbortController
+    if (previousController) {
+      previousController.abort()
     }
 
-    const cache = get().messagesCache
-    const cachedMsgs = cache[id] || []
-    set({ messages: cachedMsgs })
+    const controller = new AbortController()
 
-    if (cachedMsgs.length === 0) {
-      set({ isLoading: true })
-    }
+    set({ 
+      activeConversationId: id, 
+      messages: [],
+      isLoading: id !== null,
+      activeAbortController: controller
+    })
+
+    if (!id) return
 
     try {
-      const msgs = await chatService.getMessages(id)
-      set((state) => ({
-        messages: msgs,
-        messagesCache: {
-          ...state.messagesCache,
-          [id]: msgs
-        },
-        conversations: state.conversations.map(c =>
-          c.id === id ? { ...c, unreadCount: 0 } : c
-        )
-      }))
-    } catch (err) {
+      const msgs = await chatService.getMessages(id, controller.signal)
+      if (get().activeConversationId === id) {
+        set((state) => ({
+          messages: msgs,
+          messagesCache: {
+            ...state.messagesCache,
+            [id]: msgs
+          },
+          conversations: state.conversations.map(c =>
+            c.id === id ? { ...c, unreadCount: 0 } : c
+          )
+        }))
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError' || err.message === 'canceled') {
+        return
+      }
       console.error('Error loading messages:', err)
     } finally {
-      set({ isLoading: false })
+      if (get().activeConversationId === id) {
+        set({ isLoading: false })
+      }
     }
   },
 

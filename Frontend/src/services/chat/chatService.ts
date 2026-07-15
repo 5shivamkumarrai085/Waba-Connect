@@ -56,11 +56,14 @@ export const chatService = {
     }
   },
 
-  getMessages: async (convId: number): Promise<Message[]> => {
+  getMessages: async (convId: number, signal?: AbortSignal): Promise<Message[]> => {
     try {
-      const response = await apiClient.get(`/Chat/conversations/${convId}/messages`)
+      const response = await apiClient.get(`/Chat/conversations/${convId}/messages`, { signal })
       return response.data?.data || []
     } catch (error) {
+      if (error && (error as any).name === 'CanceledError') {
+        return []
+      }
       console.error('Error fetching messages:', error)
       return []
     }

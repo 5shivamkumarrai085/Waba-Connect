@@ -583,7 +583,7 @@ export const Chat: React.FC = () => {
                 )}
 
                 <div className="chat-messages-container">
-                  {isLoading && searchedMessages.length === 0 ? (
+                  {isLoading ? (
                     <div className="chat-thread-loader">
                       <div className="chat-spinner" />
                       <span>Loading messages...</span>

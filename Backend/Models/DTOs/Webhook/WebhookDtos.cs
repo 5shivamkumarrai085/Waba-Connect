@@ -89,6 +89,32 @@ public class IncomingMessage
     public string Timestamp { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
     public IncomingText? Text { get; set; }
+    public IncomingInteractive? Interactive { get; set; }
+    public IncomingButton? Button { get; set; }
+}
+
+public class IncomingInteractive
+{
+    public string Type { get; set; } = string.Empty;
+    
+    [JsonPropertyName("button_reply")]
+    public InteractiveReply? ButtonReply { get; set; }
+    
+    [JsonPropertyName("list_reply")]
+    public InteractiveReply? ListReply { get; set; }
+}
+
+public class InteractiveReply
+{
+    public string Id { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+}
+
+public class IncomingButton
+{
+    public string Payload { get; set; } = string.Empty;
+    public string Text { get; set; } = string.Empty;
 }
 
 public class IncomingText

@@ -399,6 +399,28 @@ public class WhatsAppCloudApiService : IWhatsAppService
         }
 
         var text = incomingMessage.Text?.Body;
+
+        if (incomingMessage.Type == "interactive" && incomingMessage.Interactive != null)
+        {
+            var interactive = incomingMessage.Interactive;
+            if (interactive.Type == "button_reply" && interactive.ButtonReply != null)
+            {
+                text = !string.IsNullOrEmpty(interactive.ButtonReply.Title) 
+                    ? interactive.ButtonReply.Title 
+                    : interactive.ButtonReply.Id;
+            }
+            else if (interactive.Type == "list_reply" && interactive.ListReply != null)
+            {
+                text = !string.IsNullOrEmpty(interactive.ListReply.Title) 
+                    ? interactive.ListReply.Title 
+                    : interactive.ListReply.Id;
+            }
+        }
+        else if (incomingMessage.Type == "button" && incomingMessage.Button != null)
+        {
+            text = incomingMessage.Button.Text;
+        }
+
         if (string.IsNullOrWhiteSpace(text))
         {
             text = $"[{incomingMessage.Type} message]";

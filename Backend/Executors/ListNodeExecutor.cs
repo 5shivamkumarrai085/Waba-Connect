@@ -40,7 +40,7 @@ public class ListNodeExecutor : INodeExecutor
             if (doc.RootElement.TryGetProperty("buttonText", out var btnProp)) buttonText = btnProp.GetString() ?? buttonText;
             if (doc.RootElement.TryGetProperty("sections", out var secProp))
             {
-                var parsed = JsonSerializer.Deserialize<List<ListSection>>(secProp.GetRawText());
+                var parsed = JsonSerializer.Deserialize<List<ListSection>>(secProp.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (parsed != null) sections = parsed;
             }
         }
@@ -73,7 +73,9 @@ public class ListNodeExecutor : INodeExecutor
                     e.Source == node.NodeId &&
                     (e.SourceHandle == rowId ||
                      e.SourceHandle == matchedRow.Title ||
-                     e.SourceHandle == $"item-{rowId}"));
+                     e.SourceHandle == $"item-{rowId}" ||
+                     e.SourceHandle == matchedRow.Value ||
+                     e.SourceHandle == $"item-{matchedRow.Value}"));
 
                 // Fallback
                 nextEdge ??= outgoingEdges.FirstOrDefault(e => e.Source == node.NodeId);

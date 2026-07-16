@@ -39,7 +39,7 @@ public class ButtonNodeExecutor : INodeExecutor
 
             if (doc.RootElement.TryGetProperty("buttons", out var buttonsProp))
             {
-                var parsedButtons = JsonSerializer.Deserialize<List<ButtonItem>>(buttonsProp.GetRawText());
+                var parsedButtons = JsonSerializer.Deserialize<List<ButtonItem>>(buttonsProp.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (parsedButtons != null)
                 {
                     buttons = parsedButtons;

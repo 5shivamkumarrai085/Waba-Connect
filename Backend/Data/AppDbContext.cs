@@ -28,6 +28,10 @@ public class AppDbContext : DbContext
     public DbSet<TemplateBot> TemplateBots { get; set; } = null!;
     public DbSet<TemplateBotVariable> TemplateBotVariables { get; set; } = null!;
     public DbSet<BotFlow> BotFlows { get; set; } = null!;
+    public DbSet<FlowNode> FlowNodes { get; set; } = null!;
+    public DbSet<FlowEdge> FlowEdges { get; set; } = null!;
+    public DbSet<ConversationState> ConversationStates { get; set; } = null!;
+    public DbSet<BotMessage> Messages { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -124,6 +128,32 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<BotFlow>(entity =>
         {
             entity.HasIndex(e => e.Name);
+        });
+
+        modelBuilder.Entity<FlowNode>(entity =>
+        {
+            entity.ToTable("FlowNodes");
+            entity.HasOne(e => e.Flow).WithMany().HasForeignKey(e => e.FlowId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FlowEdge>(entity =>
+        {
+            entity.ToTable("FlowEdges");
+            entity.HasOne(e => e.Flow).WithMany().HasForeignKey(e => e.FlowId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ConversationState>(entity =>
+        {
+            entity.ToTable("ConversationStates");
+            entity.HasOne(e => e.Flow).WithMany().HasForeignKey(e => e.FlowId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.PhoneNumber);
+        });
+
+        modelBuilder.Entity<BotMessage>(entity =>
+        {
+            entity.ToTable("Messages");
+            entity.HasOne(e => e.Flow).WithMany().HasForeignKey(e => e.FlowId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.PhoneNumber);
         });
     }
 

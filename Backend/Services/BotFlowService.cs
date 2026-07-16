@@ -88,6 +88,8 @@ public class BotFlowService : IBotFlowService
         _dbContext.BotFlows.Add(flow);
         await _dbContext.SaveChangesAsync();
 
+        await SyncNodesAndEdgesAsync(flow);
+
         return MapToResponse(flow);
     }
 
@@ -117,7 +119,129 @@ public class BotFlowService : IBotFlowService
         _dbContext.BotFlows.Entry(flow).State = EntityState.Modified;
         await _dbContext.SaveChangesAsync();
 
+        await SyncNodesAndEdgesAsync(flow);
+
         return MapToResponse(flow);
+    }
+
+    private async Task SyncNodesAndEdgesAsync(BotFlow flow)
+    {
+        var oldNodes = await _dbContext.FlowNodes.Where(n => n.FlowId == flow.Id).ToListAsync();
+        _dbContext.FlowNodes.RemoveRange(oldNodes);
+
+        var oldEdges = await _dbContext.FlowEdges.Where(e => e.FlowId == flow.Id).ToListAsync();
+        _dbContext.FlowEdges.RemoveRange(oldEdges);
+
+        await _dbContext.SaveChangesAsync();
+
+        if (string.IsNullOrWhiteSpace(flow.FlowData) || flow.FlowData == "{}")
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(flow.FlowData);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("nodes", out var nodesProp) && nodesProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var nodeElem in nodesProp.EnumerateArray())
+                {
+                    string nodeId = nodeElem.GetProperty("id").GetString() ?? "";
+                    string nodeType = nodeElem.GetProperty("type").GetString() ?? "";
+                    
+                    double posX = 0;
+                    double posY = 0;
+                    if (nodeElem.TryGetProperty("position", out var posProp))
+                    {
+                        posX = posProp.TryGetProperty("x", out var xProp) ? xProp.GetDouble() : 0;
+                        posY = posProp.TryGetProperty("y", out var yProp) ? yProp.GetDouble() : 0;
+                    }
+                    else
+                    {
+                        posX = nodeElem.TryGetProperty("x", out var xProp) ? xProp.GetDouble() : 0;
+                        posY = nodeElem.TryGetProperty("y", out var yProp) ? yProp.GetDouble() : 0;
+                    }
+
+                    string dataJson = "{}";
+                    if (nodeElem.TryGetProperty("data", out var dataProp))
+                    {
+                        dataJson = dataProp.GetRawText();
+                    }
+
+                    var dbNode = new FlowNode
+                    {
+                        FlowId = flow.Id,
+                        NodeId = nodeId,
+                        NodeType = nodeType,
+                        PositionX = posX,
+                        PositionY = posY,
+                        DataJson = dataJson
+                    };
+                    _dbContext.FlowNodes.Add(dbNode);
+                }
+            }
+
+            System.Text.Json.JsonElement edgesProp;
+            bool hasEdges = root.TryGetProperty("edges", out edgesProp);
+            if (!hasEdges)
+            {
+                hasEdges = root.TryGetProperty("connections", out edgesProp);
+            }
+
+            if (hasEdges && edgesProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var edgeElem in edgesProp.EnumerateArray())
+                {
+                    string source = string.Empty;
+                    string target = string.Empty;
+                    string? sourceHandle = null;
+
+                    if (edgeElem.TryGetProperty("source", out var srcProp))
+                    {
+                        source = srcProp.GetString() ?? "";
+                    }
+                    else if (edgeElem.TryGetProperty("sourceId", out var srcIdProp))
+                    {
+                        source = srcIdProp.GetString() ?? "";
+                    }
+
+                    if (edgeElem.TryGetProperty("target", out var tgtProp))
+                    {
+                        target = tgtProp.GetString() ?? "";
+                    }
+                    else if (edgeElem.TryGetProperty("targetId", out var tgtIdProp))
+                    {
+                        target = tgtIdProp.GetString() ?? "";
+                    }
+
+                    if (edgeElem.TryGetProperty("sourceHandle", out var shProp))
+                    {
+                        sourceHandle = shProp.GetString();
+                    }
+                    else if (edgeElem.TryGetProperty("sourcePortId", out var spIdProp))
+                    {
+                        sourceHandle = spIdProp.GetString();
+                    }
+
+                    var dbEdge = new FlowEdge
+                    {
+                        FlowId = flow.Id,
+                        Source = source,
+                        Target = target,
+                        SourceHandle = sourceHandle
+                    };
+                    _dbContext.FlowEdges.Add(dbEdge);
+                }
+            }
+
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (Exception)
+        {
+            // Ignore parse errors on save
+        }
     }
 
     public async Task<bool> DeleteAsync(int id)

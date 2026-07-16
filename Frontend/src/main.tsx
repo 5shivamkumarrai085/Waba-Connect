@@ -27,6 +27,7 @@ import './pages/TemplateBot/TemplateBotList.css'
 import './pages/TemplateBot/TemplateBotWizard.css'
 import './pages/BotFlow/BotFlowList.css'
 import './pages/BotFlow/BotFlowDesigner.css'
+import '@xyflow/react/dist/style.css'
 
 import './index.css'
 import App from './App.tsx'

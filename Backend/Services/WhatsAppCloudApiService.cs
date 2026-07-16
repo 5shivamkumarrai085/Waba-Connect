@@ -22,6 +22,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
     private readonly IConfiguration _configuration;
     private readonly AppDbContext _dbContext;
     private readonly ILogger<WhatsAppCloudApiService> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     private string ApiVersion => _configuration["WhatsApp:ApiVersion"] ?? "v21.0";
     private string BaseUrl => $"https://graph.facebook.com/{ApiVersion}";
@@ -36,12 +37,14 @@ public class WhatsAppCloudApiService : IWhatsAppService
         HttpClient httpClient,
         IConfiguration configuration,
         AppDbContext dbContext,
-        ILogger<WhatsAppCloudApiService> logger)
+        ILogger<WhatsAppCloudApiService> logger,
+        IServiceScopeFactory scopeFactory)
     {
         _httpClient = httpClient;
         _configuration = configuration;
         _dbContext = dbContext;
         _logger = logger;
+        _scopeFactory = scopeFactory;
     }
 
     private async Task<(string AccessToken, string PhoneNumberId, string BusinessAccountId)> GetActiveConfigAsync(string? requestedPhoneNumberId = null)
@@ -416,6 +419,21 @@ public class WhatsAppCloudApiService : IWhatsAppService
         });
 
         await _dbContext.SaveChangesAsync();
+
+        // Start flow execution asynchronously
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var executionService = scope.ServiceProvider.GetRequiredService<IFlowExecutionService>();
+                await executionService.ExecuteFlowStepAsync(normalizedPhone, text);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error executing bot flow in background task for phone {Phone}", normalizedPhone);
+            }
+        });
     }
 
     /// <summary>
@@ -793,6 +811,58 @@ public class WhatsAppCloudApiService : IWhatsAppService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error sending WhatsApp {MediaType} message to {Phone}", mediaType, recipientPhone);
+            return WhatsAppSendResult.Failed(ex.Message);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<WhatsAppSendResult> SendCustomPayloadAsync(string recipientPhone, object payload, string? fromPhoneNumberId = null)
+    {
+        try
+        {
+            var whatsAppPhone = PhoneNumberHelper.FormatForWhatsApp(recipientPhone);
+            var (accessToken, activePhoneNumberId, _) = await GetActiveConfigAsync(fromPhoneNumberId);
+            var finalPhoneNumberId = fromPhoneNumberId ?? activePhoneNumberId;
+
+            var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions 
+            { 
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
+
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            _logger.LogInformation("Sending custom WhatsApp payload to {Phone}", whatsAppPhone);
+
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/{finalPhoneNumberId}/messages")
+            {
+                Content = content
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            var response = await _httpClient.SendAsync(request);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Failed to send WhatsApp custom message. Status: {Status}, Response: {Response}", response.StatusCode, responseBody);
+                var errorMessage = ExtractMetaErrorMessage(responseBody)
+                    ?? $"WhatsApp API rejected custom message with status {response.StatusCode}.";
+                return WhatsAppSendResult.Failed(errorMessage);
+            }
+
+            using var doc = JsonDocument.Parse(responseBody);
+            var messageId = doc.RootElement
+                .GetProperty("messages")[0]
+                .GetProperty("id")
+                .GetString();
+
+            _logger.LogInformation("WhatsApp custom message sent successfully. MessageId: {MessageId}", messageId);
+            return WhatsAppSendResult.Sent(messageId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending custom WhatsApp payload to {Phone}", recipientPhone);
             return WhatsAppSendResult.Failed(ex.Message);
         }
     }

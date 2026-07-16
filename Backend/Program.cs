@@ -7,6 +7,7 @@ using WhatsAppCampaignApi.Middleware;
 using WhatsAppCampaignApi.Services;
 using WhatsAppCampaignApi.Services.Interfaces;
 using WhatsAppCampaignApi.Validators;
+using WhatsAppCampaignApi.Executors;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,6 +33,21 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IMessageBotService, MessageBotService>();
 builder.Services.AddScoped<ITemplateBotService, TemplateBotService>();
 builder.Services.AddScoped<IBotFlowService, BotFlowService>();
+builder.Services.AddScoped<IFlowLoaderService, FlowLoaderService>();
+builder.Services.AddScoped<IConversationStateService, ConversationStateService>();
+builder.Services.AddScoped<IFlowExecutionService, FlowExecutionService>();
+
+// Register Node Executors
+builder.Services.AddScoped<INodeExecutor, StartTriggerExecutor>();
+builder.Services.AddScoped<INodeExecutor, TextNodeExecutor>();
+builder.Services.AddScoped<INodeExecutor, ListNodeExecutor>();
+builder.Services.AddScoped<INodeExecutor, ButtonNodeExecutor>();
+builder.Services.AddScoped<INodeExecutor, MediaNodeExecutor>();
+builder.Services.AddScoped<INodeExecutor, LocationNodeExecutor>();
+builder.Services.AddScoped<INodeExecutor, ContactCardNodeExecutor>();
+builder.Services.AddScoped<INodeExecutor, AIAssistantExecutor>();
+builder.Services.AddScoped<INodeExecutor, CallToActionExecutor>();
+
 builder.Services.AddHttpClient<IWhatsAppService, WhatsAppCloudApiService>();
 builder.Services.AddHostedService<CampaignSchedulerService>();
 

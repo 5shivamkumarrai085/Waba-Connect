@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@originjs/vite-plugin-federation": "^1.4.1",
+    "@xyflow/react": "^12.11.2",
     "axios": "^1.7.7",
     "html2canvas": "^1.4.1",
     "lucide-react": "^1.23.0",

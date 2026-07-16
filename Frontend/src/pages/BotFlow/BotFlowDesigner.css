@@ -212,7 +212,7 @@
 
 /* Node card styling on canvas */
 .node-card-wrapper {
-  position: absolute;
+  position: relative;
   width: 280px;
   background-color: #ffffff;
   border-radius: 8px;

@@ -50,6 +50,11 @@ public interface IWhatsAppService
     bool VerifyWebhook(string mode, string token, string challenge);
 
     /// <summary>
+    /// Sends a custom JSON payload to WhatsApp Cloud API.
+    /// </summary>
+    Task<WhatsAppSendResult> SendCustomPayloadAsync(string recipientPhone, object payload, string? fromPhoneNumberId = null);
+
+    /// <summary>
     /// Processes an incoming webhook payload for delivery status updates.
     /// </summary>
     Task ProcessWebhookAsync(WhatsAppWebhookPayload payload);

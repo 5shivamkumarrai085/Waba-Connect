@@ -1,0 +1,299 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using WhatsAppCampaignApi.Data;
+using WhatsAppCampaignApi.Executors;
+using WhatsAppCampaignApi.Models.Entities;
+using WhatsAppCampaignApi.Models.Enums;
+using WhatsAppCampaignApi.Services.Interfaces;
+
+namespace WhatsAppCampaignApi.Services;
+
+public class FlowExecutionService : IFlowExecutionService
+{
+    private readonly AppDbContext _dbContext;
+    private readonly IFlowLoaderService _flowLoader;
+    private readonly IConversationStateService _stateService;
+    private readonly IEnumerable<INodeExecutor> _executors;
+
+    public FlowExecutionService(
+        AppDbContext dbContext,
+        IFlowLoaderService flowLoader,
+        IConversationStateService stateService,
+        IEnumerable<INodeExecutor> executors)
+    {
+        _dbContext = dbContext;
+        _flowLoader = flowLoader;
+        _stateService = stateService;
+        _executors = executors;
+    }
+
+    public async Task ExecuteFlowStepAsync(string phoneNumber, string incomingMessage)
+    {
+        var activeState = await _stateService.GetActiveStateAsync(phoneNumber);
+
+        if (activeState != null)
+        {
+            await ResumeFlowAsync(activeState, incomingMessage);
+        }
+        else
+        {
+            await EvaluateTriggersAsync(phoneNumber, incomingMessage);
+        }
+    }
+
+    private async Task ResumeFlowAsync(ConversationState state, string incomingMessage)
+    {
+        await LogBotMessageAsync(state.PhoneNumber, "Incoming", incomingMessage, state.FlowId, state.CurrentNodeId);
+
+        var nodes = await _flowLoader.GetNodesForFlowAsync(state.FlowId);
+        var edges = await _flowLoader.GetEdgesForFlowAsync(state.FlowId);
+
+        var currentNode = nodes.FirstOrDefault(n => n.NodeId == state.CurrentNodeId);
+        if (currentNode == null)
+        {
+            await _stateService.DeleteStateAsync(state.PhoneNumber);
+            return;
+        }
+
+        var executor = _executors.FirstOrDefault(e => e.NodeType == currentNode.NodeType);
+        if (executor == null)
+        {
+            await _stateService.DeleteStateAsync(state.PhoneNumber);
+            return;
+        }
+
+        var result = await executor.ExecuteAsync(currentNode, state, incomingMessage, edges);
+        await ProcessResultAsync(state, result, nodes, edges, incomingMessage);
+    }
+
+    private async Task EvaluateTriggersAsync(string phoneNumber, string incomingMessage)
+    {
+        var activeFlows = await _dbContext.BotFlows.Where(f => f.IsActive).ToListAsync();
+
+        foreach (var flow in activeFlows)
+        {
+            var nodes = await _flowLoader.GetNodesForFlowAsync(flow.Id);
+            var triggerNode = nodes.FirstOrDefault(n => n.NodeType == "Start Trigger");
+            if (triggerNode == null) continue;
+
+            if (IsTriggerMatch(triggerNode, incomingMessage))
+            {
+                var edges = await _flowLoader.GetEdgesForFlowAsync(flow.Id);
+
+                var state = await _stateService.CreateOrUpdateStateAsync(
+                    phoneNumber,
+                    flow.Id,
+                    triggerNode.NodeId,
+                    new Dictionary<string, string>());
+
+                await LogBotMessageAsync(phoneNumber, "Incoming", incomingMessage, flow.Id, triggerNode.NodeId);
+
+                var executor = _executors.First(e => e.NodeType == "Start Trigger");
+                var result = await executor.ExecuteAsync(triggerNode, state, incomingMessage, edges);
+
+                await ProcessResultAsync(state, result, nodes, edges, incomingMessage);
+                return; 
+            }
+        }
+    }
+
+    private bool IsTriggerMatch(FlowNode triggerNode, string message)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(triggerNode.DataJson);
+            if (!doc.RootElement.TryGetProperty("keywords", out var kwProp)) return false;
+            var keywords = JsonSerializer.Deserialize<List<string>>(kwProp.GetRawText()) ?? new List<string>();
+
+            string triggerType = "on exact match";
+            if (doc.RootElement.TryGetProperty("triggerType", out var typeProp))
+            {
+                triggerType = typeProp.GetString() ?? triggerType;
+            }
+
+            var cleanMsg = message.Trim();
+            foreach (var kw in keywords)
+            {
+                if (string.IsNullOrWhiteSpace(kw)) continue;
+
+                if (triggerType.Equals("on exact match", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (cleanMsg.Equals(kw.Trim(), StringComparison.OrdinalIgnoreCase)) return true;
+                }
+                else if (triggerType.Equals("contains", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (cleanMsg.Contains(kw.Trim(), StringComparison.OrdinalIgnoreCase)) return true;
+                }
+                else if (triggerType.Equals("starts with", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (cleanMsg.StartsWith(kw.Trim(), StringComparison.OrdinalIgnoreCase)) return true;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore parsing errors
+        }
+
+        return false;
+    }
+
+    private async Task ProcessResultAsync(
+        ConversationState state,
+        NodeExecutionResult result,
+        List<FlowNode> nodes,
+        List<FlowEdge> edges,
+        string incomingMessage)
+    {
+        if (result.CollectVariables != null && result.CollectVariables.Any())
+        {
+            await _stateService.CreateOrUpdateStateAsync(state.PhoneNumber, state.FlowId, state.CurrentNodeId, result.CollectVariables);
+        }
+
+        if (result.IsCompleted || string.IsNullOrEmpty(result.NextNodeId))
+        {
+            await _stateService.DeleteStateAsync(state.PhoneNumber);
+            return;
+        }
+
+        await _stateService.CreateOrUpdateStateAsync(state.PhoneNumber, state.FlowId, result.NextNodeId, new Dictionary<string, string>());
+
+        if (result.IsWaitingForReply)
+        {
+            return;
+        }
+
+        var nextNode = nodes.FirstOrDefault(n => n.NodeId == result.NextNodeId);
+        if (nextNode == null)
+        {
+            await _stateService.DeleteStateAsync(state.PhoneNumber);
+            return;
+        }
+
+        var executor = _executors.FirstOrDefault(e => e.NodeType == nextNode.NodeType);
+        if (executor == null)
+        {
+            await _stateService.DeleteStateAsync(state.PhoneNumber);
+            return;
+        }
+
+        var nextResult = await executor.ExecuteAsync(nextNode, state, incomingMessage, edges);
+
+        string outboundText = GetOutboundTextForNode(nextNode);
+        if (!string.IsNullOrEmpty(outboundText))
+        {
+            await LogBotMessageAsync(state.PhoneNumber, "Outgoing", outboundText, state.FlowId, nextNode.NodeId);
+            await SyncToChatMessagesAsync(state.PhoneNumber, outboundText);
+        }
+
+        await ProcessResultAsync(state, nextResult, nodes, edges, incomingMessage);
+    }
+
+    private string GetOutboundTextForNode(FlowNode node)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(node.DataJson);
+            if (node.NodeType == "Text Message")
+            {
+                return doc.RootElement.TryGetProperty("messageText", out var p1) ? p1.GetString() ?? "" :
+                       doc.RootElement.TryGetProperty("message", out var p2) ? p2.GetString() ?? "" : "";
+            }
+            if (node.NodeType == "Button Message")
+            {
+                return doc.RootElement.TryGetProperty("messageText", out var p) ? p.GetString() ?? "" : "";
+            }
+            if (node.NodeType == "List Message")
+            {
+                return doc.RootElement.TryGetProperty("bodyText", out var p) ? p.GetString() ?? "" : "";
+            }
+            if (node.NodeType == "Media Message")
+            {
+                string url = doc.RootElement.TryGetProperty("mediaUrl", out var p) ? p.GetString() ?? "" : "";
+                string type = doc.RootElement.TryGetProperty("mediaType", out var t) ? t.GetString() ?? "file" : "file";
+                return $"[Sent {type}: {url}]";
+            }
+            if (node.NodeType == "Location")
+            {
+                string name = doc.RootElement.TryGetProperty("locationName", out var p) ? p.GetString() ?? "" : "";
+                return $"[Sent Location: {name}]";
+            }
+            if (node.NodeType == "Contact Card")
+            {
+                return "[Sent Contact Card]";
+            }
+            if (node.NodeType == "Call to Action")
+            {
+                return doc.RootElement.TryGetProperty("valueText", out var p) ? p.GetString() ?? "" : "";
+            }
+        }
+        catch
+        {
+            // Ignore parse errors
+        }
+
+        return string.Empty;
+    }
+
+    private async Task LogBotMessageAsync(string phone, string direction, string text, int flowId, string nodeId)
+    {
+        var msg = new BotMessage
+        {
+            PhoneNumber = phone,
+            Direction = direction,
+            Text = text,
+            Status = "Sent",
+            FlowId = flowId,
+            NodeId = nodeId,
+            Timestamp = DateTime.UtcNow
+        };
+        _dbContext.Messages.Add(msg);
+        await _dbContext.SaveChangesAsync();
+    }
+
+    private async Task SyncToChatMessagesAsync(string phone, string text)
+    {
+        try
+        {
+            var normalizedPhone = Helpers.PhoneNumberHelper.NormalizePhoneNumber(phone);
+            var contact = await _dbContext.Contacts.FirstOrDefaultAsync(c => c.Phone == normalizedPhone);
+            if (contact == null) return;
+
+            var conversation = await _dbContext.ChatConversations.FirstOrDefaultAsync(c => c.ContactId == contact.Id);
+            if (conversation == null)
+            {
+                var account = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
+                conversation = new ChatConversation
+                {
+                    ContactId = contact.Id,
+                    WabaPhoneNumberId = account?.Id
+                };
+                _dbContext.ChatConversations.Add(conversation);
+                await _dbContext.SaveChangesAsync();
+            }
+
+            conversation.LastMessageText = text;
+            conversation.LastMessageAt = DateTime.UtcNow;
+
+            _dbContext.ChatMessages.Add(new ChatMessage
+            {
+                ConversationId = conversation.Id,
+                ContactId = contact.Id,
+                Direction = ChatMessageDirection.Outgoing,
+                Status = ChatMessageStatus.Sent,
+                Text = text,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+            await _dbContext.SaveChangesAsync();
+        }
+        catch
+        {
+            // Ignore sync errors
+        }
+    }
+}

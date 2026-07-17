@@ -43,7 +43,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Contact>(entity =>
         {
             entity.HasIndex(e => e.Phone).IsUnique();
-            entity.HasQueryFilter(e => e.IsActive);
+            entity.HasQueryFilter(e => !e.IsDeleted);
             entity.Property(e => e.Type).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.Source).HasConversion<string>().HasMaxLength(50);

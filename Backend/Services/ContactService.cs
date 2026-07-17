@@ -31,6 +31,7 @@ public class ContactService : IContactService
     {
         var query = _dbContext.Contacts
             .IgnoreQueryFilters()
+            .Where(c => !c.IsDeleted)
             .Include(c => c.GroupMemberships)
                 .ThenInclude(gm => gm.Group)
             .AsQueryable();
@@ -144,9 +145,51 @@ public class ContactService : IContactService
     public async Task<ContactResponse> CreateAsync(CreateContactRequest request)
     {
         var normalizedPhone = PhoneNumberHelper.NormalizePhoneNumber(request.Phone);
-        var existing = await _dbContext.Contacts.IgnoreQueryFilters().AnyAsync(c => c.Phone == normalizedPhone);
-        if (existing)
-            throw new InvalidOperationException("A contact with this phone number already exists.");
+        var existingContact = await _dbContext.Contacts
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(c => c.Phone == normalizedPhone);
+
+        if (existingContact != null)
+        {
+            if (existingContact.IsDeleted)
+            {
+                // Restore existing soft-deleted record
+                existingContact.IsDeleted = false;
+                existingContact.IsActive = true;
+                existingContact.Name = request.Name;
+                existingContact.Type = Enum.Parse<ContactType>(request.Type, true);
+                existingContact.Status = Enum.Parse<ContactStatus>(request.Status, true);
+                existingContact.Source = Enum.Parse<ContactSource>(request.Source, true);
+                existingContact.AssignedTo = request.AssignedTo;
+                existingContact.UpdatedAt = DateTime.UtcNow;
+
+                // Clear and update group memberships
+                var existingMemberships = await _dbContext.ContactGroupMembers
+                    .Where(gm => gm.ContactId == existingContact.Id)
+                    .ToListAsync();
+                _dbContext.ContactGroupMembers.RemoveRange(existingMemberships);
+                existingContact.GroupMemberships.Clear();
+
+                if (request.GroupIds != null && request.GroupIds.Any())
+                {
+                    foreach (var groupId in request.GroupIds)
+                    {
+                        var groupExists = await _dbContext.ContactGroups.AnyAsync(g => g.Id == groupId);
+                        if (groupExists)
+                        {
+                            existingContact.GroupMemberships.Add(new ContactGroupMember { ContactId = existingContact.Id, GroupId = groupId });
+                        }
+                    }
+                }
+
+                await _dbContext.SaveChangesAsync();
+                return await GetByIdAsync(existingContact.Id);
+            }
+            else
+            {
+                throw new InvalidOperationException("A contact with this phone number already exists.");
+            }
+        }
 
         var contact = new Contact
         {
@@ -155,7 +198,9 @@ public class ContactService : IContactService
             Type = Enum.Parse<ContactType>(request.Type, true),
             Status = Enum.Parse<ContactStatus>(request.Status, true),
             Source = Enum.Parse<ContactSource>(request.Source, true),
-            AssignedTo = request.AssignedTo
+            AssignedTo = request.AssignedTo,
+            IsDeleted = false,
+            IsActive = true
         };
 
         if (request.GroupIds != null && request.GroupIds.Any())
@@ -228,7 +273,9 @@ public class ContactService : IContactService
         if (contact == null)
             throw new KeyNotFoundException($"Contact with ID {id} not found.");
 
+        contact.IsDeleted = true;
         contact.IsActive = false;
+        contact.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
     }
 

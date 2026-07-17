@@ -50,6 +50,12 @@ public class BotRouterService : IBotRouterService
         string normalizedPhone = phoneNumber.Replace("+", "").Trim();
         string cleanMessage = incomingMessage.Trim();
 
+        if (contact == null || !contact.IsActive || contact.IsDeleted)
+        {
+            _logger.LogInformation("Contact {Phone} is inactive or deleted. Ignoring incoming message for bot routing.", normalizedPhone);
+            return false;
+        }
+
         _logger.LogInformation("Routing incoming message from {Phone}: '{Message}'", normalizedPhone, cleanMessage);
 
         // 1. Stop Check
@@ -58,7 +64,7 @@ public class BotRouterService : IBotRouterService
             .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone && s.IsActive);
 
         var botFlowState = await _dbContext.ConversationStates
-            .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone);
+            .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone && s.Status == "Active");
 
         bool isBotFlowAiStop = false;
         if (botFlowState != null)

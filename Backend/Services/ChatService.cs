@@ -105,6 +105,9 @@ public class ChatService : IChatService
         if (conversation == null)
             throw new KeyNotFoundException($"Chat conversation with ID {conversationId} not found.");
 
+        if (conversation.Contact == null || !conversation.Contact.IsActive)
+            throw new InvalidOperationException("Cannot send message to an inactive contact.");
+
         var text = request.Text?.Trim() ?? string.Empty;
         var isMedia = !string.IsNullOrWhiteSpace(request.MediaUrl) && !string.IsNullOrWhiteSpace(request.MediaType);
 
@@ -182,6 +185,9 @@ public class ChatService : IChatService
             .FirstOrDefaultAsync(c => c.Id == request.ContactId);
         if (contact == null)
             throw new KeyNotFoundException($"Contact with ID {request.ContactId} not found.");
+
+        if (!contact.IsActive)
+            throw new InvalidOperationException("Cannot send message to an inactive contact.");
 
         var template = await _dbContext.Templates
             .FirstOrDefaultAsync(t => t.Id == request.TemplateId);

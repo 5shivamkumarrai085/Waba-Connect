@@ -161,6 +161,10 @@ export const contactService = {
     await apiClient.delete(`/Contacts/${id}`)
   },
 
+  bulkDeleteContacts: async (ids: number[]): Promise<void> => {
+    await apiClient.post('/Contacts/bulk-delete', { ids })
+  },
+
   toggleActive: async (id: number): Promise<Contact> => {
     const response = await apiClient.patch(`/Contacts/${id}/toggle-active`)
     return mapContact(response.data?.data)

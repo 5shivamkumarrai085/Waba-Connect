@@ -144,20 +144,23 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
   },
 
   deleteSelected: async () => {
-    const { selectedIds, contacts } = get()
+    const { selectedIds } = get()
     if (selectedIds.length === 0) return
 
-    console.log(`[API Calling] DELETE /api/contacts/bulk-delete`, selectedIds)
     set({ isLoading: true })
-
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 100))
-
-    set({
-      contacts: contacts.filter(c => !selectedIds.includes(c.id)),
-      selectedIds: [],
-      isLoading: false
-    })
+    try {
+      await contactService.bulkDeleteContacts(selectedIds)
+      const fetched = await contactService.getContacts()
+      set({
+        contacts: fetched,
+        selectedIds: [],
+        isLoading: false
+      })
+    } catch (err) {
+      console.error(err)
+      set({ isLoading: false })
+      throw err
+    }
   },
 
   toggleContactActive: async (id) => {

@@ -138,6 +138,13 @@ public class CampaignService : ICampaignService
             foreach (var cid in groupContacts) contactIds.Add(cid);
         }
 
+        var activeContactIds = await _dbContext.Contacts
+            .Where(c => contactIds.Contains(c.Id) && c.IsActive && !c.IsDeleted)
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        contactIds = new HashSet<int>(activeContactIds);
+
         if (contactIds.Count == 0)
             throw new ArgumentException("No active contacts found for the selected targets.");
 
@@ -450,6 +457,15 @@ public class CampaignService : ICampaignService
                 {
                     continue;
                 }
+
+                if (!cc.Contact.IsActive || cc.Contact.IsDeleted)
+                {
+                    cc.Status = MessageStatus.Failed;
+                    cc.ErrorMessage = "Contact is inactive or deleted.";
+                    campaign.FailedCount++;
+                    await dbContext.SaveChangesAsync();
+                    continue;
+                }
                 // Process merge fields for this specific contact
                 var messageVars = new Dictionary<string, string>();
                 foreach (var v in campaign.Variables)
@@ -590,7 +606,12 @@ public class CampaignService : ICampaignService
             }
         }
 
-        return contactIds;
+        var activeContactIds = await _dbContext.Contacts
+            .Where(c => contactIds.Contains(c.Id) && c.IsActive && !c.IsDeleted)
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        return new HashSet<int>(activeContactIds);
     }
 
     private static string BuildRecipientMessagePreview(Campaign campaign, CampaignContact campaignContact)

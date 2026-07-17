@@ -209,8 +209,12 @@ export const ContactsList: React.FC = () => {
 
   const confirmBulkDelete = async () => {
     setIsDeleteModalOpen(false)
-    await deleteSelected()
-    toast.success('user deleted successfully')
+    try {
+      await deleteSelected()
+      toast.success('Contact deleted successfully.')
+    } catch (err) {
+      toast.error('Failed to delete contacts.')
+    }
   }
 
   const confirmSingleDelete = async () => {
@@ -219,7 +223,7 @@ export const ContactsList: React.FC = () => {
     setDeleteTarget(null)
     try {
       await contactService.deleteContact(id)
-      toast.success('user deleted successfully')
+      toast.success('Contact deleted successfully.')
       await loadContacts()
     } catch (err) {
       toast.error('Failed to delete contact.')

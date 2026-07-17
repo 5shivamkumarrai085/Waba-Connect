@@ -89,6 +89,29 @@ public class ContactsController : ControllerBase
         return Ok(new ApiResponse { Success = true, Message = "Contact deleted successfully." });
     }
 
+    public class BulkDeleteRequest
+    {
+        public List<int> Ids { get; set; } = [];
+    }
+
+    [HttpPost("bulk-delete")]
+    public async Task<ActionResult<ApiResponse>> BulkDelete([FromBody] BulkDeleteRequest request)
+    {
+        if (request?.Ids == null || !request.Ids.Any())
+            return BadRequest(new ApiResponse { Success = false, Message = "No contact IDs provided." });
+
+        foreach (var id in request.Ids)
+        {
+            try
+            {
+                await _contactService.DeleteAsync(id);
+            }
+            catch (KeyNotFoundException) { }
+        }
+
+        return Ok(new ApiResponse { Success = true, Message = "Contacts deleted successfully." });
+    }
+
     [HttpPatch("{id}/toggle-active")]
     public async Task<ActionResult<ApiResponse<ContactResponse>>> ToggleActive(int id)
     {

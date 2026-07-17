@@ -10,6 +10,7 @@ import './CampaignsList.css'
 import { formatRelativeTime } from '../../utils/dateHelper'
 import { templateService } from '../../services/templates/templateService'
 import { contactService } from '../../services/contacts/contactService'
+import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 
 export const CampaignsList: React.FC = () => {
   const navigate = useNavigate()
@@ -48,6 +49,7 @@ export const CampaignsList: React.FC = () => {
 
   const [templates, setTemplates] = useState<any[]>([])
   const [relationTypes, setRelationTypes] = useState<any[]>([])
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
 
   useEffect(() => {
     loadCampaigns()
@@ -108,14 +110,19 @@ export const CampaignsList: React.FC = () => {
     toast.success('Campaigns refreshed successfully!')
   }
 
-  const handleDelete = async (id: number, name: string) => {
-    if (window.confirm(`Are you sure you want to delete campaign "${name}"?`)) {
-      try {
-        await deleteCampaign(id)
-        toast.success('Campaign deleted successfully!')
-      } catch (err: any) {
-        toast.error('Failed to delete campaign.')
-      }
+  const handleDelete = (id: number, name: string) => {
+    setDeleteTarget({ id, name })
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    const { id } = deleteTarget
+    setDeleteTarget(null)
+    try {
+      await deleteCampaign(id)
+      toast.success('Campaign deleted successfully!')
+    } catch (err: any) {
+      toast.error('Failed to delete campaign.')
     }
   }
 
@@ -273,7 +280,9 @@ export const CampaignsList: React.FC = () => {
                       {visibleColumns.name !== false && (
                         <td>
                           <div className="campaign-name-cell">
-                            <span className="campaign-title-text">{camp.name}</span>
+                            <span className="campaign-title-text">
+                              {camp.name}
+                            </span>
                             <div className="campaign-hover-actions">
                               <span 
                                 className="campaign-action-btn"
@@ -288,17 +297,13 @@ export const CampaignsList: React.FC = () => {
                               >
                                 Edit
                               </span>
-                              {['Draft', 'Failed', 'Cancelled'].includes(camp.status) && (
-                                <>
-                                  <span className="action-divider">|</span>
-                                  <span 
-                                    className="campaign-action-btn"
-                                    onClick={() => handleDelete(camp.id, camp.name)}
-                                  >
-                                    Delete
-                                  </span>
-                                </>
-                              )}
+                              <span className="action-divider">|</span>
+                              <span 
+                                className="campaign-action-btn"
+                                onClick={() => handleDelete(camp.id, camp.name)}
+                              >
+                                Delete
+                              </span>
                             </div>
                           </div>
                         </td>
@@ -390,6 +395,20 @@ export const CampaignsList: React.FC = () => {
           </div>
         </div>
       </div>
+      
+      <ConfirmationModal
+        isOpen={deleteTarget !== null}
+        title="Delete Campaign"
+        message={
+          deleteTarget
+            ? `Are you sure you want to delete campaign "${deleteTarget.name}"? Scheduled messages will be cancelled.`
+            : ''
+        }
+        confirmText="Delete"
+        isDestructive={true}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }

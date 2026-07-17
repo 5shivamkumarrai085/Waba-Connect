@@ -118,13 +118,15 @@ export const CampaignDetails: React.FC = () => {
           Back to Campaigns
         </button>
         
-        <button
-          type="button"
-          className={selectedCampaign.status === 'Paused' ? 'btn-resume-campaign' : 'btn-pause-campaign'}
-          onClick={handlePauseToggle}
-        >
-          {selectedCampaign.status === 'Paused' ? 'Resume Campaign' : 'Pause Campaign'}
-        </button>
+        {!selectedCampaign.isDeleted && (
+          <button
+            type="button"
+            className={selectedCampaign.status === 'Paused' ? 'btn-resume-campaign' : 'btn-pause-campaign'}
+            onClick={handlePauseToggle}
+          >
+            {selectedCampaign.status === 'Paused' ? 'Resume Campaign' : 'Pause Campaign'}
+          </button>
+        )}
       </div>
 
       {/* Top Metadata card */}

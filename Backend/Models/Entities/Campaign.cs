@@ -31,6 +31,12 @@ public class Campaign
     public string? FileType { get; set; }
     public string? FileUrl { get; set; }
     
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
+    
+    [MaxLength(100)]
+    public string? DeletedBy { get; set; }
+    
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

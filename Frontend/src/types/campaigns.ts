@@ -12,6 +12,9 @@ export interface Campaign {
   status: string // e.g. 'Success', 'Paused', 'draft'
   createdAt: string
   scheduledAt?: string
+  isDeleted?: boolean
+  deletedAt?: string
+  deletedBy?: string
 }
 
 export interface CampaignStatistics {

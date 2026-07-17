@@ -57,6 +57,7 @@ public class CampaignService : ICampaignService
     public async Task<CampaignDetailResponse> GetByIdAsync(int id)
     {
         var campaign = await _dbContext.Campaigns
+            .IgnoreQueryFilters()
             .Include(c => c.Template)
             .Include(c => c.Variables)
             .Include(c => c.CampaignContacts)
@@ -80,6 +81,9 @@ public class CampaignService : ICampaignService
             ReadCount = campaign.ReadCount,
             FailedCount = campaign.FailedCount,
             CreatedBy = campaign.CreatedBy,
+            IsDeleted = campaign.IsDeleted,
+            DeletedAt = campaign.DeletedAt,
+            DeletedBy = campaign.DeletedBy,
             CreatedAt = campaign.CreatedAt,
             UpdatedAt = campaign.UpdatedAt,
             Recipients = campaign.CampaignContacts.Select(cc => new CampaignRecipientResponse
@@ -110,7 +114,7 @@ public class CampaignService : ICampaignService
     {
         // Check for duplicate campaign name
         var normalizedName = request.Name.Trim().ToLower();
-        var exists = await _dbContext.Campaigns.AnyAsync(c => c.Name.ToLower() == normalizedName);
+        var exists = await _dbContext.Campaigns.IgnoreQueryFilters().AnyAsync(c => !c.IsDeleted && c.Name.ToLower() == normalizedName);
         if (exists)
             throw new InvalidOperationException("The campaign name has already been taken.");
 
@@ -209,11 +213,12 @@ public class CampaignService : ICampaignService
     {
         // Check for duplicate campaign name
         var normalizedName = request.Name.Trim().ToLower();
-        var exists = await _dbContext.Campaigns.AnyAsync(c => c.Id != id && c.Name.ToLower() == normalizedName);
+        var exists = await _dbContext.Campaigns.IgnoreQueryFilters().AnyAsync(c => c.Id != id && !c.IsDeleted && c.Name.ToLower() == normalizedName);
         if (exists)
             throw new InvalidOperationException("The campaign name has already been taken.");
 
         var campaign = await _dbContext.Campaigns
+            .IgnoreQueryFilters()
             .Include(c => c.Template)
             .Include(c => c.Variables)
             .Include(c => c.CampaignContacts)
@@ -221,6 +226,9 @@ public class CampaignService : ICampaignService
 
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
+
+        if (campaign.IsDeleted)
+            throw new InvalidOperationException("Deleted campaigns cannot be edited or rescheduled.");
 
         if (campaign.Status is CampaignStatus.Sending or CampaignStatus.Sent or CampaignStatus.Cancelled)
             throw new InvalidOperationException("Your Campaign is already executed");
@@ -299,22 +307,39 @@ public class CampaignService : ICampaignService
 
     public async Task DeleteAsync(int id)
     {
-        var campaign = await _dbContext.Campaigns.FindAsync(id);
+        var campaign = await _dbContext.Campaigns
+            .IgnoreQueryFilters()
+            .Include(c => c.CampaignContacts)
+            .FirstOrDefaultAsync(c => c.Id == id);
+
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
 
-        if (campaign.Status is not (CampaignStatus.Draft or CampaignStatus.Failed or CampaignStatus.Cancelled))
-            throw new InvalidOperationException("Can only delete campaigns in Draft, Failed, or Cancelled status.");
+        _logger.LogInformation("Soft deleting campaign {CampaignId} ({CampaignName}) for audit.", campaign.Id, campaign.Name);
 
-        _dbContext.Campaigns.Remove(campaign);
+        campaign.IsDeleted = true;
+        campaign.DeletedAt = DateTime.UtcNow;
+        campaign.DeletedBy = "Admin";
+        campaign.Status = CampaignStatus.Cancelled;
+
+        // Cancel any remaining pending recipients
+        foreach (var cc in campaign.CampaignContacts.Where(cc => cc.Status == MessageStatus.Pending))
+        {
+            cc.Status = MessageStatus.Failed;
+            cc.ErrorMessage = "Campaign cancelled due to deletion.";
+        }
+
         await _dbContext.SaveChangesAsync();
     }
 
     public async Task<CampaignResponse> CancelAsync(int id)
     {
-        var campaign = await _dbContext.Campaigns.Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == id);
+        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == id);
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
+
+        if (campaign.IsDeleted)
+            throw new InvalidOperationException("Deleted campaigns cannot be edited or rescheduled.");
 
         if (campaign.Status != CampaignStatus.Scheduled)
             throw new InvalidOperationException("Can only cancel a Scheduled campaign.");
@@ -327,9 +352,12 @@ public class CampaignService : ICampaignService
 
     public async Task<CampaignResponse> PauseAsync(int id)
     {
-        var campaign = await _dbContext.Campaigns.Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == id);
+        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == id);
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
+
+        if (campaign.IsDeleted)
+            throw new InvalidOperationException("Deleted campaigns cannot be edited or rescheduled.");
 
         if (campaign.Status == CampaignStatus.Paused)
             return MapToResponse(campaign);
@@ -345,9 +373,12 @@ public class CampaignService : ICampaignService
 
     public async Task<CampaignResponse> ResumeAsync(int id)
     {
-        var campaign = await _dbContext.Campaigns.Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == id);
+        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == id);
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
+
+        if (campaign.IsDeleted)
+            throw new InvalidOperationException("Deleted campaigns cannot be edited or rescheduled.");
 
         if (campaign.Status != CampaignStatus.Paused)
             throw new InvalidOperationException("Only paused campaigns can be resumed.");
@@ -421,7 +452,8 @@ public class CampaignService : ICampaignService
     public async Task ProcessScheduledCampaignsAsync(CancellationToken cancellationToken)
     {
         var campaignsToProcess = await _dbContext.Campaigns
-            .Where(c => c.Status == CampaignStatus.Scheduled && c.ScheduledAt <= DateTime.UtcNow)
+            .IgnoreQueryFilters()
+            .Where(c => !c.IsDeleted && c.Status == CampaignStatus.Scheduled && c.ScheduledAt <= DateTime.UtcNow)
             .ToListAsync(cancellationToken);
 
         foreach (var campaign in campaignsToProcess)
@@ -443,6 +475,7 @@ public class CampaignService : ICampaignService
             var chatService = scope.ServiceProvider.GetRequiredService<IChatService>();
 
             var campaign = await dbContext.Campaigns
+                .IgnoreQueryFilters()
                 .Include(c => c.Template)
                 .Include(c => c.Variables)
                 .Include(c => c.CampaignContacts)
@@ -453,6 +486,13 @@ public class CampaignService : ICampaignService
 
             foreach (var cc in campaign.CampaignContacts)
             {
+                await dbContext.Entry(campaign).ReloadAsync();
+                if (campaign.Status == CampaignStatus.Cancelled || campaign.IsDeleted)
+                {
+                    _logger.LogInformation("Campaign {CampaignId} has been cancelled or deleted. Stopping message sending.", campaignId);
+                    break;
+                }
+
                 if (cc.Contact == null)
                 {
                     continue;
@@ -672,6 +712,9 @@ public class CampaignService : ICampaignService
             ReadCount = c.ReadCount,
             FailedCount = c.FailedCount,
             CreatedBy = c.CreatedBy,
+            IsDeleted = c.IsDeleted,
+            DeletedAt = c.DeletedAt,
+            DeletedBy = c.DeletedBy,
             CreatedAt = c.CreatedAt,
             UpdatedAt = c.UpdatedAt
         };
@@ -691,7 +734,7 @@ public class CampaignService : ICampaignService
     public async Task<CampaignResponse> CreateCsvCampaignAsync(CreateCsvCampaignRequest request)
     {
         var normalizedName = request.Name.Trim().ToLower();
-        var exists = await _dbContext.Campaigns.AnyAsync(c => c.Name.ToLower() == normalizedName);
+        var exists = await _dbContext.Campaigns.IgnoreQueryFilters().AnyAsync(c => !c.IsDeleted && c.Name.ToLower() == normalizedName);
         if (exists)
             throw new InvalidOperationException("The campaign name has already been taken.");
 

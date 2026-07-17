@@ -72,6 +72,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Campaign>(entity =>
         {
             entity.HasIndex(e => e.Status);
+            entity.HasQueryFilter(e => !e.IsDeleted);
             entity.Property(e => e.RelationType).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.ScheduleType).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);

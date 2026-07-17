@@ -95,6 +95,12 @@ export const CampaignWizard: React.FC = () => {
           const details = await campaignService.getCampaignDetails(campaignId)
           if (!isMounted) return
 
+          if (details.campaign.isDeleted) {
+            toast.error('Deleted campaigns cannot be edited or rescheduled.')
+            navigate('/campaigns/campaign')
+            return
+          }
+
           const template = tpls.find(t => t.name === details.campaign.templateName)
 
           const vars = (details as any).variables || []

@@ -12,7 +12,10 @@ const mapCampaign = (c: any): Campaign => ({
   failedCount: c.failedCount || 0,
   status: c.status,
   createdAt: c.createdAt,
-  scheduledAt: c.scheduledAt
+  scheduledAt: c.scheduledAt,
+  isDeleted: c.isDeleted,
+  deletedAt: c.deletedAt,
+  deletedBy: c.deletedBy
 })
 
 const getApiErrorMessage = (error: unknown): string => {

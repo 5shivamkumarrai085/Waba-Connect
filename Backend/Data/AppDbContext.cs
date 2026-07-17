@@ -32,6 +32,8 @@ public class AppDbContext : DbContext
     public DbSet<FlowEdge> FlowEdges { get; set; } = null!;
     public DbSet<ConversationState> ConversationStates { get; set; } = null!;
     public DbSet<BotMessage> Messages { get; set; } = null!;
+    public DbSet<ClientAiSetting> ClientAiSettings { get; set; } = null!;
+    public DbSet<AiSession> AiSessions { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -154,6 +156,19 @@ public class AppDbContext : DbContext
             entity.ToTable("Messages");
             entity.HasOne(e => e.Flow).WithMany().HasForeignKey(e => e.FlowId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(e => e.PhoneNumber);
+        });
+
+        modelBuilder.Entity<ClientAiSetting>(entity =>
+        {
+            entity.ToTable("ClientAiSettings");
+            entity.HasIndex(e => e.ClientId).IsUnique();
+        });
+
+        modelBuilder.Entity<AiSession>(entity =>
+        {
+            entity.ToTable("AiSessions");
+            entity.HasIndex(e => e.PhoneNumber);
+            entity.HasOne(e => e.MessageBot).WithMany().HasForeignKey(e => e.MessageBotId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

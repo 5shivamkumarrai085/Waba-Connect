@@ -454,21 +454,12 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 var dbContact = await dbContext.Contacts.FindAsync(contact.Id);
                 if (dbContact == null) return;
 
-                var executionService = scope.ServiceProvider.GetRequiredService<IFlowExecutionService>();
-                bool triggeredBotFlow = await executionService.ExecuteFlowStepAsync(normalizedPhone, text);
-                
-                if (!triggeredBotFlow)
-                {
-                    var scopedWhatsAppService = scope.ServiceProvider.GetRequiredService<IWhatsAppService>();
-                    if (scopedWhatsAppService is WhatsAppCloudApiService apiService)
-                    {
-                        await apiService.TryTriggerTemplateBotAsync(normalizedPhone, text, dbContact);
-                    }
-                }
+                var routerService = scope.ServiceProvider.GetRequiredService<IBotRouterService>();
+                await routerService.RouteMessageAsync(normalizedPhone, text, dbContact);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error executing bot flow or template bot in background task for phone {Phone}", normalizedPhone);
+                _logger.LogError(ex, "Error routing incoming message in background task for phone {Phone}", normalizedPhone);
             }
         });
     }

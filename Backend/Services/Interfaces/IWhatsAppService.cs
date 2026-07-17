@@ -1,4 +1,5 @@
 using WhatsAppCampaignApi.Models.DTOs.Webhook;
+using WhatsAppCampaignApi.Models.Entities;
 
 namespace WhatsAppCampaignApi.Services.Interfaces;
 
@@ -58,6 +59,11 @@ public interface IWhatsAppService
     /// Processes an incoming webhook payload for delivery status updates.
     /// </summary>
     Task ProcessWebhookAsync(WhatsAppWebhookPayload payload);
+
+    /// <summary>
+    /// Attempts to match and trigger template bots for incoming message keyword.
+    /// </summary>
+    Task<bool> TryTriggerTemplateBotAsync(string normalizedPhone, string incomingText, Contact contact);
 }
 
 /// <summary>

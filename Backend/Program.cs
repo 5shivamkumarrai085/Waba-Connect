@@ -48,6 +48,11 @@ builder.Services.AddScoped<INodeExecutor, ContactCardNodeExecutor>();
 builder.Services.AddScoped<INodeExecutor, AIAssistantExecutor>();
 builder.Services.AddScoped<INodeExecutor, CallToActionExecutor>();
 
+builder.Services.AddScoped<IEncryptionService, EncryptionService>();
+builder.Services.AddHttpClient<IAiProvider, GroqProvider>();
+builder.Services.AddScoped<MessageBotExecutor>();
+builder.Services.AddScoped<IBotRouterService, BotRouterService>();
+
 builder.Services.AddHttpClient<IWhatsAppService, WhatsAppCloudApiService>();
 builder.Services.AddHostedService<CampaignSchedulerService>();
 

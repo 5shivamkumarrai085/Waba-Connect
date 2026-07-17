@@ -160,10 +160,9 @@ public class FlowExecutionService : IFlowExecutionService
             return;
         }
 
-        await _stateService.CreateOrUpdateStateAsync(state.PhoneNumber, state.FlowId, result.NextNodeId, new Dictionary<string, string>());
-
         if (result.IsWaitingForReply)
         {
+            await _stateService.CreateOrUpdateStateAsync(state.PhoneNumber, state.FlowId, result.NextNodeId, new Dictionary<string, string>());
             return;
         }
 

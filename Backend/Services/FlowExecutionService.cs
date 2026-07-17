@@ -68,6 +68,11 @@ public class FlowExecutionService : IFlowExecutionService
         }
 
         var result = await executor.ExecuteAsync(currentNode, state, incomingMessage, edges);
+        if (!string.IsNullOrEmpty(result.OutboundMessageText))
+        {
+            await LogBotMessageAsync(state.PhoneNumber, "Outgoing", result.OutboundMessageText, state.FlowId, state.CurrentNodeId);
+            await SyncToChatMessagesAsync(state.PhoneNumber, result.OutboundMessageText);
+        }
         await ProcessResultAsync(state, result, nodes, edges, incomingMessage);
     }
 
@@ -95,6 +100,11 @@ public class FlowExecutionService : IFlowExecutionService
 
                 var executor = _executors.First(e => e.NodeType == "Start Trigger");
                 var result = await executor.ExecuteAsync(triggerNode, state, incomingMessage, edges);
+                if (!string.IsNullOrEmpty(result.OutboundMessageText))
+                {
+                    await LogBotMessageAsync(phoneNumber, "Outgoing", result.OutboundMessageText, flow.Id, triggerNode.NodeId);
+                    await SyncToChatMessagesAsync(phoneNumber, result.OutboundMessageText);
+                }
 
                 await ProcessResultAsync(state, result, nodes, edges, incomingMessage);
                 return true; 
@@ -184,7 +194,7 @@ public class FlowExecutionService : IFlowExecutionService
 
         var nextResult = await executor.ExecuteAsync(nextNode, state, incomingMessage, edges);
 
-        string outboundText = GetOutboundTextForNode(nextNode);
+        string outboundText = nextResult.OutboundMessageText ?? GetOutboundTextForNode(nextNode);
         if (!string.IsNullOrEmpty(outboundText))
         {
             await LogBotMessageAsync(state.PhoneNumber, "Outgoing", outboundText, state.FlowId, nextNode.NodeId);

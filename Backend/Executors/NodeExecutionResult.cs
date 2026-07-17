@@ -8,6 +8,7 @@ public class NodeExecutionResult
     public Dictionary<string, string> CollectVariables { get; set; } = new();
     public bool IsCompleted { get; set; } = false;
     public bool IsWaitingForReply { get; set; } = false;
+    public string? OutboundMessageText { get; set; }
 
     public static NodeExecutionResult Pause(string waitingNodeId) => new()
     {

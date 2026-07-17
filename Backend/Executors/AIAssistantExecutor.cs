@@ -1,7 +1,10 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Services.Interfaces;
 
@@ -10,10 +13,12 @@ namespace WhatsAppCampaignApi.Executors;
 public class AIAssistantExecutor : INodeExecutor
 {
     private readonly IWhatsAppService _whatsAppService;
+    private readonly AppDbContext _dbContext;
 
-    public AIAssistantExecutor(IWhatsAppService whatsAppService)
+    public AIAssistantExecutor(IWhatsAppService whatsAppService, AppDbContext dbContext)
     {
         _whatsAppService = whatsAppService;
+        _dbContext = dbContext;
     }
 
     public string NodeType => "AI Personal Assistant";
@@ -24,6 +29,27 @@ public class AIAssistantExecutor : INodeExecutor
         string incomingMessage,
         List<FlowEdge> outgoingEdges)
     {
+        string normalizedPhone = state.PhoneNumber.Replace("+", "").Trim();
+
+        // Check if AI is stopped for this phone number
+        var lastSession = await _dbContext.AiSessions
+            .Where(s => s.PhoneNumber == normalizedPhone)
+            .OrderByDescending(s => s.UpdatedAt)
+            .FirstOrDefaultAsync();
+
+        bool isAiStopped = lastSession != null && !lastSession.IsActive;
+
+        if (isAiStopped)
+        {
+            // AI is stopped - bypass this node and transition immediately
+            var nextEdge = outgoingEdges.FirstOrDefault(e => e.Source == node.NodeId);
+            if (nextEdge == null)
+            {
+                return NodeExecutionResult.Complete();
+            }
+            return NodeExecutionResult.Next(nextEdge.Target);
+        }
+
         string aiModel = "Gemini 1.5 Flash";
         string instructions = "Help the customer as a friendly assistant.";
 
@@ -44,13 +70,9 @@ public class AIAssistantExecutor : INodeExecutor
         await _whatsAppService.SendTextMessageAsync(state.PhoneNumber, responseText);
 
         // Check if there is an outgoing connection. If so, advance.
-        var nextEdge = outgoingEdges.FirstOrDefault(e => e.Source == node.NodeId);
-        if (nextEdge == null)
-        {
-            // If no output connection, AI acts as an open-ended conversational bot and loops.
-            return NodeExecutionResult.Pause(node.NodeId);
-        }
-
-        return NodeExecutionResult.Next(nextEdge.Target);
+        var nextEdge2 = outgoingEdges.FirstOrDefault(e => e.Source == node.NodeId);
+        var result = nextEdge2 == null ? NodeExecutionResult.Pause(node.NodeId) : NodeExecutionResult.Next(nextEdge2.Target);
+        result.OutboundMessageText = responseText;
+        return result;
     }
 }

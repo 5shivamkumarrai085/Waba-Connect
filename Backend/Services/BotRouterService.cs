@@ -57,17 +57,82 @@ public class BotRouterService : IBotRouterService
             .Include(s => s.MessageBot)
             .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone && s.IsActive);
 
-        if (activeSession != null)
+        var botFlowState = await _dbContext.ConversationStates
+            .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone);
+
+        bool isBotFlowAiStop = false;
+        if (botFlowState != null)
         {
-            var assistantName = activeSession.AssistantName;
-            var stopKeyword = _configuration[$"PersonalAssistants:{assistantName}:StopKeyword"] ?? "stop";
+            var currentNode = await _dbContext.FlowNodes
+                .FirstOrDefaultAsync(n => n.FlowId == botFlowState.FlowId && n.NodeId == botFlowState.CurrentNodeId);
+            
+            if (currentNode != null && string.Equals(currentNode.NodeType, "AI Personal Assistant", StringComparison.OrdinalIgnoreCase))
+            {
+                var stopKeyword = "stop"; // Default for bot flow AI
+                if (string.Equals(cleanMessage, stopKeyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    isBotFlowAiStop = true;
+                }
+            }
+        }
+
+        if (activeSession != null || isBotFlowAiStop)
+        {
+            string stopKeyword = "stop";
+            if (activeSession != null)
+            {
+                var assistantName = activeSession.AssistantName;
+                stopKeyword = _configuration[$"PersonalAssistants:{assistantName}:StopKeyword"] ?? "stop";
+            }
 
             if (string.Equals(cleanMessage, stopKeyword, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogInformation("Stop keyword matched. Terminating AI session for phone {Phone}", normalizedPhone);
+                _logger.LogInformation("Stop keyword matched. Terminating AI session/flow for phone {Phone}", normalizedPhone);
                 
-                activeSession.IsActive = false;
-                activeSession.UpdatedAt = DateTime.UtcNow;
+                if (activeSession != null)
+                {
+                    activeSession.IsActive = false;
+                    activeSession.UpdatedAt = DateTime.UtcNow;
+                }
+                else if (isBotFlowAiStop)
+                {
+                    // Even if there was no active Message Bot session, if they stopped from a Bot Flow AI,
+                    // we should record an inactive session so that future AI nodes know the AI is stopped.
+                    var existingSession = await _dbContext.AiSessions
+                        .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone);
+                    if (existingSession != null)
+                    {
+                        existingSession.IsActive = false;
+                        existingSession.UpdatedAt = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        var firstBot = await _dbContext.MessageBots.FirstOrDefaultAsync();
+                        if (firstBot != null)
+                        {
+                            var newInactiveSession = new AiSession
+                            {
+                                PhoneNumber = normalizedPhone,
+                                MessageBotId = firstBot.Id,
+                                IsActive = false,
+                                CreatedAt = DateTime.UtcNow,
+                                UpdatedAt = DateTime.UtcNow,
+                                AssistantName = firstBot.AssistantName ?? "OmniBot"
+                            };
+                            _dbContext.AiSessions.Add(newInactiveSession);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("No MessageBot found in the database. Cannot create inactive AiSession.");
+                        }
+                    }
+                }
+                
+                if (botFlowState != null)
+                {
+                    _dbContext.ConversationStates.Remove(botFlowState);
+                }
+
                 await _dbContext.SaveChangesAsync();
 
                 string stopConfirmation = "AI Personal Assistant stopped.";

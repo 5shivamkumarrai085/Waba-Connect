@@ -19,7 +19,14 @@ export const useBotFlowStore = create<BotFlowStore>((set, get) => ({
   nodes: [],
   edges: [],
   setNodes: (nodes) => set({ nodes }),
-  setEdges: (edges) => set({ edges }),
+  setEdges: (edges) => set({ 
+    edges: edges.map(edge => ({ 
+      ...edge, 
+      type: 'buttonedge',
+      animated: true,
+      style: edge.style || { stroke: '#6366f1', strokeWidth: 2 }
+    })) 
+  }),
   onNodesChange: (changes) => {
     set({
       nodes: applyNodeChanges(changes, get().nodes),
@@ -34,6 +41,7 @@ export const useBotFlowStore = create<BotFlowStore>((set, get) => ({
     // Add default connection styling if needed
     const edge = {
       ...connection,
+      type: 'buttonedge',
       animated: true,
       style: { stroke: '#6366f1', strokeWidth: 2 },
     };

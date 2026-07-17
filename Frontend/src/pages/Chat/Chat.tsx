@@ -47,6 +47,16 @@ const EMOJIS = [
   '🔥', '✨', '🎉', '🚀', '💡', '💯', '💬', '📞', '🔔', '🔒'
 ]
 
+const getFullMediaUrl = (url: string | null | undefined) => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url;
+  }
+  const base = apiClient.defaults.baseURL || 'http://localhost:5155/api';
+  const cleanBase = base.endsWith('/api') ? base.slice(0, -4) : base;
+  return `${cleanBase}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
 export const Chat: React.FC = () => {
   const [searchParams] = useSearchParams()
   const {
@@ -342,6 +352,98 @@ export const Chat: React.FC = () => {
     )
   }
 
+  const renderRichMessageContent = (text: string, searchQuery: string) => {
+    if (!text) return '';
+    
+    if (text.startsWith('[Location|') && text.endsWith(']')) {
+      const parts = text.slice(10, -1).split('|');
+      const locationData: Record<string, string> = {};
+      parts.forEach(p => {
+        const idx = p.indexOf(':');
+        if (idx !== -1) {
+          const key = p.substring(0, idx).trim();
+          const val = p.substring(idx + 1).trim();
+          locationData[key] = val;
+        }
+      });
+
+      const name = locationData['Name'] || 'Location Shared';
+      const addr = locationData['Addr'] || '';
+      const lat = locationData['Lat'] || '';
+      const lng = locationData['Lng'] || '';
+      const mapUrl = (lat && lng) 
+        ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + ' ' + addr)}`;
+
+      return (
+        <div className="chat-rich-location-card" style={{ padding: '4px', minWidth: '200px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+            <span style={{ fontSize: '18px' }}>📍</span>
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: '#1f2937' }}>{name}</span>
+              {addr && <span style={{ fontSize: '11px', color: '#4b5563' }}>{addr}</span>}
+            </div>
+          </div>
+          <a 
+            href={mapUrl} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            style={{ 
+              display: 'block', 
+              textAlign: 'center', 
+              backgroundColor: '#10b981', 
+              color: 'white', 
+              fontSize: '11.5px', 
+              fontWeight: 600, 
+              padding: '6px 12px', 
+              borderRadius: '4px', 
+              textDecoration: 'none',
+              marginTop: '8px'
+            }}
+          >
+            View on Google Maps
+          </a>
+        </div>
+      );
+    }
+
+    if (text.startsWith('[ContactCard|') && text.endsWith(']')) {
+      const parts = text.slice(13, -1).split('|');
+      const contactData: Record<string, string> = {};
+      parts.forEach(p => {
+        const idx = p.indexOf(':');
+        if (idx !== -1) {
+          const key = p.substring(0, idx).trim();
+          const val = p.substring(idx + 1).trim();
+          contactData[key] = val;
+        }
+      });
+
+      const name = contactData['Name'] || 'Contact Shared';
+      const phone = contactData['Phone'] || '';
+      const email = contactData['Email'] || '';
+      const org = contactData['Org'] || '';
+
+      return (
+        <div className="chat-rich-contact-card" style={{ padding: '4px', minWidth: '200px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', borderBottom: '1px solid #e5e7eb', paddingBottom: '6px', textAlign: 'left' }}>
+            <span style={{ fontSize: '20px' }}>👤</span>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: '#1f2937' }}>{name}</span>
+              {org && org.trim() !== '-' && <span style={{ fontSize: '11px', color: '#4b5563' }}>{org}</span>}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: '#374151', textAlign: 'left' }}>
+            {phone && <div><strong>Phone:</strong> {phone}</div>}
+            {email && <div><strong>Email:</strong> {email}</div>}
+          </div>
+        </div>
+      );
+    }
+
+    return renderMessageText(text, searchQuery);
+  };
+
   // Load notes when opening drawer
   useEffect(() => {
     if (showInfoDrawer && activeConversation) {
@@ -609,22 +711,22 @@ export const Chat: React.FC = () => {
                               <div className="chat-bubble-media-wrapper">
                                 {message.mediaType === 'image' && (
                                   <img
-                                    src={message.mediaUrl}
+                                    src={getFullMediaUrl(message.mediaUrl)}
                                     alt={message.mediaFileName || 'Image'}
                                     className="chat-bubble-media-image"
-                                    onClick={() => window.open(message.mediaUrl || undefined, '_blank')}
+                                    onClick={() => window.open(getFullMediaUrl(message.mediaUrl) || undefined, '_blank')}
                                   />
                                 )}
                                 {message.mediaType === 'video' && (
                                   <video
-                                    src={message.mediaUrl}
+                                    src={getFullMediaUrl(message.mediaUrl)}
                                     controls
                                     className="chat-bubble-media-video"
                                   />
                                 )}
                                 {message.mediaType === 'document' && (
                                   <a
-                                    href={message.mediaUrl}
+                                    href={getFullMediaUrl(message.mediaUrl)}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="chat-bubble-media-document-card"
@@ -645,7 +747,7 @@ export const Chat: React.FC = () => {
 
                             {(!message.mediaUrl || (message.text && message.text.replace(/\[Attachment:[^\]]+\]\s*/g, '').trim().length > 0)) && (
                               <p className="chat-bubble-text-outgoing">
-                                {renderMessageText(message.text, msgSearchQuery)}
+                                {renderRichMessageContent(message.text, msgSearchQuery)}
                               </p>
                             )}
 

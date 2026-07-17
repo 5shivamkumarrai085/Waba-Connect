@@ -895,7 +895,22 @@ public class WhatsAppCloudApiService : IWhatsAppService
         {
             // 1. Download file from our local server or local path
             byte[] fileBytes;
-            if (mediaUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            if (mediaUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase) && mediaUrl.Contains(";base64,"))
+            {
+                var prefix = mediaUrl.Substring(0, mediaUrl.IndexOf(";base64,"));
+                var parsedMime = prefix.Substring(5); // e.g. "image/jpeg"
+                var base64Ext = parsedMime.Split('/').LastOrDefault();
+                if (base64Ext == "jpeg") base64Ext = "jpg";
+                
+                if (string.IsNullOrEmpty(Path.GetExtension(filename)))
+                {
+                    filename = $"{filename}.{base64Ext ?? "jpg"}";
+                }
+
+                var base64Part = mediaUrl.Substring(mediaUrl.IndexOf(";base64,") + 8);
+                fileBytes = Convert.FromBase64String(base64Part);
+            }
+            else if (mediaUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             {
                 using var tempClient = new HttpClient();
                 fileBytes = await tempClient.GetByteArrayAsync(mediaUrl);

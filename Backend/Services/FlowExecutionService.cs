@@ -186,7 +186,32 @@ public class FlowExecutionService : IFlowExecutionService
         if (!string.IsNullOrEmpty(outboundText))
         {
             await LogBotMessageAsync(state.PhoneNumber, "Outgoing", outboundText, state.FlowId, nextNode.NodeId);
-            await SyncToChatMessagesAsync(state.PhoneNumber, outboundText);
+            
+            string? mediaUrl = null;
+            string? mediaType = null;
+            string? mediaFileName = null;
+
+            if (nextNode.NodeType == "Media Message")
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(nextNode.DataJson);
+                    string rawUrl = doc.RootElement.TryGetProperty("mediaUrl", out var urlProp) ? urlProp.GetString() ?? "" : "";
+                    mediaType = doc.RootElement.TryGetProperty("mediaType", out var typeProp) ? typeProp.GetString() ?? "image" : "image";
+                    
+                    if (!string.IsNullOrEmpty(rawUrl))
+                    {
+                        mediaUrl = SaveBase64ToLocalFile(rawUrl, nextNode.NodeId);
+                        mediaFileName = string.Equals(mediaType, "image", StringComparison.OrdinalIgnoreCase) ? "image.jpg" : "file";
+                    }
+                }
+                catch
+                {
+                    // Ignore parsing issues
+                }
+            }
+
+            await SyncToChatMessagesAsync(state.PhoneNumber, outboundText, mediaUrl, mediaType, mediaFileName);
         }
 
         await ProcessResultAsync(state, nextResult, nodes, edges, incomingMessage);
@@ -214,15 +239,45 @@ public class FlowExecutionService : IFlowExecutionService
             {
                 string url = doc.RootElement.TryGetProperty("mediaUrl", out var p) ? p.GetString() ?? "" : "";
                 string type = doc.RootElement.TryGetProperty("mediaType", out var t) ? t.GetString() ?? "file" : "file";
+                if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    return $"[Sent {type}: base64 data]";
+                }
                 return $"[Sent {type}: {url}]";
             }
             if (node.NodeType == "Location")
             {
                 string name = doc.RootElement.TryGetProperty("locationName", out var p) ? p.GetString() ?? "" : "";
-                return $"[Sent Location: {name}]";
+                string address = doc.RootElement.TryGetProperty("locationAddress", out var addr) ? addr.GetString() ?? "" : "";
+                string latitude = "";
+                if (doc.RootElement.TryGetProperty("latitude", out var lat))
+                {
+                    latitude = lat.ValueKind == JsonValueKind.Number ? lat.GetDouble().ToString() : lat.GetString() ?? "";
+                }
+                string longitude = "";
+                if (doc.RootElement.TryGetProperty("longitude", out var lng))
+                {
+                    longitude = lng.ValueKind == JsonValueKind.Number ? lng.GetDouble().ToString() : lng.GetString() ?? "";
+                }
+                return $"[Location|Name: {name}|Addr: {address}|Lat: {latitude}|Lng: {longitude}]";
             }
             if (node.NodeType == "Contact Card")
             {
+                var contacts = new List<LocalContactItem>();
+                if (doc.RootElement.TryGetProperty("contacts", out var contactsProp))
+                {
+                    var parsed = JsonSerializer.Deserialize<List<LocalContactItem>>(contactsProp.GetRawText(), new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                    });
+                    if (parsed != null) contacts = parsed;
+                }
+
+                if (contacts.Any())
+                {
+                    var c = contacts.First();
+                    return $"[ContactCard|Name: {c.FirstName} {c.LastName}|Phone: {c.Phone}|Email: {c.Email}|Org: {c.Company} - {c.Title}]";
+                }
                 return "[Sent Contact Card]";
             }
             if (node.NodeType == "Call to Action")
@@ -254,7 +309,12 @@ public class FlowExecutionService : IFlowExecutionService
         await _dbContext.SaveChangesAsync();
     }
 
-    private async Task SyncToChatMessagesAsync(string phone, string text)
+    private async Task SyncToChatMessagesAsync(
+        string phone, 
+        string text, 
+        string? mediaUrl = null, 
+        string? mediaType = null, 
+        string? mediaFileName = null)
     {
         try
         {
@@ -275,7 +335,7 @@ public class FlowExecutionService : IFlowExecutionService
                 await _dbContext.SaveChangesAsync();
             }
 
-            conversation.LastMessageText = text;
+            conversation.LastMessageText = string.IsNullOrEmpty(mediaUrl) ? text : $"[Sent {mediaType ?? "media"}]";
             conversation.LastMessageAt = DateTime.UtcNow;
 
             _dbContext.ChatMessages.Add(new ChatMessage
@@ -285,6 +345,9 @@ public class FlowExecutionService : IFlowExecutionService
                 Direction = ChatMessageDirection.Outgoing,
                 Status = ChatMessageStatus.Sent,
                 Text = text,
+                MediaUrl = mediaUrl,
+                MediaType = mediaType,
+                MediaFileName = mediaFileName,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
@@ -294,5 +357,51 @@ public class FlowExecutionService : IFlowExecutionService
         {
             // Ignore sync errors
         }
+    }
+
+    private string? SaveBase64ToLocalFile(string base64DataUrl, string nodeId)
+    {
+        try
+        {
+            if (!base64DataUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase) || !base64DataUrl.Contains(";base64,"))
+            {
+                return base64DataUrl; // Already a URL or relative path
+            }
+
+            var prefix = base64DataUrl.Substring(0, base64DataUrl.IndexOf(";base64,"));
+            var mime = prefix.Substring(5); // e.g. "image/jpeg"
+            var ext = mime.Split('/').LastOrDefault() ?? "jpg";
+            if (ext == "jpeg") ext = "jpg";
+
+            var base64Part = base64DataUrl.Substring(base64DataUrl.IndexOf(";base64,") + 8);
+            var fileBytes = Convert.FromBase64String(base64Part);
+
+            var dir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "media");
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            var filename = $"media_{nodeId}_{DateTime.UtcNow.Ticks}.{ext}";
+            var absolutePath = Path.Combine(dir, filename);
+            File.WriteAllBytes(absolutePath, fileBytes);
+
+            return $"/uploads/media/{filename}";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to save base64 media locally: {ex.Message}");
+            return null;
+        }
+    }
+
+    private class LocalContactItem
+    {
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
+        public string Phone { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string? Company { get; set; }
+        public string? Title { get; set; }
     }
 }

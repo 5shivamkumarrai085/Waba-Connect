@@ -30,7 +30,11 @@ import {
   Handle, 
   Position, 
   ReactFlowProvider,
-  useReactFlow
+  useReactFlow,
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
+  type EdgeProps
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { botFlowService } from '../../services/botFlow/botFlowService'
@@ -859,16 +863,7 @@ const ListMessageNode = ({ id, data, selected }: any) => {
                         />
                       </div>
 
-                      <div className="node-input-fields" style={{ gap: '2px' }}>
-                        <label className="sub-label" style={{ fontSize: '10px', textTransform: 'none', color: '#4b5563', fontWeight: 600 }}>Value ID *</label>
-                        <input 
-                          type="text" 
-                          value={item.value || ''} 
-                          placeholder="Item Value ID" 
-                          onChange={(e) => updateItemField(secIdx, itemIdx, 'value', e.target.value)}
-                          className={!item.value?.trim() ? 'error-input' : ''}
-                        />
-                      </div>
+
 
                       {/* Connection status for list items */}
                       <div className="connection-status-wrapper" style={{ marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-start' }}>
@@ -1539,6 +1534,59 @@ const nodeTypes = {
   aiAssistant: AIAssistantNode
 }
 
+// Custom Edge with Delete Button
+function ButtonEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style = {},
+  markerEnd,
+}: EdgeProps) {
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
+  const { setEdges } = useReactFlow();
+
+  const onEdgeClick = (evt: React.MouseEvent) => {
+    evt.stopPropagation();
+    setEdges((edges) => edges.filter((edge) => edge.id !== id));
+  };
+
+  return (
+    <>
+      <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
+      <EdgeLabelRenderer>
+        <div
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            pointerEvents: 'all',
+          }}
+          className="nodrag nopan edge-delete-btn-container"
+        >
+          <button className="edge-delete-btn" onClick={onEdgeClick} title="Delete connection">
+            ×
+          </button>
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+const edgeTypes = {
+  buttonedge: ButtonEdge,
+};
+
 // ==========================================
 // 10. MAIN CANVAS DESIGNER
 // ==========================================
@@ -1791,6 +1839,7 @@ const DesignerFlow = () => {
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             fitView
           >
             <Background color="#cbd5e1" gap={16} size={1} />

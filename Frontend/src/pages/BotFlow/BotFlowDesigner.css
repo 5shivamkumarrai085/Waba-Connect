@@ -833,3 +833,39 @@
 .ai-personal-assistant + .react-flow__handle,
 .react-flow__node[data-type="aiAssistant"] .react-flow__handle { border-color: #0d9488 !important; }
 .react-flow__node[data-type="aiAssistant"] .react-flow__handle:hover { background-color: #0d9488 !important; }
+
+/* Edge Delete Button custom styling */
+.edge-delete-btn-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #ffffff;
+  border-radius: 50%;
+  padding: 1px;
+}
+
+.edge-delete-btn {
+  width: 20px;
+  height: 20px;
+  background-color: #ef4444;
+  color: #ffffff;
+  border: 1px solid #ef4444;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s, background-color 0.15s;
+  pointer-events: all;
+  line-height: 1;
+  padding: 0;
+}
+
+.edge-delete-btn:hover {
+  background-color: #dc2626;
+  border-color: #dc2626;
+  transform: scale(1.2);
+}

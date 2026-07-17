@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.DTOs.Common;
@@ -329,5 +330,93 @@ public class TemplateBotService : ITemplateBotService
                 MergeField = v.MergeField
             }).ToList()
         };
+    }
+
+    public async Task<List<string>> CheckKeywordsAsync(string keywords, int ignoreTemplateBotId, int ignoreBotFlowId)
+    {
+        var list = (keywords ?? "")
+            .Split(',')
+            .Select(k => k.Trim().ToLower())
+            .Where(k => !string.IsNullOrEmpty(k))
+            .Distinct()
+            .ToList();
+
+        var warnings = new List<string>();
+
+        if (!list.Any())
+        {
+            return warnings;
+        }
+
+        // 1. Check active Template Bots
+        var activeTemplateBots = await _dbContext.TemplateBots
+            .Where(b => b.IsActive && b.Id != ignoreTemplateBotId)
+            .ToListAsync();
+
+        foreach (var bot in activeTemplateBots)
+        {
+            var botKeywords = (bot.TriggerKeyword ?? "")
+                .Split(',')
+                .Select(k => k.Trim().ToLower())
+                .ToList();
+
+            foreach (var kw in list)
+            {
+                if (botKeywords.Contains(kw))
+                {
+                    warnings.Add($"Keyword '{kw}' is already used in Template Bot '{bot.Name}'.");
+                }
+            }
+        }
+
+        // 2. Check active Bot Flows
+        var activeBotFlows = await _dbContext.BotFlows
+            .Where(f => f.IsActive && f.Id != ignoreBotFlowId)
+            .ToListAsync();
+
+        foreach (var flow in activeBotFlows)
+        {
+            var triggerNode = await _dbContext.FlowNodes
+                .FirstOrDefaultAsync(n => n.FlowId == flow.Id && n.NodeType == "Start Trigger");
+            if (triggerNode == null) continue;
+
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(triggerNode.DataJson);
+                if (doc.RootElement.TryGetProperty("keywords", out var kwProp))
+                {
+                    var flowKeywords = new List<string>();
+                    if (kwProp.ValueKind == JsonValueKind.Array)
+                    {
+                        var parsed = JsonSerializer.Deserialize<List<string>>(kwProp.GetRawText());
+                        if (parsed != null)
+                        {
+                            flowKeywords = parsed.Select(k => k.Trim().ToLower()).ToList();
+                        }
+                    }
+                    else
+                    {
+                        flowKeywords = (kwProp.GetString() ?? "")
+                            .Split(',')
+                            .Select(k => k.Trim().ToLower())
+                            .ToList();
+                    }
+
+                    foreach (var kw in list)
+                    {
+                        if (flowKeywords.Contains(kw))
+                        {
+                            warnings.Add($"Keyword '{kw}' is already used in Bot Flow '{flow.Name}'.");
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore parsing errors of older/corrupt flows
+            }
+        }
+
+        return warnings;
     }
 }

@@ -22,4 +22,5 @@ public interface ITemplateBotService
     Task<TemplateBotResponse> CloneAsync(int id);
     
     Task<TemplateBotResponse> ToggleActiveAsync(int id);
+    Task<List<string>> CheckKeywordsAsync(string keywords, int ignoreTemplateBotId, int ignoreBotFlowId);
 }

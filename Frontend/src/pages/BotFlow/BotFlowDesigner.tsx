@@ -38,6 +38,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { botFlowService } from '../../services/botFlow/botFlowService'
+import { templateBotService } from '../../services/templateBot/templateBotService'
 import { useBotFlowStore } from './botFlowStore'
 import { toast } from 'react-hot-toast'
 import './BotFlowDesigner.css'
@@ -175,6 +176,27 @@ const StartTriggerNode = ({ id, data, selected }: any) => {
   const updateNodeData = useBotFlowStore(state => state.updateNodeData)
   const isCollapsed = data.isCollapsed || false
   const [keywordInput, setKeywordInput] = useState('')
+  const [warnings, setWarnings] = useState<string[]>([])
+  const { id: flowIdStr } = useParams<{ id: string }>()
+  const flowId = flowIdStr ? parseInt(flowIdStr, 10) : 0
+
+  useEffect(() => {
+    const checkCollisions = async () => {
+      const currentList = data.keywords || []
+      if (currentList.length === 0) {
+        setWarnings([])
+        return
+      }
+      try {
+        const activeWarnings = await templateBotService.checkKeywords(currentList.join(','), 0, flowId)
+        setWarnings(activeWarnings)
+      } catch (err) {
+        console.error('Failed to validate keywords:', err)
+      }
+    }
+    checkCollisions()
+  }, [data.keywords, flowId])
+
   const suggestions = ['hi', 'start', 'help', 'info', 'menu', 'order', 'contact', 'hello', 'support']
 
   const addKeyword = (word: string) => {
@@ -276,6 +298,17 @@ const StartTriggerNode = ({ id, data, selected }: any) => {
             ))}
           </div>
         </div>
+
+        {warnings.length > 0 && (
+          <div style={{ marginTop: '4px', padding: '6px', backgroundColor: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '4px', textAlign: 'left' }}>
+            {warnings.map((warn, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b45309', fontSize: '10px', fontWeight: 500, margin: '2px 0' }}>
+                <span>⚠️</span>
+                <span>{warn}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       
       <Handle type="source" position={Position.Right} id="output" className="canvas-node-port port-output" />

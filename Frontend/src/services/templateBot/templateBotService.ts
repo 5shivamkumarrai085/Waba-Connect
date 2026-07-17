@@ -43,5 +43,12 @@ export const templateBotService = {
   toggleTemplateBotActive: async (id: number): Promise<TemplateBot> => {
     const response = await apiClient.patch(`/TemplateBots/toggle/${id}`)
     return response.data?.data
+  },
+
+  checkKeywords: async (keywords: string, ignoreTemplateBotId = 0, ignoreBotFlowId = 0): Promise<string[]> => {
+    const response = await apiClient.get('/TemplateBots/check-keywords', {
+      params: { keywords, ignoreTemplateBotId, ignoreBotFlowId }
+    })
+    return response.data?.data || []
   }
 }

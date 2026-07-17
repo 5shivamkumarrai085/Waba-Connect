@@ -41,6 +41,24 @@ export const TemplateBotWizard: React.FC = () => {
   // Validation messages
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [isSaving, setIsSaving] = useState(false)
+  const [warnings, setWarnings] = useState<string[]>([])
+
+  useEffect(() => {
+    const checkCollisions = async () => {
+      if (keywords.length === 0) {
+        setWarnings([])
+        return
+      }
+      try {
+        const ignoreId = id ? parseInt(id, 10) : 0
+        const activeWarnings = await templateBotService.checkKeywords(keywords.join(','), ignoreId, 0)
+        setWarnings(activeWarnings)
+      } catch (err) {
+        console.error('Failed to validate keywords:', err)
+      }
+    }
+    checkCollisions()
+  }, [keywords, id])
 
   // Fetch templates list on mount
   useEffect(() => {
@@ -238,9 +256,9 @@ export const TemplateBotWizard: React.FC = () => {
         </span>
       </div>
 
-      <form className="wizard-split-layout" onSubmit={handleSubmit}>
+      <form className="wizard-split-layout" style={!selectedTemplate ? { gridTemplateColumns: '1fr' } : undefined} onSubmit={handleSubmit}>
         {/* Panel 1: Template Bot Config */}
-        <div className="wizard-panel config-panel">
+        <div className="wizard-panel config-panel" style={!selectedTemplate ? { maxWidth: '520px', margin: '0 auto', width: '100%' } : undefined}>
           <div className="panel-header">Template Bot</div>
           <div className="panel-body">
             
@@ -329,25 +347,33 @@ export const TemplateBotWizard: React.FC = () => {
                   </span>
                 ))}
               </div>
+              {warnings.length > 0 && (
+                <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '6px' }}>
+                  {warnings.map((warn, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#b45309', fontSize: '11.5px', fontWeight: 500, margin: '2px 0' }}>
+                      <span>⚠️</span>
+                      <span>{warn}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
           </div>
         </div>
 
-        {/* Panel 2: Variables Configuration */}
-        <div className="wizard-panel variables-panel">
-          <div className="panel-header">Variables</div>
-          <div className="panel-body">
-            {!selectedTemplate ? (
-              <div className="variables-empty-state">
-                Select a template to configure dynamic variables.
-              </div>
-            ) : templateVariablesList.length === 0 ? (
-              <div className="variables-alert-danger">
-                Currently, the variable is not available for this template.
-              </div>
-            ) : (
-              <div className="variables-inputs-list">
+        {selectedTemplate && (
+          <>
+            {/* Panel 2: Variables Configuration */}
+            <div className="wizard-panel variables-panel">
+              <div className="panel-header">Variables</div>
+              <div className="panel-body">
+                {templateVariablesList.length === 0 ? (
+                  <div className="variables-alert-danger">
+                    Currently, the variable is not available for this template.
+                  </div>
+                ) : (
+                  <div className="variables-inputs-list">
                 {templateVariablesList.map((pos) => {
                   const mapping = variableMappings[pos] || { value: '', mergeField: 'Name', type: 'static' }
                   return (
@@ -418,24 +444,18 @@ export const TemplateBotWizard: React.FC = () => {
             
             {/* Mock Whatsapp screen */}
             <div className="mock-chat-screen">
-              {selectedTemplate ? (
-                <div className="whatsapp-bubble">
-                  {selectedTemplate.headerContent && (
-                    <div className="bubble-header">{selectedTemplate.headerContent}</div>
-                  )}
-                  <div className="bubble-body">{getPreviewText()}</div>
-                  {selectedTemplate.footerText && (
-                    <div className="bubble-footer">{selectedTemplate.footerText}</div>
-                  )}
-                  <div className="bubble-timestamp">
-                    {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </div>
+              <div className="whatsapp-bubble">
+                {selectedTemplate.headerContent && (
+                  <div className="bubble-header">{selectedTemplate.headerContent}</div>
+                )}
+                <div className="bubble-body">{getPreviewText()}</div>
+                {selectedTemplate.footerText && (
+                  <div className="bubble-footer">{selectedTemplate.footerText}</div>
+                )}
+                <div className="bubble-timestamp">
+                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
-              ) : (
-                <div className="preview-empty-state">
-                  No preview available. Select template.
-                </div>
-              )}
+              </div>
             </div>
 
             {/* Action Save/Update button */}
@@ -449,7 +469,9 @@ export const TemplateBotWizard: React.FC = () => {
 
           </div>
         </div>
-      </form>
+      </>
+    )}
+  </form>
     </div>
   )
 }

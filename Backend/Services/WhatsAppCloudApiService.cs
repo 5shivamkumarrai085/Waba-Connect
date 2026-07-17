@@ -448,12 +448,27 @@ public class WhatsAppCloudApiService : IWhatsAppService
             try
             {
                 using var scope = _scopeFactory.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                
+                // Fetch contact using the new scoped dbContext to avoid cross-context tracking and disposed context issues
+                var dbContact = await dbContext.Contacts.FindAsync(contact.Id);
+                if (dbContact == null) return;
+
                 var executionService = scope.ServiceProvider.GetRequiredService<IFlowExecutionService>();
-                await executionService.ExecuteFlowStepAsync(normalizedPhone, text);
+                bool triggeredBotFlow = await executionService.ExecuteFlowStepAsync(normalizedPhone, text);
+                
+                if (!triggeredBotFlow)
+                {
+                    var scopedWhatsAppService = scope.ServiceProvider.GetRequiredService<IWhatsAppService>();
+                    if (scopedWhatsAppService is WhatsAppCloudApiService apiService)
+                    {
+                        await apiService.TryTriggerTemplateBotAsync(normalizedPhone, text, dbContact);
+                    }
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error executing bot flow in background task for phone {Phone}", normalizedPhone);
+                _logger.LogError(ex, "Error executing bot flow or template bot in background task for phone {Phone}", normalizedPhone);
             }
         });
     }
@@ -986,5 +1001,185 @@ public class WhatsAppCloudApiService : IWhatsAppService
             _logger.LogError(ex, "Error uploading media to WhatsApp");
             return null;
         }
+    }
+
+    public async Task<bool> TryTriggerTemplateBotAsync(string normalizedPhone, string incomingText, Contact contact)
+    {
+        try
+        {
+            var activeTemplateBots = await _dbContext.TemplateBots
+                .Where(b => b.IsActive)
+                .Include(b => b.Template)
+                .Include(b => b.Variables)
+                .ToListAsync();
+
+            var relationTypeStr = contact.Type == ContactType.Customer ? "Customer" : "Lead";
+
+            TemplateBot? matchedBot = null;
+
+            // Try to match based on exact keywords first
+            foreach (var bot in activeTemplateBots)
+            {
+                if (!string.IsNullOrEmpty(bot.RelationType) && 
+                    !string.Equals(bot.RelationType, relationTypeStr, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var botKeywords = (bot.TriggerKeyword ?? "")
+                    .Split(',')
+                    .Select(k => k.Trim().ToLower())
+                    .Where(k => !string.IsNullOrEmpty(k))
+                    .ToList();
+
+                bool isMatch = false;
+
+                if (bot.ReplyType == "On Exact Match")
+                {
+                    isMatch = botKeywords.Any(k => string.Equals(incomingText.Trim(), k, StringComparison.OrdinalIgnoreCase));
+                }
+                else if (bot.ReplyType == "When Message Contains")
+                {
+                    isMatch = botKeywords.Any(k => incomingText.ToLower().Contains(k));
+                }
+
+                if (isMatch)
+                {
+                    matchedBot = bot;
+                    break;
+                }
+            }
+
+            // If no match by keyword, check for First Message
+            if (matchedBot == null)
+            {
+                var messageCount = await _dbContext.ChatMessages
+                    .CountAsync(m => m.ContactId == contact.Id);
+                
+                bool isFirstMessage = messageCount <= 1; // Including the incoming message we just saved
+
+                foreach (var bot in activeTemplateBots)
+                {
+                    if (!string.IsNullOrEmpty(bot.RelationType) && 
+                        !string.Equals(bot.RelationType, relationTypeStr, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (bot.ReplyType == "When Lead or Client Sends First Message" && isFirstMessage)
+                    {
+                        matchedBot = bot;
+                        break;
+                    }
+                }
+            }
+
+            // Fallback to Default Reply
+            if (matchedBot == null)
+            {
+                matchedBot = activeTemplateBots.FirstOrDefault(b => 
+                    b.ReplyType == "Default Reply" && 
+                    (string.IsNullOrEmpty(b.RelationType) || string.Equals(b.RelationType, relationTypeStr, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            if (matchedBot == null)
+            {
+                return false;
+            }
+
+            // Find all variable names used in template body text
+            var templateBody = matchedBot.Template.BodyText ?? "";
+            var varMatches = System.Text.RegularExpressions.Regex.Matches(templateBody, @"\{\{(\d+)\}\}");
+            var allowedVarNames = varMatches.Cast<System.Text.RegularExpressions.Match>()
+                .Select(m => m.Groups[1].Value)
+                .ToHashSet();
+
+            // Resolve Variables
+            var resolvedVariables = new Dictionary<string, string>();
+            foreach (var v in matchedBot.Variables)
+            {
+                if (!allowedVarNames.Contains(v.VariableName))
+                {
+                    continue; // Skip variables that are not used in the body text of the template
+                }
+
+                string val = "";
+                if (!string.IsNullOrEmpty(v.VariableValue))
+                {
+                    val = v.VariableValue; // Static value
+                }
+                else if (!string.IsNullOrEmpty(v.MergeField))
+                {
+                    val = v.MergeField.ToLower() switch
+                    {
+                        "name" => contact.Name,
+                        "phone" => contact.Phone,
+                        "email" => "",
+                        _ => ""
+                    };
+                }
+
+                if (string.IsNullOrEmpty(val))
+                {
+                    val = " ";
+                }
+
+                resolvedVariables[v.VariableName] = val;
+            }
+
+            // Ensure all required parameters are present with at least a space placeholder
+            foreach (var varName in allowedVarNames)
+            {
+                if (!resolvedVariables.ContainsKey(varName))
+                {
+                    resolvedVariables[varName] = " ";
+                }
+            }
+
+            // Send Template Message
+            var sendResult = await SendTemplateMessageWithResultAsync(
+                normalizedPhone, 
+                matchedBot.Template.Name, 
+                matchedBot.Template.Language ?? "en", 
+                resolvedVariables);
+
+            if (sendResult.Success)
+            {
+                // Sync outbound template message to ChatMessages
+                string bodyText = matchedBot.Template.BodyText ?? "";
+                foreach (var v in resolvedVariables)
+                {
+                    bodyText = bodyText.Replace($"{{{{{v.Key}}}}}", v.Value);
+                }
+
+                var conversation = await _dbContext.ChatConversations.FirstOrDefaultAsync(c => c.ContactId == contact.Id);
+                if (conversation != null)
+                {
+                    conversation.LastMessageText = bodyText;
+                    conversation.LastMessageAt = DateTime.UtcNow;
+                }
+
+                _dbContext.ChatMessages.Add(new ChatMessage
+                {
+                    ConversationId = conversation?.Id ?? 0,
+                    ContactId = contact.Id,
+                    WhatsAppMessageId = sendResult.MessageId,
+                    Direction = ChatMessageDirection.Outgoing,
+                    Status = ChatMessageStatus.Sent,
+                    Text = bodyText,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+                await _dbContext.SaveChangesAsync();
+
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing template bot trigger for phone {Phone}", normalizedPhone);
+        }
+
+        return false;
     }
 }

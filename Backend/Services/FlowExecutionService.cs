@@ -31,17 +31,18 @@ public class FlowExecutionService : IFlowExecutionService
         _executors = executors;
     }
 
-    public async Task ExecuteFlowStepAsync(string phoneNumber, string incomingMessage)
+    public async Task<bool> ExecuteFlowStepAsync(string phoneNumber, string incomingMessage)
     {
         var activeState = await _stateService.GetActiveStateAsync(phoneNumber);
 
         if (activeState != null)
         {
             await ResumeFlowAsync(activeState, incomingMessage);
+            return true;
         }
         else
         {
-            await EvaluateTriggersAsync(phoneNumber, incomingMessage);
+            return await EvaluateTriggersAsync(phoneNumber, incomingMessage);
         }
     }
 
@@ -70,7 +71,7 @@ public class FlowExecutionService : IFlowExecutionService
         await ProcessResultAsync(state, result, nodes, edges, incomingMessage);
     }
 
-    private async Task EvaluateTriggersAsync(string phoneNumber, string incomingMessage)
+    private async Task<bool> EvaluateTriggersAsync(string phoneNumber, string incomingMessage)
     {
         var activeFlows = await _dbContext.BotFlows.Where(f => f.IsActive).ToListAsync();
 
@@ -96,9 +97,10 @@ public class FlowExecutionService : IFlowExecutionService
                 var result = await executor.ExecuteAsync(triggerNode, state, incomingMessage, edges);
 
                 await ProcessResultAsync(state, result, nodes, edges, incomingMessage);
-                return; 
+                return true; 
             }
         }
+        return false;
     }
 
     private bool IsTriggerMatch(FlowNode triggerNode, string message)

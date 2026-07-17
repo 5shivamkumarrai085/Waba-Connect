@@ -136,4 +136,14 @@ public class TemplateBotsController : ControllerBase
             return NotFound(new ApiResponse<TemplateBotResponse> { Success = false, Message = ex.Message });
         }
     }
+
+    [HttpGet("check-keywords")]
+    public async Task<ActionResult<ApiResponse<List<string>>>> CheckKeywords(
+        [FromQuery] string keywords,
+        [FromQuery] int ignoreTemplateBotId = 0,
+        [FromQuery] int ignoreBotFlowId = 0)
+    {
+        var warnings = await _botService.CheckKeywordsAsync(keywords, ignoreTemplateBotId, ignoreBotFlowId);
+        return Ok(new ApiResponse<List<string>> { Success = true, Data = warnings });
+    }
 }

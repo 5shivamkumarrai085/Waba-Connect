@@ -4,5 +4,5 @@ namespace WhatsAppCampaignApi.Services.Interfaces;
 
 public interface IFlowExecutionService
 {
-    Task ExecuteFlowStepAsync(string phoneNumber, string incomingMessage);
+    Task<bool> ExecuteFlowStepAsync(string phoneNumber, string incomingMessage);
 }

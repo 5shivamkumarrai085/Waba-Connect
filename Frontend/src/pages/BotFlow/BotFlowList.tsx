@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { Plus, RefreshCw, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { useBotFlowStore } from '../../store/botFlowStore'
@@ -250,7 +251,7 @@ export const BotFlowList: React.FC = () => {
       </div>
 
       {/* Creation and editing modal popup */}
-      {isModalOpen && (
+      {isModalOpen && createPortal(
         <div className="modal-backdrop">
           <div className="bot-flow-popup-card">
             <div className="popup-header">
@@ -295,7 +296,8 @@ export const BotFlowList: React.FC = () => {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Delete confirmation modal */}

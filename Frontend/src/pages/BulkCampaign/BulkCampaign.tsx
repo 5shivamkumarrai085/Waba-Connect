@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { UploadArea } from '../../components/UploadArea/UploadArea'
 import { campaignUploadService } from '../../services/campaigns/campaignUploadService'
@@ -658,7 +659,7 @@ export const BulkCampaign: React.FC = () => {
       )}
 
       {/* Download Sample modal popup dialog */}
-      {isSampleModalOpen && (
+      {isSampleModalOpen && createPortal(
         <div className="modal-overlay-custom" onClick={() => setIsSampleModalOpen(false)}>
           <div className="modal-content-custom" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-custom">
@@ -734,7 +735,8 @@ export const BulkCampaign: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

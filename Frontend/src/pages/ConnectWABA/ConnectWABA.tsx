@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useWabaStore } from '../../store/wabaStore'
 // mockConnectionRequirements removed, defining inline
 import { CopyField } from '../../components/CopyField/CopyField'
@@ -513,7 +514,7 @@ export const ConnectWABA: React.FC = () => {
         onCancel={() => setIsDisconnectModalOpen(false)}
       />
 
-      {isQrModalOpen && phoneInfo && (
+      {isQrModalOpen && phoneInfo && createPortal(
         <div className="modal-overlay">
           <div className="qr-modal-container fade-in-up">
             <div className="qr-modal-header">
@@ -603,7 +604,8 @@ export const ConnectWABA: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

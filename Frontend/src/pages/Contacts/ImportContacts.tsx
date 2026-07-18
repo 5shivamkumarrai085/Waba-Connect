@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useContactStore } from '../../store/contactStore'
 import { UploadArea } from '../../components/UploadArea/UploadArea'
@@ -84,7 +85,7 @@ export const ImportContacts: React.FC = () => {
       </div>
 
       {/* Download Sample modal popup dialog */}
-      {isSampleModalOpen && (
+      {isSampleModalOpen && createPortal(
         <div className="modal-overlay-custom" onClick={() => setIsSampleModalOpen(false)}>
           <div className="modal-content-custom" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-custom">
@@ -165,7 +166,8 @@ export const ImportContacts: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

@@ -1,4 +1,5 @@
 import React from 'react'
+import { createPortal } from 'react-dom'
 import { AlertTriangle } from 'lucide-react'
 import './ConfirmationModal.css'
 
@@ -27,7 +28,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 }) => {
   if (!isOpen) return null
 
-  return (
+  return createPortal(
     <div className="modal-overlay">
       <div className="modal-container fade-in-up">
         <div className="modal-header-row">
@@ -51,6 +52,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

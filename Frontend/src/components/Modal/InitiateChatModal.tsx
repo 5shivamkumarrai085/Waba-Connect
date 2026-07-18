@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { X, MessageSquare } from 'lucide-react'
 import { templateService } from '../../services/templates/templateService'
 import { chatService } from '../../services/chat/chatService'
@@ -128,7 +129,7 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
     }
   }
 
-  return (
+  return createPortal(
     <div className="modal-overlay">
       <div className={`initiate-chat-container fade-in-up ${selectedTemplate ? 'expanded' : ''}`}>
         <div className="initiate-chat-header">
@@ -224,6 +225,7 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

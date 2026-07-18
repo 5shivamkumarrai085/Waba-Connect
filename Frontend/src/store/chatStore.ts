@@ -1,5 +1,6 @@
 // src/store/chatStore.ts
 import { create } from 'zustand'
+import { toast } from 'react-hot-toast'
 import { chatService } from '../services/chat/chatService'
 import type { ChatAccount, Conversation, Message } from '../types/chat'
 
@@ -202,6 +203,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     } catch (err) {
       console.error('Error sending message:', err)
       const errorMessage = err instanceof Error ? err.message : 'Failed to send message.'
+      toast.error(errorMessage)
       const failedMessage: Message = {
         id: tempId,
         type: 'outgoing',

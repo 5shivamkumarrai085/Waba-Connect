@@ -29,6 +29,7 @@ public class ChatConversationResponse
     public string? Source { get; set; }
     public DateTime ContactCreatedAt { get; set; }
     public List<string> ContactGroups { get; set; } = [];
+    public bool ContactIsActive { get; set; }
 }
 
 public class ChatMessageResponse

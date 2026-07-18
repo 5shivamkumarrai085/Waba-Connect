@@ -457,6 +457,11 @@ export const Chat: React.FC = () => {
     const text = messageText.trim()
     if (!text || isSending) return
 
+    if (activeConversation && activeConversation.contactIsActive === false) {
+      toast.error('Cannot send message to an inactive contact.', { duration: 3000 })
+      return
+    }
+
     setMessageText('')
     await sendMessage(text)
   }
@@ -628,7 +633,17 @@ export const Chat: React.FC = () => {
                   <Info size={18} className={`chat-header-action-icon ${showInfoDrawer ? 'active' : ''}`} onClick={() => setShowInfoDrawer(!showInfoDrawer)} />
                 </span>
                 <span title="Initiate Chat">
-                  <MessageSquare size={18} className="chat-header-action-icon whatsapp-green" onClick={() => setIsTemplateModalOpen(true)} />
+                  <MessageSquare 
+                    size={18} 
+                    className="chat-header-action-icon whatsapp-green" 
+                    onClick={() => {
+                      if (activeConversation && activeConversation.contactIsActive === false) {
+                        toast.error('Cannot send message to an inactive contact.', { duration: 3000 })
+                        return
+                      }
+                      setIsTemplateModalOpen(true)
+                    }} 
+                  />
                 </span>
                 
                 <div className="chat-header-more-menu-wrapper">

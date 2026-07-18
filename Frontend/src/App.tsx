@@ -36,7 +36,19 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <PageLayout>
-        <Toaster position="top-right" />
+        <Toaster 
+          position="top-right" 
+          containerStyle={{ zIndex: 100000 }}
+          toastOptions={{
+            duration: 3000,
+            error: {
+              duration: 3000
+            },
+            success: {
+              duration: 3000
+            }
+          }}
+        />
         <Suspense fallback={<LoadingFallback />}>
           <Routes>
             <Route path="/" element={<Dashboard />} />

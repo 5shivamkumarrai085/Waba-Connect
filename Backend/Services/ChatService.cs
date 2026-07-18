@@ -398,7 +398,8 @@ public class ChatService : IChatService
             ContactGroups = conversation.Contact.GroupMemberships?
                 .Select(gm => gm.Group?.Name ?? "")
                 .Where(name => !string.IsNullOrEmpty(name))
-                .ToList() ?? new List<string>()
+                .ToList() ?? new List<string>(),
+            ContactIsActive = conversation.Contact.IsActive
         };
     }
 

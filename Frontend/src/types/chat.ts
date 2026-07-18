@@ -17,6 +17,7 @@ export interface Conversation {
   source?: string | null
   contactCreatedAt?: string
   contactGroups?: string[]
+  contactIsActive?: boolean
 }
 
 export interface Message {

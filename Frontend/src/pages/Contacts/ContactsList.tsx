@@ -238,6 +238,10 @@ export const ContactsList: React.FC = () => {
     if (selectedIds.length === 1) {
       const selectedContact = contacts.find(c => c.id === selectedIds[0])
       if (selectedContact) {
+        if (!selectedContact.active) {
+          toast.error('Cannot send message to an inactive contact.', { duration: 3000 })
+          return
+        }
         setSelectedContactForTemplate({
           id: selectedContact.id,
           name: selectedContact.name || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim(),
@@ -708,6 +712,10 @@ export const ContactsList: React.FC = () => {
                             <span 
                               className="contact-whatsapp-icon"
                               onClick={() => {
+                                if (!contact.active) {
+                                  toast.error('Cannot send message to an inactive contact.', { duration: 3000 })
+                                  return
+                                }
                                 setSelectedContactForTemplate({
                                   id: contact.id,
                                   name: contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),

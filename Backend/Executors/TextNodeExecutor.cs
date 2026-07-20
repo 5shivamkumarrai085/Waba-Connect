@@ -68,15 +68,9 @@ public class TextNodeExecutor : INodeExecutor
             }
         }
 
-        // Send message
-        await _whatsAppService.SendTextMessageAsync(state.PhoneNumber, messageText);
-
         var nextEdge = outgoingEdges.FirstOrDefault(e => e.Source == node.NodeId);
-        if (nextEdge == null)
-        {
-            return NodeExecutionResult.Complete();
-        }
-
-        return NodeExecutionResult.Next(nextEdge.Target);
+        var result = nextEdge == null ? NodeExecutionResult.Complete() : NodeExecutionResult.Next(nextEdge.Target);
+        result.OutboundMessageText = messageText;
+        return result;
     }
 }

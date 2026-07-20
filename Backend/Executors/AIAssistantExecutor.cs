@@ -67,8 +67,6 @@ public class AIAssistantExecutor : INodeExecutor
         // Simulate AI assistant text response generation
         string responseText = $"[AI Assistant - {aiModel}]: Thank you for your message. Running under instructions: \"{instructions}\". You asked: \"{incomingMessage}\". How can I help you further?";
 
-        await _whatsAppService.SendTextMessageAsync(state.PhoneNumber, responseText);
-
         // Check if there is an outgoing connection. If so, advance.
         var nextEdge2 = outgoingEdges.FirstOrDefault(e => e.Source == node.NodeId);
         var result = nextEdge2 == null ? NodeExecutionResult.Pause(node.NodeId) : NodeExecutionResult.Next(nextEdge2.Target);

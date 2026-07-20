@@ -70,14 +70,9 @@ public class CallToActionExecutor : INodeExecutor
 
         string formattedText = string.Join("\n\n", lines);
 
-        await _whatsAppService.SendTextMessageAsync(state.PhoneNumber, formattedText);
-
         var nextEdge = outgoingEdges.FirstOrDefault(e => e.Source == node.NodeId);
-        if (nextEdge == null)
-        {
-            return NodeExecutionResult.Complete();
-        }
-
-        return NodeExecutionResult.Next(nextEdge.Target);
+        var result = nextEdge == null ? NodeExecutionResult.Complete() : NodeExecutionResult.Next(nextEdge.Target);
+        result.OutboundMessageText = formattedText;
+        return result;
     }
 }

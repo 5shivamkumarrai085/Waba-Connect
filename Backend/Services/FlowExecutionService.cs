@@ -18,17 +18,20 @@ public class FlowExecutionService : IFlowExecutionService
     private readonly IFlowLoaderService _flowLoader;
     private readonly IConversationStateService _stateService;
     private readonly IEnumerable<INodeExecutor> _executors;
+    private readonly IWhatsAppService _whatsAppService;
 
     public FlowExecutionService(
         AppDbContext dbContext,
         IFlowLoaderService flowLoader,
         IConversationStateService stateService,
-        IEnumerable<INodeExecutor> executors)
+        IEnumerable<INodeExecutor> executors,
+        IWhatsAppService whatsAppService)
     {
         _dbContext = dbContext;
         _flowLoader = flowLoader;
         _stateService = stateService;
         _executors = executors;
+        _whatsAppService = whatsAppService;
     }
 
     public async Task<bool> ExecuteFlowStepAsync(string phoneNumber, string incomingMessage)
@@ -350,12 +353,29 @@ public class FlowExecutionService : IFlowExecutionService
             conversation.LastMessageText = string.IsNullOrEmpty(mediaUrl) ? text : $"[Sent {mediaType ?? "media"}]";
             conversation.LastMessageAt = DateTime.UtcNow;
 
+            WhatsAppSendResult sendResult;
+            if (!string.IsNullOrEmpty(mediaUrl) && !string.IsNullOrEmpty(mediaType))
+            {
+                sendResult = await _whatsAppService.SendMediaMessageAsync(
+                    normalizedPhone,
+                    mediaUrl,
+                    mediaType,
+                    mediaFileName,
+                    text);
+            }
+            else
+            {
+                sendResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, text);
+            }
+
             _dbContext.ChatMessages.Add(new ChatMessage
             {
                 ConversationId = conversation.Id,
                 ContactId = contact.Id,
+                WhatsAppMessageId = sendResult.Success ? sendResult.MessageId : null,
                 Direction = ChatMessageDirection.Outgoing,
-                Status = ChatMessageStatus.Sent,
+                Status = sendResult.Success ? ChatMessageStatus.Sent : ChatMessageStatus.Failed,
+                ErrorMessage = sendResult.Success ? null : sendResult.ErrorMessage,
                 Text = text,
                 MediaUrl = mediaUrl,
                 MediaType = mediaType,

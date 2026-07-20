@@ -144,7 +144,7 @@ public class BotRouterService : IBotRouterService
                 string stopConfirmation = "AI Personal Assistant stopped.";
                 var sendResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, stopConfirmation);
 
-                await LogOutgoingMessageAsync(contact, sendResult.MessageId, stopConfirmation);
+                await LogOutgoingMessageAsync(contact, sendResult, stopConfirmation);
                 return true;
             }
         }
@@ -265,7 +265,7 @@ public class BotRouterService : IBotRouterService
 
                     // Treat as static reply fallback
                     var sendResult = await _messageBotExecutor.ExecuteReplyAsync(matchedBot, normalizedPhone);
-                    await LogOutgoingMessageAsync(contact, sendResult.MessageId, matchedBot.ReplyText);
+                    await LogOutgoingMessageAsync(contact, sendResult, matchedBot.ReplyText);
                 }
             }
             else
@@ -293,7 +293,7 @@ public class BotRouterService : IBotRouterService
 
                 await LogOutgoingMessageAsync(
                     contact, 
-                    sendResult.MessageId, 
+                    sendResult, 
                     textLog, 
                     matchedBot.OptionType.Equals("Files", StringComparison.OrdinalIgnoreCase) ? matchedBot.FileUrl : null,
                     matchedBot.OptionType.Equals("Files", StringComparison.OrdinalIgnoreCase) ? matchedBot.FileType : null,
@@ -346,7 +346,7 @@ public class BotRouterService : IBotRouterService
             _logger.LogError("Cannot run Personal Assistant completion because Groq API Key is not configured.");
             string errReply = "AI assistant configuration error. Please contact administration.";
             var errResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, errReply);
-            await LogOutgoingMessageAsync(contact, errResult.MessageId, errReply);
+            await LogOutgoingMessageAsync(contact, errResult, errReply);
             return;
         }
 
@@ -356,20 +356,20 @@ public class BotRouterService : IBotRouterService
             string replyText = string.IsNullOrEmpty(footer) ? aiResponse : $"{aiResponse}\n\n{footer}";
 
             var sendResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, replyText);
-            await LogOutgoingMessageAsync(contact, sendResult.MessageId, replyText);
+            await LogOutgoingMessageAsync(contact, sendResult, replyText);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to call Groq completions API for phone {Phone}", normalizedPhone);
             string errReply = "An error occurred while generating AI response. Please try again later.";
             var errResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, errReply);
-            await LogOutgoingMessageAsync(contact, errResult.MessageId, errReply);
+            await LogOutgoingMessageAsync(contact, errResult, errReply);
         }
     }
 
     private async Task LogOutgoingMessageAsync(
         Contact contact, 
-        string? whatsAppMessageId, 
+        WhatsAppSendResult sendResult, 
         string text, 
         string? mediaUrl = null, 
         string? mediaType = null, 
@@ -401,9 +401,10 @@ public class BotRouterService : IBotRouterService
         {
             ConversationId = conversation.Id,
             ContactId = contact.Id,
-            WhatsAppMessageId = whatsAppMessageId,
+            WhatsAppMessageId = sendResult.Success ? sendResult.MessageId : null,
             Direction = ChatMessageDirection.Outgoing,
-            Status = ChatMessageStatus.Sent,
+            Status = sendResult.Success ? ChatMessageStatus.Sent : ChatMessageStatus.Failed,
+            ErrorMessage = sendResult.Success ? null : sendResult.ErrorMessage,
             Text = text,
             MediaUrl = mediaUrl,
             MediaType = mediaType,

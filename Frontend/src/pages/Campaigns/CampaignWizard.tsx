@@ -164,6 +164,11 @@ export const CampaignWizard: React.FC = () => {
 
   // Step 2 Filtered contacts logic
   const filteredContacts = contactsList.filter((c) => {
+    if (wizardForm.relationType && wizardForm.relationType !== 'All') {
+      const selectedRel = wizardForm.relationType.toLowerCase().trim()
+      const contactType = (c.type || (c as any).relationType || '').toLowerCase().trim()
+      if (contactType !== selectedRel) return false
+    }
     if (wizardForm.contactsFilterStatus !== 'All') {
       if (c.status !== wizardForm.contactsFilterStatus) return false
     }
@@ -302,7 +307,7 @@ export const CampaignWizard: React.FC = () => {
   }
 
   // Count final recipients count based on selection states
-  const finalRecipientsCount = wizardForm.selectAllContacts ? contactsList.length : wizardForm.selectedContactIds.length
+  const finalRecipientsCount = wizardForm.selectAllContacts ? filteredContacts.length : wizardForm.selectedContactIds.length
 
   return (
     <div className="fade-in">
@@ -420,7 +425,7 @@ export const CampaignWizard: React.FC = () => {
                         </div>
                       </div>
                       <div className="contacts-controls-right">
-                        <span className="contacts-count-val">{contactsList.length}</span>
+                        <span className="contacts-count-val">{filteredContacts.length}</span>
                         <span className="upload-sub-text">Contacts</span>
                       </div>
                     </div>

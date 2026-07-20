@@ -1163,6 +1163,57 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 });
                 await _dbContext.SaveChangesAsync();
 
+                // If template bot has an attached file / PDF / document, send the attachment media message
+                var fileVar = matchedBot.Variables.FirstOrDefault(v => v.VariableName.Equals("file", StringComparison.OrdinalIgnoreCase));
+                if (fileVar != null && !string.IsNullOrWhiteSpace(fileVar.VariableValue))
+                {
+                    string rawUrl = fileVar.VariableValue.Trim();
+                    string fileName = !string.IsNullOrWhiteSpace(fileVar.MergeField) 
+                        ? fileVar.MergeField 
+                        : rawUrl.Substring(rawUrl.LastIndexOf('/') + 1);
+
+                    string mediaType = "document";
+                    string ext = Path.GetExtension(rawUrl).ToLowerInvariant();
+                    if (ext is ".jpg" or ".jpeg" or ".png" or ".webp")
+                    {
+                        mediaType = "image";
+                    }
+                    else if (ext is ".mp4" or ".3gp")
+                    {
+                        mediaType = "video";
+                    }
+
+                    var mediaSendResult = await SendMediaMessageAsync(
+                        normalizedPhone,
+                        rawUrl,
+                        mediaType,
+                        fileName,
+                        null);
+
+                    if (conversation != null)
+                    {
+                        conversation.LastMessageText = $"[Sent {mediaType}: {fileName}]";
+                        conversation.LastMessageAt = DateTime.UtcNow;
+                    }
+
+                    _dbContext.ChatMessages.Add(new ChatMessage
+                    {
+                        ConversationId = conversation?.Id ?? 0,
+                        ContactId = contact.Id,
+                        WhatsAppMessageId = mediaSendResult.Success ? mediaSendResult.MessageId : null,
+                        Direction = ChatMessageDirection.Outgoing,
+                        Status = mediaSendResult.Success ? ChatMessageStatus.Sent : ChatMessageStatus.Failed,
+                        ErrorMessage = mediaSendResult.Success ? null : mediaSendResult.ErrorMessage,
+                        Text = $"[Attachment: {fileName}]",
+                        MediaUrl = rawUrl,
+                        MediaType = mediaType,
+                        MediaFileName = fileName,
+                        CreatedAt = DateTime.UtcNow.AddMilliseconds(100),
+                        UpdatedAt = DateTime.UtcNow.AddMilliseconds(100)
+                    });
+                    await _dbContext.SaveChangesAsync();
+                }
+
                 return true;
             }
         }

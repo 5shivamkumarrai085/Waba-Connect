@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, X } from 'lucide-react'
+import { ArrowLeft, X, UploadCloud, FileText, Trash2, Loader2 } from 'lucide-react'
 import { templateBotService } from '../../services/templateBot/templateBotService'
 import { templateService } from '../../services/templates/templateService'
+import { campaignService } from '../../services/campaigns/campaignService'
 import { toast } from 'react-hot-toast'
 import type { Template } from '../../types/templates'
 import type { TemplateBotVariable } from '../../types/templateBot'
@@ -33,6 +34,11 @@ export const TemplateBotWizard: React.FC = () => {
     mergeField: string
     type: 'static' | 'merge'
   }>>({})
+
+  // File / PDF Attachment states
+  const [fileUrl, setFileUrl] = useState('')
+  const [fileName, setFileName] = useState('')
+  const [uploadingFile, setUploadingFile] = useState(false)
 
   // Database template models
   const [templates, setTemplates] = useState<Template[]>([])
@@ -91,16 +97,24 @@ export const TemplateBotWizard: React.FC = () => {
             setKeywords(bot.triggerKeyword.split(',').map((k: string) => k.trim()).filter(Boolean))
           }
 
-          // Restore variable mappings
+          // Restore variable mappings and file attachments
           const mappings: Record<number, { value: string; mergeField: string; type: 'static' | 'merge' }> = {}
           if (bot.variables) {
             bot.variables.forEach((v) => {
-              const pos = parseInt(v.variableName, 10)
-              if (!isNaN(pos)) {
-                mappings[pos] = {
-                  value: v.variableValue || '',
-                  mergeField: v.mergeField || '',
-                  type: v.mergeField ? 'merge' : 'static'
+              if (v.variableName === 'file') {
+                if (v.variableValue) {
+                  setFileUrl(v.variableValue)
+                  const fName = v.mergeField || v.variableValue.substring(v.variableValue.lastIndexOf('/') + 1)
+                  setFileName(fName)
+                }
+              } else {
+                const pos = parseInt(v.variableName, 10)
+                if (!isNaN(pos)) {
+                  mappings[pos] = {
+                    value: v.variableValue || '',
+                    mergeField: v.mergeField || '',
+                    type: v.mergeField ? 'merge' : 'static'
+                  }
                 }
               }
             })
@@ -195,6 +209,14 @@ export const TemplateBotWizard: React.FC = () => {
         mergeField: map.type === 'merge' ? map.mergeField : undefined
       }
     })
+
+    if (fileUrl) {
+      variablesPayload.push({
+        variableName: 'file',
+        variableValue: fileUrl,
+        mergeField: fileName || 'file'
+      })
+    }
 
     const payload = {
       name: name.trim(),
@@ -366,76 +388,161 @@ export const TemplateBotWizard: React.FC = () => {
           <>
             {/* Panel 2: Variables Configuration */}
             <div className="wizard-panel variables-panel">
-              <div className="panel-header">Variables</div>
+              <div className="panel-header">Variables & Attachments</div>
               <div className="panel-body">
                 {templateVariablesList.length === 0 ? (
-                  <div className="variables-alert-danger">
-                    Currently, the variable is not available for this template.
+                  <div className="variables-alert-danger" style={{ marginBottom: '16px' }}>
+                    Currently, no text variable is available for this template body.
                   </div>
                 ) : (
                   <div className="variables-inputs-list">
-                {templateVariablesList.map((pos) => {
-                  const mapping = variableMappings[pos] || { value: '', mergeField: 'Name', type: 'static' }
-                  return (
-                    <div key={pos} className="variable-row-card">
-                      <div className="variable-row-header">
-                        Variable {"{{"}{pos}{"}}"}
-                      </div>
-                      
-                      <div className="variable-row-type-select">
-                        <label>
-                          <input
-                            type="radio"
-                            disabled={isViewMode}
-                            name={`var-type-${pos}`}
-                            checked={mapping.type === 'static'}
-                            onChange={() => handleVariableChange(pos, 'type', 'static')}
-                          />
-                          Static Value
-                        </label>
-                        <label>
-                          <input
-                            type="radio"
-                            disabled={isViewMode}
-                            name={`var-type-${pos}`}
-                            checked={mapping.type === 'merge'}
-                            onChange={() => handleVariableChange(pos, 'type', 'merge')}
-                          />
-                          Contact Field
-                        </label>
-                      </div>
+                    {templateVariablesList.map((pos) => {
+                      const mapping = variableMappings[pos] || { value: '', mergeField: 'Name', type: 'static' }
+                      return (
+                        <div key={pos} className="variable-row-card">
+                          <div className="variable-row-header">
+                            Variable {"{{"}{pos}{"}}"}
+                          </div>
+                          
+                          <div className="variable-row-type-select">
+                            <label>
+                              <input
+                                type="radio"
+                                disabled={isViewMode}
+                                name={`var-type-${pos}`}
+                                checked={mapping.type === 'static'}
+                                onChange={() => handleVariableChange(pos, 'type', 'static')}
+                              />
+                              Static Value
+                            </label>
+                            <label>
+                              <input
+                                type="radio"
+                                disabled={isViewMode}
+                                name={`var-type-${pos}`}
+                                checked={mapping.type === 'merge'}
+                                onChange={() => handleVariableChange(pos, 'type', 'merge')}
+                              />
+                              Contact Field
+                            </label>
+                          </div>
 
-                      {mapping.type === 'static' ? (
-                        <div className="form-group">
-                          <input
-                            type="text"
-                            disabled={isViewMode}
-                            value={mapping.value}
-                            onChange={(e) => handleVariableChange(pos, 'value', e.target.value)}
-                            placeholder="Enter static text value..."
-                          />
+                          {mapping.type === 'static' ? (
+                            <div className="form-group">
+                              <input
+                                type="text"
+                                disabled={isViewMode}
+                                value={mapping.value}
+                                onChange={(e) => handleVariableChange(pos, 'value', e.target.value)}
+                                placeholder="Enter static text value..."
+                              />
+                            </div>
+                          ) : (
+                            <div className="form-group">
+                              <select
+                                disabled={isViewMode}
+                                value={mapping.mergeField}
+                                onChange={(e) => handleVariableChange(pos, 'mergeField', e.target.value)}
+                              >
+                                <option value="Name">Name</option>
+                                <option value="PhoneNumber">Phone Number</option>
+                                <option value="Email">Email</option>
+                                <option value="Company">Company</option>
+                              </select>
+                            </div>
+                          )}
                         </div>
-                      ) : (
-                        <div className="form-group">
-                          <select
-                            disabled={isViewMode}
-                            value={mapping.mergeField}
-                            onChange={(e) => handleVariableChange(pos, 'mergeField', e.target.value)}
-                          >
-                            <option value="Name">Name</option>
-                            <option value="PhoneNumber">Phone Number</option>
-                            <option value="Email">Email</option>
-                            <option value="Company">Company</option>
-                          </select>
-                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* PDF / File Attachment Section */}
+                <div className="variable-row-card media-upload-card" style={{ marginTop: '16px' }}>
+                  <div className="variable-row-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <UploadCloud size={16} /> Attach Document / Media File (PDF, Image, File)
+                  </div>
+                  <p className="upload-sub-text" style={{ fontSize: '12px', color: '#6b7280', margin: '4px 0 12px 0' }}>
+                    Attach a PDF or document to be sent automatically to the customer along with this template bot response.
+                  </p>
+
+                  {fileUrl ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: '#f3f4f6', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                        <FileText size={18} style={{ color: '#4f46e5', flexShrink: 0 }} />
+                        <span style={{ fontSize: '13px', fontWeight: 500, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {fileName || fileUrl.split('/').pop()}
+                        </span>
+                      </div>
+                      {!isViewMode && (
+                        <button
+                          type="button"
+                          onClick={() => { setFileUrl(''); setFileName('') }}
+                          style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
+                          title="Remove file"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       )}
                     </div>
-                  )
-                })}
+                  ) : (
+                    !isViewMode && (
+                      <div>
+                        <input
+                          type="file"
+                          id="template-bot-file-input"
+                          style={{ display: 'none' }}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0]
+                            if (file) {
+                              setUploadingFile(true)
+                              try {
+                                const res = await campaignService.uploadFile(file)
+                                setFileUrl(res.url)
+                                setFileName(file.name)
+                                toast.success('File attached successfully!')
+                              } catch (err) {
+                                toast.error('Failed to upload file attachment.')
+                              } finally {
+                                setUploadingFile(false)
+                              }
+                            }
+                          }}
+                        />
+                        <label
+                          htmlFor="template-bot-file-input"
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '16px',
+                            border: '2px dashed #d1d5db',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            backgroundColor: '#fafafa',
+                            transition: 'border-color 0.2s'
+                          }}
+                        >
+                          {uploadingFile ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#4f46e5' }}>
+                              <Loader2 className="animate-spin" size={18} />
+                              <span>Uploading attachment...</span>
+                            </div>
+                          ) : (
+                            <>
+                              <UploadCloud size={24} style={{ color: '#6b7280', marginBottom: '4px' }} />
+                              <span style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>Click to upload PDF or document</span>
+                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>PDF, DOCX, PNG, JPG (max 25MB)</span>
+                            </>
+                          )}
+                        </label>
+                      </div>
+                    )
+                  )}
+                </div>
               </div>
-            )}
-          </div>
-        </div>
+            </div>
 
         {/* Panel 3: Live Preview */}
         <div className="wizard-panel preview-panel">

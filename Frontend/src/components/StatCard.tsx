@@ -9,7 +9,7 @@ interface StatCardProps {
   colorClass: 'blue' | 'purple' | 'green' | 'orange'
 }
 
-export const StatCard: React.FC<StatCardProps> = ({
+export const StatCard: React.FC<StatCardProps> = React.memo(({
   icon,
   label,
   value,
@@ -34,4 +34,4 @@ export const StatCard: React.FC<StatCardProps> = ({
       </div>
     </div>
   )
-}
+})

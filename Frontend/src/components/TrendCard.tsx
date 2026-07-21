@@ -17,7 +17,7 @@ const emptyData = hours.map((hour) => ({
   value: 0
 }))
 
-export const TrendCard: React.FC<TrendCardProps> = ({ type, value: propValue, data: propData }) => {
+export const TrendCard: React.FC<TrendCardProps> = React.memo(({ type, value: propValue, data: propData }) => {
   const isDelivery = type === 'delivery'
   const title = isDelivery ? 'Delivery Trend' : 'Read Trend'
   const subtitle = isDelivery ? 'Delivery rate trend' : 'Read/open rate'
@@ -131,4 +131,6 @@ export const TrendCard: React.FC<TrendCardProps> = ({ type, value: propValue, da
       </div>
     </div>
   )
-}
+})
+
+export default TrendCard

@@ -43,6 +43,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Contact>(entity =>
         {
             entity.HasIndex(e => e.Phone).IsUnique();
+            entity.HasIndex(e => e.CreatedAt);
             entity.HasQueryFilter(e => !e.IsDeleted);
             entity.Property(e => e.Type).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
@@ -72,6 +73,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Campaign>(entity =>
         {
             entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.CreatedAt);
             entity.HasQueryFilter(e => !e.IsDeleted);
             entity.Property(e => e.RelationType).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.ScheduleType).HasConversion<string>().HasMaxLength(50);
@@ -84,6 +86,7 @@ public class AppDbContext : DbContext
         {
             entity.HasIndex(e => e.WhatsAppMessageId);
             entity.HasIndex(e => new { e.CampaignId, e.ContactId }).IsUnique();
+            entity.HasIndex(e => new { e.SentAt, e.Status });
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasOne(e => e.Campaign).WithMany(c => c.CampaignContacts).HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Contact).WithMany(c => c.CampaignContacts).HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Restrict);
@@ -103,6 +106,7 @@ public class AppDbContext : DbContext
         {
             entity.HasIndex(e => e.WhatsAppMessageId);
             entity.HasIndex(e => new { e.ConversationId, e.CreatedAt });
+            entity.HasIndex(e => e.CampaignContactId);
             entity.Property(e => e.Direction).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasOne(e => e.Conversation).WithMany(c => c.Messages).HasForeignKey(e => e.ConversationId).OnDelete(DeleteBehavior.Cascade);

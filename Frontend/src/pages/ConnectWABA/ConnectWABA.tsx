@@ -29,7 +29,6 @@ export const ConnectWABA: React.FC = () => {
       link.click();
       toast.success('Screenshot downloaded successfully!');
     } catch (error) {
-      console.error('Screenshot capture failed:', error);
       toast.error('Failed to capture screenshot.');
     }
   }

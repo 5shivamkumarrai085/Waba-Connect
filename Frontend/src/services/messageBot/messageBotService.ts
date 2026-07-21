@@ -41,7 +41,6 @@ export const messageBotService = {
       const response = await apiClient.get('/MessageBots', { params })
       return response.data?.data || { items: [], totalCount: 0, page: 1, pageSize: 10 }
     } catch (error) {
-      console.error('Error fetching message bots:', error)
       return { items: [], totalCount: 0, page: 1, pageSize: 10 }
     }
   },
@@ -51,7 +50,6 @@ export const messageBotService = {
       const response = await apiClient.get(`/MessageBots/${id}`)
       return response.data?.data || null
     } catch (error) {
-      console.error(`Error fetching message bot ${id}:`, error)
       return null
     }
   },
@@ -61,7 +59,6 @@ export const messageBotService = {
       const response = await apiClient.post('/MessageBots', data)
       return response.data?.data
     } catch (error) {
-      console.error('Error creating message bot:', error)
       throw new Error(getApiErrorMessage(error))
     }
   },
@@ -71,7 +68,6 @@ export const messageBotService = {
       const response = await apiClient.put(`/MessageBots/${id}`, data)
       return response.data?.data
     } catch (error) {
-      console.error(`Error updating message bot ${id}:`, error)
       throw new Error(getApiErrorMessage(error))
     }
   },
@@ -81,7 +77,6 @@ export const messageBotService = {
       const response = await apiClient.delete(`/MessageBots/${id}`)
       return response.data?.success || false
     } catch (error) {
-      console.error(`Error deleting message bot ${id}:`, error)
       return false
     }
   },
@@ -91,7 +86,6 @@ export const messageBotService = {
       const response = await apiClient.post(`/MessageBots/clone/${id}`)
       return response.data?.data
     } catch (error) {
-      console.error(`Error cloning message bot ${id}:`, error)
       throw new Error(getApiErrorMessage(error))
     }
   },
@@ -101,7 +95,6 @@ export const messageBotService = {
       const response = await apiClient.patch(`/MessageBots/toggle/${id}`)
       return response.data?.data || null
     } catch (error) {
-      console.error(`Error toggling message bot ${id}:`, error)
       return null
     }
   }

@@ -18,7 +18,7 @@ public class ContactGroupService : IContactGroupService
 
     public async Task<PagedResponse<GroupResponse>> GetAllAsync(PagedRequest request)
     {
-        var query = _dbContext.ContactGroups.Include(g => g.Members).AsQueryable();
+        var query = _dbContext.ContactGroups.AsNoTracking().Include(g => g.Members).AsQueryable();
 
         if (!string.IsNullOrEmpty(request.Search))
         {
@@ -45,6 +45,7 @@ public class ContactGroupService : IContactGroupService
     public async Task<GroupResponse> GetByIdAsync(int id)
     {
         var group = await _dbContext.ContactGroups
+            .AsNoTracking()
             .Include(g => g.Members)
             .FirstOrDefaultAsync(g => g.Id == id);
 

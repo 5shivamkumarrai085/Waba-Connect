@@ -133,7 +133,6 @@ export const AddContact: React.FC = () => {
           }
         }
       } catch (err) {
-        console.error('Error fetching form details dropdown values:', err)
       }
     }
 

@@ -10,10 +10,12 @@ namespace WhatsAppCampaignApi.Controllers;
 public class CampaignsController : ControllerBase
 {
     private readonly ICampaignService _campaignService;
+    private readonly IDashboardCacheService _dashboardCacheService;
 
-    public CampaignsController(ICampaignService campaignService)
+    public CampaignsController(ICampaignService campaignService, IDashboardCacheService dashboardCacheService)
     {
         _campaignService = campaignService;
+        _dashboardCacheService = dashboardCacheService;
     }
 
     [HttpGet]
@@ -39,6 +41,7 @@ public class CampaignsController : ControllerBase
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Create([FromBody] CreateCampaignRequest request)
     {
         var data = await _campaignService.CreateAsync(request);
+        _dashboardCacheService.InvalidateCache();
         return CreatedAtAction(nameof(GetById), new { id = data.Id }, new ApiResponse<CampaignResponse> { Success = true, Data = data });
     }
 
@@ -46,6 +49,7 @@ public class CampaignsController : ControllerBase
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Update(int id, [FromBody] CreateCampaignRequest request)
     {
         var data = await _campaignService.UpdateAsync(id, request);
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign updated successfully." });
     }
 
@@ -53,6 +57,7 @@ public class CampaignsController : ControllerBase
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {
         await _campaignService.DeleteAsync(id);
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse { Success = true, Message = "Campaign deleted successfully." });
     }
 
@@ -67,6 +72,7 @@ public class CampaignsController : ControllerBase
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Cancel(int id)
     {
         var data = await _campaignService.CancelAsync(id);
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign cancelled successfully." });
     }
 
@@ -74,6 +80,7 @@ public class CampaignsController : ControllerBase
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Pause(int id)
     {
         var data = await _campaignService.PauseAsync(id);
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign paused successfully." });
     }
 
@@ -81,6 +88,7 @@ public class CampaignsController : ControllerBase
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Resume(int id)
     {
         var data = await _campaignService.ResumeAsync(id);
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign resumed successfully." });
     }
 

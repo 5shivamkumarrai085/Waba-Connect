@@ -34,7 +34,6 @@ export const campaignService = {
       // Map API response to the format expected by the frontend
       return (response.data?.data?.items || []).map(mapCampaign)
     } catch (error) {
-      console.error('Failed to get campaigns:', error)
       return []
     }
   },
@@ -80,7 +79,6 @@ export const campaignService = {
         variables: c.variables || []
       }
     } catch (error) {
-      console.error(`Failed to get campaign details for ${id}:`, error)
       throw error
     }
   },
@@ -142,7 +140,6 @@ export const campaignService = {
       })
       return response.data?.data || false
     } catch (error) {
-      console.error('Error checking campaign name existence:', error)
       return false
     }
   }

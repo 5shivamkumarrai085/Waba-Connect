@@ -9,10 +9,12 @@ namespace WhatsAppCampaignApi.Controllers;
 public class WebhookController : ControllerBase
 {
     private readonly IWhatsAppService _whatsAppService;
+    private readonly IDashboardCacheService _dashboardCacheService;
 
-    public WebhookController(IWhatsAppService whatsAppService)
+    public WebhookController(IWhatsAppService whatsAppService, IDashboardCacheService dashboardCacheService)
     {
         _whatsAppService = whatsAppService;
+        _dashboardCacheService = dashboardCacheService;
     }
 
     /// <summary>
@@ -40,6 +42,10 @@ public class WebhookController : ControllerBase
     {
         // Process inside the request scope so DbContext-backed webhook updates are reliable.
         await _whatsAppService.ProcessWebhookAsync(payload);
+        
+        // Invalidate dashboard cache for real-time metric updates
+        _dashboardCacheService.InvalidateCache();
+        
         return Ok();
     }
 }

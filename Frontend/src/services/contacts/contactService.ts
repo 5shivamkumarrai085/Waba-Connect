@@ -20,7 +20,6 @@ export const contactService = {
       const items = response.data?.data?.items || []
       return items.map(mapContact)
     } catch (error) {
-      console.error('Failed to get contacts', error)
       return []
     }
   },
@@ -35,7 +34,6 @@ export const contactService = {
       }
       return []
     } catch (error) {
-      console.error('Failed to get contact groups', error)
       return []
     }
   },
@@ -184,7 +182,6 @@ export const contactService = {
         message: response.data?.message || 'Contacts imported successfully.'
       }
     } catch (err: any) {
-      console.error(err)
       const msg = err.response?.data?.message || 'wrong format csv file'
       return {
         success: false,

@@ -21,7 +21,7 @@ public class TemplateService : ITemplateService
 
     public async Task<PagedResponse<TemplateResponse>> GetAllAsync(PagedRequest request, string? status = null, string? category = null)
     {
-        var query = _dbContext.Templates.Include(t => t.Variables).AsQueryable();
+        var query = _dbContext.Templates.AsNoTracking().Include(t => t.Variables).AsQueryable();
 
         if (!string.IsNullOrEmpty(status) && Enum.TryParse<TemplateStatus>(status, true, out var parsedStatus))
         {
@@ -58,6 +58,7 @@ public class TemplateService : ITemplateService
     public async Task<TemplateResponse> GetByIdAsync(int id)
     {
         var template = await _dbContext.Templates
+            .AsNoTracking()
             .Include(t => t.Variables)
             .FirstOrDefaultAsync(t => t.Id == id);
 
@@ -213,7 +214,7 @@ public class TemplateService : ITemplateService
 
     public async Task<TemplatePreviewResponse> GetPreviewAsync(int id, Dictionary<string, string>? variableValues = null)
     {
-        var template = await _dbContext.Templates.FindAsync(id);
+        var template = await _dbContext.Templates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id);
         if (template == null)
             throw new KeyNotFoundException($"Template with ID {id} not found.");
 
@@ -229,7 +230,7 @@ public class TemplateService : ITemplateService
         else
         {
             // Use dummy values if none provided
-            var variables = await _dbContext.TemplateVariables.Where(v => v.TemplateId == id).ToListAsync();
+            var variables = await _dbContext.TemplateVariables.AsNoTracking().Where(v => v.TemplateId == id).ToListAsync();
             foreach (var v in variables)
             {
                 var val = !string.IsNullOrEmpty(v.SampleValue) ? v.SampleValue : $"[{v.Position}]";

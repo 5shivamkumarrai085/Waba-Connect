@@ -17,7 +17,6 @@ export const wabaService = {
       const response = await api.get('/dashboard')
       return response.data
     } catch (e: any) {
-      console.error("Dashboard error:", e)
       return null
     }
   },

@@ -113,7 +113,7 @@ public class BotRouterService : IBotRouterService
                     }
                     else
                     {
-                        var firstBot = await _dbContext.MessageBots.FirstOrDefaultAsync();
+                        var firstBot = await _dbContext.MessageBots.OrderBy(x => x.Id).FirstOrDefaultAsync();
                         if (firstBot != null)
                         {
                             var newInactiveSession = new AiSession

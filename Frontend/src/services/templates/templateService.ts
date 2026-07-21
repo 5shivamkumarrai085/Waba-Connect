@@ -15,7 +15,6 @@ export const templateService = {
       })
       return response.data?.data?.items || []
     } catch (error) {
-      console.error('Failed to load templates:', error)
       return []
     }
   },
@@ -65,7 +64,6 @@ export const templateService = {
       })
       return response.data?.data?.items || []
     } catch (error) {
-      console.error('Failed to sync templates:', error)
       return []
     }
   }

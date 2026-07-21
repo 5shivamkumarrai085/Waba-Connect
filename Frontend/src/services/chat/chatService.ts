@@ -26,7 +26,6 @@ export const chatService = {
       const response = await apiClient.get('/Chat/accounts')
       return response.data?.data || []
     } catch (error) {
-      console.error('Error fetching chat accounts:', error)
       return []
     }
   },
@@ -41,7 +40,6 @@ export const chatService = {
       })
       return response.data?.data || []
     } catch (error) {
-      console.error('Error fetching conversations:', error)
       return []
     }
   },
@@ -51,7 +49,6 @@ export const chatService = {
       const response = await apiClient.get(`/Chat/conversations/${id}`)
       return response.data?.data || null
     } catch (error) {
-      console.error('Error fetching conversation:', error)
       return null
     }
   },
@@ -64,7 +61,6 @@ export const chatService = {
       if (error && (error as any).name === 'CanceledError') {
         return []
       }
-      console.error('Error fetching messages:', error)
       return []
     }
   },
@@ -87,7 +83,6 @@ export const chatService = {
       })
       return response.data?.data || null
     } catch (error) {
-      console.error('Error sending message:', error)
       throw new Error(getApiErrorMessage(error))
     }
   },
@@ -101,7 +96,6 @@ export const chatService = {
       })
       return response.data?.data || null
     } catch (error) {
-      console.error('Error sending template message:', error)
       throw new Error(getApiErrorMessage(error))
     }
   },
@@ -110,7 +104,6 @@ export const chatService = {
     try {
       await apiClient.delete(`/Chat/conversations/${id}`)
     } catch (error) {
-      console.error('Error deleting conversation:', error)
       throw new Error(getApiErrorMessage(error))
     }
   }

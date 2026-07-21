@@ -11,9 +11,7 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (axios.isCancel(error)) {
-      console.log('Request cancelled:', error.message);
     } else {
-      console.error('API Error:', error?.response?.data || error.message);
     }
     return Promise.reject(error);
   }

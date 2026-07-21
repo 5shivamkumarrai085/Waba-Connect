@@ -17,12 +17,12 @@ namespace WhatsAppCampaignApi.Services
 
         public async Task<Business?> GetAsync()
         {
-            return await _context.Businesses.FirstOrDefaultAsync();
+            return await _context.Businesses.OrderBy(x => x.Id).FirstOrDefaultAsync();
         }
 
         public async Task SaveAsync(Business business)
         {
-            var existing = await _context.Businesses.FirstOrDefaultAsync();
+            var existing = await _context.Businesses.OrderBy(x => x.Id).FirstOrDefaultAsync();
             if (existing != null)
             {
                 existing.BusinessId = business.BusinessId;

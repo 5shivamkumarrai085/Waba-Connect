@@ -23,6 +23,7 @@ public class ChatService : IChatService
     public async Task<List<ChatAccountResponse>> GetAccountsAsync()
     {
         var accounts = await _dbContext.WabaPhoneNumbers
+            .AsNoTracking()
             .OrderBy(p => p.Id)
             .ToListAsync();
 
@@ -34,6 +35,7 @@ public class ChatService : IChatService
         await EnsureConversationsForActiveContactsAsync();
 
         var query = _dbContext.ChatConversations
+            .AsNoTracking()
             .Include(c => c.Contact)
                 .ThenInclude(contact => contact.GroupMemberships)
                     .ThenInclude(membership => membership.Group)
@@ -64,6 +66,7 @@ public class ChatService : IChatService
     public async Task<ChatConversationResponse> GetConversationAsync(int id)
     {
         var conversation = await _dbContext.ChatConversations
+            .AsNoTracking()
             .Include(c => c.Contact)
                 .ThenInclude(contact => contact.GroupMemberships)
                     .ThenInclude(membership => membership.Group)
@@ -299,7 +302,7 @@ public class ChatService : IChatService
             .Select(c => c.ContactId)
             .ToListAsync();
 
-        var account = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
+        var account = await _dbContext.WabaPhoneNumbers.OrderBy(x => x.Id).FirstOrDefaultAsync();
         var missingContacts = await _dbContext.Contacts
             .Where(c => !existingContactIds.Contains(c.Id))
             .Select(c => c.Id)
@@ -326,7 +329,7 @@ public class ChatService : IChatService
 
         if (conversation != null) return conversation;
 
-        var account = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
+        var account = await _dbContext.WabaPhoneNumbers.OrderBy(x => x.Id).FirstOrDefaultAsync();
         conversation = new ChatConversation
         {
             ContactId = contactId,
@@ -354,7 +357,7 @@ public class ChatService : IChatService
         if (conversation.WabaPhoneNumber != null)
             return conversation.WabaPhoneNumber;
 
-        return await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
+        return await _dbContext.WabaPhoneNumbers.OrderBy(x => x.Id).FirstOrDefaultAsync();
     }
 
     private static void UpdateConversationPreview(ChatConversation conversation, string text)

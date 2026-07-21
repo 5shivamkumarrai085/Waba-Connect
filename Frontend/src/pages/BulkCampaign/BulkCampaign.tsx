@@ -70,7 +70,6 @@ export const BulkCampaign: React.FC = () => {
         // Only allow APPROVED templates
         setTemplatesList(tpls.filter(t => t.status === 'Approved'))
       } catch (err) {
-        console.error('Failed to load templates', err)
         toast.error('Failed to load approved templates.')
       }
     }
@@ -88,7 +87,6 @@ export const BulkCampaign: React.FC = () => {
         const exists = await campaignService.checkNameExists(campaignName)
         setIsNameDuplicate(exists)
       } catch (err) {
-        console.error('Name validation error:', err)
       }
     }, 400)
 
@@ -123,7 +121,6 @@ export const BulkCampaign: React.FC = () => {
       setMediaFileName(res.fileName)
       toast.success('Media attachment uploaded successfully!')
     } catch (err) {
-      console.error(err)
       toast.error('Media upload failed.')
     } finally {
       setUploadingMedia(false)
@@ -242,7 +239,6 @@ export const BulkCampaign: React.FC = () => {
         toast.error(res.message)
       }
     } catch (err) {
-      console.error(err)
       toast.error('Failed to create CSV campaign.')
     } finally {
       setIsSubmitting(false)

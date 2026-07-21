@@ -19,7 +19,7 @@ interface ChartCardProps {
   data?: any[]
 }
 
-export const ChartCard: React.FC<ChartCardProps> = ({ data: propData }) => {
+export const ChartCard: React.FC<ChartCardProps> = React.memo(({ data: propData }) => {
   // Use propData if available, otherwise fallback to empty mode logic
   const data = propData && propData.length > 0 ? propData : emptyData
 
@@ -127,4 +127,6 @@ export const ChartCard: React.FC<ChartCardProps> = ({ data: propData }) => {
       </div>
     </div>
   )
-}
+})
+
+export default ChartCard

@@ -104,14 +104,18 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
       const fetched = await campaignService.getCampaigns()
       set({ campaigns: fetched })
     } catch (err) {
-      console.error('Error loading campaigns:', err)
     } finally {
       set({ isLoading: false })
     }
   },
   
   loadCampaignDetails: async (id) => {
-    set({ isLoading: true })
+    set({
+      isLoading: true,
+      selectedCampaign: null,
+      selectedStats: null,
+      selectedRecipients: null
+    })
     try {
       const res = await campaignService.getCampaignDetails(id)
       set({
@@ -120,7 +124,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
         selectedRecipients: res.recipients
       })
     } catch (err) {
-      console.error('Error loading campaign details:', err)
+      // Error handled by loading state
     } finally {
       set({ isLoading: false })
     }

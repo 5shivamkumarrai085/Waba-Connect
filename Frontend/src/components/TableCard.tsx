@@ -6,7 +6,7 @@ interface TableCardProps {
   data?: any[]
 }
 
-export const TableCard: React.FC<TableCardProps> = ({ type, data: propData }) => {
+export const TableCard: React.FC<TableCardProps> = React.memo(({ type, data: propData }) => {
   const isReadRate = type === 'read-rate'
   const title = isReadRate ? 'Top Campaigns — Highest Read Rate' : 'Top Campaigns — Highest Delivery Rate'
   const campaigns = propData && propData.length > 0 ? propData : []
@@ -109,4 +109,6 @@ export const TableCard: React.FC<TableCardProps> = ({ type, data: propData }) =>
       </div>
     </div>
   )
-}
+})
+
+export default TableCard

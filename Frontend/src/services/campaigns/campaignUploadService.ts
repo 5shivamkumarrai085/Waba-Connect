@@ -11,7 +11,6 @@ export interface CsvValidationData {
 
 export const campaignUploadService = {
   validateCsv: async (file: File): Promise<{ success: boolean; data?: CsvValidationData; message: string }> => {
-    console.log('[API Calling] POST /api/Campaigns/csv-validate', { fileName: file.name })
     const formData = new FormData()
     formData.append('file', file)
 
@@ -27,7 +26,6 @@ export const campaignUploadService = {
         message: res.data?.message || 'CSV validated successfully.'
       }
     } catch (err: any) {
-      console.error('CSV validation error:', err)
       const msg = err.response?.data?.message || 'cannot upload wrong format csv file'
       return {
         success: false,
@@ -45,7 +43,6 @@ export const campaignUploadService = {
     scheduledAt: string | null
     variables: any[]
   }): Promise<{ success: boolean; message: string; data?: any }> => {
-    console.log('[API Calling] POST /api/Campaigns/csv-create', payload)
     try {
       const res = await apiClient.post('/Campaigns/csv-create', payload)
       return {
@@ -54,7 +51,6 @@ export const campaignUploadService = {
         data: res.data?.data
       }
     } catch (err: any) {
-      console.error('CSV campaign creation error:', err)
       const msg = err.response?.data?.message || 'Failed to create bulk campaign.'
       return {
         success: false,

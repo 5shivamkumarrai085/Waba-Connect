@@ -76,6 +76,14 @@ export const CampaignWizard: React.FC = () => {
     let isMounted = true
 
     const fetchWizardOptions = async () => {
+      // Clear previous state immediately to prevent stale data
+      resetWizard()
+      setVar1('')
+      setVar2('')
+      setFileUrl('')
+      setFileName('')
+      setActiveStep(0)
+
       try {
         const [tpls, cts, stats, srcs] = await Promise.all([
           templateService.getTemplates(),
@@ -127,15 +135,9 @@ export const CampaignWizard: React.FC = () => {
           })
           setActiveStep(0)
         } else {
-          resetWizard()
-          setVar1('')
-          setVar2('')
-          setFileUrl('')
-          setFileName('')
-          setActiveStep(0)
+          // State already cleared at the start of fetchWizardOptions
         }
       } catch (err) {
-        console.error('Error fetching wizard options:', err)
       }
     }
 
@@ -208,7 +210,6 @@ export const CampaignWizard: React.FC = () => {
       setFileName(res.fileName)
       toast.success('File uploaded successfully!')
     } catch (err) {
-      console.error(err)
       toast.error('File upload failed.')
     } finally {
       setUploading(false)

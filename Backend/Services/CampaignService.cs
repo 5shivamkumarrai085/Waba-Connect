@@ -25,7 +25,7 @@ public class CampaignService : ICampaignService
 
     public async Task<PagedResponse<CampaignResponse>> GetAllAsync(PagedRequest request, string? status = null)
     {
-        var query = _dbContext.Campaigns.Include(c => c.Template).AsQueryable();
+        var query = _dbContext.Campaigns.AsNoTracking().Include(c => c.Template).AsQueryable();
 
         if (!string.IsNullOrEmpty(status) && Enum.TryParse<CampaignStatus>(status, true, out var parsedStatus))
         {
@@ -57,6 +57,7 @@ public class CampaignService : ICampaignService
     public async Task<CampaignDetailResponse> GetByIdAsync(int id)
     {
         var campaign = await _dbContext.Campaigns
+            .AsNoTracking()
             .IgnoreQueryFilters()
             .Include(c => c.Template)
             .Include(c => c.Variables)
@@ -401,6 +402,7 @@ public class CampaignService : ICampaignService
     public async Task<PagedResponse<CampaignRecipientResponse>> GetRecipientsAsync(int campaignId, PagedRequest request)
     {
         var campaign = await _dbContext.Campaigns
+            .AsNoTracking()
             .Include(c => c.Template)
             .Include(c => c.Variables)
             .FirstOrDefaultAsync(c => c.Id == campaignId);
@@ -409,6 +411,7 @@ public class CampaignService : ICampaignService
             throw new KeyNotFoundException($"Campaign with ID {campaignId} not found.");
 
         var query = _dbContext.CampaignContacts
+            .AsNoTracking()
             .Include(cc => cc.Contact)
             .Where(cc => cc.CampaignId == campaignId);
 

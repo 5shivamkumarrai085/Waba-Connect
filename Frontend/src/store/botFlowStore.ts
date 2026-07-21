@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { toast } from 'react-hot-toast'
 import { botFlowService } from '../services/botFlow/botFlowService'
 import type { BotFlow } from '../types/botFlow'
 
@@ -60,8 +61,8 @@ export const useBotFlowStore = create<BotFlowStoreState>((set, get) => ({
         flows: data?.items || [],
         totalCount: data?.totalCount || 0
       })
-    } catch (error) {
-      console.error('Failed to fetch bot flows:', error)
+    } catch {
+      // Error handled silently
     } finally {
       set({ isLoading: false })
     }
@@ -72,8 +73,7 @@ export const useBotFlowStore = create<BotFlowStoreState>((set, get) => ({
       const flow = await botFlowService.getBotFlowById(id)
       set({ currentFlow: flow })
       return flow
-    } catch (error) {
-      console.error('Failed to get bot flow details:', error)
+    } catch {
       return null
     }
   },
@@ -84,7 +84,7 @@ export const useBotFlowStore = create<BotFlowStoreState>((set, get) => ({
       get().fetchFlows()
       return flow
     } catch (error) {
-      console.error('Failed to create bot flow:', error)
+      toast.error('Failed to save flow')
       throw error
     }
   },
@@ -98,7 +98,7 @@ export const useBotFlowStore = create<BotFlowStoreState>((set, get) => ({
       }
       return flow
     } catch (error) {
-      console.error('Failed to update bot flow:', error)
+      toast.error('Failed to save flow')
       throw error
     }
   },
@@ -111,8 +111,8 @@ export const useBotFlowStore = create<BotFlowStoreState>((set, get) => ({
       }
       return success
     } catch (error) {
-      console.error('Failed to delete bot flow:', error)
-      return false
+      toast.error('Failed to delete bot flow')
+      throw error
     }
   },
 
@@ -122,8 +122,8 @@ export const useBotFlowStore = create<BotFlowStoreState>((set, get) => ({
       set({
         flows: get().flows.map(f => f.id === id ? { ...f, isActive: !f.isActive } : f)
       })
-    } catch (error) {
-      console.error('Failed to toggle bot flow active status:', error)
+    } catch {
+      toast.error('Failed to toggle status')
     }
   }
 }))

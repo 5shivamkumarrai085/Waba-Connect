@@ -30,6 +30,7 @@ public class ContactService : IContactService
         DateTime? endDate = null)
     {
         var query = _dbContext.Contacts
+            .AsNoTracking()
             .IgnoreQueryFilters()
             .Where(c => !c.IsDeleted)
             .Include(c => c.GroupMemberships)
@@ -133,6 +134,7 @@ public class ContactService : IContactService
     public async Task<List<ContactResponse>> GetByIdsAsync(List<int> ids)
     {
         var contacts = await _dbContext.Contacts
+            .AsNoTracking()
             .IgnoreQueryFilters()
             .Include(c => c.GroupMemberships)
                 .ThenInclude(gm => gm.Group)

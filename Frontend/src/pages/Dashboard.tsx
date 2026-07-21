@@ -1,24 +1,26 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { StatCard } from '../components/StatCard'
-import { ChartCard } from '../components/ChartCard'
-import { TrendCard } from '../components/TrendCard'
-import { TableCard } from '../components/TableCard'
 import { MessageSquare, Users, Megaphone, FileText, Plus } from 'lucide-react'
 import { useDashboardStore } from '../store/dashboardStore'
 import { Skeleton } from '../components/Skeleton'
 import { FilterBar } from '../components/FilterBar/FilterBar'
 
+// Lazy-loaded below-the-fold heavy charts and tables
+const ChartCard = lazy(() => import('../components/ChartCard'))
+const TrendCard = lazy(() => import('../components/TrendCard'))
+const TableCard = lazy(() => import('../components/TableCard'))
+
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate()
-  const { 
-    summary, 
-    metrics, 
-    isLoading, 
-    loadDashboardData, 
-    dashboardTimeFilter, 
-    setDashboardTimeFilter 
-  } = useDashboardStore()
+  
+  // Atomic store selectors to prevent unnecessary parent re-renders
+  const summary = useDashboardStore(state => state.summary)
+  const metrics = useDashboardStore(state => state.metrics)
+  const isLoading = useDashboardStore(state => state.isLoading)
+  const loadDashboardData = useDashboardStore(state => state.loadDashboardData)
+  const dashboardTimeFilter = useDashboardStore(state => state.dashboardTimeFilter)
+  const setDashboardTimeFilter = useDashboardStore(state => state.setDashboardTimeFilter)
 
   useEffect(() => {
     loadDashboardData()
@@ -118,28 +120,45 @@ export const Dashboard: React.FC = () => {
         />
       </div>
 
-      {/* Main Hourly Chart */}
-      <ChartCard data={summary?.hourlyChartData} />
+      {/* Below-the-fold lazy loaded sections */}
+      <Suspense fallback={<Skeleton variant="chart" />}>
+        {/* Main Hourly Chart */}
+        <ChartCard data={summary?.hourlyChartData} />
+      </Suspense>
 
-      {/* Trends Sub-charts (Delivery & Read trends) */}
-      <div className="dashboard-trends-grid">
-        <TrendCard 
-          type="delivery" 
-          value={summary?.overallDeliveryRate !== undefined ? `${summary.overallDeliveryRate}%` : undefined} 
-          data={summary?.deliveryTrend} 
-        />
-        <TrendCard 
-          type="read" 
-          value={summary?.overallReadRate !== undefined ? `${summary.overallReadRate}%` : undefined} 
-          data={summary?.readTrend} 
-        />
-      </div>
+      <Suspense fallback={
+        <div className="dashboard-trends-grid">
+          <Skeleton variant="chart" style={{ height: 260 }} />
+          <Skeleton variant="chart" style={{ height: 260 }} />
+        </div>
+      }>
+        {/* Trends Sub-charts (Delivery & Read trends) */}
+        <div className="dashboard-trends-grid">
+          <TrendCard 
+            type="delivery" 
+            value={summary?.overallDeliveryRate !== undefined ? `${summary.overallDeliveryRate}%` : undefined} 
+            data={summary?.deliveryTrend} 
+          />
+          <TrendCard 
+            type="read" 
+            value={summary?.overallReadRate !== undefined ? `${summary.overallReadRate}%` : undefined} 
+            data={summary?.readTrend} 
+          />
+        </div>
+      </Suspense>
 
-      {/* Campaign Statistics Tables */}
-      <div className="dashboard-tables-grid">
-        <TableCard type="read-rate" data={summary?.topReadRateCampaigns} />
-        <TableCard type="delivery-rate" data={summary?.topDeliveryRateCampaigns} />
-      </div>
+      <Suspense fallback={
+        <div className="dashboard-tables-grid">
+          <Skeleton variant="table" style={{ height: 380 }} />
+          <Skeleton variant="table" style={{ height: 380 }} />
+        </div>
+      }>
+        {/* Campaign Statistics Tables */}
+        <div className="dashboard-tables-grid">
+          <TableCard type="read-rate" data={summary?.topReadRateCampaigns} />
+          <TableCard type="delivery-rate" data={summary?.topDeliveryRateCampaigns} />
+        </div>
+      </Suspense>
     </div>
   )
 }

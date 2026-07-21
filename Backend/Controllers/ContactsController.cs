@@ -16,11 +16,13 @@ public class ContactsController : ControllerBase
 {
     private readonly IContactService _contactService;
     private readonly AppDbContext _dbContext;
+    private readonly IDashboardCacheService _dashboardCacheService;
 
-    public ContactsController(IContactService contactService, AppDbContext dbContext)
+    public ContactsController(IContactService contactService, AppDbContext dbContext, IDashboardCacheService dashboardCacheService)
     {
         _contactService = contactService;
         _dbContext = dbContext;
+        _dashboardCacheService = dashboardCacheService;
     }
 
     [HttpGet]
@@ -72,6 +74,7 @@ public class ContactsController : ControllerBase
     public async Task<ActionResult<ApiResponse<ContactResponse>>> Create([FromBody] CreateContactRequest request)
     {
         var data = await _contactService.CreateAsync(request);
+        _dashboardCacheService.InvalidateCache();
         return CreatedAtAction(nameof(GetById), new { id = data.Id }, new ApiResponse<ContactResponse> { Success = true, Data = data });
     }
 
@@ -79,6 +82,7 @@ public class ContactsController : ControllerBase
     public async Task<ActionResult<ApiResponse<ContactResponse>>> Update(int id, [FromBody] UpdateContactRequest request)
     {
         var data = await _contactService.UpdateAsync(id, request);
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse<ContactResponse> { Success = true, Data = data });
     }
 
@@ -86,6 +90,7 @@ public class ContactsController : ControllerBase
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {
         await _contactService.DeleteAsync(id);
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse { Success = true, Message = "Contact deleted successfully." });
     }
 
@@ -109,6 +114,7 @@ public class ContactsController : ControllerBase
             catch (KeyNotFoundException) { }
         }
 
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse { Success = true, Message = "Contacts deleted successfully." });
     }
 
@@ -116,6 +122,7 @@ public class ContactsController : ControllerBase
     public async Task<ActionResult<ApiResponse<ContactResponse>>> ToggleActive(int id)
     {
         var data = await _contactService.ToggleActiveAsync(id);
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse<ContactResponse> { Success = true, Data = data });
     }
 

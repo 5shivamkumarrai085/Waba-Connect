@@ -191,7 +191,6 @@ const StartTriggerNode = ({ id, data, selected }: any) => {
         const activeWarnings = await templateBotService.checkKeywords(currentList.join(','), 0, flowId)
         setWarnings(activeWarnings)
       } catch (err) {
-        console.error('Failed to validate keywords:', err)
       }
     }
     checkCollisions()

@@ -11,7 +11,9 @@ interface ChatStoreState {
   messages: Message[]
   messagesCache: Record<number, Message[]>
   isLoading: boolean
+  isLoadingConversations: boolean
   isSending: boolean
+  isRefreshing: boolean
   fromNumber: string
   conversationsFilter: string
   sidebarSearchQuery: string
@@ -36,7 +38,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   messagesCache: {},
   activeAbortController: null,
   isLoading: false,
+  isLoadingConversations: false,
   isSending: false,
+  isRefreshing: false,
   fromNumber: '',
   conversationsFilter: 'All Chats',
   sidebarSearchQuery: '',
@@ -49,35 +53,33 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         fromNumber: state.fromNumber || accounts[0]?.phoneNumberId || ''
       }))
     } catch (err) {
-      console.error('Error loading chat accounts:', err)
     }
   },
 
   loadConversations: async () => {
-    const { sidebarSearchQuery, conversationsFilter } = get()
-    set({ isLoading: true })
+    const { sidebarSearchQuery, conversationsFilter, isLoadingConversations } = get()
+    if (isLoadingConversations) return
+
+    set({ isLoadingConversations: true })
     try {
       const list = await chatService.getConversations(sidebarSearchQuery, conversationsFilter)
       set({ conversations: list })
-    } catch (err) {
-      console.error('Error loading conversations:', err)
+    } catch {
+      // Error handled silently
     } finally {
-      set({ isLoading: false })
+      set({ isLoadingConversations: false })
     }
   },
 
   refreshActiveMessages: async () => {
-    const { activeConversationId, isSending } = get()
-    if (!activeConversationId) return
-    if (isSending) return
+    const { activeConversationId, isSending, isRefreshing } = get()
+    if (!activeConversationId || isSending || isRefreshing) return
 
+    set({ isRefreshing: true })
     const fetchId = activeConversationId
 
     try {
-      const [messages, conversations] = await Promise.all([
-        chatService.getMessages(fetchId),
-        chatService.getConversations(get().sidebarSearchQuery, get().conversationsFilter)
-      ])
+      const messages = await chatService.getMessages(fetchId)
       
       if (get().activeConversationId === fetchId) {
         set((state) => ({
@@ -85,12 +87,13 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           messagesCache: {
             ...state.messagesCache,
             [fetchId]: messages
-          },
-          conversations
+          }
         }))
       }
-    } catch (err) {
-      console.error('Error refreshing chat:', err)
+    } catch {
+      // Error handled silently
+    } finally {
+      set({ isRefreshing: false })
     }
   },
 
@@ -129,7 +132,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       if (err.name === 'AbortError' || err.message === 'canceled') {
         return
       }
-      console.error('Error loading messages:', err)
     } finally {
       if (get().activeConversationId === id) {
         set({ isLoading: false })
@@ -201,7 +203,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       const list = await chatService.getConversations(get().sidebarSearchQuery, get().conversationsFilter)
       set({ conversations: list })
     } catch (err) {
-      console.error('Error sending message:', err)
       const errorMessage = err instanceof Error ? err.message : 'Failed to send message.'
       toast.error(errorMessage)
       const failedMessage: Message = {

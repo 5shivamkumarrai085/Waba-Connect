@@ -65,6 +65,7 @@ export const Chat: React.FC = () => {
     activeConversationId,
     messages,
     isLoading,
+    isLoadingConversations,
     isSending,
     fromNumber,
     conversationsFilter,
@@ -116,7 +117,6 @@ export const Chat: React.FC = () => {
       await sendMessage('', res.url, attachmentType, res.fileName)
       toast.success(`${attachmentType} sent successfully!`)
     } catch (err) {
-      console.error(err)
       toast.error('Failed to upload and send attachment.')
     } finally {
       setUploadingMedia(false)
@@ -278,7 +278,6 @@ export const Chat: React.FC = () => {
       const res = await apiClient.get(`/Contacts/${contactId}/notes`)
       setNotes(res.data?.data || [])
     } catch (err) {
-      console.error('Failed to load notes', err)
     } finally {
       setLoadingNotes(false)
     }
@@ -297,7 +296,6 @@ export const Chat: React.FC = () => {
         toast.success('Note added successfully')
       }
     } catch (err) {
-      console.error(err)
       toast.error('Failed to add note')
     }
   }
@@ -311,7 +309,6 @@ export const Chat: React.FC = () => {
         toast.success('Note deleted successfully')
       }
     } catch (err) {
-      console.error(err)
       toast.error('Failed to delete note')
     }
   }
@@ -325,7 +322,6 @@ export const Chat: React.FC = () => {
         await deleteActiveConversation()
         toast.success("Chat deleted successfully!")
       } catch (err) {
-        console.error(err)
         toast.error("Failed to delete conversation.")
       }
     }
@@ -446,10 +442,13 @@ export const Chat: React.FC = () => {
 
   // Load notes when opening drawer
   useEffect(() => {
-    if (showInfoDrawer && activeConversation) {
-      loadNotes(activeConversation.contactId)
+    if (showInfoDrawer && activeConversationId) {
+      const conv = conversations.find(c => c.id === activeConversationId)
+      if (conv) {
+        loadNotes(conv.contactId)
+      }
     }
-  }, [showInfoDrawer, activeConversationId])
+  }, [showInfoDrawer, activeConversationId, conversations])
 
   const selectedAccount = accounts.find(account => account.phoneNumberId === fromNumber)
 
@@ -540,7 +539,7 @@ export const Chat: React.FC = () => {
         </div>
 
         <div className="conversation-list-scroll">
-          {isLoading && conversations.length === 0 ? (
+          {isLoadingConversations && conversations.length === 0 ? (
             <div className="page-loader">
               <p className="upload-sub-text">Loading chats...</p>
             </div>

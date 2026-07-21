@@ -24,6 +24,9 @@ builder.Host.UseSerilog();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<IDashboardCacheService, DashboardCacheService>();
+
 // 3. Add Services
 builder.Services.AddScoped<IContactService, ContactService>();
 builder.Services.AddScoped<IContactGroupService, ContactGroupService>();

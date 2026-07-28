@@ -4,6 +4,8 @@ import { wabaService } from '../services/waba/wabaService'
 import type { AccessTokenInfoModel, PhoneInfoModel, WabaHealthModel } from '../types/waba'
 
 interface WabaStoreState {
+  activeConnectionId: number | null
+  connectionName: string
   isConnected: boolean
   isLoading: boolean
   isConnecting: boolean
@@ -22,21 +24,24 @@ interface WabaStoreState {
   webhookUrl: string
   verifyToken: string
   
+  setActiveConnectionId: (id: number | null) => void
   setFacebookAppId: (facebookAppId: string) => void
   setFacebookAppSecret: (facebookAppSecret: string) => void
   setWabaId: (wabaId: string) => void
   setAccessToken: (accessToken: string) => void
   
-  loadWabaData: () => Promise<void>
-  connectApp: (facebookAppId: string, facebookAppSecret: string) => Promise<{ success: boolean; message: string }>
-  configureWaba: (wabaId: string, accessToken: string) => Promise<{ success: boolean; message: string }>
-  disconnectWaba: () => Promise<{ success: boolean; message: string }>
-  sendTestMessage: (toPhoneNumber: string) => Promise<{ success: boolean; message: string }>
-  verifyWebhook: () => Promise<{ success: boolean; message: string }>
-  refreshHealth: () => Promise<void>
+  loadWabaData: (connectionId?: number) => Promise<void>
+  connectApp: (facebookAppId: string, facebookAppSecret: string, connectionId?: number) => Promise<{ success: boolean; message: string }>
+  configureWaba: (wabaId: string, accessToken: string, connectionId?: number) => Promise<{ success: boolean; message: string }>
+  disconnectWaba: (connectionId?: number) => Promise<{ success: boolean; message: string }>
+  sendTestMessage: (toPhoneNumber: string, connectionId?: number) => Promise<{ success: boolean; message: string }>
+  verifyWebhook: (connectionId?: number) => Promise<{ success: boolean; message: string }>
+  refreshHealth: (connectionId?: number) => Promise<void>
 }
 
 export const useWabaStore = create<WabaStoreState>((set, get) => ({
+  activeConnectionId: null,
+  connectionName: '',
   isConnected: false,
   isLoading: false,
   isConnecting: false,
@@ -55,33 +60,56 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
   webhookUrl: '',
   verifyToken: '',
   
+  setActiveConnectionId: (id) => set({ activeConnectionId: id }),
   setFacebookAppId: (facebookAppId) => set({ facebookAppId }),
   setFacebookAppSecret: (facebookAppSecret) => set({ facebookAppSecret }),
   setWabaId: (wabaId) => set({ wabaId }),
   setAccessToken: (accessToken) => set({ accessToken }),
   
-  loadWabaData: async () => {
-    set({ isLoading: true })
+  loadWabaData: async (connectionId) => {
+    const targetId = connectionId ?? get().activeConnectionId ?? undefined
+    set({
+      isLoading: true,
+      activeConnectionId: targetId ?? null,
+      // Clear old data to prevent stale flash
+      isConnected: false,
+      facebookAppId: '',
+      wabaId: '',
+      accessToken: '',
+      webhookUrl: '',
+      verifyToken: '',
+      phoneInfo: null,
+      tokenInfo: null,
+      healthInfo: null
+    })
     try {
-      const dashboard = await wabaService.getDashboard()
+      const dashboard = await wabaService.getDashboard(targetId)
       if (dashboard) {
+        // Preserve the user-typed facebookAppSecret if backend returns masked or empty
+        const currentSecret = get().facebookAppSecret
+        const backendSecret = dashboard.facebookAppSecret || ''
+        const resolvedSecret = backendSecret && backendSecret !== '••••••••' ? backendSecret : currentSecret
+
         set({
+          activeConnectionId: targetId ?? null,
+          connectionName: dashboard.connectionName || 'WABA Connection',
           isConnected: dashboard.isConnected,
           facebookAppId: dashboard.facebookAppId || '',
+          facebookAppSecret: resolvedSecret,
           wabaId: dashboard.wabaId || '',
           accessToken: dashboard.accessToken || '',
           webhookUrl: dashboard.webhookUrl || '',
           verifyToken: dashboard.verifyToken || '',
           tokenInfo: dashboard.tokenInfo ? {
             token: dashboard.accessToken,
-            permissions: dashboard.tokenInfo.scopes || [],
-            issuedAt: dashboard.tokenInfo.issuedAt,
+            permissions: dashboard.tokenInfo.scopes || ['whatsapp_business_management', 'whatsapp_business_messaging', 'public_profile'],
+            issuedAt: dashboard.tokenInfo.issuedAt || new Date().toISOString(),
             webhookUrl: dashboard.webhookUrl
           } : null,
           phoneInfo: dashboard.phoneNumbers && dashboard.phoneNumbers.length > 0 ? {
             displayPhoneNumber: dashboard.phoneNumbers[0].phoneNumber,
-            verifiedName: dashboard.phoneNumbers[0].verifiedName || dashboard.phoneNumbers[0].displayName,
-            numberId: dashboard.phoneNumbers[0].phoneNumberId || 'unknown',
+            verifiedName: dashboard.phoneNumbers[0].verifiedName || dashboard.phoneNumbers[0].displayName || '',
+            numberId: dashboard.phoneNumbers[0].phoneNumberId || '',
             quality: dashboard.phoneNumbers[0].quality || 'GREEN',
             messagesSent: dashboard.phoneNumbers[0].messagesSent || 0,
             messageLimit: parseInt(dashboard.phoneNumbers[0].messageLimit) || 1000
@@ -124,11 +152,12 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
     }
   },
   
-  connectApp: async (facebookAppId: string, facebookAppSecret: string) => {
+  connectApp: async (facebookAppId, facebookAppSecret, connectionId) => {
+    const targetId = connectionId ?? get().activeConnectionId ?? undefined
     set({ isConnecting: true })
     try {
-      const res = await wabaService.connectApp({ facebookAppId, facebookAppSecret })
-      await get().loadWabaData()
+      const res = await wabaService.connectApp({ connectionId: targetId, facebookAppId, facebookAppSecret })
+      await get().loadWabaData(targetId)
       return { success: true, message: res.message || 'Facebook App connected successfully!' }
     } catch (err: any) {
       return { success: false, message: err?.response?.data?.message || err?.message || 'Error connecting app.' }
@@ -137,11 +166,12 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
     }
   },
   
-  configureWaba: async (wabaId: string, accessToken: string) => {
+  configureWaba: async (wabaId, accessToken, connectionId) => {
+    const targetId = connectionId ?? get().activeConnectionId ?? undefined
     set({ isConnecting: true })
     try {
-      const res = await wabaService.configure({ wabaId, accessToken })
-      await get().loadWabaData()
+      const res = await wabaService.configure({ connectionId: targetId, wabaId, accessToken })
+      await get().loadWabaData(targetId)
       return { success: true, message: res.message || 'WABA configured successfully!' }
     } catch (err: any) {
       return { success: false, message: err?.response?.data?.message || err?.message || 'Error configuring WABA.' }
@@ -150,10 +180,11 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
     }
   },
   
-  disconnectWaba: async () => {
+  disconnectWaba: async (connectionId) => {
+    const targetId = connectionId ?? get().activeConnectionId ?? undefined
     set({ isLoading: true })
     try {
-      const res = await wabaService.disconnectWaba()
+      const res = await wabaService.disconnectWaba(targetId)
       if (res.success) {
         set({
           isConnected: false,
@@ -176,13 +207,14 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
     }
   },
   
-  sendTestMessage: async (toPhoneNumber) => {
+  sendTestMessage: async (toPhoneNumber, connectionId) => {
+    const targetId = connectionId ?? get().activeConnectionId ?? undefined
     if (!toPhoneNumber) {
       return { success: false, message: 'Recipient phone number is required.' }
     }
     set({ isSendingMessage: true })
     try {
-      const res = await wabaService.sendTestMessage(toPhoneNumber)
+      const res = await wabaService.sendTestMessage(toPhoneNumber, targetId)
       return res
     } catch (err: any) {
       return { success: false, message: err?.message || 'Error sending test message.' }
@@ -191,11 +223,12 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
     }
   },
   
-  verifyWebhook: async () => {
+  verifyWebhook: async (connectionId) => {
+    const targetId = connectionId ?? get().activeConnectionId ?? undefined
     set({ isVerifyingWebhook: true })
     try {
       const { verifyToken } = get()
-      const res = await wabaService.verifyWebhook(verifyToken)
+      const res = await wabaService.verifyWebhook(verifyToken, targetId)
       return res
     } catch (err: any) {
       return { success: false, message: err?.message || 'Webhook verification failed.' }
@@ -204,9 +237,10 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
     }
   },
   
-  refreshHealth: async () => {
+  refreshHealth: async (connectionId) => {
+    const targetId = connectionId ?? get().activeConnectionId ?? undefined
     try {
-      const dashboard = await wabaService.refreshHealth()
+      const dashboard = await wabaService.refreshHealth(targetId)
       if (dashboard) {
         set({
           healthInfo: (() => {

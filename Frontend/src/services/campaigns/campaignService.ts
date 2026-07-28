@@ -146,12 +146,13 @@ export const campaignService = {
 }
 export default campaignService
 
-const buildCampaignPayload = (form: CampaignWizardForm) => ({
+const buildCampaignPayload = (form: CampaignWizardForm, connectionId?: number) => ({
   name: form.name,
   templateId: form.templateId,
   relationType: form.relationType,
   scheduleType: form.sendImmediately ? 'Immediate' : 'Scheduled',
   scheduledAt: form.sendImmediately || !form.scheduledTime ? null : new Date(form.scheduledTime).toISOString(),
   contactIds: form.selectedContactIds,
-  variables: form.variables || []
+  variables: form.variables || [],
+  connectionId: connectionId || (form as any).connectionId || null
 })

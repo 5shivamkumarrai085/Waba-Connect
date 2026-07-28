@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useCampaignStore } from '../../store/campaignStore'
+import { useConnectionStore } from '../../store/connectionStore'
 import { campaignService } from '../../services/campaigns/campaignService'
 import { contactService } from '../../services/contacts/contactService'
 import { templateService } from '../../services/templates/templateService'
@@ -26,6 +27,8 @@ export const CampaignWizard: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const campaignId = id ? parseInt(id, 10) : null
   const isEditMode = campaignId !== null
+
+  const { connections, fetchDashboard: fetchConnectionDashboard } = useConnectionStore()
 
   const {
     wizardForm,
@@ -85,6 +88,7 @@ export const CampaignWizard: React.FC = () => {
       setActiveStep(0)
 
       try {
+        fetchConnectionDashboard()
         const [tpls, cts, stats, srcs] = await Promise.all([
           templateService.getTemplates(),
           contactService.getContacts(),
@@ -361,6 +365,43 @@ export const CampaignWizard: React.FC = () => {
                       onChange={(e) => setWizardForm({ name: e.target.value })}
                       required
                     />
+                  </div>
+
+                  <div className="form-group margin-top-20">
+                    <label className="form-label">Sender Connection(s) <span style={{ color: '#ef4444' }}>*</span></label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
+                      {connections.filter(c => c.isConnected && c.phoneNumber).map((conn) => {
+                        const connIds: number[] = (wizardForm as any).connectionIds || []
+                        const isSelected = connIds.includes(conn.id)
+                        return (
+                          <button
+                            key={conn.id}
+                            type="button"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '6px',
+                              padding: '8px 14px', borderRadius: '24px',
+                              border: isSelected ? '1.5px solid #6366f1' : '1.5px solid #e2e8f0',
+                              background: isSelected ? 'linear-gradient(135deg, #eef2ff, #e0e7ff)' : '#f8fafc',
+                              color: isSelected ? '#4338ca' : '#475569',
+                              fontSize: '13px', fontWeight: 500, cursor: 'pointer',
+                              transition: 'all 0.2s', fontFamily: 'inherit'
+                            }}
+                            onClick={() => {
+                              const prev: number[] = (wizardForm as any).connectionIds || []
+                              const next = isSelected ? prev.filter((id: number) => id !== conn.id) : [...prev, conn.id]
+                              setWizardForm({ connectionIds: next } as any)
+                            }}
+                          >
+                            {isSelected && <span style={{ fontWeight: 700 }}>✓</span>}
+                            <span>{conn.name}</span>
+                            <span style={{ fontSize: '11px', opacity: 0.7 }}>{conn.phoneNumber}</span>
+                          </button>
+                        )
+                      })}
+                      {connections.filter(c => c.isConnected && c.phoneNumber).length === 0 && (
+                        <span style={{ fontSize: '13px', color: '#ef4444' }}>No connected WABA numbers found</span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="contacts-filter-row">

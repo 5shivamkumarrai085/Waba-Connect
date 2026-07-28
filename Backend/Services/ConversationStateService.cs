@@ -18,24 +18,31 @@ public class ConversationStateService : IConversationStateService
         _dbContext = dbContext;
     }
 
-    public async Task<ConversationState?> GetActiveStateAsync(string phoneNumber)
+    public async Task<ConversationState?> GetActiveStateAsync(string phoneNumber, int? connectionId = null)
     {
         return await _dbContext.ConversationStates
             .Include(s => s.Flow)
-            .FirstOrDefaultAsync(s => s.PhoneNumber == phoneNumber && s.Status == "Active");
+            .FirstOrDefaultAsync(s => s.PhoneNumber == phoneNumber && s.Status == "Active" && 
+                (connectionId.HasValue ? s.ConnectionId == connectionId.Value : s.ConnectionId == null));
     }
 
     public async Task<ConversationState> CreateOrUpdateStateAsync(
         string phoneNumber,
         int flowId,
         string currentNodeId,
-        Dictionary<string, string> variables)
+        Dictionary<string, string> variables,
+        int? connectionId = null)
     {
         var existing = await _dbContext.ConversationStates
-            .FirstOrDefaultAsync(s => s.PhoneNumber == phoneNumber && s.Status == "Active");
+            .FirstOrDefaultAsync(s => s.PhoneNumber == phoneNumber && s.Status == "Active" && 
+                (connectionId.HasValue ? s.ConnectionId == connectionId.Value : s.ConnectionId == null));
 
         if (existing != null)
         {
+            if (connectionId.HasValue)
+            {
+                existing.ConnectionId = connectionId.Value;
+            }
             existing.CurrentNodeId = currentNodeId;
             existing.UpdatedAt = DateTime.UtcNow;
 
@@ -64,6 +71,7 @@ public class ConversationStateService : IConversationStateService
         {
             PhoneNumber = phoneNumber,
             FlowId = flowId,
+            ConnectionId = connectionId,
             CurrentNodeId = currentNodeId,
             VariablesJson = JsonSerializer.Serialize(variables),
             Status = "Active",
@@ -75,10 +83,11 @@ public class ConversationStateService : IConversationStateService
         return newState;
     }
 
-    public async Task DeleteStateAsync(string phoneNumber)
+    public async Task DeleteStateAsync(string phoneNumber, int? connectionId = null)
     {
         var state = await _dbContext.ConversationStates
-            .FirstOrDefaultAsync(s => s.PhoneNumber == phoneNumber && s.Status == "Active");
+            .FirstOrDefaultAsync(s => s.PhoneNumber == phoneNumber && s.Status == "Active" && 
+                (connectionId.HasValue ? s.ConnectionId == connectionId.Value : s.ConnectionId == null));
 
         if (state != null)
         {

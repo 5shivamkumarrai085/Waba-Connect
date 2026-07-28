@@ -16,18 +16,18 @@ public interface IWhatsAppService
     /// <param name="languageCode">Language code (e.g., "en")</param>
     /// <param name="variables">Template variable values keyed by position (e.g., "1" => "John")</param>
     /// <returns>WhatsApp message ID (wamid.xxx) on success, null on failure</returns>
-    Task<string?> SendTemplateMessageAsync(string recipientPhone, string templateName, string languageCode, Dictionary<string, string>? variables = null);
+    Task<string?> SendTemplateMessageAsync(string recipientPhone, string templateName, string languageCode, Dictionary<string, string>? variables = null, int? connectionId = null);
 
     /// <summary>
     /// Sends a template message and returns the exact Meta send result, including rejection details.
     /// </summary>
-    Task<WhatsAppSendResult> SendTemplateMessageWithResultAsync(string recipientPhone, string templateName, string languageCode, Dictionary<string, string>? variables = null);
+    Task<WhatsAppSendResult> SendTemplateMessageWithResultAsync(string recipientPhone, string templateName, string languageCode, Dictionary<string, string>? variables = null, int? connectionId = null);
 
     /// <summary>
     /// Sends a free-form text message to a single recipient via WhatsApp Cloud API.
     /// This works only when Meta allows a customer-service conversation window for the recipient.
     /// </summary>
-    Task<WhatsAppSendResult> SendTextMessageAsync(string recipientPhone, string text, string? fromPhoneNumberId = null);
+    Task<WhatsAppSendResult> SendTextMessageAsync(string recipientPhone, string text, string? fromPhoneNumberId = null, int? connectionId = null);
 
     /// <summary>
     /// Sends an outbound media message (image, video, document) to a recipient via WhatsApp Cloud API.
@@ -38,7 +38,8 @@ public interface IWhatsAppService
         string mediaType,
         string? filename = null,
         string? caption = null,
-        string? fromPhoneNumberId = null);
+        string? fromPhoneNumberId = null,
+        int? connectionId = null);
 
     /// <summary>
     /// Fetches all templates from the WhatsApp Business Account.
@@ -53,7 +54,7 @@ public interface IWhatsAppService
     /// <summary>
     /// Sends a custom JSON payload to WhatsApp Cloud API.
     /// </summary>
-    Task<WhatsAppSendResult> SendCustomPayloadAsync(string recipientPhone, object payload, string? fromPhoneNumberId = null);
+    Task<WhatsAppSendResult> SendCustomPayloadAsync(string recipientPhone, object payload, string? fromPhoneNumberId = null, int? connectionId = null);
 
     /// <summary>
     /// Processes an incoming webhook payload for delivery status updates.
@@ -63,7 +64,7 @@ public interface IWhatsAppService
     /// <summary>
     /// Attempts to match and trigger template bots for incoming message keyword.
     /// </summary>
-    Task<bool> TryTriggerTemplateBotAsync(string normalizedPhone, string incomingText, Contact contact);
+    Task<bool> TryTriggerTemplateBotAsync(string normalizedPhone, string incomingText, Contact contact, int? connectionId = null);
 }
 
 /// <summary>

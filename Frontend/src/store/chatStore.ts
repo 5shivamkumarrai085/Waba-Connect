@@ -8,6 +8,7 @@ interface ChatStoreState {
   accounts: ChatAccount[]
   conversations: Conversation[]
   activeConversationId: number | null
+  selectedConnectionId: number | null
   messages: Message[]
   messagesCache: Record<number, Message[]>
   isLoading: boolean
@@ -19,6 +20,7 @@ interface ChatStoreState {
   sidebarSearchQuery: string
   activeAbortController: AbortController | null
 
+  setSelectedConnectionId: (id: number | null) => void
   loadAccounts: () => Promise<void>
   loadConversations: () => Promise<void>
   refreshActiveMessages: () => Promise<void>
@@ -34,6 +36,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   accounts: [],
   conversations: [],
   activeConversationId: null,
+  selectedConnectionId: null,
   messages: [],
   messagesCache: {},
   activeAbortController: null,
@@ -45,9 +48,20 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   conversationsFilter: 'All Chats',
   sidebarSearchQuery: '',
 
+  setSelectedConnectionId: (id) => {
+    set({
+      selectedConnectionId: id,
+      conversations: [],
+      activeConversationId: null,
+      messages: []
+    })
+    get().loadConversations()
+    get().loadAccounts()
+  },
+
   loadAccounts: async () => {
     try {
-      const accounts = await chatService.getAccounts()
+      const accounts = await chatService.getAccounts(get().selectedConnectionId || undefined)
       set((state) => ({
         accounts,
         fromNumber: state.fromNumber || accounts[0]?.phoneNumberId || ''
@@ -57,12 +71,12 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   loadConversations: async () => {
-    const { sidebarSearchQuery, conversationsFilter, isLoadingConversations } = get()
+    const { sidebarSearchQuery, conversationsFilter, selectedConnectionId, isLoadingConversations } = get()
     if (isLoadingConversations) return
 
     set({ isLoadingConversations: true })
     try {
-      const list = await chatService.getConversations(sidebarSearchQuery, conversationsFilter)
+      const list = await chatService.getConversations(sidebarSearchQuery, conversationsFilter, selectedConnectionId || undefined)
       set({ conversations: list })
     } catch {
       // Error handled silently
@@ -185,11 +199,13 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         fromNumber || undefined,
         mediaUrl,
         mediaType,
-        mediaFileName
+        mediaFileName,
+        get().selectedConnectionId || undefined
       )
       if (newMsg) {
         set((state) => {
-          const updatedMsgs = upsertMessage(state.messages, newMsg, tempId)
+          const sentMsg = { ...newMsg, status: 'sent' as const }
+          const updatedMsgs = upsertMessage(state.messages, sentMsg, tempId)
           return {
             messages: updatedMsgs,
             messagesCache: {
@@ -200,7 +216,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         })
       }
 
-      const list = await chatService.getConversations(get().sidebarSearchQuery, get().conversationsFilter)
+      const list = await chatService.getConversations(get().sidebarSearchQuery, get().conversationsFilter, get().selectedConnectionId || undefined)
       set({ conversations: list })
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to send message.'

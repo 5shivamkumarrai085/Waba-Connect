@@ -19,6 +19,11 @@ public class AppDbContext : DbContext
     public DbSet<ChatMessage> ChatMessages { get; set; } = null!;
     public DbSet<ContactNote> ContactNotes { get; set; } = null!;
 
+    // Multi-WABA Connections & Permissions
+    public DbSet<Connection> Connections { get; set; } = null!;
+    public DbSet<DepartmentConnection> DepartmentConnections { get; set; } = null!;
+    public DbSet<UserConnection> UserConnections { get; set; } = null!;
+
     // WABA Configuration
     public DbSet<WabaConfiguration> WabaConfigurations { get; set; } = null!;
     public DbSet<WabaPhoneNumber> WabaPhoneNumbers { get; set; } = null!;
@@ -38,6 +43,38 @@ public class AppDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // Connection entity configuration
+        modelBuilder.Entity<Connection>(entity =>
+        {
+            entity.HasIndex(e => e.Name).IsUnique();
+        });
+
+        // DepartmentConnection configuration (future permissions)
+        modelBuilder.Entity<DepartmentConnection>(entity =>
+        {
+            entity.HasIndex(e => new { e.DepartmentId, e.ConnectionId }).IsUnique();
+            entity.HasOne(e => e.Connection).WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // UserConnection configuration (future permissions)
+        modelBuilder.Entity<UserConnection>(entity =>
+        {
+            entity.HasIndex(e => new { e.UserId, e.ConnectionId }).IsUnique();
+            entity.HasOne(e => e.Connection).WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // WabaConfiguration Connection FK
+        modelBuilder.Entity<WabaConfiguration>(entity =>
+        {
+            entity.HasOne(e => e.Connection).WithMany(c => c.WabaConfigurations).HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // WabaPhoneNumber Connection FK
+        modelBuilder.Entity<WabaPhoneNumber>(entity =>
+        {
+            entity.HasOne(e => e.Connection).WithMany(c => c.WabaPhoneNumbers).HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
+        });
 
         // Contact configurations
         modelBuilder.Entity<Contact>(entity =>
@@ -79,6 +116,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ScheduleType).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasMany(e => e.Variables).WithOne(v => v.Campaign).HasForeignKey(v => v.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Connection).WithMany(c => c.Campaigns).HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // CampaignContact
@@ -92,13 +130,14 @@ public class AppDbContext : DbContext
             entity.HasOne(e => e.Contact).WithMany(c => c.CampaignContacts).HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Restrict);
         });
 
-        // Chat conversations
+        // Chat conversations: UNIQUE ON {ContactId, ConnectionId} so one contact can have conversations across multiple connections!
         modelBuilder.Entity<ChatConversation>(entity =>
         {
-            entity.HasIndex(e => e.ContactId).IsUnique();
+            entity.HasIndex(e => new { e.ContactId, e.ConnectionId }).IsUnique();
             entity.HasIndex(e => e.LastMessageAt);
             entity.HasOne(e => e.Contact).WithMany().HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(e => e.WabaPhoneNumber).WithMany().HasForeignKey(e => e.WabaPhoneNumberId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(e => e.Connection).WithMany(c => c.ChatConversations).HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // Chat messages

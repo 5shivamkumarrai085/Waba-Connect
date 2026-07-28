@@ -24,6 +24,10 @@ const TemplateBotList = lazy(() => import('./pages/TemplateBot/TemplateBotList')
 const TemplateBotWizard = lazy(() => import('./pages/TemplateBot/TemplateBotWizard').then(m => ({ default: m.TemplateBotWizard })))
 const BotFlowList = lazy(() => import('./pages/BotFlow/BotFlowList').then(m => ({ default: m.BotFlowList })))
 const BotFlowDesigner = lazy(() => import('./pages/BotFlow/BotFlowDesigner').then(m => ({ default: m.BotFlowDesigner })))
+const ConnectionsList = lazy(() => import('./pages/Connections/ConnectionsList').then(m => ({ default: m.ConnectionsList })))
+const ConnectNewWabaPage = lazy(() => import('./pages/Connections/ConnectNewWabaPage').then(m => ({ default: m.ConnectNewWabaPage })))
+const UserPermissionsList = lazy(() => import('./pages/Permissions/UserPermissionsList').then(m => ({ default: m.UserPermissionsList })))
+const DepartmentPermissionsList = lazy(() => import('./pages/Permissions/DepartmentPermissionsList').then(m => ({ default: m.DepartmentPermissionsList })))
 
 // Reusable Loading Fallback
 const LoadingFallback: React.FC = () => (
@@ -60,6 +64,10 @@ const App: React.FC = () => {
             {/* Completed high-fidelity pages */}
             <Route path="/reporting" element={<Reporting />} />
             <Route path="/activity-logs" element={<ActivityLogs />} />
+            <Route path="/connections" element={<ConnectionsList />} />
+            <Route path="/connections/new" element={<ConnectNewWabaPage />} />
+            <Route path="/admin/permissions/user" element={<UserPermissionsList />} />
+            <Route path="/admin/permissions/department" element={<DepartmentPermissionsList />} />
             <Route path="/connect-waba" element={<ConnectWABA />} />
             <Route path="/contacts" element={<ContactsList />} />
             <Route path="/contacts/contact" element={<AddContact />} />

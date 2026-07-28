@@ -13,6 +13,9 @@ public class Campaign
     public int TemplateId { get; set; }
     public Template Template { get; set; } = null!;
     
+    public int? ConnectionId { get; set; }
+    public virtual Connection? Connection { get; set; }
+    
     public ContactType RelationType { get; set; }
     public ScheduleType ScheduleType { get; set; }
     public DateTime? ScheduledAt { get; set; }

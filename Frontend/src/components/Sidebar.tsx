@@ -17,6 +17,8 @@ import {
   Settings,
   Sliders,
   Cpu,
+  Shield,
+  ShieldCheck,
   ChevronLeft,
   ChevronRight,
   Menu,
@@ -88,7 +90,6 @@ export const Sidebar: React.FC = () => {
         { name: 'Dashboard', path: '/', icon: LayoutDashboard },
         { name: 'Reporting', path: '/reporting', icon: BarChart3 },
         { name: 'Activity Logs', path: '/activity-logs', icon: History },
-        { name: 'Connect WABA', path: '/connect-waba', icon: Link2 },
       ]
     },
     {
@@ -120,8 +121,16 @@ export const Sidebar: React.FC = () => {
       ]
     },
     {
+      title: 'Admin',
+      items: [
+        { name: 'User Permissions', path: '/admin/permissions/user', icon: Shield },
+        { name: 'Dept Permissions', path: '/admin/permissions/department', icon: ShieldCheck },
+      ]
+    },
+    {
       title: 'Settings',
       items: [
+        { name: 'Connections', path: '/connections', icon: Link2 },
         { name: 'System Settings', path: '/system-settings', icon: Settings },
         { name: 'OmniConnect Settings', path: '/omniconnect-settings', icon: Sliders },
         { name: 'Setup', path: '/setup', icon: Cpu },

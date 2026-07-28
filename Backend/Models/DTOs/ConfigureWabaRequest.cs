@@ -9,5 +9,7 @@ namespace WhatsAppCampaignApi.Models.DTOs
 
         [Required]
         public string AccessToken { get; set; } = string.Empty;
+
+        public int? ConnectionId { get; set; }
     }
 }

@@ -20,27 +20,42 @@ public class ChatService : IChatService
         _templateService = templateService;
     }
 
-    public async Task<List<ChatAccountResponse>> GetAccountsAsync()
+    public async Task<List<ChatAccountResponse>> GetAccountsAsync(int? connectionId = null)
     {
-        var accounts = await _dbContext.WabaPhoneNumbers
+        var query = _dbContext.WabaPhoneNumbers
             .AsNoTracking()
+            .Include(p => p.Connection)
+            .AsQueryable();
+
+        if (connectionId.HasValue)
+        {
+            query = query.Where(p => p.ConnectionId == connectionId.Value);
+        }
+
+        var accounts = await query
             .OrderBy(p => p.Id)
             .ToListAsync();
 
         return accounts.Select(MapAccount).ToList();
     }
 
-    public async Task<List<ChatConversationResponse>> GetConversationsAsync(string? search = null, string? filter = null)
+    public async Task<List<ChatConversationResponse>> GetConversationsAsync(string? search = null, string? filter = null, int? connectionId = null)
     {
         await EnsureConversationsForActiveContactsAsync();
 
         var query = _dbContext.ChatConversations
             .AsNoTracking()
+            .Include(c => c.Connection)
             .Include(c => c.Contact)
                 .ThenInclude(contact => contact.GroupMemberships)
                     .ThenInclude(membership => membership.Group)
             .Include(c => c.WabaPhoneNumber)
             .AsQueryable();
+
+        if (connectionId.HasValue)
+        {
+            query = query.Where(c => c.ConnectionId == connectionId.Value);
+        }
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -124,6 +139,12 @@ public class ChatService : IChatService
             dbText = string.IsNullOrWhiteSpace(text) ? $"[Attachment: {fileName}]" : $"[Attachment: {fileName}]\n\n{text}";
         }
 
+        if (request.ConnectionId.HasValue && conversation.ConnectionId != request.ConnectionId)
+        {
+            conversation.ConnectionId = request.ConnectionId;
+        }
+        var effectiveConnectionId = conversation.ConnectionId ?? request.ConnectionId;
+
         var account = await ResolveAccountAsync(request.FromPhoneNumberId, conversation);
         if (account != null)
         {
@@ -156,14 +177,16 @@ public class ChatService : IChatService
                 request.MediaType!,
                 request.MediaFileName,
                 string.IsNullOrWhiteSpace(text) ? null : text,
-                account?.PhoneNumberId);
+                account?.PhoneNumberId,
+                effectiveConnectionId);
         }
         else
         {
             result = await _whatsAppService.SendTextMessageAsync(
                 conversation.Contact.Phone,
                 text,
-                account?.PhoneNumberId);
+                account?.PhoneNumberId,
+                effectiveConnectionId);
         }
 
         if (result.Success)
@@ -204,9 +227,10 @@ public class ChatService : IChatService
             contact.Phone,
             template.Name,
             template.Language,
-            request.Variables);
+            request.Variables,
+            request.ConnectionId);
 
-        var conversation = await GetOrCreateConversationAsync(contact.Id);
+        var conversation = await GetOrCreateConversationAsync(contact.Id, request.ConnectionId);
 
         var message = new ChatMessage
         {
@@ -235,7 +259,7 @@ public class ChatService : IChatService
         string? mediaType = null, 
         string? mediaFileName = null)
     {
-        var conversation = await GetOrCreateConversationAsync(campaignContact.ContactId);
+        var conversation = await GetOrCreateConversationAsync(campaignContact.ContactId, campaign.ConnectionId);
 
         var existing = campaignContact.Id > 0
             ? await _dbContext.ChatMessages.FirstOrDefaultAsync(m => m.CampaignContactId == campaignContact.Id)
@@ -298,41 +322,107 @@ public class ChatService : IChatService
 
     private async Task EnsureConversationsForActiveContactsAsync()
     {
-        var existingContactIds = await _dbContext.ChatConversations
-            .Select(c => c.ContactId)
-            .ToListAsync();
-
-        var account = await _dbContext.WabaPhoneNumbers.OrderBy(x => x.Id).FirstOrDefaultAsync();
-        var missingContacts = await _dbContext.Contacts
-            .Where(c => !existingContactIds.Contains(c.Id))
+        // Get all contacts (including inactive for viewing history)
+        var allContactIds = await _dbContext.Contacts
+            .IgnoreQueryFilters()
+            .Where(c => !c.IsDeleted)
             .Select(c => c.Id)
             .ToListAsync();
 
-        if (missingContacts.Count == 0) return;
+        // Get the default account for legacy migration
+        var defaultAccount = await _dbContext.WabaPhoneNumbers.OrderBy(x => x.Id).FirstOrDefaultAsync();
 
-        foreach (var contactId in missingContacts)
+        // MIGRATION: Fix old conversations with null ConnectionId
+        if (defaultAccount?.ConnectionId != null)
         {
-            _dbContext.ChatConversations.Add(new ChatConversation
+            var nullConnConversations = await _dbContext.ChatConversations
+                .Where(c => c.ConnectionId == null)
+                .ToListAsync();
+
+            foreach (var conv in nullConnConversations)
             {
-                ContactId = contactId,
-                WabaPhoneNumberId = account?.Id
-            });
+                conv.ConnectionId = defaultAccount.ConnectionId;
+                if (conv.WabaPhoneNumberId == null)
+                    conv.WabaPhoneNumberId = defaultAccount.Id;
+            }
+
+            if (nullConnConversations.Count > 0)
+                await _dbContext.SaveChangesAsync();
         }
 
-        await _dbContext.SaveChangesAsync();
+        // Gather all connectionIds that have phone numbers
+        var phonesByConnection = await _dbContext.WabaPhoneNumbers
+            .Where(p => p.ConnectionId.HasValue)
+            .GroupBy(p => p.ConnectionId!.Value)
+            .Select(g => new { ConnectionId = g.Key, PhoneId = g.Min(p => p.Id) })
+            .ToListAsync();
+
+        // Get existing conversation (contactId, connectionId) pairs
+        var existingPairs = await _dbContext.ChatConversations
+            .Select(c => new { c.ContactId, c.ConnectionId })
+            .ToListAsync();
+
+        var existingSet = new HashSet<string>(
+            existingPairs.Select(p => $"{p.ContactId}_{p.ConnectionId ?? 0}"));
+
+        var newConversations = new List<ChatConversation>();
+
+        // For each phone-connected connection, ensure every contact has a conversation
+        foreach (var pc in phonesByConnection)
+        {
+            foreach (var contactId in allContactIds)
+            {
+                var key = $"{contactId}_{pc.ConnectionId}";
+                if (!existingSet.Contains(key))
+                {
+                    newConversations.Add(new ChatConversation
+                    {
+                        ContactId = contactId,
+                        ConnectionId = pc.ConnectionId,
+                        WabaPhoneNumberId = pc.PhoneId
+                    });
+                    existingSet.Add(key);
+                }
+            }
+        }
+
+        // Also ensure contacts with NO conversation at all get a default one
+        var contactsWithAnyConv = existingPairs.Select(p => p.ContactId).Distinct().ToHashSet();
+        foreach (var contactId in allContactIds)
+        {
+            if (!contactsWithAnyConv.Contains(contactId) && !newConversations.Any(c => c.ContactId == contactId))
+            {
+                newConversations.Add(new ChatConversation
+                {
+                    ContactId = contactId,
+                    ConnectionId = defaultAccount?.ConnectionId,
+                    WabaPhoneNumberId = defaultAccount?.Id
+                });
+            }
+        }
+
+        if (newConversations.Count > 0)
+        {
+            _dbContext.ChatConversations.AddRange(newConversations);
+            await _dbContext.SaveChangesAsync();
+        }
     }
 
-    public async Task<ChatConversation> GetOrCreateConversationAsync(int contactId)
+    public async Task<ChatConversation> GetOrCreateConversationAsync(int contactId, int? connectionId = null)
     {
         var conversation = await _dbContext.ChatConversations
-            .FirstOrDefaultAsync(c => c.ContactId == contactId);
+            .FirstOrDefaultAsync(c => c.ContactId == contactId && (connectionId == null || c.ConnectionId == connectionId));
 
         if (conversation != null) return conversation;
 
-        var account = await _dbContext.WabaPhoneNumbers.OrderBy(x => x.Id).FirstOrDefaultAsync();
+        var account = connectionId.HasValue
+            ? await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value)
+            : await _dbContext.WabaPhoneNumbers.OrderBy(x => x.Id).FirstOrDefaultAsync();
+
         conversation = new ChatConversation
         {
             ContactId = contactId,
+            ConnectionId = connectionId ?? account?.ConnectionId,
             WabaPhoneNumberId = account?.Id
         };
 
@@ -346,16 +436,22 @@ public class ChatService : IChatService
         if (!string.IsNullOrWhiteSpace(phoneNumberId))
         {
             var selected = await _dbContext.WabaPhoneNumbers
-                .FirstOrDefaultAsync(p => p.PhoneNumberId == phoneNumberId);
+                .FirstOrDefaultAsync(p => p.PhoneNumberId == phoneNumberId && (!conversation.ConnectionId.HasValue || p.ConnectionId == conversation.ConnectionId));
 
-            if (selected == null)
-                throw new KeyNotFoundException($"WABA phone number with ID {phoneNumberId} not found.");
-
-            return selected;
+            if (selected != null)
+                return selected;
         }
 
-        if (conversation.WabaPhoneNumber != null)
+        if (conversation.WabaPhoneNumber != null && (!conversation.ConnectionId.HasValue || conversation.WabaPhoneNumber.ConnectionId == conversation.ConnectionId.Value))
             return conversation.WabaPhoneNumber;
+
+        if (conversation.ConnectionId.HasValue)
+        {
+            var connPhone = await _dbContext.WabaPhoneNumbers
+                .FirstOrDefaultAsync(p => p.ConnectionId == conversation.ConnectionId.Value);
+
+            if (connPhone != null) return connPhone;
+        }
 
         return await _dbContext.WabaPhoneNumbers.OrderBy(x => x.Id).FirstOrDefaultAsync();
     }
@@ -371,6 +467,8 @@ public class ChatService : IChatService
         return new ChatAccountResponse
         {
             Id = account.Id,
+            ConnectionId = account.ConnectionId,
+            ConnectionName = account.Connection?.Name,
             PhoneNumber = account.PhoneNumber,
             PhoneNumberId = account.PhoneNumberId,
             DisplayName = account.DisplayName,
@@ -386,6 +484,8 @@ public class ChatService : IChatService
         {
             Id = conversation.Id,
             ContactId = conversation.ContactId,
+            ConnectionId = conversation.ConnectionId,
+            ConnectionName = conversation.Connection?.Name,
             Name = conversation.Contact.Name,
             Status = conversation.Contact.Type.ToString().ToLowerInvariant(),
             Phone = conversation.Contact.Phone,

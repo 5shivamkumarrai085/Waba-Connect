@@ -25,4 +25,7 @@ public class WabaPhoneNumber
     public string Status { get; set; } = string.Empty;
 
     public string MessageLimit { get; set; } = string.Empty;
+
+    public int? ConnectionId { get; set; }
+    public virtual Connection? Connection { get; set; }
 }

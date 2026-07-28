@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useWabaStore } from '../../store/wabaStore'
 // mockConnectionRequirements removed, defining inline
 import { CopyField } from '../../components/CopyField/CopyField'
@@ -13,6 +14,10 @@ import html2canvas from 'html2canvas'
 import './ConnectWABA.css'
 
 export const ConnectWABA: React.FC = () => {
+  const [searchParams] = useSearchParams()
+  const connectionIdParam = searchParams.get('connectionId')
+  const connectionId = connectionIdParam ? Number(connectionIdParam) : undefined
+
   const [isQrModalOpen, setIsQrModalOpen] = useState(false)
 
   const handleCaptureScreenshot = async () => {
@@ -71,8 +76,8 @@ export const ConnectWABA: React.FC = () => {
 
   useEffect(() => {
     // Attempt to load existing WABA data on mount to see if we're partially or fully connected
-    loadWabaData()
-  }, [])
+    loadWabaData(connectionId)
+  }, [connectionId, loadWabaData])
 
   const handleConnectApp = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -80,7 +85,7 @@ export const ConnectWABA: React.FC = () => {
       toast.error('Facebook App ID and App Secret are required.')
       return
     }
-    const res = await connectApp(facebookAppId, facebookAppSecret)
+    const res = await connectApp(facebookAppId, facebookAppSecret, connectionId)
     if (res.success) toast.success(res.message)
     else toast.error(res.message)
   }
@@ -91,7 +96,7 @@ export const ConnectWABA: React.FC = () => {
       toast.error('WABA ID and Access Token are required.')
       return
     }
-    const res = await configureWaba(wabaId, accessToken)
+    const res = await configureWaba(wabaId, accessToken, connectionId)
     if (res.success) toast.success(res.message)
     else toast.error(res.message)
   }
@@ -102,14 +107,14 @@ export const ConnectWABA: React.FC = () => {
 
   const confirmDisconnect = async () => {
     setIsDisconnectModalOpen(false)
-    const res = await disconnectWaba()
+    const res = await disconnectWaba(connectionId)
     if (res.success) toast.success(res.message)
     else toast.error(res.message)
   }
 
   const handleSendTestMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    const res = await sendTestMessage(testNumber)
+    const res = await sendTestMessage(testNumber, connectionId)
     if (res.success) {
       toast.success(res.message)
       setTestNumber('')
@@ -119,7 +124,7 @@ export const ConnectWABA: React.FC = () => {
   }
 
   const handleVerifyWebhook = async () => {
-    const res = await verifyWebhook()
+    const res = await verifyWebhook(connectionId)
     if (res.success) {
       toast.success(res.message)
     } else {
@@ -136,7 +141,9 @@ export const ConnectWABA: React.FC = () => {
     setIsQrModalOpen(true)
   }
 
-  if (isLoading && !facebookAppId && !isConnected) {
+  // Only show initial loading spinner when no data has loaded yet
+  const hasAnyData = Boolean(facebookAppId || wabaId || verifyToken || isConnected)
+  if (isLoading && !hasAnyData) {
     return (
       <div className="fade-in page-loader">
         <p className="page-loader-text">Loading WABA account details...</p>
@@ -144,7 +151,7 @@ export const ConnectWABA: React.FC = () => {
     )
   }
 
-  const isStep1Done = !!webhookUrl && !!verifyToken;
+  const isStep1Done = Boolean((facebookAppId || webhookUrl) && verifyToken);
 
   return (
     <div className="fade-in">

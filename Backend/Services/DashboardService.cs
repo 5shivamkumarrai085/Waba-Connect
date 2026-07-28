@@ -33,16 +33,12 @@ namespace WhatsAppCampaignApi.Services
         }
         public async Task<DashboardDto?> GetDashboardDataAsync()
         {
-            var config = await _wabaRepository.GetAsync();
+            var config = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(_dbContext.WabaConfigurations, c => c.Connected)
+                ?? await _wabaRepository.GetAsync();
+
             if (config == null)
             {
                 return new DashboardDto { IsConnected = false };
-            }
-
-            if (!string.IsNullOrWhiteSpace(config.WebhookUrl) && config.WebhookUrl.EndsWith("/webhook", StringComparison.OrdinalIgnoreCase))
-            {
-                config.WebhookUrl = config.WebhookUrl[..^"/webhook".Length] + "/api/webhook/whatsapp";
-                await _wabaRepository.AddOrUpdateAsync(config);
             }
 
             if (!config.Connected)

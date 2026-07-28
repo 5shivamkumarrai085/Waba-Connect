@@ -59,7 +59,9 @@ builder.Services.AddScoped<IBotRouterService, BotRouterService>();
 builder.Services.AddHttpClient<IWhatsAppService, WhatsAppCloudApiService>();
 builder.Services.AddHostedService<CampaignSchedulerService>();
 
-// WABA Integration Services
+builder.Services.AddScoped<IPermissionService, PermissionService>();
+builder.Services.AddScoped<IPermissionManagementService, PermissionManagementService>();
+builder.Services.AddScoped<IConnectionService, ConnectionService>();
 builder.Services.AddScoped<IWabaRepository, WabaRepository>();
 builder.Services.AddScoped<IBusinessRepository, BusinessRepository>();
 builder.Services.AddScoped<IPhoneRepository, PhoneRepository>();

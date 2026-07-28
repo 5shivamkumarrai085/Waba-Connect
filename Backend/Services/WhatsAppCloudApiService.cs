@@ -47,14 +47,50 @@ public class WhatsAppCloudApiService : IWhatsAppService
         _scopeFactory = scopeFactory;
     }
 
-    private async Task<(string AccessToken, string PhoneNumberId, string BusinessAccountId)> GetActiveConfigAsync(string? requestedPhoneNumberId = null)
+    private async Task<(string AccessToken, string PhoneNumberId, string BusinessAccountId)> GetActiveConfigAsync(string? requestedPhoneNumberId = null, int? connectionId = null)
     {
-        var config = await _dbContext.WabaConfigurations.FirstOrDefaultAsync(c => c.Connected);
-        if (config == null) throw new InvalidOperationException("WABA is not configured or connected.");
+        WabaConfiguration? config = null;
 
-        var phone = !string.IsNullOrWhiteSpace(requestedPhoneNumberId)
-            ? await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.PhoneNumberId == requestedPhoneNumberId)
-            : await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
+        if (connectionId.HasValue)
+        {
+            config = await _dbContext.WabaConfigurations.FirstOrDefaultAsync(c => c.ConnectionId == connectionId.Value && c.Connected)
+                ?? await _dbContext.WabaConfigurations.FirstOrDefaultAsync(c => c.ConnectionId == connectionId.Value);
+        }
+
+        if (config == null && !string.IsNullOrWhiteSpace(requestedPhoneNumberId))
+        {
+            var phoneAcc = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.PhoneNumberId == requestedPhoneNumberId);
+            if (phoneAcc?.ConnectionId != null)
+            {
+                config = await _dbContext.WabaConfigurations.FirstOrDefaultAsync(c => c.ConnectionId == phoneAcc.ConnectionId && c.Connected)
+                    ?? await _dbContext.WabaConfigurations.FirstOrDefaultAsync(c => c.ConnectionId == phoneAcc.ConnectionId);
+            }
+        }
+
+        if (config == null && !connectionId.HasValue && string.IsNullOrWhiteSpace(requestedPhoneNumberId))
+        {
+            config = await _dbContext.WabaConfigurations.FirstOrDefaultAsync(c => c.Connected)
+                ?? await _dbContext.WabaConfigurations.FirstOrDefaultAsync();
+        }
+
+        if (config == null) throw new InvalidOperationException($"WABA is not configured or connected for connection ID {connectionId}.");
+
+        WabaPhoneNumber? phone = null;
+        if (config.ConnectionId.HasValue)
+        {
+            phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == config.ConnectionId.Value);
+        }
+
+        if (phone == null && !string.IsNullOrWhiteSpace(requestedPhoneNumberId))
+        {
+            phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.PhoneNumberId == requestedPhoneNumberId);
+        }
+
+        if (phone == null)
+        {
+            phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
+        }
+
         var phoneId = phone?.PhoneNumberId ?? throw new InvalidOperationException("No WABA phone number found.");
 
         var biz = await _dbContext.Businesses.FirstOrDefaultAsync();
@@ -68,9 +104,10 @@ public class WhatsAppCloudApiService : IWhatsAppService
         string recipientPhone,
         string templateName,
         string languageCode,
-        Dictionary<string, string>? variables = null)
+        Dictionary<string, string>? variables = null,
+        int? connectionId = null)
     {
-        var result = await SendTemplateMessageWithResultAsync(recipientPhone, templateName, languageCode, variables);
+        var result = await SendTemplateMessageWithResultAsync(recipientPhone, templateName, languageCode, variables, connectionId);
         return result.Success ? result.MessageId : null;
     }
 
@@ -79,7 +116,8 @@ public class WhatsAppCloudApiService : IWhatsAppService
         string recipientPhone,
         string templateName,
         string languageCode,
-        Dictionary<string, string>? variables = null)
+        Dictionary<string, string>? variables = null,
+        int? connectionId = null)
     {
         try
         {
@@ -87,7 +125,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
             var template = await _dbContext.Templates.FirstOrDefaultAsync(t => t.Name == templateName);
             var headerType = template?.HeaderType ?? HeaderType.None;
 
-            var (accessToken, phoneNumberId, _) = await GetActiveConfigAsync();
+            var (accessToken, phoneNumberId, _) = await GetActiveConfigAsync(connectionId: connectionId);
 
             string? mediaId = null;
             if (headerType != HeaderType.None && variables != null)
@@ -166,7 +204,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
     }
 
     /// <inheritdoc />
-    public async Task<WhatsAppSendResult> SendTextMessageAsync(string recipientPhone, string text, string? fromPhoneNumberId = null)
+    public async Task<WhatsAppSendResult> SendTextMessageAsync(string recipientPhone, string text, string? fromPhoneNumberId = null, int? connectionId = null)
     {
         try
         {
@@ -186,7 +224,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
             var json = JsonSerializer.Serialize(messagePayload, JsonOptions);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var (accessToken, phoneNumberId, _) = await GetActiveConfigAsync(fromPhoneNumberId);
+            var (accessToken, phoneNumberId, _) = await GetActiveConfigAsync(fromPhoneNumberId, connectionId);
 
             var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/{phoneNumberId}/messages")
             {
@@ -291,13 +329,19 @@ public class WhatsAppCloudApiService : IWhatsAppService
     public bool VerifyWebhook(string mode, string token, string challenge)
     {
         var config = _dbContext.WabaConfigurations.FirstOrDefault();
-        if (config == null || string.IsNullOrEmpty(config.VerifyToken))
+        string? configuredToken = config?.VerifyToken;
+        if (string.IsNullOrWhiteSpace(configuredToken))
         {
-            _logger.LogWarning("Webhook verification failed. No WABA configuration found.");
+            configuredToken = _configuration["WhatsApp:VerifyToken"] ?? _configuration["WhatsApp:WebhookVerifyToken"];
+        }
+
+        if (string.IsNullOrWhiteSpace(configuredToken))
+        {
+            _logger.LogWarning("Webhook verification failed. No WABA configuration found in DB or appsettings.json.");
             return false;
         }
 
-        if (mode == "subscribe" && token == config.VerifyToken)
+        if (mode == "subscribe" && token == configuredToken)
         {
             _logger.LogInformation("Webhook verified successfully");
             return true;
@@ -385,17 +429,24 @@ public class WhatsAppCloudApiService : IWhatsAppService
             ? await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.PhoneNumberId == fromPhoneNumberId)
             : await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
 
+        var connectionId = account?.ConnectionId;
+
         var conversation = await _dbContext.ChatConversations
-            .FirstOrDefaultAsync(c => c.ContactId == contact.Id);
+            .FirstOrDefaultAsync(c => c.ContactId == contact.Id && (connectionId == null || c.ConnectionId == connectionId));
 
         if (conversation == null)
         {
             conversation = new ChatConversation
             {
                 ContactId = contact.Id,
+                ConnectionId = connectionId,
                 WabaPhoneNumberId = account?.Id
             };
             _dbContext.ChatConversations.Add(conversation);
+        }
+        else if (conversation.ConnectionId == null && connectionId.HasValue)
+        {
+            conversation.ConnectionId = connectionId;
         }
 
         var text = incomingMessage.Text?.Body;
@@ -434,6 +485,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
         {
             Conversation = conversation,
             ContactId = contact.Id,
+            ConnectionId = connectionId,
             WhatsAppMessageId = incomingMessage.Id,
             Direction = ChatMessageDirection.Incoming,
             Status = ChatMessageStatus.Received,
@@ -455,7 +507,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 if (dbContact == null) return;
 
                 var routerService = scope.ServiceProvider.GetRequiredService<IBotRouterService>();
-                await routerService.RouteMessageAsync(normalizedPhone, text, dbContact);
+                await routerService.RouteMessageAsync(normalizedPhone, text, dbContact, connectionId);
             }
             catch (Exception ex)
             {
@@ -743,13 +795,14 @@ public class WhatsAppCloudApiService : IWhatsAppService
         string mediaType,
         string? filename = null,
         string? caption = null,
-        string? fromPhoneNumberId = null)
+        string? fromPhoneNumberId = null,
+        int? connectionId = null)
     {
         try
         {
             var whatsAppPhone = PhoneNumberHelper.FormatForWhatsApp(recipientPhone);
-            var (accessToken, activePhoneNumberId, _) = await GetActiveConfigAsync(fromPhoneNumberId);
-            var finalPhoneNumberId = fromPhoneNumberId ?? activePhoneNumberId;
+            var (accessToken, activePhoneNumberId, _) = await GetActiveConfigAsync(fromPhoneNumberId, connectionId);
+            var finalPhoneNumberId = activePhoneNumberId;
 
             // 1. Try to upload local/localhost media to WhatsApp
             string? mediaId = null;
@@ -844,13 +897,13 @@ public class WhatsAppCloudApiService : IWhatsAppService
     }
 
     /// <inheritdoc />
-    public async Task<WhatsAppSendResult> SendCustomPayloadAsync(string recipientPhone, object payload, string? fromPhoneNumberId = null)
+    public async Task<WhatsAppSendResult> SendCustomPayloadAsync(string recipientPhone, object payload, string? fromPhoneNumberId = null, int? connectionId = null)
     {
         try
         {
             var whatsAppPhone = PhoneNumberHelper.FormatForWhatsApp(recipientPhone);
-            var (accessToken, activePhoneNumberId, _) = await GetActiveConfigAsync(fromPhoneNumberId);
-            var finalPhoneNumberId = fromPhoneNumberId ?? activePhoneNumberId;
+            var (accessToken, activePhoneNumberId, _) = await GetActiveConfigAsync(fromPhoneNumberId, connectionId);
+            var finalPhoneNumberId = activePhoneNumberId;
 
             var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions 
             { 
@@ -994,15 +1047,19 @@ public class WhatsAppCloudApiService : IWhatsAppService
         }
     }
 
-    public async Task<bool> TryTriggerTemplateBotAsync(string normalizedPhone, string incomingText, Contact contact)
+    public async Task<bool> TryTriggerTemplateBotAsync(string normalizedPhone, string incomingText, Contact contact, int? connectionId = null)
     {
         try
         {
+            _logger.LogInformation("TryTriggerTemplateBotAsync called for phone {Phone}, text '{Text}', connectionId {ConnectionId}", normalizedPhone, incomingText, connectionId);
+
             var activeTemplateBots = await _dbContext.TemplateBots
                 .Where(b => b.IsActive)
                 .Include(b => b.Template)
                 .Include(b => b.Variables)
                 .ToListAsync();
+
+            _logger.LogInformation("Found {Count} active template bots", activeTemplateBots.Count);
 
             var relationTypeStr = contact.Type == ContactType.Customer ? "Customer" : "Lead";
 
@@ -1036,6 +1093,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
                 if (isMatch)
                 {
+                    _logger.LogInformation("Template Bot '{BotName}' matched keyword in message '{Text}'", bot.Name, incomingText);
                     matchedBot = bot;
                     break;
                 }
@@ -1075,8 +1133,11 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
             if (matchedBot == null)
             {
+                _logger.LogInformation("No template bot matched for phone {Phone}, text '{Text}'", normalizedPhone, incomingText);
                 return false;
             }
+
+            _logger.LogInformation("Using matched template bot '{BotName}' (Id: {BotId}), Template: '{TemplateName}'", matchedBot.Name, matchedBot.Id, matchedBot.Template?.Name ?? "null");
 
             // Find all variable names used in template body text
             var templateBody = matchedBot.Template.BodyText ?? "";
@@ -1132,7 +1193,8 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 normalizedPhone, 
                 matchedBot.Template.Name, 
                 matchedBot.Template.Language ?? "en", 
-                resolvedVariables);
+                resolvedVariables,
+                connectionId);
 
             if (sendResult.Success)
             {
@@ -1143,8 +1205,27 @@ public class WhatsAppCloudApiService : IWhatsAppService
                     bodyText = bodyText.Replace($"{{{{{v.Key}}}}}", v.Value);
                 }
 
-                var conversation = await _dbContext.ChatConversations.FirstOrDefaultAsync(c => c.ContactId == contact.Id);
-                if (conversation != null)
+                var conversation = await _dbContext.ChatConversations
+                    .FirstOrDefaultAsync(c => c.ContactId == contact.Id && (connectionId == null || c.ConnectionId == connectionId));
+
+                if (conversation == null)
+                {
+                    var account = connectionId.HasValue 
+                        ? await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value)
+                        : await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
+
+                    conversation = new ChatConversation
+                    {
+                        ContactId = contact.Id,
+                        ConnectionId = connectionId,
+                        WabaPhoneNumberId = account?.Id,
+                        LastMessageText = bodyText,
+                        LastMessageAt = DateTime.UtcNow
+                    };
+                    _dbContext.ChatConversations.Add(conversation);
+                    await _dbContext.SaveChangesAsync();
+                }
+                else
                 {
                     conversation.LastMessageText = bodyText;
                     conversation.LastMessageAt = DateTime.UtcNow;
@@ -1152,8 +1233,9 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
                 _dbContext.ChatMessages.Add(new ChatMessage
                 {
-                    ConversationId = conversation?.Id ?? 0,
+                    ConversationId = conversation.Id,
                     ContactId = contact.Id,
+                    ConnectionId = connectionId,
                     WhatsAppMessageId = sendResult.MessageId,
                     Direction = ChatMessageDirection.Outgoing,
                     Status = ChatMessageStatus.Sent,
@@ -1183,12 +1265,20 @@ public class WhatsAppCloudApiService : IWhatsAppService
                         mediaType = "video";
                     }
 
+                    string? resolvedPhoneNumberId = null;
+                    if (connectionId.HasValue)
+                    {
+                        var phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value);
+                        resolvedPhoneNumberId = phone?.PhoneNumberId;
+                    }
+
                     var mediaSendResult = await SendMediaMessageAsync(
                         normalizedPhone,
                         rawUrl,
                         mediaType,
                         fileName,
-                        null);
+                        null,
+                        resolvedPhoneNumberId);
 
                     if (conversation != null)
                     {
@@ -1219,7 +1309,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing template bot trigger for phone {Phone}", normalizedPhone);
+            _logger.LogError(ex, "Error processing template bot trigger for phone {Phone}, connectionId {ConnectionId}", normalizedPhone, connectionId);
         }
 
         return false;

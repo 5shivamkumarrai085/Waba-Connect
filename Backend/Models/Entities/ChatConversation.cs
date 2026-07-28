@@ -12,6 +12,9 @@ public class ChatConversation
     public int? WabaPhoneNumberId { get; set; }
     public WabaPhoneNumber? WabaPhoneNumber { get; set; }
 
+    public int? ConnectionId { get; set; }
+    public virtual Connection? Connection { get; set; }
+
     [MaxLength(1024)]
     public string? LastMessageText { get; set; }
 

@@ -45,7 +45,7 @@ public class BotRouterService : IBotRouterService
         _logger = logger;
     }
 
-    public async Task<bool> RouteMessageAsync(string phoneNumber, string incomingMessage, Contact contact)
+    public async Task<bool> RouteMessageAsync(string phoneNumber, string incomingMessage, Contact contact, int? connectionId = null)
     {
         string normalizedPhone = phoneNumber.Replace("+", "").Trim();
         string cleanMessage = incomingMessage.Trim();
@@ -58,13 +58,32 @@ public class BotRouterService : IBotRouterService
 
         _logger.LogInformation("Routing incoming message from {Phone}: '{Message}'", normalizedPhone, cleanMessage);
 
+        if (connectionId.HasValue)
+        {
+            var staleStates = await _dbContext.ConversationStates
+                .Where(s => s.PhoneNumber == normalizedPhone && s.Status == "Active" && s.ConnectionId != connectionId.Value)
+                .ToListAsync();
+
+            if (staleStates.Count > 0)
+            {
+                _logger.LogInformation("Cleaning up {Count} stale active ConversationStates for phone {Phone} on other connections.", staleStates.Count, normalizedPhone);
+                foreach (var state in staleStates)
+                {
+                    state.Status = "Completed";
+                }
+                await _dbContext.SaveChangesAsync();
+            }
+        }
+
         // 1. Stop Check
         var activeSession = await _dbContext.AiSessions
             .Include(s => s.MessageBot)
-            .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone && s.IsActive);
+            .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone && s.IsActive && 
+                (connectionId.HasValue ? s.ConnectionId == connectionId.Value : s.ConnectionId == null));
 
         var botFlowState = await _dbContext.ConversationStates
-            .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone && s.Status == "Active");
+            .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone && s.Status == "Active" && 
+                (connectionId.HasValue ? s.ConnectionId == connectionId.Value : s.ConnectionId == null));
 
         bool isBotFlowAiStop = false;
         if (botFlowState != null)
@@ -142,9 +161,15 @@ public class BotRouterService : IBotRouterService
                 await _dbContext.SaveChangesAsync();
 
                 string stopConfirmation = "AI Personal Assistant stopped.";
-                var sendResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, stopConfirmation);
+                string? resolvedPhoneNumberId = null;
+                if (connectionId.HasValue)
+                {
+                    var phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value);
+                    resolvedPhoneNumberId = phone?.PhoneNumberId;
+                }
+                var sendResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, stopConfirmation, resolvedPhoneNumberId, connectionId);
 
-                await LogOutgoingMessageAsync(contact, sendResult, stopConfirmation);
+                await LogOutgoingMessageAsync(contact, sendResult, stopConfirmation, connectionId: connectionId);
                 return true;
             }
         }
@@ -152,30 +177,30 @@ public class BotRouterService : IBotRouterService
         // 2. Existing AI Session Check
         if (activeSession != null)
         {
-            _logger.LogInformation("Active AI session exists for phone {Phone}. Routing directly to Groq assistant: '{AssistantName}'", normalizedPhone, activeSession.AssistantName);
-            await ProcessAiAssistantRequestAsync(contact, normalizedPhone, cleanMessage, activeSession);
-            return true;
+            var bot = activeSession.MessageBot;
+            bool isAssistantValid = bot != null &&
+                string.Equals(bot.OptionType, "PersonalAssistant", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(activeSession.AssistantName) &&
+                !activeSession.AssistantName.Equals("select option", StringComparison.OrdinalIgnoreCase) &&
+                !activeSession.AssistantName.Equals("select assistant", StringComparison.OrdinalIgnoreCase);
+
+            if (isAssistantValid)
+            {
+                _logger.LogInformation("Active AI session exists for phone {Phone}. Routing directly to Groq assistant: '{AssistantName}'", normalizedPhone, activeSession.AssistantName);
+                await ProcessAiAssistantRequestAsync(contact, normalizedPhone, cleanMessage, activeSession, connectionId);
+                return true;
+            }
+            else
+            {
+                _logger.LogInformation("Deactivating AI session for phone {Phone} because Personal Assistant was unselected or disabled.", normalizedPhone);
+                activeSession.IsActive = false;
+                activeSession.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync();
+                activeSession = null;
+            }
         }
 
-        // 3. Bot Flow Fallback
-        _logger.LogDebug("Evaluating Bot Flow triggers for phone {Phone}", normalizedPhone);
-        bool triggeredBotFlow = await _flowExecutionService.ExecuteFlowStepAsync(normalizedPhone, cleanMessage);
-        if (triggeredBotFlow)
-        {
-            _logger.LogInformation("Message handled by Bot Flow engine for phone {Phone}", normalizedPhone);
-            return true;
-        }
-
-        // 4. Template Bot Fallback
-        _logger.LogDebug("Evaluating Template Bot triggers for phone {Phone}", normalizedPhone);
-        bool triggeredTemplate = await _whatsAppService.TryTriggerTemplateBotAsync(normalizedPhone, cleanMessage, contact);
-        if (triggeredTemplate)
-        {
-            _logger.LogInformation("Message matched and handled by Template Bot for phone {Phone}", normalizedPhone);
-            return true;
-        }
-
-        // 5. Message Bot Keyword Matching
+        // 3. Message Bot Keyword Matching
         _logger.LogDebug("Evaluating Message Bot triggers for phone {Phone}", normalizedPhone);
         var activeBots = await _dbContext.MessageBots
             .Where(b => b.IsActive)
@@ -217,6 +242,12 @@ public class BotRouterService : IBotRouterService
 
         if (matchedBot != null)
         {
+            if (botFlowState != null)
+            {
+                _dbContext.ConversationStates.Remove(botFlowState);
+                await _dbContext.SaveChangesAsync();
+            }
+
             _logger.LogInformation("Matched Message Bot '{BotName}' for trigger keyword in message '{Message}'", matchedBot.Name, cleanMessage);
 
             if (string.Equals(matchedBot.OptionType, "PersonalAssistant", StringComparison.OrdinalIgnoreCase))
@@ -235,6 +266,7 @@ public class BotRouterService : IBotRouterService
                         PhoneNumber = normalizedPhone,
                         MessageBotId = matchedBot.Id,
                         AssistantName = assistantName,
+                        ConnectionId = connectionId,
                         IsActive = true,
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
@@ -244,7 +276,7 @@ public class BotRouterService : IBotRouterService
                     await _dbContext.SaveChangesAsync();
 
                     _logger.LogInformation("Created new AI session for phone {Phone} targeting assistant '{AssistantName}'", normalizedPhone, assistantName);
-                    await ProcessAiAssistantRequestAsync(contact, normalizedPhone, cleanMessage, newSession);
+                    await ProcessAiAssistantRequestAsync(contact, normalizedPhone, cleanMessage, newSession, connectionId);
                 }
                 else
                 {
@@ -264,14 +296,28 @@ public class BotRouterService : IBotRouterService
                     }
 
                     // Treat as static reply fallback
-                    var sendResult = await _messageBotExecutor.ExecuteReplyAsync(matchedBot, normalizedPhone);
-                    await LogOutgoingMessageAsync(contact, sendResult, matchedBot.ReplyText);
+                    var sendResult = await _messageBotExecutor.ExecuteReplyAsync(matchedBot, normalizedPhone, connectionId);
+                    await LogOutgoingMessageAsync(contact, sendResult, matchedBot.ReplyText, connectionId: connectionId);
                 }
             }
             else
             {
+                // Deactivate any active AI sessions for this phone number
+                var activeSessions = await _dbContext.AiSessions
+                    .Where(s => s.PhoneNumber == normalizedPhone && s.IsActive)
+                    .ToListAsync();
+                foreach (var s in activeSessions)
+                {
+                    s.IsActive = false;
+                    s.UpdatedAt = DateTime.UtcNow;
+                }
+                if (activeSessions.Count > 0)
+                {
+                    await _dbContext.SaveChangesAsync();
+                }
+
                 // Predefined static/buttons/media reply
-                var sendResult = await _messageBotExecutor.ExecuteReplyAsync(matchedBot, normalizedPhone);
+                var sendResult = await _messageBotExecutor.ExecuteReplyAsync(matchedBot, normalizedPhone, connectionId);
                 string textLog = matchedBot.ReplyText;
 
                 if (string.Equals(matchedBot.OptionType, "ReplyButtons", StringComparison.OrdinalIgnoreCase))
@@ -297,9 +343,33 @@ public class BotRouterService : IBotRouterService
                     textLog, 
                     matchedBot.OptionType.Equals("Files", StringComparison.OrdinalIgnoreCase) ? matchedBot.FileUrl : null,
                     matchedBot.OptionType.Equals("Files", StringComparison.OrdinalIgnoreCase) ? matchedBot.FileType : null,
-                    matchedBot.OptionType.Equals("Files", StringComparison.OrdinalIgnoreCase) ? matchedBot.FileName : null);
+                    matchedBot.OptionType.Equals("Files", StringComparison.OrdinalIgnoreCase) ? matchedBot.FileName : null,
+                    connectionId);
             }
 
+            return true;
+        }
+
+        // 4. Template Bot Fallback
+        _logger.LogDebug("Evaluating Template Bot triggers for phone {Phone}", normalizedPhone);
+        bool triggeredTemplate = await _whatsAppService.TryTriggerTemplateBotAsync(normalizedPhone, cleanMessage, contact, connectionId);
+        if (triggeredTemplate)
+        {
+            if (botFlowState != null)
+            {
+                _dbContext.ConversationStates.Remove(botFlowState);
+                await _dbContext.SaveChangesAsync();
+            }
+            _logger.LogInformation("Message matched and handled by Template Bot for phone {Phone}", normalizedPhone);
+            return true;
+        }
+
+        // 5. Bot Flow Engine Fallback
+        _logger.LogDebug("Evaluating Bot Flow triggers for phone {Phone}", normalizedPhone);
+        bool triggeredBotFlow = await _flowExecutionService.ExecuteFlowStepAsync(normalizedPhone, cleanMessage, connectionId);
+        if (triggeredBotFlow)
+        {
+            _logger.LogInformation("Message handled by Bot Flow engine for phone {Phone}", normalizedPhone);
             return true;
         }
 
@@ -307,63 +377,61 @@ public class BotRouterService : IBotRouterService
         return false;
     }
 
-    private async Task ProcessAiAssistantRequestAsync(Contact contact, string normalizedPhone, string incomingMessage, AiSession session)
+    private async Task ProcessAiAssistantRequestAsync(Contact contact, string normalizedPhone, string incomingMessage, AiSession session, int? connectionId = null)
     {
         string assistantName = session.AssistantName;
         
-        string systemPrompt = _configuration[$"PersonalAssistants:{assistantName}:Prompt"] ?? "You are a helpful assistant.";
-        string footer = _configuration[$"PersonalAssistants:{assistantName}:Footer"] ?? "Send 'stop' to stop AI messages";
-        
-        string model = "llama3-8b-8192";
-        string apiKey = string.Empty;
-
-        // Resolve multi-tenant configurations if present
-        var aiSetting = await _dbContext.ClientAiSettings
-            .FirstOrDefaultAsync(s => s.IsEnabled);
-
-        if (aiSetting != null)
-        {
-            model = aiSetting.Model;
-            try
-            {
-                apiKey = _encryptionService.Decrypt(aiSetting.EncryptedApiKey);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to decrypt API key from ClientAiSettings database table.");
-            }
-        }
-
-        // Fallback to appsettings configuration if DB key is missing or not decrypted successfully
-        if (string.IsNullOrEmpty(apiKey))
-        {
-            apiKey = _configuration["Groq:ApiKey"] ?? string.Empty;
-            model = _configuration["Groq:Model"] ?? model;
-        }
+        string? apiKey = _configuration[$"PersonalAssistants:{assistantName}:ApiKey"] ?? _configuration["Groq:ApiKey"];
+        string? model = _configuration[$"PersonalAssistants:{assistantName}:Model"] ?? _configuration["Groq:Model"] ?? "llama-3.1-8b-instant";
+        string? systemPrompt = _configuration[$"PersonalAssistants:{assistantName}:Prompt"] 
+            ?? _configuration[$"PersonalAssistants:{assistantName}:SystemPrompt"] 
+            ?? "You are OmniBot, a highly capable customer assistant for OmniConnect platform. Respond to the customer query in a polite, helpful, and concise manner.";
+        string? footer = _configuration[$"PersonalAssistants:{assistantName}:Footer"] ?? "Send 'stop' to stop AI messages";
 
         if (string.IsNullOrEmpty(apiKey))
         {
             _logger.LogError("Cannot run Personal Assistant completion because Groq API Key is not configured.");
+            string? resolvedPhoneNumberId = null;
+            if (connectionId.HasValue)
+            {
+                var phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value);
+                resolvedPhoneNumberId = phone?.PhoneNumberId;
+            }
+
             string errReply = "AI assistant configuration error. Please contact administration.";
-            var errResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, errReply);
-            await LogOutgoingMessageAsync(contact, errResult, errReply);
+            var errResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, errReply, resolvedPhoneNumberId, connectionId);
+            await LogOutgoingMessageAsync(contact, errResult, errReply, connectionId: connectionId);
             return;
         }
 
         try
         {
-            string aiResponse = await _groqProvider.GenerateResponseAsync(systemPrompt, incomingMessage, model, apiKey);
+            string aiResponse = await _groqProvider.GenerateResponseAsync(systemPrompt ?? "You are a helpful assistant.", incomingMessage, model ?? "llama3-8b-8192", apiKey);
             string replyText = string.IsNullOrEmpty(footer) ? aiResponse : $"{aiResponse}\n\n{footer}";
 
-            var sendResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, replyText);
-            await LogOutgoingMessageAsync(contact, sendResult, replyText);
+            string? resolvedPhoneNumberId = null;
+            if (connectionId.HasValue)
+            {
+                var phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value);
+                resolvedPhoneNumberId = phone?.PhoneNumberId;
+            }
+
+            var sendResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, replyText, resolvedPhoneNumberId, connectionId);
+            await LogOutgoingMessageAsync(contact, sendResult, replyText, connectionId: connectionId);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to call Groq completions API for phone {Phone}", normalizedPhone);
+            string? resolvedPhoneNumberId = null;
+            if (connectionId.HasValue)
+            {
+                var phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value);
+                resolvedPhoneNumberId = phone?.PhoneNumberId;
+            }
+
             string errReply = "An error occurred while generating AI response. Please try again later.";
-            var errResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, errReply);
-            await LogOutgoingMessageAsync(contact, errResult, errReply);
+            var errResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, errReply, resolvedPhoneNumberId, connectionId);
+            await LogOutgoingMessageAsync(contact, errResult, errReply, connectionId: connectionId);
         }
     }
 
@@ -373,14 +441,23 @@ public class BotRouterService : IBotRouterService
         string text, 
         string? mediaUrl = null, 
         string? mediaType = null, 
-        string? mediaFileName = null)
+        string? mediaFileName = null,
+        int? connectionId = null)
     {
-        var conversation = await _dbContext.ChatConversations.FirstOrDefaultAsync(c => c.ContactId == contact.Id);
+        var conversation = await _dbContext.ChatConversations
+            .FirstOrDefaultAsync(c => c.ContactId == contact.Id && (connectionId == null || c.ConnectionId == connectionId));
+
         if (conversation == null)
         {
+            var account = connectionId.HasValue 
+                ? await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value)
+                : await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
+
             conversation = new ChatConversation
             {
                 ContactId = contact.Id,
+                ConnectionId = connectionId,
+                WabaPhoneNumberId = account?.Id,
                 LastMessageText = text,
                 LastMessageAt = DateTime.UtcNow,
                 UnreadCount = 0,
@@ -392,6 +469,10 @@ public class BotRouterService : IBotRouterService
         }
         else
         {
+            if (conversation.ConnectionId == null && connectionId.HasValue)
+            {
+                conversation.ConnectionId = connectionId;
+            }
             conversation.LastMessageText = text;
             conversation.LastMessageAt = DateTime.UtcNow;
             _dbContext.ChatConversations.Entry(conversation).State = EntityState.Modified;
@@ -401,6 +482,7 @@ public class BotRouterService : IBotRouterService
         {
             ConversationId = conversation.Id,
             ContactId = contact.Id,
+            ConnectionId = connectionId,
             WhatsAppMessageId = sendResult.Success ? sendResult.MessageId : null,
             Direction = ChatMessageDirection.Outgoing,
             Status = sendResult.Success ? ChatMessageStatus.Sent : ChatMessageStatus.Failed,

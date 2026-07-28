@@ -13,17 +13,26 @@ public class MessageBotExecutor
 {
     private readonly IWhatsAppService _whatsAppService;
     private readonly ILogger<MessageBotExecutor> _logger;
+    private readonly WhatsAppCampaignApi.Data.AppDbContext _dbContext;
 
-    public MessageBotExecutor(IWhatsAppService whatsAppService, ILogger<MessageBotExecutor> logger)
+    public MessageBotExecutor(IWhatsAppService whatsAppService, ILogger<MessageBotExecutor> logger, WhatsAppCampaignApi.Data.AppDbContext dbContext)
     {
         _whatsAppService = whatsAppService;
         _logger = logger;
+        _dbContext = dbContext;
     }
 
-    public async Task<WhatsAppSendResult> ExecuteReplyAsync(MessageBot bot, string recipientPhone)
+    public async Task<WhatsAppSendResult> ExecuteReplyAsync(MessageBot bot, string recipientPhone, int? connectionId = null)
     {
         try
         {
+            string? resolvedPhoneNumberId = null;
+            if (connectionId.HasValue)
+            {
+                var phone = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(_dbContext.WabaPhoneNumbers, p => p.ConnectionId == connectionId.Value);
+                resolvedPhoneNumberId = phone?.PhoneNumberId;
+            }
+
             if (string.Equals(bot.OptionType, "ReplyButtons", StringComparison.OrdinalIgnoreCase))
             {
                 var buttonsList = new List<object>();
@@ -97,7 +106,7 @@ public class MessageBotExecutor
                     };
 
                     _logger.LogInformation("Sending interactive buttons payload to {Recipient}", recipientPhone);
-                    return await _whatsAppService.SendCustomPayloadAsync(recipientPhone, payload);
+                    return await _whatsAppService.SendCustomPayloadAsync(recipientPhone, payload, resolvedPhoneNumberId, connectionId);
                 }
             }
             else if (string.Equals(bot.OptionType, "CtaUrl", StringComparison.OrdinalIgnoreCase) && 
@@ -145,14 +154,14 @@ public class MessageBotExecutor
                 };
 
                 _logger.LogInformation("Sending CTA URL payload to {Recipient}", recipientPhone);
-                return await _whatsAppService.SendCustomPayloadAsync(recipientPhone, payload);
+                return await _whatsAppService.SendCustomPayloadAsync(recipientPhone, payload, resolvedPhoneNumberId, connectionId);
             }
             else if (string.Equals(bot.OptionType, "Files", StringComparison.OrdinalIgnoreCase) && 
                      !string.IsNullOrWhiteSpace(bot.FileUrl))
             {
                 _logger.LogInformation("Sending file attachment to {Recipient}: {FileUrl}", recipientPhone, bot.FileUrl);
                 string fileType = string.IsNullOrWhiteSpace(bot.FileType) ? "document" : bot.FileType.ToLower();
-                return await _whatsAppService.SendMediaMessageAsync(recipientPhone, bot.FileUrl, fileType, bot.FileName, bot.ReplyText);
+                return await _whatsAppService.SendMediaMessageAsync(recipientPhone, bot.FileUrl, fileType, bot.FileName, bot.ReplyText, resolvedPhoneNumberId, connectionId);
             }
 
             // Fallback Text Message
@@ -170,7 +179,7 @@ public class MessageBotExecutor
             }
 
             _logger.LogInformation("Sending standard fallback text message to {Recipient}", recipientPhone);
-            return await _whatsAppService.SendTextMessageAsync(recipientPhone, sb.ToString().TrimEnd());
+            return await _whatsAppService.SendTextMessageAsync(recipientPhone, sb.ToString().TrimEnd(), resolvedPhoneNumberId, connectionId);
         }
         catch (Exception ex)
         {

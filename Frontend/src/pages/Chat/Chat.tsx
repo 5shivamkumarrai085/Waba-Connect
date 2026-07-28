@@ -28,6 +28,7 @@ import {
 import { Avatar } from '../../components/Avatar/Avatar'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { useChatStore } from '../../store/chatStore'
+import { useConnectionStore } from '../../store/connectionStore'
 import { campaignService } from '../../services/campaigns/campaignService'
 import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
 import { apiClient } from '../../services/apiClient'
@@ -59,10 +60,12 @@ const getFullMediaUrl = (url: string | null | undefined) => {
 
 export const Chat: React.FC = () => {
   const [searchParams] = useSearchParams()
+  const { connections, fetchDashboard: fetchConnectionDashboard } = useConnectionStore()
   const {
     accounts,
     conversations,
     activeConversationId,
+    selectedConnectionId,
     messages,
     isLoading,
     isLoadingConversations,
@@ -70,6 +73,7 @@ export const Chat: React.FC = () => {
     fromNumber,
     conversationsFilter,
     sidebarSearchQuery,
+    setSelectedConnectionId,
     loadAccounts,
     loadConversations,
     refreshActiveMessages,
@@ -132,10 +136,23 @@ export const Chat: React.FC = () => {
     return undefined
   }
 
+  // Auto-select the first connected connection on load
   useEffect(() => {
+    fetchConnectionDashboard()
     loadAccounts()
     loadConversations()
-  }, [loadAccounts, loadConversations])
+  }, [fetchConnectionDashboard, loadAccounts, loadConversations])
+
+  useEffect(() => {
+    if (selectedConnectionId === null && connections.length > 0) {
+      const firstConnected = connections.find(c => c.isConnected && c.phoneNumber)
+      if (firstConnected) {
+        setSelectedConnectionId(firstConnected.id)
+      } else if (connections.length > 0) {
+        setSelectedConnectionId(connections[0].id)
+      }
+    }
+  }, [connections, selectedConnectionId, setSelectedConnectionId])
 
   useEffect(() => {
     if (accounts.length > 0) return
@@ -156,6 +173,11 @@ export const Chat: React.FC = () => {
   }, [sidebarSearchQuery, conversationsFilter, loadConversations])
 
   useEffect(() => {
+    const selectedConn = connections.find(c => c.id === selectedConnectionId)
+    if (selectedConn && !selectedConn.phoneNumber) {
+      return
+    }
+
     const interval = window.setInterval(() => {
       if (activeConversationId) {
         refreshActiveMessages()
@@ -165,7 +187,7 @@ export const Chat: React.FC = () => {
     }, 2000)
 
     return () => window.clearInterval(interval)
-  }, [activeConversationId, refreshActiveMessages, loadConversations])
+  }, [activeConversationId, refreshActiveMessages, loadConversations, connections, selectedConnectionId])
 
   useEffect(() => {
     if (!requestedContactId || conversations.length === 0) return
@@ -497,10 +519,28 @@ export const Chat: React.FC = () => {
     <div className="fade-in chat-container-layout">
       <div className="chat-sidebar">
         <div className="chat-sidebar-header">
+          {/* Connection Filter Dropdown (matching Image 2) */}
+          <div className="chat-connection-select-wrapper mb-2">
+            <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+              Active Connection
+            </label>
+            <select
+              className="form-control text-xs font-medium bg-slate-50 border-slate-200"
+              value={selectedConnectionId ?? ''}
+              onChange={(e) => setSelectedConnectionId(e.target.value ? Number(e.target.value) : null)}
+            >
+              {connections.map((conn) => (
+                <option key={conn.id} value={conn.id}>
+                  {conn.name} ({conn.phoneNumber || 'Setup pending'})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="chat-account-display-row">
             <Avatar name={selectedAccount?.verifiedName || selectedAccount?.phoneNumber || 'From Account'} size="small" />
             <div className="chat-dropdown-full">
-              <span className="upload-sub-text">From:</span>
+              <span className="upload-sub-text">Sender Line:</span>
               <select
                 className="form-control"
                 value={fromNumber}
@@ -539,18 +579,29 @@ export const Chat: React.FC = () => {
         </div>
 
         <div className="conversation-list-scroll">
-          {isLoadingConversations && conversations.length === 0 ? (
-            <div className="page-loader">
-              <p className="upload-sub-text">Loading chats...</p>
-            </div>
-          ) : filteredConversations.length === 0 ? (
-            <div className="chat-sidebar-empty-state">
-              <MessageSquare size={36} className="chat-sidebar-empty-icon" />
-              <span className="chat-sidebar-empty-title">No chats found</span>
+          {(() => {
+            const selectedConn = connections.find(c => c.id === selectedConnectionId);
+            if (selectedConn && !selectedConn.phoneNumber) {
+              return (
+                <div className="chat-sidebar-empty-state">
+                  <MessageSquare size={36} className="chat-sidebar-empty-icon" />
+                  <span className="chat-sidebar-empty-title">Setup pending</span>
+                  <p className="chat-sidebar-empty-desc">No WABA number connected</p>
+                </div>
+              );
+            }
+            return isLoadingConversations && conversations.length === 0 ? (
+              <div className="page-loader">
+                <p className="upload-sub-text">Loading chats...</p>
+              </div>
+            ) : filteredConversations.length === 0 ? (
+              <div className="chat-sidebar-empty-state">
+                <MessageSquare size={36} className="chat-sidebar-empty-icon" />
+                <span className="chat-sidebar-empty-title">No chats found</span>
               <p className="chat-sidebar-empty-desc">
                 {conversationsFilter === 'Unread Chats'
                   ? 'There are no unread chats.'
-                  : 'Try adjusting your search query.'}
+                  : 'Try adjusting your search query or connection filter.'}
               </p>
             </div>
           ) : (
@@ -566,7 +617,9 @@ export const Chat: React.FC = () => {
                   <Avatar name={conversation.name} size="medium" />
                   <div className="conversation-info-row">
                     <div className="conversation-name-badge-row">
-                      <span className="conversation-contact-name">{conversation.name}</span>
+                      <div className="flex flex-col text-left">
+                        <span className="conversation-contact-name">{conversation.name}</span>
+                      </div>
                       <span className={`conversation-status-badge ${normalizeBadge(conversation.status)}`}>
                         {conversation.status || 'contact'}
                       </span>
@@ -584,7 +637,7 @@ export const Chat: React.FC = () => {
                 </button>
               )
             })
-          )}
+          )})()}
         </div>
       </div>
 
@@ -592,15 +645,19 @@ export const Chat: React.FC = () => {
         {activeConversation ? (
           <div className="chat-window-inner-layout">
             <div className="chat-window-header">
-              <div className="chat-header-user-info">
+              <div className="chat-header-user-info flex-1">
                 <Avatar name={activeConversation.name} size="medium" />
                 <div>
-                  <span className="conversation-contact-name">{activeConversation.name}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="conversation-contact-name">{activeConversation.name}</span>
+                    <span className={`conversation-status-badge ${normalizeBadge(activeConversation.status)}`}>
+                      {activeConversation.status || 'contact'}
+                    </span>
+                  </div>
                   <p className="upload-sub-text margin-zero">{activeConversation.phone}</p>
                 </div>
-                <span className={`conversation-status-badge ${normalizeBadge(activeConversation.status)}`}>
-                  {activeConversation.status || 'contact'}
-                </span>
+
+
               </div>
 
               <div className="chat-header-actions">
@@ -908,6 +965,13 @@ export const Chat: React.FC = () => {
                       <div className="info-details-list">
                         <div className="info-detail-item">
                           <div className="info-detail-label-row">
+                            <Phone size={14} className="info-detail-icon text-emerald" />
+                            <span className="info-detail-label">Connection</span>
+                            <span className="info-detail-value text-blue inline">{activeConversation.connectionName || 'Connection 1'}</span>
+                          </div>
+                        </div>
+                        <div className="info-detail-item">
+                          <div className="info-detail-label-row">
                             <MessageSquare size={14} className="info-detail-icon text-orange" />
                             <span className="info-detail-label">Source</span>
                             <span className="info-detail-value text-blue inline">{activeConversation.source || 'Unknown'}</span>
@@ -1011,6 +1075,8 @@ export const Chat: React.FC = () => {
               )}
             </div>
 
+
+
             <InitiateChatModal
               isOpen={isTemplateModalOpen}
               onClose={() => setIsTemplateModalOpen(false)}
@@ -1019,6 +1085,7 @@ export const Chat: React.FC = () => {
                 name: activeConversation.name,
                 phone: activeConversation.phone
               }}
+              connectionId={selectedConnectionId}
               onSuccess={() => {
                 setIsTemplateModalOpen(false)
                 void refreshActiveMessages()

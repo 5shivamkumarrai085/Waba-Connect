@@ -10,6 +10,7 @@ public class CreateCampaignRequest
     public List<int>? ContactIds { get; set; }
     public List<int>? GroupIds { get; set; }
     public List<CampaignVariableRequest>? Variables { get; set; }
+    public int? ConnectionId { get; set; }
 }
 
 public class CampaignVariableRequest
@@ -76,4 +77,5 @@ public class CreateCsvCampaignRequest
     public string ScheduleType { get; set; } = "Immediate";
     public DateTime? ScheduledAt { get; set; }
     public List<CampaignVariableRequest>? Variables { get; set; }
+    public int? ConnectionId { get; set; }
 }

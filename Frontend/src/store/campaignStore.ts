@@ -171,8 +171,29 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
         }
       }
 
-      const res = await campaignService.createCampaign(wizardForm)
-      // Reload campaigns
+      // Handle multi-connection: create one campaign per connection
+      const connectionIds: number[] = (wizardForm as any).connectionIds || []
+      if (connectionIds.length > 1) {
+        let lastRes: any = null
+        for (const connId of connectionIds) {
+          const form = {
+            ...wizardForm,
+            connectionId: connId,
+            name: `${wizardForm.name} (${connId})`
+          }
+          lastRes = await campaignService.createCampaign(form)
+        }
+        const fetched = await campaignService.getCampaigns()
+        set({ campaigns: fetched })
+        return lastRes
+      }
+
+      // Single connection or default
+      const singleForm = {
+        ...wizardForm,
+        connectionId: connectionIds.length === 1 ? connectionIds[0] : (wizardForm as any).connectionId
+      }
+      const res = await campaignService.createCampaign(singleForm)
       const fetched = await campaignService.getCampaigns()
       set({ campaigns: fetched })
       return res

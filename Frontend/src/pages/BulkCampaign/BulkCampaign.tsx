@@ -22,6 +22,7 @@ import {
   UploadCloud
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { useConnectionStore } from '../../store/connectionStore'
 import './BulkCampaign.css'
 
 export const BulkCampaign: React.FC = () => {
@@ -61,6 +62,8 @@ export const BulkCampaign: React.FC = () => {
 
   // Create campaign loading state
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [selectedConnectionIds, setSelectedConnectionIds] = useState<number[]>([])
+  const { connections, fetchDashboard } = useConnectionStore()
 
   // Load templates on mount
   useEffect(() => {
@@ -74,6 +77,7 @@ export const BulkCampaign: React.FC = () => {
       }
     }
     fetchTemplates()
+    fetchDashboard()
   }, [])
 
   // Check name duplication on change
@@ -221,7 +225,7 @@ export const BulkCampaign: React.FC = () => {
 
     setIsSubmitting(true)
     try {
-      const payload = {
+      const basePayload = {
         name: campaignName,
         csvFileUrl: validationData.fileUrl,
         templateId: Number(selectedTemplateId),
@@ -231,7 +235,19 @@ export const BulkCampaign: React.FC = () => {
         variables: compileVariables()
       }
 
-      const res = await campaignUploadService.createCsvCampaign(payload)
+      // Handle multi-connection: create one campaign per connection
+      const connIds = selectedConnectionIds.length > 0 ? selectedConnectionIds : [undefined]
+      let lastRes: any = null
+      for (const connId of connIds) {
+        const payload = {
+          ...basePayload,
+          connectionId: connId,
+          name: connIds.length > 1 && connId ? `${campaignName} (${connId})` : campaignName
+        }
+        lastRes = await campaignUploadService.createCsvCampaign(payload)
+      }
+
+      const res = lastRes
       if (res.success) {
         toast.success(res.message)
         navigate('/campaigns/campaign')
@@ -315,6 +331,43 @@ export const BulkCampaign: React.FC = () => {
               {isNameDuplicate && (
                 <span className="error-text-warning">* same name campaign already executed</span>
               )}
+            </div>
+
+            {/* Sender Connection(s) */}
+            <div className="form-group margin-top-20">
+              <label className="form-label">Sender Connection(s) <span style={{ color: '#ef4444' }}>*</span></label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
+                {connections.filter(c => c.isConnected && c.phoneNumber).map((conn) => {
+                  const isSelected = selectedConnectionIds.includes(conn.id)
+                  return (
+                    <button
+                      key={conn.id}
+                      type="button"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                        padding: '8px 14px', borderRadius: '24px',
+                        border: isSelected ? '1.5px solid #6366f1' : '1.5px solid #e2e8f0',
+                        background: isSelected ? 'linear-gradient(135deg, #eef2ff, #e0e7ff)' : '#f8fafc',
+                        color: isSelected ? '#4338ca' : '#475569',
+                        fontSize: '13px', fontWeight: 500, cursor: 'pointer',
+                        transition: 'all 0.2s', fontFamily: 'inherit'
+                      }}
+                      onClick={() => {
+                        setSelectedConnectionIds(prev =>
+                          isSelected ? prev.filter(id => id !== conn.id) : [...prev, conn.id]
+                        )
+                      }}
+                    >
+                      {isSelected && <span style={{ fontWeight: 700 }}>✓</span>}
+                      <span>{conn.name}</span>
+                      <span style={{ fontSize: '11px', opacity: 0.7 }}>{conn.phoneNumber}</span>
+                    </button>
+                  )
+                })}
+                {connections.filter(c => c.isConnected && c.phoneNumber).length === 0 && (
+                  <span style={{ fontSize: '13px', color: '#ef4444' }}>No connected WABA numbers found</span>
+                )}
+              </div>
             </div>
 
             {/* Relation Type */}

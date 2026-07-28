@@ -28,7 +28,21 @@ namespace WhatsAppCampaignApi.Services
 
         public async Task<WabaConfiguration> AddOrUpdateAsync(WabaConfiguration config)
         {
-            var existing = await _context.WabaConfigurations.FirstOrDefaultAsync();
+            WabaConfiguration? existing = null;
+            if (config.ConnectionId.HasValue && config.ConnectionId.Value > 0)
+            {
+                existing = await _context.WabaConfigurations
+                    .FirstOrDefaultAsync(c => c.ConnectionId == config.ConnectionId.Value);
+            }
+            else if (config.Id > 0)
+            {
+                existing = await _context.WabaConfigurations.FindAsync(config.Id);
+            }
+            else
+            {
+                existing = await _context.WabaConfigurations.FirstOrDefaultAsync(c => c.ConnectionId == null);
+            }
+
             if (existing == null)
             {
                 config.CreatedAt = DateTime.UtcNow;
@@ -43,6 +57,10 @@ namespace WhatsAppCampaignApi.Services
                 existing.WebhookUrl = config.WebhookUrl;
                 existing.VerifyToken = config.VerifyToken;
                 existing.Connected = config.Connected;
+                if (config.ConnectionId.HasValue)
+                {
+                    existing.ConnectionId = config.ConnectionId;
+                }
                 existing.UpdatedAt = DateTime.UtcNow;
                 _context.WabaConfigurations.Update(existing);
                 config = existing;

@@ -4,6 +4,8 @@ namespace WhatsAppCampaignApi.Models.DTOs
 {
     public class SendTestMessageRequest
     {
+        public int? ConnectionId { get; set; }
+
         [Required]
         public string RecipientNumber { get; set; } = string.Empty;
 

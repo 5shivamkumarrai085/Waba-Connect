@@ -21,6 +21,13 @@
   background-color: #f0fdf4;
   color: #16a34a;
   border: 1px solid #bbf7d0;
+  animation: pulse-glow-success 2s infinite;
+}
+
+@keyframes pulse-glow-success {
+  0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.4); }
+  70% { box-shadow: 0 0 0 4px rgba(22, 163, 74, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
 }
 
 /* In Progress, Contacted, Info */
@@ -30,6 +37,13 @@
   background-color: #eff6ff;
   color: #2563eb;
   border: 1px solid #bfdbfe;
+  animation: pulse-glow-blue 2s infinite 1s;
+}
+
+@keyframes pulse-glow-blue {
+  0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+  70% { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
 }
 
 /* Pending, Follow Up, Warning */

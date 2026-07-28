@@ -162,7 +162,8 @@ public class CampaignService : ICampaignService
             ScheduleType = Enum.Parse<ScheduleType>(request.ScheduleType, true),
             ScheduledAt = request.ScheduledAt,
             Status = Enum.Parse<ScheduleType>(request.ScheduleType, true) == ScheduleType.Immediate ? CampaignStatus.Sending : CampaignStatus.Scheduled,
-            TotalRecipients = contactIds.Count
+            TotalRecipients = contactIds.Count,
+            ConnectionId = request.ConnectionId
         };
 
         // Add variables
@@ -551,7 +552,8 @@ public class CampaignService : ICampaignService
                     cc.Contact.Phone, 
                     campaign.Template.Name, 
                     campaign.Template.Language, 
-                    messageVars);
+                    messageVars,
+                    campaign.ConnectionId);
 
                 if (sendResult.Success && !string.IsNullOrWhiteSpace(sendResult.MessageId))
                 {
@@ -563,16 +565,26 @@ public class CampaignService : ICampaignService
                     // We must send the attachment as a SEPARATE media message!
                     if (!hasMediaHeader && !string.IsNullOrEmpty(attachmentUrl))
                     {
+                        // Resolve fromPhoneNumberId for media send
+                        string? campaignPhoneNumberId = null;
+                        if (campaign.ConnectionId.HasValue)
+                        {
+                            var phone = await dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == campaign.ConnectionId.Value);
+                            campaignPhoneNumberId = phone?.PhoneNumberId;
+                        }
+
                         var mediaSendResult = await whatsAppService.SendMediaMessageAsync(
                             cc.Contact.Phone,
                             attachmentUrl,
                             mediaType!,
-                            mediaFileName);
+                            mediaFileName,
+                            null,
+                            campaignPhoneNumberId);
 
                         if (mediaSendResult.Success)
                         {
                             // Create a ChatMessage log for the separate media message
-                            var conversation = await chatService.GetOrCreateConversationAsync(cc.ContactId);
+                            var conversation = await chatService.GetOrCreateConversationAsync(cc.ContactId, campaign.ConnectionId);
                             var mediaMessage = new ChatMessage
                             {
                                 ConversationId = conversation.Id,
@@ -845,7 +857,8 @@ public class CampaignService : ICampaignService
             ScheduleType = Enum.Parse<ScheduleType>(request.ScheduleType, true),
             ScheduledAt = request.ScheduledAt,
             Status = Enum.Parse<ScheduleType>(request.ScheduleType, true) == ScheduleType.Immediate ? CampaignStatus.Sending : CampaignStatus.Scheduled,
-            TotalRecipients = contactIds.Count
+            TotalRecipients = contactIds.Count,
+            ConnectionId = request.ConnectionId
         };
 
         if (request.Variables != null)

@@ -5,14 +5,14 @@ namespace WhatsAppCampaignApi.Services.Interfaces;
 
 public interface IChatService
 {
-    Task<List<ChatAccountResponse>> GetAccountsAsync();
-    Task<List<ChatConversationResponse>> GetConversationsAsync(string? search = null, string? filter = null);
+    Task<List<ChatAccountResponse>> GetAccountsAsync(int? connectionId = null);
+    Task<List<ChatConversationResponse>> GetConversationsAsync(string? search = null, string? filter = null, int? connectionId = null);
     Task<ChatConversationResponse> GetConversationAsync(int id);
     Task<List<ChatMessageResponse>> GetMessagesAsync(int conversationId);
     Task<ChatMessageResponse> SendMessageAsync(int conversationId, SendChatMessageRequest request);
     Task<ChatMessageResponse> SendTemplateToContactAsync(SendTemplateToContactRequest request);
     Task DeleteConversationAsync(int conversationId);
-    Task<ChatConversation> GetOrCreateConversationAsync(int contactId);
+    Task<ChatConversation> GetOrCreateConversationAsync(int contactId, int? connectionId = null);
     Task<ChatMessage> CreateOrUpdateCampaignMessageAsync(
         Campaign campaign, 
         CampaignContact campaignContact, 

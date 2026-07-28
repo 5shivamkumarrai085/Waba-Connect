@@ -13,6 +13,9 @@ public class ConversationState
     public int FlowId { get; set; }
     public BotFlow Flow { get; set; } = null!;
 
+    public int? ConnectionId { get; set; }
+    public virtual Connection? Connection { get; set; }
+
     [Required, MaxLength(100)]
     public string CurrentNodeId { get; set; } = string.Empty;
 

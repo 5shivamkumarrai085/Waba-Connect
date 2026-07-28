@@ -143,9 +143,38 @@
 }
 
 .campaigns-card .data-table tbody tr {
-  transition: background-color 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
 }
+
+.campaigns-card .data-table tbody tr:nth-child(1) { animation-delay: 0.05s; }
+.campaigns-card .data-table tbody tr:nth-child(2) { animation-delay: 0.10s; }
+.campaigns-card .data-table tbody tr:nth-child(3) { animation-delay: 0.15s; }
+.campaigns-card .data-table tbody tr:nth-child(4) { animation-delay: 0.20s; }
+.campaigns-card .data-table tbody tr:nth-child(5) { animation-delay: 0.25s; }
 
 .campaigns-card .data-table tbody tr:hover {
   background-color: var(--bg-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  z-index: 1;
+  position: relative;
 }
+
+.campaign-action-btn:hover {
+  color: var(--primary);
+  text-decoration: underline;
+  transform: scale(1.05);
+  text-shadow: 0 0 8px rgba(90, 82, 229, 0.4);
+}
+
+/* === Gen-Z Animations === */
+.page-header { animation: slideUp 0.4s ease-out both; }
+.data-table tbody tr { animation: fadeIn 0.3s ease-out both; }
+.data-table tbody tr:nth-child(1) { animation-delay: 0.03s; }
+.data-table tbody tr:nth-child(2) { animation-delay: 0.06s; }
+.data-table tbody tr:nth-child(3) { animation-delay: 0.09s; }
+.data-table tbody tr:nth-child(4) { animation-delay: 0.12s; }
+.data-table tbody tr:nth-child(5) { animation-delay: 0.15s; }
+.data-table tbody tr:hover { background: rgba(99, 102, 241, 0.04) !important; transition: background 0.2s ease; }

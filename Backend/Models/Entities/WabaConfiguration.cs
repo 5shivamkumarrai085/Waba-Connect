@@ -26,6 +26,9 @@ public class WabaConfiguration
 
     public bool Connected { get; set; }
 
+    public int? ConnectionId { get; set; }
+    public virtual Connection? Connection { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAt { get; set; }

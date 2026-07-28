@@ -3,6 +3,8 @@ namespace WhatsAppCampaignApi.Models.DTOs.Chat;
 public class ChatAccountResponse
 {
     public int Id { get; set; }
+    public int? ConnectionId { get; set; }
+    public string? ConnectionName { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string PhoneNumberId { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
@@ -15,6 +17,8 @@ public class ChatConversationResponse
 {
     public int Id { get; set; }
     public int ContactId { get; set; }
+    public int? ConnectionId { get; set; }
+    public string? ConnectionName { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
@@ -59,11 +63,13 @@ public class SendChatMessageRequest
     public string? MediaUrl { get; set; }
     public string? MediaType { get; set; }
     public string? MediaFileName { get; set; }
+    public int? ConnectionId { get; set; }
 }
 
 public class SendTemplateToContactRequest
 {
     public int ContactId { get; set; }
     public int TemplateId { get; set; }
+    public int? ConnectionId { get; set; }
     public Dictionary<string, string>? Variables { get; set; }
 }

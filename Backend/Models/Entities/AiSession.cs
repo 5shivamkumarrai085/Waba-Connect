@@ -13,6 +13,9 @@ public class AiSession
     public int MessageBotId { get; set; }
     public MessageBot MessageBot { get; set; } = null!;
 
+    public int? ConnectionId { get; set; }
+    public virtual Connection? Connection { get; set; }
+
     [Required, MaxLength(50)]
     public string AssistantName { get; set; } = string.Empty;
 

@@ -8,6 +8,9 @@
   border: 1px solid var(--border-color);
   box-shadow: var(--shadow-card);
   overflow: hidden;
+  overflow-x: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* Sidebar Columns layout */
@@ -52,6 +55,7 @@
 .conversation-list-scroll {
   flex-grow: 1;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .conversation-item {
@@ -65,11 +69,25 @@
   gap: 12px;
   padding: 12px 16px;
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: staggerFadeIn 0.4s ease-out backwards;
+}
+
+.conversation-item:nth-child(1) { animation-delay: 0.05s; }
+.conversation-item:nth-child(2) { animation-delay: 0.1s; }
+.conversation-item:nth-child(3) { animation-delay: 0.15s; }
+.conversation-item:nth-child(4) { animation-delay: 0.2s; }
+.conversation-item:nth-child(5) { animation-delay: 0.25s; }
+.conversation-item:nth-child(n+6) { animation-delay: 0.3s; }
+
+@keyframes staggerFadeIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 .conversation-item:hover {
   background-color: var(--bg-hover);
+  transform: translateX(4px);
 }
 
 .conversation-item.active {
@@ -224,10 +242,13 @@
   background-size: 400px;
   flex-grow: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* Chat bubble structures */
@@ -245,9 +266,14 @@
   padding: 10px 14px;
   max-width: 75%;
   box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.1);
+  animation: slideInLeft 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  transform-origin: left bottom;
 }
 
-
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-20px) scale(0.9); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
 
 .chat-bubble-outgoing {
   align-self: flex-end;
@@ -256,6 +282,13 @@
   padding: 10px 14px;
   max-width: 75%;
   box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.1);
+  animation: slideInRightMsg 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  transform-origin: right bottom;
+}
+
+@keyframes slideInRightMsg {
+  from { opacity: 0; transform: translateX(20px) scale(0.9); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
 }
 
 
@@ -687,6 +720,9 @@
   flex-direction: row;
   flex-grow: 1;
   overflow: hidden;
+  overflow-x: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
   min-height: 0;
 }
 

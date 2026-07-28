@@ -2,6 +2,8 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.DTOs;
 using WhatsAppCampaignApi.Services.Interfaces;
 using WhatsAppCampaignApi.Models.Entities;
@@ -21,6 +23,9 @@ namespace WhatsAppCampaignApi.Controllers
         private readonly ITemplateService _templateService;
         private readonly IDashboardService _dashboardService;
         private readonly IHealthService _healthService;
+        private readonly IConnectionService _connectionService;
+
+        private readonly AppDbContext _dbContext;
 
         public WabaController(
             IWabaRepository wabaRepository,
@@ -31,7 +36,9 @@ namespace WhatsAppCampaignApi.Controllers
             IWebhookService webhookService,
             ITemplateService templateService,
             IDashboardService dashboardService,
-            IHealthService healthService)
+            IHealthService healthService,
+            IConnectionService connectionService,
+            AppDbContext dbContext)
         {
             _wabaRepository = wabaRepository;
             _businessRepository = businessRepository;
@@ -42,6 +49,8 @@ namespace WhatsAppCampaignApi.Controllers
             _templateService = templateService;
             _dashboardService = dashboardService;
             _healthService = healthService;
+            _connectionService = connectionService;
+            _dbContext = dbContext;
         }
 
         [HttpPost("connect-app")]
@@ -49,30 +58,73 @@ namespace WhatsAppCampaignApi.Controllers
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            bool isValid = await _metaGraphService.ValidateAppAsync(request.FacebookAppId, request.FacebookAppSecret);
-            if (!isValid)
+            if (string.IsNullOrWhiteSpace(request.FacebookAppId) || string.IsNullOrWhiteSpace(request.FacebookAppSecret))
             {
-                return BadRequest(new { message = "Invalid Facebook App credentials. Meta Graph API validation failed." });
+                return BadRequest(new { message = "Facebook App ID and App Secret are required." });
             }
 
-            // Generate webhook verification details
-            string verifyToken = "waba_verify_token_" + Guid.NewGuid().ToString("N").Substring(0, 16);
+            // Ensure we have a Connection for this WABA configuration
+            ConnectionResponse conn;
+            if (request.ConnectionId.HasValue)
+            {
+                var existing = await _connectionService.GetByIdAsync(request.ConnectionId.Value);
+                if (existing == null) return BadRequest(new { message = $"Connection {request.ConnectionId.Value} not found." });
+                conn = existing;
+            }
+            else
+            {
+                var allConn = await _connectionService.GetAllAsync();
+                string nextName = string.IsNullOrWhiteSpace(request.ConnectionName)
+                    ? $"Connection {allConn.Count + 1}"
+                    : request.ConnectionName.Trim();
+
+                conn = await _connectionService.CreateAsync(new CreateConnectionRequest
+                {
+                    Name = nextName,
+                    Description = $"WhatsApp Business Connection for App {request.FacebookAppId}"
+                });
+            }
+
+            // Fetch existing WabaConfiguration for this ConnectionId if available
+            var allConfigs = await _dbContext.WabaConfigurations.ToListAsync();
+            var config = allConfigs.FirstOrDefault(c => c.ConnectionId == conn.Id);
+
+            string verifyToken = config?.VerifyToken;
+            if (string.IsNullOrWhiteSpace(verifyToken))
+            {
+                verifyToken = "waba_verify_token_" + Guid.NewGuid().ToString("N").Substring(0, 16);
+            }
+
             string webhookUrl = $"{Request.Scheme}://{Request.Host}/api/webhook/whatsapp";
 
-            var config = new WabaConfiguration
+            if (config == null)
             {
-                FacebookAppId = request.FacebookAppId,
-                FacebookAppSecret = request.FacebookAppSecret,
-                VerifyToken = verifyToken,
-                WebhookUrl = webhookUrl,
-                Connected = false
-            };
+                config = new WabaConfiguration
+                {
+                    FacebookAppId = request.FacebookAppId.Trim(),
+                    FacebookAppSecret = request.FacebookAppSecret.Trim(),
+                    VerifyToken = verifyToken,
+                    WebhookUrl = webhookUrl,
+                    ConnectionId = conn.Id,
+                    Connected = false
+                };
+            }
+            else
+            {
+                config.FacebookAppId = request.FacebookAppId.Trim();
+                config.FacebookAppSecret = request.FacebookAppSecret.Trim();
+                config.VerifyToken = verifyToken;
+                config.WebhookUrl = webhookUrl;
+                config.UpdatedAt = DateTime.UtcNow;
+            }
 
             await _wabaRepository.AddOrUpdateAsync(config);
 
             return Ok(new
             {
                 message = "Facebook App connected successfully.",
+                connectionId = conn.Id,
+                connectionName = conn.Name,
                 webhookUrl = webhookUrl,
                 verifyToken = verifyToken
             });
@@ -83,7 +135,29 @@ namespace WhatsAppCampaignApi.Controllers
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            var config = await _wabaRepository.GetAsync();
+            WabaConfiguration? config = null;
+            if (request.ConnectionId.HasValue && request.ConnectionId.Value > 0)
+            {
+                var allConfigs = await _dbContext.WabaConfigurations.ToListAsync();
+                config = allConfigs.FirstOrDefault(c => c.ConnectionId == request.ConnectionId.Value);
+
+                if (config == null)
+                {
+                    config = new WabaConfiguration
+                    {
+                        ConnectionId = request.ConnectionId.Value,
+                        FacebookAppId = string.Empty,
+                        FacebookAppSecret = string.Empty,
+                        VerifyToken = "waba_verify_token_" + Guid.NewGuid().ToString("N").Substring(0, 16),
+                        WebhookUrl = $"{Request.Scheme}://{Request.Host}/api/webhook/whatsapp"
+                    };
+                }
+            }
+            else
+            {
+                config = await _wabaRepository.GetAsync();
+            }
+
             if (config == null)
             {
                 return BadRequest(new { message = "Please connect a Facebook App first (Step 1)." });
@@ -113,6 +187,10 @@ namespace WhatsAppCampaignApi.Controllers
             var phones = await _metaGraphService.GetPhoneNumbersAsync(request.WabaId, request.AccessToken);
             if (phones != null && phones.Any())
             {
+                foreach (var p in phones)
+                {
+                    p.ConnectionId = config.ConnectionId;
+                }
                 await _phoneRepository.SaveRangeAsync(phones);
             }
 
@@ -126,8 +204,56 @@ namespace WhatsAppCampaignApi.Controllers
         }
 
         [HttpGet("dashboard")]
-        public async Task<IActionResult> GetDashboard()
+        public async Task<IActionResult> GetDashboard([FromQuery] int? connectionId = null)
         {
+            if (connectionId.HasValue)
+            {
+                var conn = await _connectionService.GetByIdAsync(connectionId.Value);
+                if (conn != null)
+                {
+                    var allConfigs = await _dbContext.WabaConfigurations.ToListAsync();
+                    var config = allConfigs.FirstOrDefault(c => c.ConnectionId == connectionId.Value);
+
+                    var allPhones = await _phoneRepository.GetAllAsync();
+                    var connPhones = allPhones.Where(p => p.ConnectionId == connectionId.Value).ToList();
+
+                    // Use config.Connected as the source of truth (not conn.IsConnected which may be stale)
+                    bool actuallyConnected = config?.Connected ?? false;
+
+                    return Ok(new
+                    {
+                        connectionId = conn.Id,
+                        connectionName = conn.Name,
+                        isConnected = actuallyConnected,
+                        facebookAppId = config?.FacebookAppId ?? string.Empty,
+                        facebookAppSecret = !string.IsNullOrEmpty(config?.FacebookAppSecret) ? "••••••••" : string.Empty,
+                        wabaId = config?.WabaId ?? string.Empty,
+                        accessToken = config?.AccessToken ?? string.Empty,
+                        webhookUrl = string.IsNullOrWhiteSpace(config?.WebhookUrl) ? $"{Request.Scheme}://{Request.Host}/api/webhook/whatsapp" : config.WebhookUrl,
+                        verifyToken = string.IsNullOrWhiteSpace(config?.VerifyToken) ? string.Empty : config.VerifyToken,
+                        phoneNumbers = connPhones.Select(p => new
+                        {
+                            phoneNumber = p.PhoneNumber,
+                            displayName = p.DisplayName,
+                            verifiedName = p.VerifiedName,
+                            phoneNumberId = p.PhoneNumberId,
+                            quality = p.Quality,
+                            messagesSent = 0,
+                            messageLimit = p.MessageLimit ?? "1000"
+                        }),
+                        tokenInfo = new
+                        {
+                            scopes = new[] { "whatsapp_business_management", "whatsapp_business_messaging", "public_profile" },
+                            issuedAt = conn.ConnectedOn ?? DateTime.UtcNow
+                        },
+                        business = new
+                        {
+                            businessId = config?.WabaId ?? string.Empty
+                        }
+                    });
+                }
+            }
+
             var data = await _dashboardService.GetDashboardDataAsync();
             if (data == null)
             {
@@ -141,14 +267,27 @@ namespace WhatsAppCampaignApi.Controllers
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            var config = await _wabaRepository.GetAsync();
+            // Find the correct config for the given connectionId
+            WabaConfiguration? config = null;
+            if (request.ConnectionId.HasValue)
+            {
+                config = await _dbContext.WabaConfigurations
+                    .FirstOrDefaultAsync(c => c.ConnectionId == request.ConnectionId.Value && c.Connected);
+            }
+            config ??= await _wabaRepository.GetAsync();
+
             if (config == null || !config.Connected)
             {
                 return BadRequest(new { message = "WABA is not configured. Please complete the setup." });
             }
 
+            // Find the phone number for this specific connection
             var phones = await _phoneRepository.GetAllAsync();
-            var primaryPhone = phones.FirstOrDefault();
+            var primaryPhone = request.ConnectionId.HasValue
+                ? phones.FirstOrDefault(p => p.ConnectionId == request.ConnectionId.Value)
+                    ?? phones.FirstOrDefault()
+                : phones.FirstOrDefault();
+
             if (primaryPhone == null)
             {
                 return BadRequest(new { message = "No registered WABA phone number found to send from." });
@@ -185,20 +324,30 @@ namespace WhatsAppCampaignApi.Controllers
         }
 
         [HttpPost("disconnect")]
-        public async Task<IActionResult> Disconnect()
+        public async Task<IActionResult> Disconnect([FromQuery] int? connectionId = null)
         {
-            await _wabaRepository.DeleteAsync();
-            await _businessRepository.ClearAllAsync();
-            await _phoneRepository.ClearAllAsync();
-            await _healthLogRepository.ClearAllAsync();
+            if (connectionId.HasValue)
+            {
+                await _connectionService.SoftDisconnectAsync(connectionId.Value);
+                return Ok(new { message = $"Connection {connectionId.Value} soft-disconnected successfully." });
+            }
 
-            return Ok(new { message = "WhatsApp Business Account disconnected successfully. Configuration wiped." });
+            await _wabaRepository.DeleteAsync();
+            return Ok(new { message = "WhatsApp Business Account soft-disconnected successfully." });
         }
 
         [HttpPost("refresh")]
-        public async Task<IActionResult> Refresh()
+        public async Task<IActionResult> Refresh([FromQuery] int? connectionId = null)
         {
-            var config = await _wabaRepository.GetAsync();
+            // Find the correct config for the given connectionId
+            WabaConfiguration? config = null;
+            if (connectionId.HasValue)
+            {
+                config = await _dbContext.WabaConfigurations
+                    .FirstOrDefaultAsync(c => c.ConnectionId == connectionId.Value && c.Connected);
+            }
+            config ??= await _wabaRepository.GetAsync();
+
             if (config == null || !config.Connected)
             {
                 return BadRequest(new { message = "No connected integration to refresh." });
@@ -213,6 +362,10 @@ namespace WhatsAppCampaignApi.Controllers
                 var phones = await _metaGraphService.GetPhoneNumbersAsync(config.WabaId, config.AccessToken);
                 if (phones != null && phones.Any())
                 {
+                    foreach (var p in phones)
+                    {
+                        p.ConnectionId = config.ConnectionId;
+                    }
                     await _phoneRepository.SaveRangeAsync(phones);
                 }
 
@@ -220,7 +373,6 @@ namespace WhatsAppCampaignApi.Controllers
             }
             catch (Exception ex)
             {
-                // Log and continue to let health check report issues
                 Console.WriteLine($"Error during background refresh: {ex.Message}");
             }
 

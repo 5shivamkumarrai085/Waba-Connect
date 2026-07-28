@@ -9,5 +9,8 @@ namespace WhatsAppCampaignApi.Models.DTOs
 
         [Required]
         public string FacebookAppSecret { get; set; } = string.Empty;
+
+        public int? ConnectionId { get; set; }
+        public string? ConnectionName { get; set; }
     }
 }

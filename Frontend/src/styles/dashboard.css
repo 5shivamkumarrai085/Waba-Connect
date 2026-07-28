@@ -495,3 +495,38 @@ progress.app-progress.gray::-webkit-progress-value {
   align-items: center;
   gap: 16px;
 }
+
+/* === Gen-Z Dashboard Animations === */
+.dashboard-welcome {
+  animation: slideUp 0.5s ease-out both;
+}
+
+.stat-cards-grid > * {
+  animation: scaleIn 0.4s ease-out both;
+}
+.stat-cards-grid > *:nth-child(1) { animation-delay: 0.05s; }
+.stat-cards-grid > *:nth-child(2) { animation-delay: 0.1s; }
+.stat-cards-grid > *:nth-child(3) { animation-delay: 0.15s; }
+.stat-cards-grid > *:nth-child(4) { animation-delay: 0.2s; }
+
+.stat-cards-grid > *:hover {
+  transform: translateY(-4px) !important;
+  box-shadow: 0 10px 30px rgba(99, 102, 241, 0.15), 0 4px 12px rgba(0,0,0,0.06) !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.dashboard-main-chart {
+  animation: fadeIn 0.5s ease-out 0.25s both;
+}
+
+.dashboard-trends-grid > * {
+  animation: slideUp 0.5s ease-out both;
+}
+.dashboard-trends-grid > *:nth-child(1) { animation-delay: 0.3s; }
+.dashboard-trends-grid > *:nth-child(2) { animation-delay: 0.4s; }
+
+.dashboard-tables-grid > * {
+  animation: slideUp 0.5s ease-out both;
+}
+.dashboard-tables-grid > *:nth-child(1) { animation-delay: 0.35s; }
+.dashboard-tables-grid > *:nth-child(2) { animation-delay: 0.45s; }

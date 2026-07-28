@@ -3,6 +3,8 @@
 export interface Conversation {
   id: number
   contactId: number
+  connectionId?: number | null
+  connectionName?: string | null
   name: string
   status: 'lead' | 'customer' | 'guest' | string
   phone: string
@@ -41,6 +43,8 @@ export interface Message {
 
 export interface ChatAccount {
   id: number
+  connectionId?: number | null
+  connectionName?: string | null
   phoneNumber: string
   phoneNumberId: string
   displayName: string

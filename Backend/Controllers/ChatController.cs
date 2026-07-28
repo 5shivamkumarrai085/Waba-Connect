@@ -17,18 +17,19 @@ public class ChatController : ControllerBase
     }
 
     [HttpGet("accounts")]
-    public async Task<ActionResult<ApiResponse<List<ChatAccountResponse>>>> GetAccounts()
+    public async Task<ActionResult<ApiResponse<List<ChatAccountResponse>>>> GetAccounts([FromQuery] int? connectionId = null)
     {
-        var data = await _chatService.GetAccountsAsync();
+        var data = await _chatService.GetAccountsAsync(connectionId);
         return Ok(new ApiResponse<List<ChatAccountResponse>> { Success = true, Data = data });
     }
 
     [HttpGet("conversations")]
     public async Task<ActionResult<ApiResponse<List<ChatConversationResponse>>>> GetConversations(
         [FromQuery] string? search = null,
-        [FromQuery] string? filter = null)
+        [FromQuery] string? filter = null,
+        [FromQuery] int? connectionId = null)
     {
-        var data = await _chatService.GetConversationsAsync(search, filter);
+        var data = await _chatService.GetConversationsAsync(search, filter, connectionId);
         return Ok(new ApiResponse<List<ChatConversationResponse>> { Success = true, Data = data });
     }
 

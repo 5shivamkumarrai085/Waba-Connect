@@ -13,6 +13,9 @@ public class ChatMessage
     public int? ContactId { get; set; }
     public Contact? Contact { get; set; }
 
+    public int? ConnectionId { get; set; }
+    public virtual Connection? Connection { get; set; }
+
     public int? CampaignId { get; set; }
     public Campaign? Campaign { get; set; }
 

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using WhatsAppCampaignApi.Data;
@@ -33,9 +34,33 @@ namespace WhatsAppCampaignApi.Services
 
         public async Task SaveRangeAsync(IEnumerable<WabaPhoneNumber> phones)
         {
-            // Clear existing to keep it simple, or implement a merge logic
-            _context.WabaPhoneNumbers.RemoveRange(_context.WabaPhoneNumbers);
-            await _context.WabaPhoneNumbers.AddRangeAsync(phones);
+            var phonesList = phones.ToList();
+            if (!phonesList.Any()) return;
+
+            foreach (var phone in phonesList)
+            {
+                var existing = await _context.WabaPhoneNumbers
+                    .FirstOrDefaultAsync(p => p.PhoneNumberId == phone.PhoneNumberId);
+
+                if (existing != null)
+                {
+                    existing.PhoneNumber = phone.PhoneNumber;
+                    existing.DisplayName = phone.DisplayName;
+                    existing.VerifiedName = phone.VerifiedName;
+                    existing.Quality = phone.Quality;
+                    existing.Status = phone.Status;
+                    existing.MessageLimit = phone.MessageLimit;
+                    if (phone.ConnectionId.HasValue)
+                    {
+                        existing.ConnectionId = phone.ConnectionId;
+                    }
+                }
+                else
+                {
+                    await _context.WabaPhoneNumbers.AddAsync(phone);
+                }
+            }
+
             await _context.SaveChangesAsync();
         }
 

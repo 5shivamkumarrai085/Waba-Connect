@@ -5,5 +5,5 @@ namespace WhatsAppCampaignApi.Services.Interfaces;
 
 public interface IBotRouterService
 {
-    Task<bool> RouteMessageAsync(string phoneNumber, string incomingMessage, Contact contact);
+    Task<bool> RouteMessageAsync(string phoneNumber, string incomingMessage, Contact contact, int? connectionId = null);
 }

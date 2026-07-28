@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Services.Interfaces;
 using WhatsAppCampaignApi.Models.Entities;
 
@@ -11,21 +13,28 @@ namespace WhatsAppCampaignApi.Services
         private readonly IWabaRepository _wabaRepository;
         private readonly IHealthLogRepository _healthLogRepository;
         private readonly IMetaGraphService _metaGraphService;
+        private readonly IPhoneRepository _phoneRepository;
+        private readonly AppDbContext _dbContext;
 
         public HealthService(
             IWabaRepository wabaRepository,
             IHealthLogRepository healthLogRepository,
-            IMetaGraphService metaGraphService)
+            IMetaGraphService metaGraphService,
+            IPhoneRepository phoneRepository,
+            AppDbContext dbContext)
         {
             _wabaRepository = wabaRepository;
             _healthLogRepository = healthLogRepository;
             _metaGraphService = metaGraphService;
+            _phoneRepository = phoneRepository;
+            _dbContext = dbContext;
         }
 
         public async Task<HealthLog> RunHealthCheckAsync()
         {
-            var config = await _wabaRepository.GetAsync();
-            if (config == null || !config.Connected)
+            var configs = await _dbContext.WabaConfigurations.Where(c => c.Connected && c.ConnectionId != null).ToListAsync();
+            
+            if (configs == null || !configs.Any())
             {
                 var notConnectedLog = new HealthLog
                 {
@@ -37,38 +46,79 @@ namespace WhatsAppCampaignApi.Services
                 return notConnectedLog;
             }
 
-            bool appValid = false;
-            bool businessValid = false;
-            bool phoneValid = false;
-            bool webhookPublic = !IsLocalWebhookUrl(config.WebhookUrl);
+            bool allAppValid = true;
+            bool allBusinessValid = true;
+            bool allPhoneValid = true;
+            bool allWebhookPublic = true;
+            var allIssues = new System.Collections.Generic.List<string>();
 
-            try
+            foreach (var config in configs)
             {
-                // 1. App Validation
-                appValid = await _metaGraphService.ValidateAppAsync(config.FacebookAppId, config.FacebookAppSecret);
+                bool appValid = false;
+                bool businessValid = false;
+                bool phoneValid = false;
+                bool webhookPublic = !IsLocalWebhookUrl(config.WebhookUrl);
 
-                // 2. Business Check
-                var biz = await _metaGraphService.GetBusinessDetailsAsync(config.WabaId, config.AccessToken);
-                businessValid = !string.IsNullOrEmpty(biz?.BusinessId);
+                try
+                {
+                    // 1. App Validation
+                    appValid = await _metaGraphService.ValidateAppAsync(config.FacebookAppId, config.FacebookAppSecret);
 
-                // 3. Phone Check
-                var phones = await _metaGraphService.GetPhoneNumbersAsync(config.WabaId, config.AccessToken);
-                phoneValid = phones != null && phones.Any();
-            }
-            catch
-            {
-                // Errors handled inside try/catch to maintain validation flow
+                    // 2. Business Check
+                    var biz = await _metaGraphService.GetBusinessDetailsAsync(config.WabaId, config.AccessToken);
+                    businessValid = !string.IsNullOrEmpty(biz?.BusinessId);
+
+                    // 3. Phone Check
+                    var phones = await _metaGraphService.GetPhoneNumbersAsync(config.WabaId, config.AccessToken);
+                    if (phones != null && phones.Any())
+                    {
+                        phoneValid = true;
+                        foreach (var p in phones)
+                        {
+                            if (config.ConnectionId.HasValue)
+                            {
+                                p.ConnectionId = config.ConnectionId;
+                            }
+                        }
+                        await _phoneRepository.SaveRangeAsync(phones);
+                    }
+                }
+                catch
+                {
+                    // Errors handled inside try/catch to maintain validation flow
+                }
+
+                if (!appValid) 
+                { 
+                    allAppValid = false; 
+                    if (!allIssues.Contains("App ID Validation Failed")) allIssues.Add("App ID Validation Failed"); 
+                }
+                if (!businessValid) 
+                { 
+                    allBusinessValid = false; 
+                    if (!allIssues.Contains("WABA Account Retrieval Failed")) allIssues.Add("WABA Account Retrieval Failed"); 
+                }
+                if (!phoneValid) 
+                { 
+                    allPhoneValid = false; 
+                    if (!allIssues.Contains("Phone Numbers Synchronization Failed")) allIssues.Add("Phone Numbers Synchronization Failed"); 
+                }
+                if (!webhookPublic) 
+                { 
+                    allWebhookPublic = false; 
+                    if (!allIssues.Contains("Webhook URL is localhost, so Meta cannot send delivery, read, inbound, or failed-message callbacks")) allIssues.Add("Webhook URL is localhost, so Meta cannot send delivery, read, inbound, or failed-message callbacks"); 
+                }
             }
 
             string overallStatus;
             string description;
 
-            if (appValid && businessValid && phoneValid && webhookPublic)
+            if (allAppValid && allBusinessValid && allPhoneValid && allWebhookPublic)
             {
                 overallStatus = "AVAILABLE";
                 description = "All systems operational. App ID, WABA configurations, phone lines, and public webhook callback checked successfully.";
             }
-            else if (!appValid && !businessValid && !phoneValid)
+            else if (!allAppValid && !allBusinessValid && !allPhoneValid)
             {
                 overallStatus = "UNAVAILABLE";
                 description = "Critical outage. App verification, WABA data retrieval, and phone synchronization failed. Verify API credentials.";
@@ -76,12 +126,7 @@ namespace WhatsAppCampaignApi.Services
             else
             {
                 overallStatus = "PARTIAL";
-                var issues = new System.Collections.Generic.List<string>();
-                if (!appValid) issues.Add("App ID Validation Failed");
-                if (!businessValid) issues.Add("WABA Account Retrieval Failed");
-                if (!phoneValid) issues.Add("Phone Numbers Synchronization Failed");
-                if (!webhookPublic) issues.Add("Webhook URL is localhost, so Meta cannot send delivery, read, inbound, or failed-message callbacks");
-                description = $"Degraded performance. Issues detected: {string.Join(", ", issues)}.";
+                description = $"Degraded performance. Issues detected: {string.Join(", ", allIssues)}.";
             }
 
             var log = new HealthLog

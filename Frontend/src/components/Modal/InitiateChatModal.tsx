@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { X, MessageSquare } from 'lucide-react'
+import { X, MessageSquare, Check } from 'lucide-react'
 import { templateService } from '../../services/templates/templateService'
 import { chatService } from '../../services/chat/chatService'
+import { useConnectionStore } from '../../store/connectionStore'
 import type { Template } from '../../types/templates'
 import toast from 'react-hot-toast'
 import './InitiateChatModal.css'
@@ -11,6 +12,7 @@ interface InitiateChatModalProps {
   isOpen: boolean
   onClose: () => void
   contact: { id: number; name: string; phone: string } | null
+  connectionId?: number | null
   onSuccess?: () => void
 }
 
@@ -18,6 +20,7 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
   isOpen,
   onClose,
   contact,
+  connectionId,
   onSuccess
 }) => {
   const [templates, setTemplates] = useState<Template[]>([])
@@ -25,16 +28,24 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
   const [variables, setVariables] = useState<Record<string, string>>({})
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [selectedConnectionIds, setSelectedConnectionIds] = useState<number[]>([])
 
-  // Fetch approved templates when modal opens
+  const { connections, fetchDashboard } = useConnectionStore()
+  const connectedConnections = useMemo(
+    () => connections.filter((c) => c.isConnected && c.phoneNumber),
+    [connections]
+  )
+
+  // Fetch connections & templates when modal opens
   useEffect(() => {
     if (!isOpen) return
+
+    fetchDashboard()
 
     const loadTemplates = async () => {
       setIsLoadingTemplates(true)
       try {
         const allTemplates = await templateService.getTemplates()
-        // Filter for APPROVED templates
         const approved = allTemplates.filter((t) => t.status?.toUpperCase() === 'APPROVED')
         setTemplates(approved)
       } catch (err) {
@@ -47,22 +58,24 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
     void loadTemplates()
     setSelectedTemplateId('')
     setVariables({})
-  }, [isOpen])
+
+    // Pre-select connection if provided
+    if (connectionId) {
+      setSelectedConnectionIds([connectionId])
+    } else {
+      setSelectedConnectionIds([])
+    }
+  }, [isOpen, connectionId, fetchDashboard])
 
   const selectedTemplate = useMemo(() => {
     return templates.find((t) => t.id.toString() === selectedTemplateId) || null
   }, [templates, selectedTemplateId])
 
-  // Get variable keys dynamically from template variables or regex parsing bodyText
   const variableKeys = useMemo(() => {
     if (!selectedTemplate) return []
-
-    // If variables array exists on template object, use it
     if (selectedTemplate.variables && selectedTemplate.variables.length > 0) {
       return selectedTemplate.variables.map((v) => v.position.toString())
     }
-
-    // Fallback: parse {{number}} using regex from template bodyText
     const matches = selectedTemplate.bodyText.match(/\{\{\d+\}\}/g) || []
     const uniqueNums = Array.from(
       new Set(matches.map((m) => m.replace('{{', '').replace('}}', '')))
@@ -70,32 +83,31 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
     return uniqueNums.sort((a, b) => Number(a) - Number(b))
   }, [selectedTemplate])
 
-  // Compute preview text dynamically
   const previewText = useMemo(() => {
     if (!selectedTemplate) return ''
     let text = selectedTemplate.bodyText
-
     variableKeys.forEach((key) => {
       const value = variables[key] || `{{${key}}}`
       text = text.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
     })
-
     return text
   }, [selectedTemplate, variableKeys, variables])
 
   if (!isOpen || !contact) return null
 
   const handleTemplateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value
-    setSelectedTemplateId(val)
+    setSelectedTemplateId(e.target.value)
     setVariables({})
   }
 
   const handleVariableChange = (key: string, value: string) => {
-    setVariables((prev) => ({
-      ...prev,
-      [key]: value
-    }))
+    setVariables((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const toggleConnection = (id: number) => {
+    setSelectedConnectionIds((prev) =>
+      prev.includes(id) ? prev.filter((cid) => cid !== id) : [...prev, id]
+    )
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -105,7 +117,11 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
       return
     }
 
-    // Ensure all variables have values
+    if (selectedConnectionIds.length === 0) {
+      toast.error('Please select at least one connection.')
+      return
+    }
+
     const missing = variableKeys.filter((key) => !variables[key]?.trim())
     if (missing.length > 0) {
       toast.error(`Please fill in all variables: ${missing.map((m) => `{{${m}}}`).join(', ')}`)
@@ -114,20 +130,40 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
 
     setIsSending(true)
     try {
-      await chatService.sendTemplateMessage(
-        contact.id,
-        Number(selectedTemplateId),
-        variables
+      const results = await Promise.allSettled(
+        selectedConnectionIds.map((connId) =>
+          chatService.sendTemplateMessage(
+            contact.id,
+            Number(selectedTemplateId),
+            variables,
+            connId
+          )
+        )
       )
-      toast.success('Message sent successfully')
-      if (onSuccess) onSuccess()
-      onClose()
+
+      const succeeded = results.filter((r) => r.status === 'fulfilled').length
+      const failed = results.filter((r) => r.status === 'rejected').length
+
+      if (failed === 0) {
+        toast.success(`Template sent from ${succeeded} connection${succeeded > 1 ? 's' : ''} successfully`)
+      } else if (succeeded > 0) {
+        toast.success(`Sent from ${succeeded} connection(s), ${failed} failed`)
+      } else {
+        toast.error('Failed to send from all connections')
+      }
+
+      if (succeeded > 0) {
+        if (onSuccess) onSuccess()
+        onClose()
+      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to send template message.')
     } finally {
       setIsSending(false)
     }
   }
+
+  const showConnectionPicker = !connectionId && connectedConnections.length > 0
 
   return createPortal(
     <div className="modal-overlay">
@@ -143,6 +179,47 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="initiate-chat-form">
+          {/* Connection Picker — shown when opened from Contact page */}
+          {showConnectionPicker && (
+            <div className="form-group connection-picker-group">
+              <label className="initiate-chat-label">
+                <span className="required-star">*</span> Send From Connection(s)
+              </label>
+              <div className="connection-chips-container">
+                {connectedConnections.map((conn) => {
+                  const isSelected = selectedConnectionIds.includes(conn.id)
+                  return (
+                    <button
+                      key={conn.id}
+                      type="button"
+                      className={`connection-chip ${isSelected ? 'selected' : ''}`}
+                      onClick={() => toggleConnection(conn.id)}
+                    >
+                      {isSelected && <Check size={14} />}
+                      <span>{conn.name}</span>
+                      <span className="chip-phone">{conn.phoneNumber}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              {selectedConnectionIds.length === 0 && (
+                <span className="error-text">Select at least one connection</span>
+              )}
+            </div>
+          )}
+
+          {/* If opened from Chat with connectionId, show which connection */}
+          {connectionId && (
+            <div className="form-group">
+              <label className="initiate-chat-label">Sending From</label>
+              <div className="sending-from-badge">
+                {connectedConnections.find((c) => c.id === connectionId)?.name || 'Selected Connection'}
+                {' — '}
+                {connectedConnections.find((c) => c.id === connectionId)?.phoneNumber || ''}
+              </div>
+            </div>
+          )}
+
           <div className="form-group select-template-group">
             <label className="initiate-chat-label">
               <span className="required-star">*</span> Template
@@ -168,7 +245,6 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
 
           {selectedTemplate && (
             <div className="initiate-chat-split-view">
-              {/* Left Column: Variables */}
               <div className="initiate-chat-variables-panel">
                 <h4>Variables</h4>
                 {variableKeys.length === 0 ? (
@@ -194,7 +270,6 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
                 )}
               </div>
 
-              {/* Right Column: Preview */}
               <div className="initiate-chat-preview-panel">
                 <h4>Preview</h4>
                 <div className="whatsapp-preview-pattern">
@@ -218,9 +293,9 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={isSending || !selectedTemplateId}
+              disabled={isSending || !selectedTemplateId || selectedConnectionIds.length === 0}
             >
-              {isSending ? 'Sending...' : 'Submit'}
+              {isSending ? 'Sending...' : selectedConnectionIds.length > 1 ? `Send to ${selectedConnectionIds.length} Connections` : 'Submit'}
             </button>
           </div>
         </form>

@@ -21,21 +21,24 @@ const getApiErrorMessage = (error: unknown): string => {
 }
 
 export const chatService = {
-  getAccounts: async (): Promise<ChatAccount[]> => {
+  getAccounts: async (connectionId?: number): Promise<ChatAccount[]> => {
     try {
-      const response = await apiClient.get('/Chat/accounts')
+      const response = await apiClient.get('/Chat/accounts', {
+        params: { connectionId: connectionId || undefined }
+      })
       return response.data?.data || []
     } catch (error) {
       return []
     }
   },
 
-  getConversations: async (search?: string, filter?: string): Promise<Conversation[]> => {
+  getConversations: async (search?: string, filter?: string, connectionId?: number): Promise<Conversation[]> => {
     try {
       const response = await apiClient.get('/Chat/conversations', {
         params: {
           search: search || undefined,
-          filter: filter || undefined
+          filter: filter || undefined,
+          connectionId: connectionId || undefined
         }
       })
       return response.data?.data || []
@@ -71,7 +74,8 @@ export const chatService = {
     fromPhoneNumberId?: string,
     mediaUrl?: string,
     mediaType?: string,
-    mediaFileName?: string
+    mediaFileName?: string,
+    connectionId?: number
   ): Promise<Message | null> => {
     try {
       const response = await apiClient.post(`/Chat/conversations/${convId}/messages`, {
@@ -79,7 +83,8 @@ export const chatService = {
         fromPhoneNumberId,
         mediaUrl,
         mediaType,
-        mediaFileName
+        mediaFileName,
+        connectionId
       })
       return response.data?.data || null
     } catch (error) {
@@ -87,12 +92,13 @@ export const chatService = {
     }
   },
 
-  sendTemplateMessage: async (contactId: number, templateId: number, variables: Record<string, string>): Promise<Message | null> => {
+  sendTemplateMessage: async (contactId: number, templateId: number, variables: Record<string, string>, connectionId?: number): Promise<Message | null> => {
     try {
       const response = await apiClient.post('/Chat/send-template-to-contact', {
         contactId,
         templateId,
-        variables
+        variables,
+        connectionId
       })
       return response.data?.data || null
     } catch (error) {

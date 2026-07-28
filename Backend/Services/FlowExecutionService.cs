@@ -34,22 +34,32 @@ public class FlowExecutionService : IFlowExecutionService
         _whatsAppService = whatsAppService;
     }
 
-    public async Task<bool> ExecuteFlowStepAsync(string phoneNumber, string incomingMessage)
+    public async Task<bool> ExecuteFlowStepAsync(string phoneNumber, string incomingMessage, int? connectionId = null)
     {
-        var activeState = await _stateService.GetActiveStateAsync(phoneNumber);
+        var activeState = await _stateService.GetActiveStateAsync(phoneNumber, connectionId);
 
         if (activeState != null)
         {
-            await ResumeFlowAsync(activeState, incomingMessage);
+            if (connectionId.HasValue && activeState.ConnectionId == null)
+            {
+                activeState.ConnectionId = connectionId.Value;
+                _dbContext.Entry(activeState).State = EntityState.Modified;
+                await _dbContext.SaveChangesAsync();
+            }
+            else if (!connectionId.HasValue && activeState.ConnectionId.HasValue)
+            {
+                connectionId = activeState.ConnectionId;
+            }
+            await ResumeFlowAsync(activeState, incomingMessage, connectionId);
             return true;
         }
         else
         {
-            return await EvaluateTriggersAsync(phoneNumber, incomingMessage);
+            return await EvaluateTriggersAsync(phoneNumber, incomingMessage, connectionId);
         }
     }
 
-    private async Task ResumeFlowAsync(ConversationState state, string incomingMessage)
+    private async Task ResumeFlowAsync(ConversationState state, string incomingMessage, int? connectionId = null)
     {
         await LogBotMessageAsync(state.PhoneNumber, "Incoming", incomingMessage, state.FlowId, state.CurrentNodeId);
 
@@ -59,14 +69,14 @@ public class FlowExecutionService : IFlowExecutionService
         var currentNode = nodes.FirstOrDefault(n => n.NodeId == state.CurrentNodeId);
         if (currentNode == null)
         {
-            await _stateService.DeleteStateAsync(state.PhoneNumber);
+            await _stateService.DeleteStateAsync(state.PhoneNumber, connectionId);
             return;
         }
 
         var executor = _executors.FirstOrDefault(e => e.NodeType == currentNode.NodeType);
         if (executor == null)
         {
-            await _stateService.DeleteStateAsync(state.PhoneNumber);
+            await _stateService.DeleteStateAsync(state.PhoneNumber, connectionId);
             return;
         }
 
@@ -74,12 +84,12 @@ public class FlowExecutionService : IFlowExecutionService
         if (!string.IsNullOrEmpty(result.OutboundMessageText))
         {
             await LogBotMessageAsync(state.PhoneNumber, "Outgoing", result.OutboundMessageText, state.FlowId, state.CurrentNodeId);
-            await SyncToChatMessagesAsync(state.PhoneNumber, result.OutboundMessageText);
+            await SyncToChatMessagesAsync(state.PhoneNumber, result.OutboundMessageText, connectionId: connectionId);
         }
-        await ProcessResultAsync(state, result, nodes, edges, incomingMessage);
+        await ProcessResultAsync(state, result, nodes, edges, incomingMessage, connectionId);
     }
 
-    private async Task<bool> EvaluateTriggersAsync(string phoneNumber, string incomingMessage)
+    private async Task<bool> EvaluateTriggersAsync(string phoneNumber, string incomingMessage, int? connectionId = null)
     {
         var activeFlows = await _dbContext.BotFlows.Where(f => f.IsActive).ToListAsync();
 
@@ -93,11 +103,25 @@ public class FlowExecutionService : IFlowExecutionService
             {
                 var edges = await _flowLoader.GetEdgesForFlowAsync(flow.Id);
 
+                var initialVariables = new Dictionary<string, string>();
+                if (connectionId.HasValue)
+                {
+                    initialVariables["ConnectionId"] = connectionId.Value.ToString();
+                }
+
                 var state = await _stateService.CreateOrUpdateStateAsync(
                     phoneNumber,
                     flow.Id,
                     triggerNode.NodeId,
-                    new Dictionary<string, string>());
+                    initialVariables,
+                    connectionId);
+
+                if (connectionId.HasValue && state.ConnectionId == null)
+                {
+                    state.ConnectionId = connectionId.Value;
+                    _dbContext.Entry(state).State = EntityState.Modified;
+                    await _dbContext.SaveChangesAsync();
+                }
 
                 await LogBotMessageAsync(phoneNumber, "Incoming", incomingMessage, flow.Id, triggerNode.NodeId);
 
@@ -106,10 +130,10 @@ public class FlowExecutionService : IFlowExecutionService
                 if (!string.IsNullOrEmpty(result.OutboundMessageText))
                 {
                     await LogBotMessageAsync(phoneNumber, "Outgoing", result.OutboundMessageText, flow.Id, triggerNode.NodeId);
-                    await SyncToChatMessagesAsync(phoneNumber, result.OutboundMessageText);
+                    await SyncToChatMessagesAsync(phoneNumber, result.OutboundMessageText, connectionId: connectionId);
                 }
 
-                await ProcessResultAsync(state, result, nodes, edges, incomingMessage);
+                await ProcessResultAsync(state, result, nodes, edges, incomingMessage, connectionId);
                 return true; 
             }
         }
@@ -162,36 +186,37 @@ public class FlowExecutionService : IFlowExecutionService
         NodeExecutionResult result,
         List<FlowNode> nodes,
         List<FlowEdge> edges,
-        string incomingMessage)
+        string incomingMessage,
+        int? connectionId = null)
     {
         if (result.CollectVariables != null && result.CollectVariables.Any())
         {
-            await _stateService.CreateOrUpdateStateAsync(state.PhoneNumber, state.FlowId, state.CurrentNodeId, result.CollectVariables);
+            await _stateService.CreateOrUpdateStateAsync(state.PhoneNumber, state.FlowId, state.CurrentNodeId, result.CollectVariables, connectionId);
         }
 
         if (result.IsCompleted || string.IsNullOrEmpty(result.NextNodeId))
         {
-            await _stateService.DeleteStateAsync(state.PhoneNumber);
+            await _stateService.DeleteStateAsync(state.PhoneNumber, connectionId);
             return;
         }
 
         if (result.IsWaitingForReply)
         {
-            await _stateService.CreateOrUpdateStateAsync(state.PhoneNumber, state.FlowId, result.NextNodeId, new Dictionary<string, string>());
+            await _stateService.CreateOrUpdateStateAsync(state.PhoneNumber, state.FlowId, result.NextNodeId, new Dictionary<string, string>(), connectionId);
             return;
         }
 
         var nextNode = nodes.FirstOrDefault(n => n.NodeId == result.NextNodeId);
         if (nextNode == null)
         {
-            await _stateService.DeleteStateAsync(state.PhoneNumber);
+            await _stateService.DeleteStateAsync(state.PhoneNumber, connectionId);
             return;
         }
 
         var executor = _executors.FirstOrDefault(e => e.NodeType == nextNode.NodeType);
         if (executor == null)
         {
-            await _stateService.DeleteStateAsync(state.PhoneNumber);
+            await _stateService.DeleteStateAsync(state.PhoneNumber, connectionId);
             return;
         }
 
@@ -226,10 +251,10 @@ public class FlowExecutionService : IFlowExecutionService
                 }
             }
 
-            await SyncToChatMessagesAsync(state.PhoneNumber, outboundText, mediaUrl, mediaType, mediaFileName);
+            await SyncToChatMessagesAsync(state.PhoneNumber, outboundText, mediaUrl, mediaType, mediaFileName, connectionId);
         }
 
-        await ProcessResultAsync(state, nextResult, nodes, edges, incomingMessage);
+        await ProcessResultAsync(state, nextResult, nodes, edges, incomingMessage, connectionId);
     }
 
     private string GetOutboundTextForNode(FlowNode node)
@@ -329,7 +354,8 @@ public class FlowExecutionService : IFlowExecutionService
         string text, 
         string? mediaUrl = null, 
         string? mediaType = null, 
-        string? mediaFileName = null)
+        string? mediaFileName = null,
+        int? connectionId = null)
     {
         try
         {
@@ -337,21 +363,41 @@ public class FlowExecutionService : IFlowExecutionService
             var contact = await _dbContext.Contacts.FirstOrDefaultAsync(c => c.Phone == normalizedPhone);
             if (contact == null) return;
 
-            var conversation = await _dbContext.ChatConversations.FirstOrDefaultAsync(c => c.ContactId == contact.Id);
+            var conversation = await _dbContext.ChatConversations
+                .FirstOrDefaultAsync(c => c.ContactId == contact.Id && (connectionId == null || c.ConnectionId == connectionId));
+
             if (conversation == null)
             {
-                var account = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
+                var account = connectionId.HasValue
+                    ? await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value)
+                    : await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
+
                 conversation = new ChatConversation
                 {
                     ContactId = contact.Id,
+                    ConnectionId = connectionId,
                     WabaPhoneNumberId = account?.Id
                 };
                 _dbContext.ChatConversations.Add(conversation);
                 await _dbContext.SaveChangesAsync();
             }
+            else
+            {
+                if (conversation.ConnectionId == null && connectionId.HasValue)
+                {
+                    conversation.ConnectionId = connectionId;
+                }
+            }
 
             conversation.LastMessageText = string.IsNullOrEmpty(mediaUrl) ? text : $"[Sent {mediaType ?? "media"}]";
             conversation.LastMessageAt = DateTime.UtcNow;
+
+            string? resolvedPhoneNumberId = null;
+            if (connectionId.HasValue)
+            {
+                var phoneAcc = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value);
+                resolvedPhoneNumberId = phoneAcc?.PhoneNumberId;
+            }
 
             WhatsAppSendResult sendResult;
             if (!string.IsNullOrEmpty(mediaUrl) && !string.IsNullOrEmpty(mediaType))
@@ -361,17 +407,20 @@ public class FlowExecutionService : IFlowExecutionService
                     mediaUrl,
                     mediaType,
                     mediaFileName,
-                    text);
+                    text,
+                    resolvedPhoneNumberId,
+                    connectionId);
             }
             else
             {
-                sendResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, text);
+                sendResult = await _whatsAppService.SendTextMessageAsync(normalizedPhone, text, resolvedPhoneNumberId, connectionId);
             }
 
             _dbContext.ChatMessages.Add(new ChatMessage
             {
                 ConversationId = conversation.Id,
                 ContactId = contact.Id,
+                ConnectionId = connectionId,
                 WhatsAppMessageId = sendResult.Success ? sendResult.MessageId : null,
                 Direction = ChatMessageDirection.Outgoing,
                 Status = sendResult.Success ? ChatMessageStatus.Sent : ChatMessageStatus.Failed,

@@ -124,7 +124,8 @@ public class BotRouterService : IBotRouterService
                     // Even if there was no active Message Bot session, if they stopped from a Bot Flow AI,
                     // we should record an inactive session so that future AI nodes know the AI is stopped.
                     var existingSession = await _dbContext.AiSessions
-                        .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone);
+                        .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone && 
+                            (connectionId.HasValue ? s.ConnectionId == connectionId.Value : s.ConnectionId == null));
                     if (existingSession != null)
                     {
                         existingSession.IsActive = false;
@@ -140,6 +141,7 @@ public class BotRouterService : IBotRouterService
                                 PhoneNumber = normalizedPhone,
                                 MessageBotId = firstBot.Id,
                                 IsActive = false,
+                                ConnectionId = connectionId,
                                 CreatedAt = DateTime.UtcNow,
                                 UpdatedAt = DateTime.UtcNow,
                                 AssistantName = firstBot.AssistantName ?? "OmniBot"
@@ -282,7 +284,8 @@ public class BotRouterService : IBotRouterService
                 {
                     // Stop any active AI sessions for this phone number
                     var activeSessions = await _dbContext.AiSessions
-                        .Where(s => s.PhoneNumber == normalizedPhone && s.IsActive)
+                        .Where(s => s.PhoneNumber == normalizedPhone && s.IsActive &&
+                            (connectionId.HasValue ? s.ConnectionId == connectionId.Value : true))
                         .ToListAsync();
                     foreach (var s in activeSessions)
                     {
@@ -304,7 +307,8 @@ public class BotRouterService : IBotRouterService
             {
                 // Deactivate any active AI sessions for this phone number
                 var activeSessions = await _dbContext.AiSessions
-                    .Where(s => s.PhoneNumber == normalizedPhone && s.IsActive)
+                    .Where(s => s.PhoneNumber == normalizedPhone && s.IsActive &&
+                        (connectionId.HasValue ? s.ConnectionId == connectionId.Value : true))
                     .ToListAsync();
                 foreach (var s in activeSessions)
                 {

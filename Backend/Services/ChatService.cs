@@ -155,6 +155,7 @@ public class ChatService : IChatService
         {
             ConversationId = conversation.Id,
             ContactId = conversation.ContactId,
+            ConnectionId = effectiveConnectionId,
             Direction = ChatMessageDirection.Outgoing,
             Status = ChatMessageStatus.Pending,
             Text = dbText,
@@ -236,6 +237,7 @@ public class ChatService : IChatService
         {
             ConversationId = conversation.Id,
             ContactId = contact.Id,
+            ConnectionId = request.ConnectionId,
             Direction = ChatMessageDirection.Outgoing,
             Status = result.Success ? ChatMessageStatus.Sent : ChatMessageStatus.Failed,
             Text = messageText,
@@ -283,6 +285,7 @@ public class ChatService : IChatService
         {
             ConversationId = conversation.Id,
             ContactId = campaignContact.ContactId,
+            ConnectionId = campaign.ConnectionId,
             CampaignId = campaign.Id,
             CampaignContactId = campaignContact.Id,
             Direction = ChatMessageDirection.Outgoing,

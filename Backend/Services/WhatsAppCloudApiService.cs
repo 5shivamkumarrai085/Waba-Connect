@@ -1391,7 +1391,8 @@ public class WhatsAppCloudApiService : IWhatsAppService
                         mediaType,
                         fileName,
                         null,
-                        resolvedPhoneNumberId);
+                        resolvedPhoneNumberId,
+                        connectionId);
 
                     if (conversation != null)
                     {
@@ -1403,6 +1404,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
                     {
                         ConversationId = conversation?.Id ?? 0,
                         ContactId = contact.Id,
+                        ConnectionId = connectionId,
                         WhatsAppMessageId = mediaSendResult.Success ? mediaSendResult.MessageId : null,
                         Direction = ChatMessageDirection.Outgoing,
                         Status = mediaSendResult.Success ? ChatMessageStatus.Sent : ChatMessageStatus.Failed,

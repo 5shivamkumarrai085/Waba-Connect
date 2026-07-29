@@ -194,13 +194,25 @@ namespace WhatsAppCampaignApi.Controllers
                 await _phoneRepository.SaveRangeAsync(phones);
             }
 
+            // CRITICAL: Subscribe the Meta App to receive webhooks for this WABA.
+            // Without this call, Meta will NOT deliver incoming messages to the webhook URL.
+            var subscribed = await _metaGraphService.SubscribeAppToWabaAsync(request.WabaId, request.AccessToken);
+            if (!subscribed)
+            {
+                // Log warning but don't fail — the user can subscribe manually via the subscribe-webhooks endpoint
+                return Ok(new { 
+                    message = "WhatsApp Business Account configured, but webhook subscription failed. Please call POST /api/Waba/subscribe-webhooks to retry.",
+                    webhookSubscribed = false 
+                });
+            }
+
             // Fetch message templates
             await _templateService.SyncFromWhatsAppAsync();
 
             // Run initial health status check
             await _healthService.RunHealthCheckAsync();
 
-            return Ok(new { message = "WhatsApp Business Account configured successfully." });
+            return Ok(new { message = "WhatsApp Business Account configured successfully.", webhookSubscribed = true });
         }
 
         [HttpGet("dashboard")]
@@ -382,6 +394,90 @@ namespace WhatsAppCampaignApi.Controllers
             // Return updated dashboard data
             var data = await _dashboardService.GetDashboardDataAsync();
             return Ok(data);
+        }
+
+        /// <summary>
+        /// Subscribes the Meta App to receive webhooks for ALL connected WABAs.
+        /// Call this if incoming messages are not being received for a connection.
+        /// This is safe to call multiple times — Meta treats it as idempotent.
+        /// </summary>
+        [HttpPost("subscribe-webhooks")]
+        public async Task<IActionResult> SubscribeWebhooks([FromQuery] int? connectionId = null)
+        {
+            var query = _dbContext.WabaConfigurations
+                .Include(c => c.Connection)
+                .Where(c => c.Connected && !string.IsNullOrEmpty(c.WabaId) && !string.IsNullOrEmpty(c.AccessToken));
+
+            if (connectionId.HasValue)
+            {
+                query = query.Where(c => c.ConnectionId == connectionId.Value);
+            }
+
+            var configs = await query.ToListAsync();
+
+            if (configs.Count == 0)
+            {
+                return BadRequest(new { message = "No connected WABA configurations found." });
+            }
+
+            var results = new List<object>();
+
+            foreach (var cfg in configs)
+            {
+                // Check current subscription status
+                var isSubscribed = await _metaGraphService.IsAppSubscribedToWabaAsync(cfg.WabaId, cfg.AccessToken);
+                
+                bool subscribeResult = isSubscribed;
+                if (!isSubscribed)
+                {
+                    // Subscribe the app
+                    subscribeResult = await _metaGraphService.SubscribeAppToWabaAsync(cfg.WabaId, cfg.AccessToken);
+                }
+
+                results.Add(new
+                {
+                    connectionId = cfg.ConnectionId,
+                    connectionName = cfg.Connection?.Name,
+                    wabaId = cfg.WabaId,
+                    wasAlreadySubscribed = isSubscribed,
+                    subscribed = subscribeResult
+                });
+            }
+
+            return Ok(new
+            {
+                message = "Webhook subscription check complete.",
+                results
+            });
+        }
+
+        /// <summary>
+        /// Checks the webhook subscription status for all connected WABAs.
+        /// </summary>
+        [HttpGet("webhook-status")]
+        public async Task<IActionResult> GetWebhookStatus()
+        {
+            var configs = await _dbContext.WabaConfigurations
+                .Include(c => c.Connection)
+                .Where(c => c.Connected && !string.IsNullOrEmpty(c.WabaId) && !string.IsNullOrEmpty(c.AccessToken))
+                .ToListAsync();
+
+            var results = new List<object>();
+
+            foreach (var cfg in configs)
+            {
+                var isSubscribed = await _metaGraphService.IsAppSubscribedToWabaAsync(cfg.WabaId, cfg.AccessToken);
+
+                results.Add(new
+                {
+                    connectionId = cfg.ConnectionId,
+                    connectionName = cfg.Connection?.Name,
+                    wabaId = cfg.WabaId,
+                    isSubscribed
+                });
+            }
+
+            return Ok(new { connections = results });
         }
     }
 }

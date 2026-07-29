@@ -13,11 +13,13 @@ namespace WhatsAppCampaignApi.Services
     public class MetaGraphService : IMetaGraphService
     {
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly ILogger<MetaGraphService> _logger;
         private const string MetaGraphBaseUrl = "https://graph.facebook.com/v18.0";
 
-        public MetaGraphService(IHttpClientFactory httpClientFactory)
+        public MetaGraphService(IHttpClientFactory httpClientFactory, ILogger<MetaGraphService> logger)
         {
             _httpClientFactory = httpClientFactory;
+            _logger = logger;
         }
 
         private HttpClient CreateClient(string? accessToken = null)
@@ -275,6 +277,76 @@ namespace WhatsAppCampaignApi.Services
                 
                 var response = await client.PostAsync(url, requestContent);
                 return response.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> SubscribeAppToWabaAsync(string wabaId, string accessToken)
+        {
+            if (IsMock(wabaId) || IsMock(accessToken))
+            {
+                return true;
+            }
+
+            try
+            {
+                var client = CreateClient(accessToken);
+                string url = $"{MetaGraphBaseUrl}/{wabaId}/subscribed_apps";
+                _logger.LogInformation("Subscribing app to WABA {WabaId} via POST {Url}", wabaId, url);
+                
+                var response = await client.PostAsync(url, null);
+                string responseBody = await response.Content.ReadAsStringAsync();
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Successfully subscribed app to WABA {WabaId}. Response: {Response}", wabaId, responseBody);
+                    return true;
+                }
+
+                _logger.LogError("Failed to subscribe app to WABA {WabaId}: HTTP {Status} - {Response}", wabaId, response.StatusCode, responseBody);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception subscribing app to WABA {WabaId}", wabaId);
+                return false;
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> IsAppSubscribedToWabaAsync(string wabaId, string accessToken)
+        {
+            if (IsMock(wabaId) || IsMock(accessToken))
+            {
+                return true;
+            }
+
+            try
+            {
+                var client = CreateClient(accessToken);
+                string url = $"{MetaGraphBaseUrl}/{wabaId}/subscribed_apps";
+                var response = await client.GetAsync(url);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    return false;
+                }
+
+                string content = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(content);
+                var root = doc.RootElement;
+
+                // If there's a "data" array with entries, the app is subscribed
+                if (root.TryGetProperty("data", out var dataProp) && dataProp.ValueKind == JsonValueKind.Array)
+                {
+                    return dataProp.GetArrayLength() > 0;
+                }
+
+                return false;
             }
             catch
             {

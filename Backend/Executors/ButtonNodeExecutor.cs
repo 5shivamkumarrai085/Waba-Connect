@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Services.Interfaces;
 
@@ -11,10 +13,12 @@ namespace WhatsAppCampaignApi.Executors;
 public class ButtonNodeExecutor : INodeExecutor
 {
     private readonly IWhatsAppService _whatsAppService;
+    private readonly AppDbContext _dbContext;
 
-    public ButtonNodeExecutor(IWhatsAppService whatsAppService)
+    public ButtonNodeExecutor(IWhatsAppService whatsAppService, AppDbContext dbContext)
     {
         _whatsAppService = whatsAppService;
+        _dbContext = dbContext;
     }
 
     public string NodeType => "Button Message";
@@ -115,7 +119,14 @@ public class ButtonNodeExecutor : INodeExecutor
             }
         };
 
-        await _whatsAppService.SendCustomPayloadAsync(state.PhoneNumber, payload);
+        // Resolve the correct phone number for this connection
+        string? resolvedPhoneId = null;
+        if (state.ConnectionId.HasValue)
+        {
+            var phoneAcc = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == state.ConnectionId.Value);
+            resolvedPhoneId = phoneAcc?.PhoneNumberId;
+        }
+        await _whatsAppService.SendCustomPayloadAsync(state.PhoneNumber, payload, resolvedPhoneId, state.ConnectionId);
 
         return NodeExecutionResult.Pause(node.NodeId);
     }

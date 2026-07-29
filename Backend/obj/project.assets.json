@@ -3221,11 +3221,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/Users/tusharvashisht/Downloads/WabaConnect/Backend/WhatsAppCampaignApi.csproj",
+      "projectUniqueName": "/Users/tusharvashisht/Documents/company/WabaConnect/Backend/WhatsAppCampaignApi.csproj",
       "projectName": "WhatsAppCampaignApi",
-      "projectPath": "/Users/tusharvashisht/Downloads/WabaConnect/Backend/WhatsAppCampaignApi.csproj",
+      "projectPath": "/Users/tusharvashisht/Documents/company/WabaConnect/Backend/WhatsAppCampaignApi.csproj",
       "packagesPath": "/Users/tusharvashisht/.nuget/packages/",
-      "outputPath": "/Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/",
+      "outputPath": "/Users/tusharvashisht/Documents/company/WabaConnect/Backend/obj/",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "/Users/tusharvashisht/.nuget/NuGet/NuGet.Config"
@@ -3733,5 +3733,17 @@
         }
       }
     }
-  }
+  },
+  "logs": [
+    {
+      "code": "NU1902",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "Package 'AngleSharp' 0.17.1 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-pgww-w46g-26qg",
+      "libraryId": "AngleSharp",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    }
+  ]
 }

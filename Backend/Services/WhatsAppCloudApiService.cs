@@ -76,16 +76,17 @@ public class WhatsAppCloudApiService : IWhatsAppService
         if (config == null) throw new InvalidOperationException($"WABA is not configured or connected for connection ID {connectionId}.");
 
         WabaPhoneNumber? phone = null;
-        if (config.ConnectionId.HasValue)
-        {
-            phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == config.ConnectionId.Value);
-        }
-
-        if (phone == null && !string.IsNullOrWhiteSpace(requestedPhoneNumberId))
+        // 1. Prefer exact phone number match (most specific)
+        if (!string.IsNullOrWhiteSpace(requestedPhoneNumberId))
         {
             phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.PhoneNumberId == requestedPhoneNumberId);
         }
-
+        // 2. Fall back to connection-scoped phone
+        if (phone == null && config.ConnectionId.HasValue)
+        {
+            phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == config.ConnectionId.Value);
+        }
+        // 3. Global fallback only if nothing else matched
         if (phone == null)
         {
             phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
@@ -328,26 +329,34 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
     public bool VerifyWebhook(string mode, string token, string challenge)
     {
-        var config = _dbContext.WabaConfigurations.FirstOrDefault();
-        string? configuredToken = config?.VerifyToken;
-        if (string.IsNullOrWhiteSpace(configuredToken))
-        {
-            configuredToken = _configuration["WhatsApp:VerifyToken"] ?? _configuration["WhatsApp:WebhookVerifyToken"];
-        }
+        // Multi-connection support: check ALL WABA configurations for a matching verify token
+        var allConfigs = _dbContext.WabaConfigurations
+            .Where(c => !string.IsNullOrEmpty(c.VerifyToken))
+            .ToList();
 
-        if (string.IsNullOrWhiteSpace(configuredToken))
+        var matchingConfig = allConfigs.FirstOrDefault(c => c.VerifyToken == token);
+
+        if (matchingConfig == null)
         {
-            _logger.LogWarning("Webhook verification failed. No WABA configuration found in DB or appsettings.json.");
+            // Fallback to appsettings.json token
+            var fallbackToken = _configuration["WhatsApp:VerifyToken"] ?? _configuration["WhatsApp:WebhookVerifyToken"];
+            if (!string.IsNullOrWhiteSpace(fallbackToken) && mode == "subscribe" && token == fallbackToken)
+            {
+                _logger.LogInformation("Webhook verified successfully using appsettings fallback token.");
+                return true;
+            }
+
+            _logger.LogWarning("Webhook verification failed. Mode: {Mode}, Token did not match any of {Count} configured tokens.", mode, allConfigs.Count);
             return false;
         }
 
-        if (mode == "subscribe" && token == configuredToken)
+        if (mode == "subscribe")
         {
-            _logger.LogInformation("Webhook verified successfully");
+            _logger.LogInformation("Webhook verified successfully for connection {ConnectionId} (Config Id: {ConfigId}).", matchingConfig.ConnectionId, matchingConfig.Id);
             return true;
         }
 
-        _logger.LogWarning("Webhook verification failed. Mode: {Mode}, Token mismatch", mode);
+        _logger.LogWarning("Webhook verification failed. Mode: {Mode} (expected 'subscribe'), Token matched config {ConfigId}", mode, matchingConfig.Id);
         return false;
     }
 
@@ -430,6 +439,63 @@ public class WhatsAppCloudApiService : IWhatsAppService
             : await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
 
         var connectionId = account?.ConnectionId;
+
+        // Auto-sync: If the phone number wasn't found in WabaPhoneNumbers, try to resolve it
+        // by querying all connected WABA configs against Meta Graph API and auto-register the phone
+        if (connectionId == null && !string.IsNullOrWhiteSpace(fromPhoneNumberId))
+        {
+            _logger.LogInformation("Phone number ID {PhoneNumberId} not found in WabaPhoneNumbers. Attempting auto-sync from Meta Graph API.", fromPhoneNumberId);
+            var connectedConfigs = await _dbContext.WabaConfigurations
+                .Where(c => c.Connected && c.ConnectionId.HasValue)
+                .ToListAsync();
+
+            foreach (var cfg in connectedConfigs)
+            {
+                try
+                {
+                    var phones = await FetchPhoneNumbersFromMetaAsync(cfg.WabaId, cfg.AccessToken);
+                    var match = phones?.FirstOrDefault(p => p.PhoneNumberId == fromPhoneNumberId);
+                    if (match != null)
+                    {
+                        // Check if already exists (race condition guard)
+                        var existing = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.PhoneNumberId == fromPhoneNumberId);
+                        if (existing == null)
+                        {
+                            var newPhone = new WabaPhoneNumber
+                            {
+                                PhoneNumberId = match.PhoneNumberId,
+                                PhoneNumber = match.PhoneNumber,
+                                DisplayName = match.DisplayName,
+                                VerifiedName = match.VerifiedName,
+                                Quality = match.Quality,
+                                Status = match.Status,
+                                ConnectionId = cfg.ConnectionId
+                            };
+                            _dbContext.WabaPhoneNumbers.Add(newPhone);
+                            await _dbContext.SaveChangesAsync();
+                            account = newPhone;
+                            _logger.LogInformation("Auto-synced phone number {PhoneNumberId} to connection {ConnectionId}.", fromPhoneNumberId, cfg.ConnectionId);
+                        }
+                        else
+                        {
+                            // Update ConnectionId if it was null
+                            if (existing.ConnectionId == null)
+                            {
+                                existing.ConnectionId = cfg.ConnectionId;
+                                await _dbContext.SaveChangesAsync();
+                            }
+                            account = existing;
+                        }
+                        connectionId = cfg.ConnectionId;
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to query Meta Graph API for WABA {WabaId} during auto-sync.", cfg.WabaId);
+                }
+            }
+        }
 
         var conversation = await _dbContext.ChatConversations
             .FirstOrDefaultAsync(c => c.ContactId == contact.Id && (connectionId == null || c.ConnectionId == connectionId));
@@ -1044,6 +1110,53 @@ public class WhatsAppCloudApiService : IWhatsAppService
         {
             _logger.LogError(ex, "Error uploading media to WhatsApp");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Fetches phone numbers from Meta Graph API for a given WABA ID.
+    /// Used for auto-syncing unrecognized phone numbers during webhook processing.
+    /// </summary>
+    private async Task<List<WabaPhoneNumber>> FetchPhoneNumbersFromMetaAsync(string wabaId, string accessToken)
+    {
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/{wabaId}/phone_numbers");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            var response = await _httpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to fetch phone numbers from Meta for WABA {WabaId}. Status: {Status}", wabaId, response.StatusCode);
+                return new List<WabaPhoneNumber>();
+            }
+
+            var content = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(content);
+
+            var phoneNumbers = new List<WabaPhoneNumber>();
+            if (doc.RootElement.TryGetProperty("data", out var dataProp) && dataProp.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var element in dataProp.EnumerateArray())
+                {
+                    phoneNumbers.Add(new WabaPhoneNumber
+                    {
+                        PhoneNumber = element.TryGetProperty("display_phone_number", out var num) ? num.GetString() ?? "" : "",
+                        PhoneNumberId = element.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? "" : "",
+                        DisplayName = element.TryGetProperty("verified_name", out var dName) ? dName.GetString() ?? "" : "",
+                        VerifiedName = element.TryGetProperty("verified_name", out var vName) ? vName.GetString() ?? "" : "",
+                        Quality = (element.TryGetProperty("quality_rating", out var qual) ? qual.GetString() ?? "GREEN" : "GREEN").ToUpper(),
+                        Status = element.TryGetProperty("status", out var stat) ? stat.GetString() ?? "APPROVED" : "APPROVED"
+                    });
+                }
+            }
+
+            return phoneNumbers;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching phone numbers from Meta Graph API for WABA {WabaId}", wabaId);
+            return new List<WabaPhoneNumber>();
         }
     }
 

@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/Users/tusharvashisht/Downloads/WabaConnect/Backend/WhatsAppCampaignApi.csproj": {}
+    "/Users/tusharvashisht/Documents/company/WabaConnect/Backend/WhatsAppCampaignApi.csproj": {}
   },
   "projects": {
-    "/Users/tusharvashisht/Downloads/WabaConnect/Backend/WhatsAppCampaignApi.csproj": {
+    "/Users/tusharvashisht/Documents/company/WabaConnect/Backend/WhatsAppCampaignApi.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/Users/tusharvashisht/Downloads/WabaConnect/Backend/WhatsAppCampaignApi.csproj",
+        "projectUniqueName": "/Users/tusharvashisht/Documents/company/WabaConnect/Backend/WhatsAppCampaignApi.csproj",
         "projectName": "WhatsAppCampaignApi",
-        "projectPath": "/Users/tusharvashisht/Downloads/WabaConnect/Backend/WhatsAppCampaignApi.csproj",
+        "projectPath": "/Users/tusharvashisht/Documents/company/WabaConnect/Backend/WhatsAppCampaignApi.csproj",
         "packagesPath": "/Users/tusharvashisht/.nuget/packages/",
-        "outputPath": "/Users/tusharvashisht/Downloads/WabaConnect/Backend/obj/",
+        "outputPath": "/Users/tusharvashisht/Documents/company/WabaConnect/Backend/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/Users/tusharvashisht/.nuget/NuGet/NuGet.Config"

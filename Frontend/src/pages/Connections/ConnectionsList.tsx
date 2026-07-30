@@ -27,6 +27,7 @@ import toast from 'react-hot-toast'
 import { useConnectionStore } from '../../store/connectionStore'
 import { EditConnectionModal } from './EditConnectionModal'
 import { ConnectionDetail } from './ConnectionDetail'
+import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import type { Connection } from '../../types/connection'
 import './ConnectionsList.css'
 
@@ -47,6 +48,9 @@ export const ConnectionsList: React.FC = () => {
   const [selectedConn, setSelectedConn] = useState<Connection | null>(null)
   const [editingConn, setEditingConn] = useState<Connection | null>(null)
   const [activeMenuId, setActiveMenuId] = useState<number | null>(null)
+
+  const [disconnectTarget, setDisconnectTarget] = useState<Connection | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Connection | null>(null)
 
   useEffect(() => {
     fetchDashboard()
@@ -74,11 +78,21 @@ export const ConnectionsList: React.FC = () => {
     navigate(`/connect-waba?connectionId=${conn.id}`)
   }
 
-  const handleDisconnect = async (id: number) => {
-    if (window.confirm('Are you sure you want to soft-disconnect this WABA Connection?')) {
-      await disconnectConnection(id)
+  const handleDisconnectClick = (conn: Connection) => {
+    setActiveMenuId(null)
+    setDisconnectTarget(conn)
+  }
+
+  const confirmDisconnect = async () => {
+    if (!disconnectTarget) return
+    const conn = disconnectTarget
+    setDisconnectTarget(null)
+    try {
+      await disconnectConnection(conn.id)
       toast.success('Connection status set to disconnected.')
       fetchDashboard()
+    } catch {
+      toast.error('Failed to disconnect connection.')
     }
   }
 
@@ -96,16 +110,21 @@ export const ConnectionsList: React.FC = () => {
     }
   }
 
-  const handleDeleteConnection = async (conn: Connection) => {
+  const handleDeleteConnectionClick = (conn: Connection) => {
     setActiveMenuId(null)
-    if (window.confirm(`Are you sure you want to delete "${conn.name}"?`)) {
-      try {
-        await deleteConnection(conn.id)
-        toast.success(`Connection "${conn.name}" deleted (marked inactive).`)
-        fetchDashboard()
-      } catch {
-        toast.error('Failed to delete connection.')
-      }
+    setDeleteTarget(conn)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    const conn = deleteTarget
+    setDeleteTarget(null)
+    try {
+      await deleteConnection(conn.id)
+      toast.success(`Connection "${conn.name}" deleted (marked inactive).`)
+      fetchDashboard()
+    } catch {
+      toast.error('Failed to delete connection.')
     }
   }
 
@@ -308,7 +327,7 @@ export const ConnectionsList: React.FC = () => {
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDisconnect(conn.id)}
+                              onClick={() => handleDisconnectClick(conn)}
                               className="btn-action-disconnect"
                             >
                               <Unlink className="w-3.5 h-3.5" />
@@ -350,7 +369,7 @@ export const ConnectionsList: React.FC = () => {
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeleteConnection(conn)}
+                              onClick={() => handleDeleteConnectionClick(conn)}
                               className="delete-btn"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -398,6 +417,32 @@ export const ConnectionsList: React.FC = () => {
           onClose={() => setSelectedConn(null)}
         />
       )}
+
+      {/* Soft Disconnect Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!disconnectTarget}
+        title="Disconnect Connection"
+        message={`Are you sure you want to soft-disconnect WABA Connection "${disconnectTarget?.name}"?`}
+        confirmText="Disconnect"
+        cancelText="Cancel"
+        onConfirm={confirmDisconnect}
+        onCancel={() => setDisconnectTarget(null)}
+        isDestructive={true}
+        showWarningIcon={true}
+      />
+
+      {/* Delete Connection Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!deleteTarget}
+        title="Delete Connection"
+        message={`Are you sure you want to delete "${deleteTarget?.name}"?`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+        isDestructive={true}
+        showWarningIcon={true}
+      />
     </div>
   )
 }

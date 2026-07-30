@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useCampaignStore, usePreviewStore } from '../store/zustand'
 import { Calendar, Info } from 'lucide-react'
 
+import toast from 'react-hot-toast'
+
 export const Campaign: React.FC = () => {
   const navigate = useNavigate()
   const { previewMode } = usePreviewStore()
@@ -47,7 +49,7 @@ export const Campaign: React.FC = () => {
     setErrors(tempErrors)
     
     if (Object.keys(tempErrors).length === 0) {
-      alert(`Campaign Form Submited! (Frontend Only)\nName: ${campaignName}\nType: ${relationType}\nTemplate: ${template}\nScheduled: ${ignoreScheduledTime ? 'Send Now' : scheduledTime || 'Not Scheduled'}`)
+      toast.success(`Campaign Form Submitted! Name: ${campaignName}`)
       resetForm()
       navigate('/')
     }

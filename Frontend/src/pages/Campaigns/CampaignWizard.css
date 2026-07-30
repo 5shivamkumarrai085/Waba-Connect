@@ -230,10 +230,11 @@
   font-size: 13px;
   font-weight: 600;
   height: 38px;
-  width: 100px;
-  border-radius: 6px;
+  min-width: 100px;
+  padding: 0 18px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -242,48 +243,59 @@
 
 /* Previous Button style */
 .btn-wizard-prev {
-  background-color: #eef2ff; /* var(--primary-light) */
-  color: #5a52e5; /* var(--primary) */
+  background-color: #f1f5f9 !important;
+  color: #475569 !important;
+  border: 1px solid #cbd5e1 !important;
 }
 
 .btn-wizard-prev:hover:not(:disabled) {
-  background-color: #e0e7ff;
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  transform: translateY(-1px);
 }
 
 .btn-wizard-prev:active:not(:disabled) {
-  background-color: #c7d2fe;
+  background-color: #cbd5e1 !important;
+  transform: translateY(0);
 }
 
 /* Next and Save Buttons style */
 .btn-wizard-next, .btn-wizard-save {
-  background-color: #5a52e5; /* var(--primary) */
-  color: #ffffff;
+  background-color: #4f46e5 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
 }
 
 .btn-wizard-next:hover:not(:disabled), .btn-wizard-save:hover:not(:disabled) {
-  background-color: #473fc7; /* var(--primary-hover) */
+  background-color: #3730a3 !important; /* Darkens to deep indigo on hover */
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
+  transform: translateY(-1px);
 }
 
 .btn-wizard-next:active:not(:disabled), .btn-wizard-save:active:not(:disabled) {
-  background-color: #3730a3;
+  background-color: #312e81 !important;
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
 }
 
 /* Disabled state */
 .btn-wizard-nav:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+  box-shadow: none !important;
 }
 
-/* Step Indicator text */
 .step-indicator-text {
   font-family: var(--font-family);
   font-size: 13px;
-  color: var(--text-muted); /* #6b7280 */
+  color: var(--text-muted);
 }
 
 .step-number-active {
   font-weight: 700;
-  color: var(--text-main); /* #1f2937 */
+  color: var(--text-main);
 }
 
 /* Upload Area styles inside Wizard */
@@ -292,12 +304,6 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
-}
-
-.upload-area-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-main);
 }
 
 .upload-dropzone {
@@ -412,7 +418,6 @@
     transform: rotate(360deg);
   }
 }
-
 
 /* === Gen-Z Wizard Animations === */
 .wizard-title-row { animation: slideUp 0.4s ease-out both; }

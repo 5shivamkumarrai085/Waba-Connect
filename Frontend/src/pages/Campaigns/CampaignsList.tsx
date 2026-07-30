@@ -27,7 +27,6 @@ export const CampaignsList: React.FC = () => {
     setSearchQuery,
     setTemplateFilter,
     setRelationTypeFilter,
-    setCreatedAtFilter,
     setCurrentPage,
     setPageSize,
     
@@ -68,6 +67,9 @@ export const CampaignsList: React.FC = () => {
     fetchMetadata()
   }, [])
 
+  const [filterStartDate, setFilterStartDate] = useState('')
+  const [filterEndDate, setFilterEndDate] = useState('')
+
   // Local Filter logic
   const filteredCampaigns = campaigns.filter((c) => {
     // 1. General search bar query
@@ -89,7 +91,21 @@ export const CampaignsList: React.FC = () => {
       if (c.relationType !== relationTypeFilter) return false
     }
 
-    // 4. Created At Date filter matching relative time
+    // 4. Created At Date range filter
+    if (filterStartDate) {
+      const campDate = new Date(c.createdAt)
+      const startDate = new Date(filterStartDate)
+      startDate.setHours(0, 0, 0, 0)
+      if (campDate < startDate) return false
+    }
+
+    if (filterEndDate) {
+      const campDate = new Date(c.createdAt)
+      const endDate = new Date(filterEndDate)
+      endDate.setHours(23, 59, 59, 999)
+      if (campDate > endDate) return false
+    }
+
     if (createdAtFilter) {
       const relativeDate = formatRelativeTime(c.createdAt).toLowerCase()
       if (!relativeDate.includes(createdAtFilter.toLowerCase())) return false
@@ -232,13 +248,21 @@ export const CampaignsList: React.FC = () => {
 
             <div className="filter-group">
               <span className="filter-label">Created At</span>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="Select a period"
-                value={createdAtFilter}
-                onChange={(e) => setCreatedAtFilter(e.target.value)}
-              />
+              <div className="date-filter-inputs">
+                <input
+                  type="date"
+                  className="form-control padding-date"
+                  value={filterStartDate}
+                  onChange={(e) => setFilterStartDate(e.target.value)}
+                />
+                <span className="date-separator">to</span>
+                <input
+                  type="date"
+                  className="form-control padding-date"
+                  value={filterEndDate}
+                  onChange={(e) => setFilterEndDate(e.target.value)}
+                />
+              </div>
             </div>
           </div>
         )}

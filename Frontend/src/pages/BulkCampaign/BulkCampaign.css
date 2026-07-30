@@ -142,69 +142,84 @@
   padding: 10px 20px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background-color 0.2s, border-color 0.2s, opacity 0.2s;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border: none;
 }
 
 .btn-wizard-next {
-  background-color: var(--primary);
-  color: #ffffff;
-  border: none;
+  background-color: #4f46e5 !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
 }
 
 .btn-wizard-next:hover:not(:disabled) {
-  background-color: var(--primary-dark);
+  background-color: #3730a3 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-wizard-next:active:not(:disabled) {
+  background-color: #312e81 !important;
+  transform: translateY(0);
 }
 
 .btn-wizard-next:disabled {
-  background-color: var(--border-light);
-  color: var(--text-light);
-  cursor: not-allowed;
-  opacity: 0.7;
+  background-color: #cbd5e1 !important;
+  color: #64748b !important;
+  cursor: not-allowed !important;
+  opacity: 0.6;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
-.btn-wizard-cancel {
-  background-color: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--border-color);
+.btn-wizard-cancel, .btn-wizard-back {
+  background-color: #f1f5f9 !important;
+  color: #475569 !important;
+  border: 1px solid #cbd5e1 !important;
 }
 
-.btn-wizard-cancel:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-main);
+.btn-wizard-cancel:hover, .btn-wizard-back:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  transform: translateY(-1px);
 }
 
-.btn-wizard-back {
-  background-color: transparent;
-  color: var(--text-main);
-  border: 1px solid var(--border-color);
-}
-
-.btn-wizard-back:hover {
-  background-color: var(--bg-hover);
+.btn-wizard-cancel:active, .btn-wizard-back:active {
+  background-color: #cbd5e1 !important;
+  transform: translateY(0);
 }
 
 .btn-wizard-save {
-  background-color: var(--primary);
-  color: #ffffff;
-  border: none;
+  background-color: #4f46e5 !important;
+  color: #ffffff !important;
+  border: none !important;
   font-size: 14px;
   font-weight: 700;
   padding: 12px 28px;
   border-radius: var(--radius-md);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
 }
 
 .btn-wizard-save:hover:not(:disabled) {
-  background-color: var(--primary-dark);
+  background-color: #3730a3 !important;
+  color: #ffffff !important;
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
+}
+
+.btn-wizard-save:active:not(:disabled) {
+  background-color: #312e81 !important;
+  transform: translateY(0);
 }
 
 .btn-wizard-save:disabled {
-  background-color: var(--border-light);
-  color: var(--text-light);
-  cursor: not-allowed;
-  box-shadow: none;
+  background-color: #cbd5e1 !important;
+  color: #64748b !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
 /* Card basic styling */
@@ -234,23 +249,34 @@
   font-family: var(--font-family);
   font-size: 13px;
   font-weight: 600;
-  color: #ffffff;
-  background-color: var(--primary);
-  border: none;
+  color: #ffffff !important;
+  background-color: #4f46e5 !important;
+  border: none !important;
   padding: 10px 24px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
 }
 
-.btn-bulk-upload:hover {
-  background-color: var(--primary-dark);
+.btn-bulk-upload:hover:not(:disabled) {
+  background-color: #3730a3 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-bulk-upload:active:not(:disabled) {
+  background-color: #312e81 !important;
+  transform: translateY(0);
 }
 
 .btn-bulk-upload:disabled {
-  background-color: var(--border-light);
-  color: var(--text-light);
-  cursor: not-allowed;
+  background-color: #cbd5e1 !important;
+  color: #64748b !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
 .bulk-validate-btn-wrapper {

@@ -763,23 +763,14 @@ export const CampaignWizard: React.FC = () => {
 
             <div className="campaign-wizard-right-actions">
               {activeStep === 3 ? (
-                <>
-                  <button
-                    type="submit"
-                    form="campaign-wizard-form"
-                    className="btn-wizard-nav btn-wizard-save"
-                    disabled={isLoading || cooldownActive}
-                  >
-                    {isEditMode ? 'Save Changes' : 'Create Campaign'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-wizard-nav btn-wizard-next"
-                    disabled
-                  >
-                    Next
-                  </button>
-                </>
+                <button
+                  type="submit"
+                  form="campaign-wizard-form"
+                  className="btn-wizard-nav btn-wizard-save"
+                  disabled={isLoading || cooldownActive}
+                >
+                  {isEditMode ? 'Save Changes' : 'Create Campaign'}
+                </button>
               ) : (
                 <button
                   type="button"

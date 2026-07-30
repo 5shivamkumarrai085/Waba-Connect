@@ -87,22 +87,23 @@ export const TemplatesList: React.FC = () => {
 
     // 3. Languages select filter
     if (languageFilter !== 'All') {
-      if (t.language !== languageFilter) return false
+      if (t.language.toLowerCase() !== languageFilter.toLowerCase()) return false
     }
 
     // 4. Category select filter
     if (categoryFilter !== 'All') {
-      if (t.category !== categoryFilter) return false
+      if (t.category.toLowerCase() !== categoryFilter.toLowerCase()) return false
     }
 
     // 5. Template Type select filter
     if (typeFilter !== 'All') {
-      if (t.type !== typeFilter) return false
+      const templateType = (t.templateType || t.type || '').toLowerCase()
+      if (templateType !== typeFilter.toLowerCase()) return false
     }
 
     // 6. Status select filter
     if (statusFilter !== 'All') {
-      if (t.status !== statusFilter) return false
+      if (t.status.toLowerCase() !== statusFilter.toLowerCase()) return false
     }
 
     return true

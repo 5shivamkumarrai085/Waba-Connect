@@ -276,6 +276,8 @@ export const AddContact: React.FC = () => {
         status: statusVal,
         source: sourceVal,
         assignedTo: assignedVal,
+        assigned: assignedVal,
+        groups: Array.isArray(selectedGroups) ? selectedGroups.join(',') : (selectedGroups || ''),
         company,
         email,
         website,

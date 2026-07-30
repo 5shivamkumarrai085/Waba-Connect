@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { Avatar } from '../../components/Avatar/Avatar'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
+import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { useChatStore } from '../../store/chatStore'
 import { useConnectionStore } from '../../store/connectionStore'
 import { campaignService } from '../../services/campaigns/campaignService'
@@ -335,17 +336,22 @@ export const Chat: React.FC = () => {
     }
   }
 
-  const handleDeleteChat = async () => {
+  const [showDeleteChatModal, setShowDeleteChatModal] = useState(false)
+
+  const handleDeleteChat = () => {
     setShowDeleteMenu(false)
     if (!activeConversationId) return
-    
-    if (window.confirm("Are you sure you want to delete this chat? This will remove all messages from the database.")) {
-      try {
-        await deleteActiveConversation()
-        toast.success("Chat deleted successfully!")
-      } catch (err) {
-        toast.error("Failed to delete conversation.")
-      }
+    setShowDeleteChatModal(true)
+  }
+
+  const confirmDeleteChat = async () => {
+    setShowDeleteChatModal(false)
+    if (!activeConversationId) return
+    try {
+      await deleteActiveConversation()
+      toast.success("Chat deleted successfully!")
+    } catch (err) {
+      toast.error("Failed to delete conversation.")
     }
   }
 
@@ -1099,6 +1105,19 @@ export const Chat: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Delete Chat Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteChatModal}
+        title="Delete Chat"
+        message="Are you sure you want to delete this chat? This will remove all messages from the database."
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={confirmDeleteChat}
+        onCancel={() => setShowDeleteChatModal(false)}
+        isDestructive={true}
+        showWarningIcon={true}
+      />
     </div>
   )
 }

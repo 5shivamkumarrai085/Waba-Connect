@@ -5,6 +5,7 @@ import { useConnectionStore } from '../../store/connectionStore'
 import { campaignService } from '../../services/campaigns/campaignService'
 import { contactService } from '../../services/contacts/contactService'
 import { templateService } from '../../services/templates/templateService'
+import { wabaService } from '../../services/waba/wabaService'
 import { Stepper } from '../../components/Stepper/Stepper'
 import { WhatsAppPreview } from '../../components/WhatsAppPreview/WhatsAppPreview'
 import type { Contact, ContactStatus, ContactSource } from '../../types/contacts'
@@ -93,7 +94,8 @@ export const CampaignWizard: React.FC = () => {
           templateService.getTemplates(),
           contactService.getContacts(),
           contactService.getContactStatuses(),
-          contactService.getContactSources()
+          contactService.getContactSources(),
+          wabaService.getDashboard()
         ])
 
         if (!isMounted) return
@@ -232,6 +234,19 @@ export const CampaignWizard: React.FC = () => {
       if (exists) {
         toast.error('same name campaign already executed')
         return
+      }
+
+      // Check daily message limit for selected connection instantly
+      try {
+        const connIds: number[] = (wizardForm as any).connectionIds || []
+        const selectedConnId = connIds.length > 0 ? connIds[0] : ((wizardForm as any).connectionId || undefined)
+        const checkResult = await wabaService.checkLimitFast(selectedConnId)
+        if (checkResult.limitReached) {
+          toast.error(`${checkResult.message} Cannot create campaign for this connection.`, { duration: 4000 })
+          return
+        }
+      } catch (err) {
+        console.error('Error checking connection limit:', err)
       }
     }
     if (activeStep === 2) {

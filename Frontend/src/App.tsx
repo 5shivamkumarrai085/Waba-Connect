@@ -42,11 +42,12 @@ const App: React.FC = () => {
       <PageLayout>
         <Toaster 
           position="top-right" 
-          containerStyle={{ zIndex: 100000 }}
+          containerStyle={{ zIndex: 999999 }}
           toastOptions={{
             duration: 3000,
+            style: { zIndex: 999999 },
             error: {
-              duration: 3000
+              duration: 4000
             },
             success: {
               duration: 3000

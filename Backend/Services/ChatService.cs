@@ -224,6 +224,8 @@ public class ChatService : IChatService
         var preview = await _templateService.GetPreviewAsync(request.TemplateId, request.Variables);
         var messageText = preview.PreviewText;
 
+        await CheckDailyMessageLimitAsync(request.ConnectionId);
+
         var result = await _whatsAppService.SendTemplateMessageWithResultAsync(
             contact.Phone,
             template.Name,
@@ -546,6 +548,27 @@ public class ChatService : IChatService
             return local.ToString("MMM d");
 
         return local.ToString("MMM d, yyyy");
+    }
+
+    private async Task CheckDailyMessageLimitAsync(int? connectionId)
+    {
+        if (!connectionId.HasValue) return;
+
+        var todayUtc = DateTime.UtcNow.Date;
+        int sentToday = await _dbContext.ChatMessages
+            .CountAsync(m => m.ConnectionId == connectionId.Value && m.Direction == ChatMessageDirection.Outgoing && (m.IsTemplate || m.CampaignContactId != null) && m.CreatedAt >= todayUtc);
+
+        var phone = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value);
+        int limit = 1000;
+        if (phone != null && int.TryParse(phone.MessageLimit, out int customLimit) && customLimit > 0)
+        {
+            limit = customLimit;
+        }
+
+        if (sentToday >= limit)
+        {
+            throw new InvalidOperationException($"Daily message limit reached ({sentToday}/{limit}) for this connection.");
+        }
     }
 
     public async Task DeleteConversationAsync(int conversationId)

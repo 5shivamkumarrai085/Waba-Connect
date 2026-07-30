@@ -31,6 +31,7 @@ import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { useChatStore } from '../../store/chatStore'
 import { useConnectionStore } from '../../store/connectionStore'
 import { campaignService } from '../../services/campaigns/campaignService'
+import { wabaService } from '../../services/waba/wabaService'
 import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
 import { apiClient } from '../../services/apiClient'
 import type { Message } from '../../types/chat'
@@ -235,8 +236,34 @@ export const Chat: React.FC = () => {
     })
   }, [conversations, conversationsFilter, sidebarSearchQuery])
 
+  useEffect(() => {
+    if (selectedConnectionId) {
+      wabaService.getDashboard(selectedConnectionId).catch(() => {})
+    } else {
+      wabaService.getDashboard().catch(() => {})
+    }
+  }, [selectedConnectionId])
+
   // 1. Template Modal
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
+
+  const handleOpenTemplateModal = async () => {
+    if (activeConversation && activeConversation.contactIsActive === false) {
+      toast.error('Cannot send message to an inactive contact.', { duration: 3000 })
+      return
+    }
+    try {
+      const connId = activeConversation?.connectionId || selectedConnectionId || undefined
+      const checkResult = await wabaService.checkLimitFast(connId)
+      if (checkResult.limitReached) {
+        toast.error(checkResult.message || 'Daily message limit reached for this connection.', { duration: 4000 })
+        return
+      }
+    } catch (err) {
+      console.error('Error checking connection limit:', err)
+    }
+    setIsTemplateModalOpen(true)
+  }
 
   // 2. Delete Menu
   const [showDeleteMenu, setShowDeleteMenu] = useState(false)
@@ -698,13 +725,7 @@ export const Chat: React.FC = () => {
                   <MessageSquare 
                     size={18} 
                     className="chat-header-action-icon whatsapp-green" 
-                    onClick={() => {
-                      if (activeConversation && activeConversation.contactIsActive === false) {
-                        toast.error('Cannot send message to an inactive contact.', { duration: 3000 })
-                        return
-                      }
-                      setIsTemplateModalOpen(true)
-                    }} 
+                    onClick={handleOpenTemplateModal} 
                   />
                 </span>
                 
@@ -867,7 +888,7 @@ export const Chat: React.FC = () => {
                     <button 
                       type="button" 
                       className="chat-window-limit-btn"
-                      onClick={() => setIsTemplateModalOpen(true)}
+                      onClick={handleOpenTemplateModal}
                     >
                       <MessageSquare size={16} />
                       <span>Initiate Chat</span>

@@ -146,6 +146,7 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
     try {
       let succeededCount = 0
       let failedCount = 0
+      let lastErrorMessage = ''
 
       for (const targetContact of targetContacts) {
         for (const connId of selectedConnectionIds) {
@@ -157,8 +158,9 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
               connId
             )
             succeededCount++
-          } catch (e) {
+          } catch (e: any) {
             failedCount++
+            lastErrorMessage = e?.message || 'Failed to send template message.'
           }
         }
       }
@@ -166,9 +168,9 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
       if (failedCount === 0) {
         toast.success(`Template sent to ${targetContacts.length} active contact${targetContacts.length > 1 ? 's' : ''} successfully!`)
       } else if (succeededCount > 0) {
-        toast.success(`Sent to ${succeededCount} contact message(s), ${failedCount} failed.`)
+        toast.success(`Sent to ${succeededCount} contact message(s), ${failedCount} failed: ${lastErrorMessage}`)
       } else {
-        toast.error('Failed to send template message.')
+        toast.error(lastErrorMessage || 'Failed to send template message.')
       }
 
       if (succeededCount > 0) {

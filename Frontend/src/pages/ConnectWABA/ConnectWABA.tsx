@@ -13,6 +13,29 @@ import { QrCode, HelpCircle, Key, Send, Globe, Link2, RefreshCw, XCircle, Eye, E
 import html2canvas from 'html2canvas'
 import './ConnectWABA.css'
 
+const formatIssuedAt = (dateStr?: string) => {
+  if (!dateStr) return ''
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return dateStr
+
+    const dayName = d.toLocaleDateString('en-US', { weekday: 'long' })
+    const dayNum = d.getDate()
+    const getOrdinal = (n: number) => {
+      const s = ['th', 'st', 'nd', 'rd']
+      const v = n % 100
+      return n + (s[(v - 20) % 10] || s[v] || s[0])
+    }
+    const monthName = d.toLocaleDateString('en-US', { month: 'long' })
+    const year = d.getFullYear()
+    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
+
+    return `${dayName} ${getOrdinal(dayNum)} ${monthName} ${year} ${timeStr}`
+  } catch {
+    return dateStr
+  }
+}
+
 export const ConnectWABA: React.FC = () => {
   const [searchParams] = useSearchParams()
   const connectionIdParam = searchParams.get('connectionId')
@@ -68,7 +91,8 @@ export const ConnectWABA: React.FC = () => {
     disconnectWaba,
     sendTestMessage,
     verifyWebhook,
-    refreshHealth
+    refreshHealth,
+    updateMessageLimit
   } = useWabaStore()
 
   const [testNumber, setTestNumber] = useState<string>('')
@@ -435,10 +459,18 @@ export const ConnectWABA: React.FC = () => {
 
               <div className="form-group">
                 <label className="waba-input-label margin-bottom-2">Issued at</label>
-                <p className="waba-date-text">{tokenInfo?.issuedAt}</p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <p className="waba-date-text">{formatIssuedAt(tokenInfo?.issuedAt)}</p>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                    {tokenInfo?.issuedAt ? Math.floor(new Date(tokenInfo.issuedAt).getTime() / 1000) : ''}
+                  </span>
+                </div>
               </div>
 
-
+              <div className="form-group" style={{ marginTop: '16px' }}>
+                <label className="waba-input-label">Webhook URL</label>
+                <CopyField value={webhookUrl || `${window.location.origin}/api/webhook/whatsapp`} isSensitive={false} />
+              </div>
             </div>
 
             {/* Send Test Message */}
@@ -501,7 +533,13 @@ export const ConnectWABA: React.FC = () => {
 
           {/* Connected Phone & Health Cards details */}
           <div>
-            <PhoneCard phoneInfo={phoneInfo} />
+            <PhoneCard
+              phoneInfo={phoneInfo}
+              onUpdateLimit={async (newLimit: number) => {
+                const res = await updateMessageLimit(newLimit, connectionId)
+                return res
+              }}
+            />
             <div className="waba-cards-grid margin-top-20">
               <HealthCard healthInfo={healthInfo} onRefresh={handleRefreshHealth} />
             </div>

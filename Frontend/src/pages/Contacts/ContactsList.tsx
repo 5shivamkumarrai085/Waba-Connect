@@ -18,6 +18,7 @@ import {
 import toast from 'react-hot-toast'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
+import { wabaService } from '../../services/waba/wabaService'
 import { Skeleton } from '../../components/Skeleton'
 import './ContactsList.css'
 import { formatRelativeTime } from '../../utils/dateHelper'
@@ -92,7 +93,8 @@ export const ContactsList: React.FC = () => {
           contactService.getContactStatuses(),
           contactService.getContactSources(),
           contactService.getContactGroups(),
-          contactService.getContactTypes()
+          contactService.getContactTypes(),
+          wabaService.getDashboard()
         ])
         setAssignedUsers(usersData || [])
         setStatuses(statusesData || [])
@@ -234,7 +236,7 @@ export const ContactsList: React.FC = () => {
     setDeleteTarget({ id, name })
   }
 
-  const handleBulkChat = () => {
+  const handleBulkChat = async () => {
     if (selectedIds.length === 0) {
       toast.error('Please select at least one contact.')
       return
@@ -253,7 +255,20 @@ export const ContactsList: React.FC = () => {
       return
     }
 
-    setSelectedContactsForTemplate(activeSelectedContacts)
+    await checkLimitAndOpenTemplateModal(activeSelectedContacts)
+  }
+
+  const checkLimitAndOpenTemplateModal = async (contactsToSet: Array<{ id: number; name: string; phone: string }>) => {
+    try {
+      const checkResult = await wabaService.checkLimitFast()
+      if (checkResult.limitReached) {
+        toast.error(checkResult.message || 'Daily message limit reached for this connection.', { duration: 4000 })
+        return
+      }
+    } catch (err) {
+      console.error('Error checking limit:', err)
+    }
+    setSelectedContactsForTemplate(contactsToSet)
     setIsInitiateModalOpen(true)
   }
 
@@ -718,12 +733,11 @@ export const ContactsList: React.FC = () => {
                                   toast.error('Cannot send message to an inactive contact.', { duration: 3000 })
                                   return
                                 }
-                                setSelectedContactsForTemplate([{
+                                checkLimitAndOpenTemplateModal([{
                                   id: contact.id,
                                   name: contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
                                   phone: contact.phone
                                 }])
-                                setIsInitiateModalOpen(true)
                               }}
                               title="Start WhatsApp Chat"
                             >

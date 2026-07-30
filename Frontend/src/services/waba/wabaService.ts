@@ -10,14 +10,58 @@ const api = axios.create({
   },
 })
 
+// In-memory cache for connection daily message limits (populated dynamically on load / getDashboard)
+const cachedLimitData: Record<string, { messagesSent: number; messageLimit: number; timestamp: number }> = {}
+
 export const wabaService = {
   getDashboard: async (connectionId?: number) => {
     try {
       const response = await api.get('/dashboard', { params: { connectionId } })
-      return response.data
+      const data = response.data
+      if (data && data.phoneNumbers && data.phoneNumbers.length > 0) {
+        const key = connectionId ? String(connectionId) : 'default'
+        const phone = data.phoneNumbers[0]
+        cachedLimitData[key] = {
+          messagesSent: phone.messagesSent || 0,
+          messageLimit: parseInt(phone.messageLimit || '1000', 10),
+          timestamp: Date.now()
+        }
+      }
+      return data
     } catch (e: any) {
       return null
     }
+  },
+
+  getCachedLimit: (connectionId?: number) => {
+    const key = connectionId ? String(connectionId) : 'default'
+    return cachedLimitData[key] || Object.values(cachedLimitData)[0] || null
+  },
+
+  checkLimitFast: async (connectionId?: number): Promise<{ limitReached: boolean; message?: string }> => {
+    // 1. Check in-memory cache instantly (< 1ms delay)
+    const cached = wabaService.getCachedLimit(connectionId)
+    if (cached && cached.messagesSent >= cached.messageLimit) {
+      return {
+        limitReached: true,
+        message: `Daily message limit reached (${cached.messagesSent}/${cached.messageLimit}) for this connection.`
+      }
+    }
+
+    // 2. Fetch fresh metrics from backend DB/Meta dynamically (and update cache for subsequent instant checks)
+    const data = await wabaService.getDashboard(connectionId)
+    if (data && data.phoneNumbers && data.phoneNumbers.length > 0) {
+      const phone = data.phoneNumbers[0]
+      const sent = phone.messagesSent || 0
+      const limit = parseInt(phone.messageLimit || '1000', 10)
+      if (sent >= limit) {
+        return {
+          limitReached: true,
+          message: `Daily message limit reached (${sent}/${limit}) for this connection.`
+        }
+      }
+    }
+    return { limitReached: false }
   },
 
   connectApp: async (data: { connectionId?: number; facebookAppId: string; facebookAppSecret: string }) => {
@@ -68,6 +112,19 @@ export const wabaService = {
       return response.data
     } catch (e) {
       return null
+    }
+  },
+
+  updateMessageLimit: async (connectionId: number | undefined, messageLimit: number): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.post('/message-limit', { connectionId, messageLimit })
+      const key = connectionId ? String(connectionId) : 'default'
+      if (cachedLimitData[key]) {
+        cachedLimitData[key].messageLimit = messageLimit
+      }
+      return { success: true, message: response.data.message || 'Message limit updated successfully!' }
+    } catch (e: any) {
+      return { success: false, message: e.response?.data?.message || 'Failed to update message limit.' }
     }
   }
 }

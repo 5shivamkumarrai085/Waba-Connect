@@ -497,6 +497,32 @@ public class CampaignService : ICampaignService
                     break;
                 }
 
+                // Check daily limit for campaign connection
+                if (campaign.ConnectionId.HasValue)
+                {
+                    var todayUtc = DateTime.UtcNow.Date;
+                    int sentToday = await dbContext.ChatMessages
+                        .CountAsync(m => m.ConnectionId == campaign.ConnectionId.Value && m.Direction == ChatMessageDirection.Outgoing && (m.IsTemplate || m.CampaignContactId != null) && m.CreatedAt >= todayUtc);
+
+                    var phone = await dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == campaign.ConnectionId.Value);
+                    int limit = 1000;
+                    if (phone != null && int.TryParse(phone.MessageLimit, out int customLimit) && customLimit > 0)
+                    {
+                        limit = customLimit;
+                    }
+
+                    if (sentToday >= limit)
+                    {
+                        _logger.LogWarning("Campaign {CampaignId} stopped: Daily message limit reached ({SentToday}/{Limit}) for connection {ConnectionId}.", campaignId, sentToday, limit, campaign.ConnectionId);
+                        cc.Status = MessageStatus.Failed;
+                        cc.ErrorMessage = $"Daily message limit reached ({sentToday}/{limit}) for this connection.";
+                        campaign.FailedCount++;
+                        campaign.Status = CampaignStatus.Failed;
+                        await dbContext.SaveChangesAsync();
+                        break;
+                    }
+                }
+
                 if (cc.Contact == null)
                 {
                     continue;

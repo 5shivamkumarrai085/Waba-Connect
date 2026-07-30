@@ -37,6 +37,7 @@ interface WabaStoreState {
   sendTestMessage: (toPhoneNumber: string, connectionId?: number) => Promise<{ success: boolean; message: string }>
   verifyWebhook: (connectionId?: number) => Promise<{ success: boolean; message: string }>
   refreshHealth: (connectionId?: number) => Promise<void>
+  updateMessageLimit: (limit: number, connectionId?: number) => Promise<{ success: boolean; message: string }>
 }
 
 export const useWabaStore = create<WabaStoreState>((set, get) => ({
@@ -276,6 +277,19 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
       }
     } catch (err) {
       console.error('Error refreshing WABA health status:', err)
+    }
+  },
+
+  updateMessageLimit: async (limit, connectionId) => {
+    const targetId = connectionId ?? get().activeConnectionId ?? undefined
+    try {
+      const res = await wabaService.updateMessageLimit(targetId, limit)
+      if (res.success) {
+        await get().loadWabaData(targetId)
+      }
+      return res
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Error updating message limit.' }
     }
   }
 }))

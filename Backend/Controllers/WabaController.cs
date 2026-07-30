@@ -232,6 +232,10 @@ namespace WhatsAppCampaignApi.Controllers
                     // Use config.Connected as the source of truth (not conn.IsConnected which may be stale)
                     bool actuallyConnected = config?.Connected ?? false;
 
+                    var todayUtc = DateTime.UtcNow.Date;
+                    int sentToday = await _dbContext.ChatMessages
+                        .CountAsync(m => m.ConnectionId == connectionId.Value && m.Direction == Models.Enums.ChatMessageDirection.Outgoing && (m.IsTemplate || m.CampaignContactId != null) && m.CreatedAt >= todayUtc);
+
                     return Ok(new
                     {
                         connectionId = conn.Id,
@@ -250,7 +254,7 @@ namespace WhatsAppCampaignApi.Controllers
                             verifiedName = p.VerifiedName,
                             phoneNumberId = p.PhoneNumberId,
                             quality = p.Quality,
-                            messagesSent = 0,
+                            messagesSent = sentToday,
                             messageLimit = p.MessageLimit ?? "1000"
                         }),
                         tokenInfo = new
@@ -478,6 +482,46 @@ namespace WhatsAppCampaignApi.Controllers
             }
 
             return Ok(new { connections = results });
+        }
+
+        [HttpPost("message-limit")]
+        public async Task<IActionResult> UpdateMessageLimit([FromBody] SetMessageLimitRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var phones = await _phoneRepository.GetAllAsync();
+            var phoneList = phones.ToList();
+            WabaPhoneNumber? targetPhone = null;
+
+            if (!string.IsNullOrWhiteSpace(request.PhoneNumberId))
+            {
+                targetPhone = phoneList.FirstOrDefault(p => p.PhoneNumberId == request.PhoneNumberId);
+            }
+            else if (request.ConnectionId.HasValue)
+            {
+                targetPhone = phoneList.FirstOrDefault(p => p.ConnectionId == request.ConnectionId.Value);
+            }
+
+            if (targetPhone == null && phoneList.Count > 0)
+            {
+                targetPhone = phoneList.First();
+            }
+
+            if (targetPhone == null)
+            {
+                return BadRequest(new { message = "No registered phone number found to update message limit." });
+            }
+
+            targetPhone.MessageLimit = request.MessageLimit.ToString();
+            await _phoneRepository.SaveRangeAsync(new[] { targetPhone });
+
+            return Ok(new
+            {
+                message = $"Message limit updated to {request.MessageLimit} for {targetPhone.DisplayName} ({targetPhone.PhoneNumber}).",
+                connectionId = targetPhone.ConnectionId,
+                phoneNumberId = targetPhone.PhoneNumberId,
+                messageLimit = request.MessageLimit
+            });
         }
     }
 }

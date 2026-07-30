@@ -62,6 +62,7 @@ export const TemplatesList: React.FC = () => {
     status: true,
     bodyText: true
   })
+  const [expandedIds, setExpandedIds] = useState<Record<number, boolean>>({})
 
   useEffect(() => {
     loadTemplates()
@@ -341,23 +342,48 @@ export const TemplatesList: React.FC = () => {
 
                       {/* Template Type column */}
                       {visibleColumns.type !== false && (
-                        <td>{template.type}</td>
+                        <td>{template.templateType || template.type}</td>
                       )}
 
                       {/* Status badge column */}
                       {visibleColumns.status !== false && (
                         <td>
-                          <StatusBadge 
-                            type={template.status === 'APPROVED' ? 'approved' : template.status === 'REJECTED' ? 'rejected' : 'pending'} 
-                            text={template.status} 
-                          />
+                          <div className="template-status-cell">
+                            <StatusBadge 
+                              type={template.status?.toUpperCase() === 'APPROVED' ? 'approved' : template.status?.toUpperCase() === 'REJECTED' ? 'rejected' : 'pending'} 
+                              text={template.status} 
+                            />
+                            {template.status?.toUpperCase() === 'REJECTED' && template.rejectReason && (
+                              <div className="template-reject-reason" title={template.rejectReason}>
+                                Reason: {template.rejectReason}
+                              </div>
+                            )}
+                          </div>
                         </td>
                       )}
 
                       {/* Body Data text column */}
                       {visibleColumns.bodyText !== false && (
-                        <td className="table-cell-truncate" title={template.bodyText}>
-                          {template.bodyText}
+                        <td className="table-cell-truncate">
+                          <div className="template-body-text-wrapper">
+                            <div className={`body-text-content ${expandedIds[template.id] ? 'expanded' : 'collapsed'}`}>
+                              {template.bodyText}
+                            </div>
+                            {template.bodyText && template.bodyText.length > 100 && (
+                              <button
+                                type="button"
+                                className="btn-show-more"
+                                onClick={() => {
+                                  setExpandedIds((prev) => ({
+                                    ...prev,
+                                    [template.id]: !prev[template.id]
+                                  }))
+                                }}
+                              >
+                                {expandedIds[template.id] ? 'Show Less' : 'Show More'}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>

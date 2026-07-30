@@ -11,14 +11,17 @@ export interface Template {
   name: string
   language: string
   category: string
-  type: string
+  type?: string
+  templateType: string
   status: 'APPROVED' | 'REJECTED' | 'PENDING' | string
   bodyText: string
+  rejectReason?: string
   headerType?: string
   headerContent?: string
   footerText?: string
   variables?: TemplateVariable[]
   createdAt?: string
+  updatedAt?: string
 }
 
 export interface TemplateLanguage {

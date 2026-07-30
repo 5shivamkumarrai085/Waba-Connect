@@ -78,6 +78,8 @@ public class WhatsAppTemplateInfo
     public string Category { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string? BodyText { get; set; }
+    public string? RejectReason { get; set; }
+    public string? TemplateType { get; set; }
 }
 
 public class WhatsAppSendResult

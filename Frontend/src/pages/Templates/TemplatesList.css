@@ -386,4 +386,88 @@
 .data-table tbody tr:nth-child(3) { animation-delay: 0.09s; }
 .data-table tbody tr:nth-child(4) { animation-delay: 0.12s; }
 .data-table tbody tr:nth-child(5) { animation-delay: 0.15s; }
-.data-table tbody tr:hover { background: rgba(99, 102, 241, 0.04) !important; transition: background 0.2s ease; }
+
+.data-table tbody tr:hover {
+  background: rgba(99, 102, 241, 0.04) !important;
+  transform: translateY(-2px) scale(1.005);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.08);
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+  z-index: 2;
+  position: relative;
+}
+
+/* Status & Reason layout */
+.template-status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.template-reject-reason {
+  font-size: 11px;
+  color: #ef4444;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  padding: 4px 8px;
+  border-radius: 6px;
+  max-width: 180px;
+  word-wrap: break-word;
+  white-space: normal;
+  line-height: 1.3;
+  margin-top: 2px;
+  animation: shakeGlow 0.5s ease;
+}
+
+@keyframes shakeGlow {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+
+/* Collapsible Body Text */
+.template-body-text-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.body-text-content {
+  font-size: 13px;
+  color: var(--text-main, #334155);
+  line-height: 1.5;
+  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.body-text-content.collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-height: 38px;
+}
+
+.body-text-content.expanded {
+  display: block;
+  overflow: visible;
+  max-height: 500px;
+}
+
+.btn-show-more {
+  background: none;
+  border: none;
+  color: #4f46e5;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: all 0.2s ease;
+}
+
+.btn-show-more:hover {
+  color: #3730a3;
+  transform: translateX(3px);
+}

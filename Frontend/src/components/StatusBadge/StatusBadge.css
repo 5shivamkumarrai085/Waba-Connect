@@ -13,11 +13,12 @@
   white-space: nowrap;
 }
 
-/* New, Success, Qualified, Verified */
+/* New, Success, Qualified, Verified, Approved */
 .status-badge.new,
 .status-badge.success,
 .status-badge.qualified,
-.status-badge.verified {
+.status-badge.verified,
+.status-badge.approved {
   background-color: #f0fdf4;
   color: #16a34a;
   border: 1px solid #bbf7d0;
@@ -55,10 +56,11 @@
   border: 1px solid #fed7aa;
 }
 
-/* Closed, Stale, Error */
+/* Closed, Stale, Error, Rejected */
 .status-badge.closed,
 .status-badge.stale,
-.status-badge.error {
+.status-badge.error,
+.status-badge.rejected {
   background-color: #fef2f2;
   color: #b91c1c;
   border: 1px solid #fecaca;

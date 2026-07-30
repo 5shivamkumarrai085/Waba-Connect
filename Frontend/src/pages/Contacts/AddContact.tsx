@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useContactStore } from '../../store/contactStore'
 import { contactService } from '../../services/contacts/contactService'
 import { Stepper } from '../../components/Stepper/Stepper'
 import toast from 'react-hot-toast'
+import { ALL_COUNTRIES, getFlagEmoji } from '../../utils/countryData'
 import type { 
   ContactStatus, 
   ContactSource, 
@@ -37,7 +38,11 @@ export const AddContact: React.FC = () => {
   const [types, setTypes] = useState<ContactType[]>([])
   const [languages, setLanguages] = useState<ContactLanguage[]>([])
   const [groups, setGroups] = useState<ContactGroup[]>([])
-  const [countriesList, setCountriesList] = useState<any[]>([])
+
+  // Country Code Picker states
+  const [showCountryPicker, setShowCountryPicker] = useState(false)
+  const [countrySearch, setCountrySearch] = useState('')
+  const countryPickerRef = useRef<HTMLDivElement>(null)
 
   // Form Fields
   const [statusVal, setStatusVal] = useState('')
@@ -62,6 +67,79 @@ export const AddContact: React.FC = () => {
   const [address, setAddress] = useState('')
   const [description, setDescription] = useState('')
 
+  // Notes Tab states
+  const [notes, setNotes] = useState<any[]>([])
+  const [newNote, setNewNote] = useState('')
+  const [isLoadingNotes, setIsLoadingNotes] = useState(false)
+  const [isAddingNote, setIsAddingNote] = useState(false)
+
+  const loadNotes = async () => {
+    if (!id) return
+    setIsLoadingNotes(true)
+    try {
+      const list = await contactService.getContactNotes(parseInt(id, 10))
+      setNotes(list || [])
+    } catch (err) {
+      console.error('Failed to load notes', err)
+    } finally {
+      setIsLoadingNotes(false)
+    }
+  }
+
+  // Load notes when on Tab 3
+  useEffect(() => {
+    if (activeStep === 2 && id) {
+      void loadNotes()
+    }
+  }, [activeStep, id])
+
+  const handleAddNote = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!id || !newNote.trim()) return
+    setIsAddingNote(true)
+    try {
+      await contactService.addContactNote(parseInt(id, 10), newNote.trim())
+      setNewNote('')
+      toast.success('Note added successfully')
+      void loadNotes()
+    } catch (err) {
+      toast.error('Failed to add note')
+    } finally {
+      setIsAddingNote(false)
+    }
+  }
+
+  const handleDeleteNote = async (noteId: number) => {
+    if (!id) return
+    try {
+      await contactService.deleteContactNote(parseInt(id, 10), noteId)
+      toast.success('Note deleted successfully')
+      void loadNotes()
+    } catch (err) {
+      toast.error('Failed to delete note')
+    }
+  }
+
+  // Close country picker on click outside or Escape key
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (countryPickerRef.current && !countryPickerRef.current.contains(e.target as Node)) {
+        setShowCountryPicker(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowCountryPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
+
   useEffect(() => {
     const fetchOptionsAndContact = async () => {
       try {
@@ -71,16 +149,14 @@ export const AddContact: React.FC = () => {
           fetchedAssigned,
           fetchedTypes,
           fetchedLanguages,
-          fetchedGroups,
-          fetchedCountries
+          fetchedGroups
         ] = await Promise.all([
           contactService.getContactStatuses(),
           contactService.getContactSources(),
           contactService.getAssignedUsers(),
           contactService.getContactTypes(),
           contactService.getContactLanguages(),
-          contactService.getContactGroups(),
-          contactService.getContactCountries()
+          contactService.getContactGroups()
         ])
 
         setStatuses(fetchedStatuses)
@@ -89,7 +165,6 @@ export const AddContact: React.FC = () => {
         setTypes(fetchedTypes)
         setLanguages(fetchedLanguages)
         setGroups(fetchedGroups)
-        setCountriesList(fetchedCountries)
 
         if (id) {
           const contact = await contactService.getContactById(parseInt(id, 10))
@@ -111,7 +186,7 @@ export const AddContact: React.FC = () => {
             const fullPhone = contact.phone || ''
             let matchedDialCode = '+91'
             let matchedLocal = fullPhone
-            const sortedCountries = [...fetchedCountries].sort((a, b) => b.dialCode.length - a.dialCode.length)
+            const sortedCountries = [...ALL_COUNTRIES].sort((a, b) => b.dialCode.length - a.dialCode.length)
             for (const c of sortedCountries) {
               if (fullPhone.startsWith(c.dialCode)) {
                 matchedDialCode = c.dialCode
@@ -139,6 +214,21 @@ export const AddContact: React.FC = () => {
     fetchOptionsAndContact()
   }, [id])
 
+  const selectedCountry = useMemo(() => {
+    return ALL_COUNTRIES.find((c) => c.dialCode === selectedDialCodeVal) || ALL_COUNTRIES[0]
+  }, [selectedDialCodeVal])
+
+  const filteredCountries = useMemo(() => {
+    const q = countrySearch.toLowerCase().trim()
+    if (!q) return ALL_COUNTRIES
+    return ALL_COUNTRIES.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.dialCode.includes(q) ||
+        c.code.toLowerCase().includes(q)
+    )
+  }, [countrySearch])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -151,9 +241,24 @@ export const AddContact: React.FC = () => {
     if (!statusVal) newErrors.statusVal = 'Status is required.'
     if (!sourceVal) newErrors.sourceVal = 'Source is required.'
 
+    // Per-country phone length validation
+    if (localPhone) {
+      if (localPhone.length < selectedCountry.minDigits || localPhone.length > selectedCountry.maxDigits) {
+        newErrors.phone = `Phone number for ${selectedCountry.name} must be ${selectedCountry.maxDigits} digits.`
+      }
+    }
+
+    // Email format validation
+    if (email && email.trim() !== '') {
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+      if (!emailRegex.test(email.trim())) {
+        newErrors.email = 'Please enter a valid email address.'
+      }
+    }
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors)
-      toast.error('Please fill out all required fields marked with an asterisk (*).')
+      toast.error('Please fill out all required fields correctly.')
       setActiveStep(0) // redirect back to first step to correct
       return
     }
@@ -163,18 +268,18 @@ export const AddContact: React.FC = () => {
 
     try {
       const payload = {
-        status: statusVal,
-        source: sourceVal,
-        assigned: assignedVal,
+        name: `${firstName} ${lastName}`.trim(),
         firstName,
         lastName,
-        company,
-        type: typeVal,
-        email,
         phone: selectedDialCodeVal + localPhone,
+        type: typeVal,
+        status: statusVal,
+        source: sourceVal,
+        assignedTo: assignedVal,
+        company,
+        email,
         website,
         language: languageVal,
-        groups: selectedGroups,
         city,
         state: stateVal,
         country: countryVal,
@@ -214,19 +319,6 @@ export const AddContact: React.FC = () => {
     }
   }
 
-  const getFlagEmoji = (code: string) => {
-    switch (code) {
-      case 'IN': return '🇮🇳'
-      case 'MY': return '🇲🇾'
-      case 'SG': return '🇸🇬'
-      case 'US': return '🇺🇸'
-      case 'GB': return '🇬🇧'
-      default: return '🏳️'
-    }
-  }
-
-
-
   return (
     <div className="fade-in">
       <h2 className="add-contact-title">{isViewMode ? 'View Contact' : (isEditMode ? 'Edit Contact' : 'Add New Contact')}</h2>
@@ -253,15 +345,13 @@ export const AddContact: React.FC = () => {
                       className={`form-control ${errors.statusVal ? 'is-invalid' : ''}`}
                       value={statusVal}
                       onChange={(e) => setStatusVal(e.target.value)}
-                      disabled={isSaving}
                       required
                     >
                       <option value="">Select Status</option>
                       {statuses.map(s => (
-                        <option key={s.id} value={s.name}>{s.name}</option>
+                        <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
-                    {errors.statusVal && <span className="invalid-feedback">{errors.statusVal}</span>}
                   </div>
 
                   <div className="form-group form-group-required">
@@ -270,15 +360,13 @@ export const AddContact: React.FC = () => {
                       className={`form-control ${errors.sourceVal ? 'is-invalid' : ''}`}
                       value={sourceVal}
                       onChange={(e) => setSourceVal(e.target.value)}
-                      disabled={isSaving}
                       required
                     >
                       <option value="">Select Source</option>
                       {sources.map(s => (
-                        <option key={s.id} value={s.name}>{s.name}</option>
+                        <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
-                    {errors.sourceVal && <span className="invalid-feedback">{errors.sourceVal}</span>}
                   </div>
 
                   <div className="form-group">
@@ -290,13 +378,13 @@ export const AddContact: React.FC = () => {
                     >
                       <option value="">Select Assigned Name</option>
                       {assignedUsers.map(u => (
-                        <option key={u.id} value={u.id}>{u.name}</option>
+                        <option key={u.id} value={u.name}>{u.name}</option>
                       ))}
                     </select>
                   </div>
                 </div>
 
-                {/* Main details grid */}
+                {/* Name, Company, Type row */}
                 <div className="add-contact-form-grid">
                   <div className="form-group form-group-required">
                     <label className="form-label">First Name</label>
@@ -334,6 +422,7 @@ export const AddContact: React.FC = () => {
                       placeholder="Enter Company"
                       value={company}
                       onChange={(e) => setCompany(e.target.value)}
+                      disabled={isSaving}
                     />
                   </div>
 
@@ -343,12 +432,11 @@ export const AddContact: React.FC = () => {
                       className={`form-control ${errors.typeVal ? 'is-invalid' : ''}`}
                       value={typeVal}
                       onChange={(e) => setTypeVal(e.target.value)}
-                      disabled={isSaving}
                       required
                     >
                       <option value="">Select Type</option>
                       {types.map(t => (
-                        <option key={t.id} value={t.name}>{t.name}</option>
+                        <option key={t.id} value={t.id}>{t.name}</option>
                       ))}
                     </select>
                     {errors.typeVal && <span className="invalid-feedback">{errors.typeVal}</span>}
@@ -367,31 +455,67 @@ export const AddContact: React.FC = () => {
                     {errors.email && <span className="invalid-feedback">{errors.email}</span>}
                   </div>
 
-                  <div className="form-group form-group-required">
+                  <div className={`form-group form-group-required ${showCountryPicker ? 'has-active-dropdown' : ''}`}>
                     <label className="form-label">Phone</label>
                     <div className="phone-input-container">
-                      <select
-                        className="phone-country-select"
-                        value={selectedDialCodeVal}
-                        onChange={(e) => setSelectedDialCodeVal(e.target.value)}
-                      >
-                        {countriesList.length === 0 ? (
-                          <option value="+91">🇮🇳 IN (+91)</option>
-                        ) : (
-                          countriesList.map((c) => (
-                            <option key={c.id} value={c.dialCode}>
-                              {getFlagEmoji(c.code)} {c.code} ({c.dialCode})
-                            </option>
-                          ))
+                      <div className="country-picker-wrapper" ref={countryPickerRef}>
+                        <button
+                          type="button"
+                          className="country-picker-trigger"
+                          onClick={() => setShowCountryPicker(!showCountryPicker)}
+                          aria-label="Select Country Code"
+                        >
+                          <span className="country-flag">{getFlagEmoji(selectedCountry.code)}</span>
+                          <span className="country-picker-arrow">▾</span>
+                        </button>
+
+                        {showCountryPicker && (
+                          <div className="country-picker-dropdown">
+                            <div className="country-picker-search">
+                              <input
+                                type="text"
+                                placeholder="Search"
+                                value={countrySearch}
+                                onChange={(e) => setCountrySearch(e.target.value)}
+                                autoFocus
+                              />
+                            </div>
+                            <div className="country-picker-list">
+                              {filteredCountries.map((c) => (
+                                <button
+                                  key={c.code + c.dialCode}
+                                  type="button"
+                                  className={`country-picker-item ${c.dialCode === selectedDialCodeVal ? 'active' : ''}`}
+                                  onClick={() => {
+                                    setSelectedDialCodeVal(c.dialCode)
+                                    setShowCountryPicker(false)
+                                    setCountrySearch('')
+                                  }}
+                                >
+                                  <span className="country-flag">{getFlagEmoji(c.code)}</span>
+                                  <span className="country-name">{c.name}</span>
+                                  <span className="country-code-text">{c.dialCode}</span>
+                                </button>
+                              ))}
+                              {filteredCountries.length === 0 && (
+                                <div className="country-picker-empty">No countries found</div>
+                              )}
+                            </div>
+                          </div>
                         )}
-                      </select>
+                      </div>
                       <input
                         type="text"
                         className={`form-control phone-input ${errors.phone ? 'is-invalid' : ''}`}
                         placeholder="Enter phone number"
                         value={localPhone}
-                        onChange={(e) => setLocalPhone(e.target.value.replace(/[^0-9]/g, ''))}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, '')
+                          const maxLen = selectedCountry.maxDigits || 10
+                          setLocalPhone(val.slice(0, maxLen))
+                        }}
                         disabled={isSaving}
+                        maxLength={selectedCountry.maxDigits || 10}
                         required
                       />
                     </div>
@@ -475,7 +599,7 @@ export const AddContact: React.FC = () => {
                       onChange={(e) => {
                         const val = e.target.value
                         setCountryVal(val)
-                        const matched = countriesList.find(c => c.id === val || c.name === val)
+                        const matched = ALL_COUNTRIES.find(c => c.name === val || c.code === val)
                         if (matched && matched.dialCode) {
                           setSelectedDialCodeVal(matched.dialCode)
                         }
@@ -483,8 +607,8 @@ export const AddContact: React.FC = () => {
                       disabled={isViewMode}
                     >
                       <option value="">Select Country</option>
-                      {countriesList.map(c => (
-                        <option key={c.id} value={c.name}>{c.name}</option>
+                      {ALL_COUNTRIES.map(c => (
+                        <option key={c.code} value={c.name}>{c.name}</option>
                       ))}
                     </select>
                   </div>
@@ -525,10 +649,66 @@ export const AddContact: React.FC = () => {
               </div>
             )}
 
-            {/* Tab 3: Notes (Created placeholder alert) */}
+            {/* Tab 3: Notes */}
             {activeStep === 2 && (
-              <div className="fade-in notes-tab-notice">
-                Notes will be available once the contact is created.
+              <div className="fade-in notes-tab-content">
+                {!id ? (
+                  <div className="notes-tab-notice">
+                    Notes will be available once the contact is created. Please click Save/Add to create the contact first, then edit it to add notes.
+                  </div>
+                ) : (
+                  <div>
+                    {/* Add note section - only if not viewMode */}
+                    {!isViewMode && (
+                      <div className="notes-add-section">
+                        <textarea
+                          className="form-control"
+                          placeholder="Write a note here..."
+                          rows={3}
+                          value={newNote}
+                          onChange={(e) => setNewNote(e.target.value)}
+                          disabled={isAddingNote}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-primary notes-add-btn"
+                          onClick={handleAddNote}
+                          disabled={isAddingNote || !newNote.trim()}
+                        >
+                          {isAddingNote ? 'Adding...' : 'Add Note'}
+                        </button>
+                      </div>
+                    )}
+
+                    {isLoadingNotes ? (
+                      <div className="notes-loading">Loading notes...</div>
+                    ) : notes.length === 0 ? (
+                      <div className="notes-empty">No notes added yet for this contact.</div>
+                    ) : (
+                      <div className="notes-list">
+                        {notes.map((note) => (
+                          <div key={note.id} className="note-item">
+                            <p className="note-content">{note.content}</p>
+                            <div className="note-footer">
+                              <span className="note-date">
+                                {new Date(note.createdAt).toLocaleString()}
+                              </span>
+                              {!isViewMode && (
+                                <button
+                                  type="button"
+                                  className="note-delete-btn"
+                                  onClick={() => handleDeleteNote(note.id)}
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -11,7 +11,8 @@ import './InitiateChatModal.css'
 interface InitiateChatModalProps {
   isOpen: boolean
   onClose: () => void
-  contact: { id: number; name: string; phone: string } | null
+  contact?: { id: number; name: string; phone: string } | null
+  contacts?: Array<{ id: number; name: string; phone: string }>
   connectionId?: number | null
   onSuccess?: () => void
 }
@@ -20,6 +21,7 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
   isOpen,
   onClose,
   contact,
+  contacts,
   connectionId,
   onSuccess
 }) => {
@@ -35,6 +37,12 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
     () => connections.filter((c) => c.isConnected && c.phoneNumber),
     [connections]
   )
+
+  const targetContacts = useMemo(() => {
+    if (contacts && contacts.length > 0) return contacts
+    if (contact) return [contact]
+    return []
+  }, [contact, contacts])
 
   // Fetch connections & templates when modal opens
   useEffect(() => {
@@ -58,14 +66,20 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
     void loadTemplates()
     setSelectedTemplateId('')
     setVariables({})
+  }, [isOpen, fetchDashboard])
 
-    // Pre-select connection if provided
+  // Initialize selected connection(s) when connection list becomes available
+  useEffect(() => {
+    if (!isOpen) return
+
     if (connectionId) {
       setSelectedConnectionIds([connectionId])
+    } else if (connectedConnections.length > 0) {
+      setSelectedConnectionIds((prev) => (prev.length === 0 ? [connectedConnections[0].id] : prev))
     } else {
       setSelectedConnectionIds([])
     }
-  }, [isOpen, connectionId, fetchDashboard])
+  }, [isOpen, connectionId, connectedConnections])
 
   const selectedTemplate = useMemo(() => {
     return templates.find((t) => t.id.toString() === selectedTemplateId) || null
@@ -93,7 +107,7 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
     return text
   }, [selectedTemplate, variableKeys, variables])
 
-  if (!isOpen || !contact) return null
+  if (!isOpen || targetContacts.length === 0) return null
 
   const handleTemplateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedTemplateId(e.target.value)
@@ -130,29 +144,34 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
 
     setIsSending(true)
     try {
-      const results = await Promise.allSettled(
-        selectedConnectionIds.map((connId) =>
-          chatService.sendTemplateMessage(
-            contact.id,
-            Number(selectedTemplateId),
-            variables,
-            connId
-          )
-        )
-      )
+      let succeededCount = 0
+      let failedCount = 0
 
-      const succeeded = results.filter((r) => r.status === 'fulfilled').length
-      const failed = results.filter((r) => r.status === 'rejected').length
-
-      if (failed === 0) {
-        toast.success(`Template sent from ${succeeded} connection${succeeded > 1 ? 's' : ''} successfully`)
-      } else if (succeeded > 0) {
-        toast.success(`Sent from ${succeeded} connection(s), ${failed} failed`)
-      } else {
-        toast.error('Failed to send from all connections')
+      for (const targetContact of targetContacts) {
+        for (const connId of selectedConnectionIds) {
+          try {
+            await chatService.sendTemplateMessage(
+              targetContact.id,
+              Number(selectedTemplateId),
+              variables,
+              connId
+            )
+            succeededCount++
+          } catch (e) {
+            failedCount++
+          }
+        }
       }
 
-      if (succeeded > 0) {
+      if (failedCount === 0) {
+        toast.success(`Template sent to ${targetContacts.length} active contact${targetContacts.length > 1 ? 's' : ''} successfully!`)
+      } else if (succeededCount > 0) {
+        toast.success(`Sent to ${succeededCount} contact message(s), ${failedCount} failed.`)
+      } else {
+        toast.error('Failed to send template message.')
+      }
+
+      if (succeededCount > 0) {
         if (onSuccess) onSuccess()
         onClose()
       }

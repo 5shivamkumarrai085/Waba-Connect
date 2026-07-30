@@ -1,31 +1,63 @@
-import React from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { 
   Settings, 
   Plus, 
-  Globe, 
-  Sun,
-  Moon,
-  Monitor,
-  ArrowLeft
+  ArrowLeft,
+  User,
+  Megaphone,
+  MessageSquare,
+  Tag,
+  GitBranch,
+  Users,
+  ShieldCheck,
+  Sliders,
+  Layers
 } from 'lucide-react'
-import { useThemeStore } from '../store/zustand'
 
 export const Header: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
-  const { theme, toggleTheme } = useThemeStore()
   
-  const [showLangMenu, setShowLangMenu] = React.useState(false)
-  const [showThemeMenu, setShowThemeMenu] = React.useState(false)
-  const [, setLanguage] = React.useState('English')
+  const [showQuickCreate, setShowQuickCreate] = useState(false)
+  const quickCreateRef = useRef<HTMLDivElement>(null)
 
-  React.useEffect(() => {
-    document.documentElement.className = theme === 'light' ? 'light-theme' : 'dark-theme'
-  }, [theme])
+  // Close dropdown on outside click or Escape key
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (quickCreateRef.current && !quickCreateRef.current.contains(e.target as Node)) {
+        setShowQuickCreate(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowQuickCreate(false)
+      }
+    }
 
-  const handleCreateCampaignClick = () => {
-    navigate('/campaigns/campaign')
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
+
+  const menuItems = [
+    { label: 'Contact', icon: User, path: '/contacts/contact' },
+    { label: 'Campaign', icon: Megaphone, path: '/campaigns/campaign/create' },
+    { label: 'Message Bot', icon: MessageSquare, path: '/message-bot/bot' },
+    { label: 'Template Bot', icon: Tag, path: '/template-bot/bot' },
+    { label: 'Bot Flow', icon: GitBranch, path: '/bot-flow' },
+    { label: 'User', icon: Users, path: '/admin/permissions/user' },
+    { label: 'Role', icon: ShieldCheck, path: '/admin/permissions/department' },
+    { label: 'Status', icon: Sliders, path: '/contacts' },
+    { label: 'Source', icon: Layers, path: '/contacts' },
+  ]
+
+  const handleNavigate = (path: string) => {
+    setShowQuickCreate(false)
+    navigate(path)
   }
 
   return (
@@ -43,75 +75,42 @@ export const Header: React.FC = () => {
       </div>
 
       <div className="header-right">
-
-
         {/* Header Action Buttons */}
         <div className="header-actions">
           <button className="header-icon-btn" aria-label="Settings">
             <Settings size={18} />
           </button>
           
-          <button 
-            className="header-icon-btn header-create-campaign-btn" 
-            onClick={handleCreateCampaignClick}
-            aria-label="New Campaign"
-          >
-            <Plus size={18} />
-          </button>
-
-          <div className="dropdown-container">
+          <div className="dropdown-container" ref={quickCreateRef}>
             <button 
-              className={`header-icon-btn ${showLangMenu ? 'active' : ''}`}
-              onClick={() => {
-                setShowLangMenu(!showLangMenu)
-                setShowThemeMenu(false)
-              }}
-              aria-label="Language Select"
+              className={`header-icon-btn header-create-plus-btn ${showQuickCreate ? 'active' : ''}`}
+              onClick={() => setShowQuickCreate(!showQuickCreate)}
+              aria-label="Quick Create Menu"
             >
-              <Globe size={18} />
+              <Plus size={18} strokeWidth={2.5} />
             </button>
-            {showLangMenu && (
-              <div className="dropdown-menu">
-                <button className="dropdown-item" onClick={() => { setLanguage('English'); setShowLangMenu(false) }}>English</button>
-                <button className="dropdown-item" onClick={() => { setLanguage('Bahasa Melayu'); setShowLangMenu(false) }}>Bahasa Melayu</button>
+
+            {showQuickCreate && (
+              <div className="quick-create-dropdown-menu">
+                {menuItems.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <button
+                      key={item.label}
+                      className="quick-create-item"
+                      onClick={() => handleNavigate(item.path)}
+                    >
+                      <Icon size={18} className="quick-create-icon" />
+                      <span>{item.label}</span>
+                    </button>
+                  )
+                })}
               </div>
             )}
-          </div>
-
-          <div className="dropdown-container">
-            <button 
-              className={`header-icon-btn ${showThemeMenu ? 'active' : ''}`}
-              onClick={() => {
-                setShowThemeMenu(!showThemeMenu)
-                setShowLangMenu(false)
-              }}
-              aria-label="Toggle Theme"
-            >
-              {theme === 'dark' ? <Moon size={18} /> : <Sun size={18} />}
-            </button>
-            {showThemeMenu && (
-              <div className="dropdown-menu">
-                <button className="dropdown-item" onClick={() => { toggleTheme(); setShowThemeMenu(false) }}>
-                  <Sun size={14} className="dropdown-icon" /> Light
-                </button>
-                <button className="dropdown-item" onClick={() => { toggleTheme(); setShowThemeMenu(false) }}>
-                  <Moon size={14} className="dropdown-icon" /> Dark
-                </button>
-                <button className="dropdown-item" onClick={() => { setShowThemeMenu(false) }}>
-                  <Monitor size={14} className="dropdown-icon" /> System
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* User Profile */}
-        <div className="header-profile">
-          <div className="header-avatar">
-            S
           </div>
         </div>
       </div>
     </header>
   )
 }
+

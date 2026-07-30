@@ -31,6 +31,9 @@ public class Template
     [MaxLength(100)]
     public string? WhatsAppTemplateId { get; set; }
     
+    [MaxLength(250)]
+    public string? RejectReason { get; set; }
+    
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

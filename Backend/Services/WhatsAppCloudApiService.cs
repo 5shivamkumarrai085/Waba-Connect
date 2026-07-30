@@ -298,17 +298,33 @@ public class WhatsAppCloudApiService : IWhatsAppService
                         Name = item.GetProperty("name").GetString() ?? string.Empty,
                         Language = item.GetProperty("language").GetString() ?? "en",
                         Category = item.GetProperty("category").GetString() ?? string.Empty,
-                        Status = item.GetProperty("status").GetString() ?? string.Empty
+                        Status = item.GetProperty("status").GetString() ?? string.Empty,
+                        TemplateType = "TEXT"
                     };
+
+                    if (item.TryGetProperty("rejected_reason", out var rejectProp))
+                    {
+                        templateInfo.RejectReason = rejectProp.GetString();
+                    }
 
                     if (item.TryGetProperty("components", out var components))
                     {
                         foreach (var component in components.EnumerateArray())
                         {
-                            if (component.GetProperty("type").GetString() == "BODY")
+                            var compType = component.GetProperty("type").GetString();
+                            if (compType == "HEADER")
+                            {
+                                if (component.TryGetProperty("format", out var formatProp))
+                                {
+                                    var formatVal = formatProp.GetString()?.ToUpper();
+                                    if (formatVal == "IMAGE") templateInfo.TemplateType = "IMAGE";
+                                    else if (formatVal == "VIDEO") templateInfo.TemplateType = "VIDEO";
+                                    else if (formatVal == "DOCUMENT") templateInfo.TemplateType = "DOCUMENT";
+                                }
+                            }
+                            else if (compType == "BODY")
                             {
                                 templateInfo.BodyText = component.GetProperty("text").GetString();
-                                break;
                             }
                         }
                     }

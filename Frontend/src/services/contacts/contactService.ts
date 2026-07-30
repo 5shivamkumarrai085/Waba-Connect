@@ -197,6 +197,20 @@ export const contactService = {
     } catch {
       return { groupNotAssignedText: 'Group not assigned' }
     }
+  },
+
+  getContactNotes: async (contactId: number): Promise<any[]> => {
+    const response = await apiClient.get(`/Contacts/${contactId}/notes`)
+    return response.data?.data || []
+  },
+
+  addContactNote: async (contactId: number, content: string): Promise<any> => {
+    const response = await apiClient.post(`/Contacts/${contactId}/notes`, { content })
+    return response.data?.data
+  },
+
+  deleteContactNote: async (contactId: number, noteId: number): Promise<void> => {
+    await apiClient.delete(`/Contacts/${contactId}/notes/${noteId}`)
   }
 }
 

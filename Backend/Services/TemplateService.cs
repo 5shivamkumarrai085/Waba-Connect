@@ -183,6 +183,14 @@ public class TemplateService : ITemplateService
 
             var mappedCategory = Enum.TryParse<TemplateCategory>(waTemplate.Category, true, out var cat) ? cat : TemplateCategory.Marketing;
 
+            var mappedType = waTemplate.TemplateType?.ToUpper() switch
+            {
+                "IMAGE" => TemplateType.Image,
+                "VIDEO" => TemplateType.Video,
+                "DOCUMENT" => TemplateType.Document,
+                _ => TemplateType.Text
+            };
+
             if (localTemplate == null)
             {
                 var newTemplate = new Template
@@ -191,7 +199,9 @@ public class TemplateService : ITemplateService
                     WhatsAppTemplateId = waTemplate.Id,
                     Language = waTemplate.Language,
                     Category = mappedCategory,
+                    TemplateType = mappedType,
                     Status = mappedStatus,
+                    RejectReason = waTemplate.RejectReason,
                     BodyText = waTemplate.BodyText ?? string.Empty
                 };
                 _dbContext.Templates.Add(newTemplate);
@@ -201,6 +211,8 @@ public class TemplateService : ITemplateService
             {
                 localTemplate.WhatsAppTemplateId = waTemplate.Id;
                 localTemplate.Status = mappedStatus;
+                localTemplate.TemplateType = mappedType;
+                localTemplate.RejectReason = waTemplate.RejectReason;
                 if (!string.IsNullOrEmpty(waTemplate.BodyText))
                 {
                     localTemplate.BodyText = waTemplate.BodyText;
@@ -261,6 +273,7 @@ public class TemplateService : ITemplateService
             HeaderContent = t.HeaderContent,
             FooterText = t.FooterText,
             WhatsAppTemplateId = t.WhatsAppTemplateId,
+            RejectReason = t.RejectReason,
             CreatedAt = t.CreatedAt,
             UpdatedAt = t.UpdatedAt,
             Variables = t.Variables.Select(v => new TemplateVariableRequest

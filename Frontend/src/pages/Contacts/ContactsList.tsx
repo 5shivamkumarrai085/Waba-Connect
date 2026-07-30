@@ -57,7 +57,7 @@ export const ContactsList: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
   const [isInitiateModalOpen, setIsInitiateModalOpen] = useState(false)
-  const [selectedContactForTemplate, setSelectedContactForTemplate] = useState<{ id: number; name: string; phone: string } | null>(null)
+  const [selectedContactsForTemplate, setSelectedContactsForTemplate] = useState<Array<{ id: number; name: string; phone: string }>>([])
 
   // Custom filters states
   const [showFilters, setShowFilters] = useState(false)
@@ -235,24 +235,26 @@ export const ContactsList: React.FC = () => {
   }
 
   const handleBulkChat = () => {
-    if (selectedIds.length === 1) {
-      const selectedContact = contacts.find(c => c.id === selectedIds[0])
-      if (selectedContact) {
-        if (!selectedContact.active) {
-          toast.error('Cannot send message to an inactive contact.', { duration: 3000 })
-          return
-        }
-        setSelectedContactForTemplate({
-          id: selectedContact.id,
-          name: selectedContact.name || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim(),
-          phone: selectedContact.phone
-        })
-        setIsInitiateModalOpen(true)
-        return
-      }
+    if (selectedIds.length === 0) {
+      toast.error('Please select at least one contact.')
+      return
     }
 
-    toast.error('Select one contact to open a WhatsApp chat.')
+    const activeSelectedContacts = contacts
+      .filter((c: any) => selectedIds.includes(c.id) && c.active !== false && c.isActive !== false)
+      .map((c: any) => ({
+        id: c.id,
+        name: c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim(),
+        phone: c.phone
+      }))
+
+    if (activeSelectedContacts.length === 0) {
+      toast.error('No active contacts selected to initiate chat.', { duration: 3000 })
+      return
+    }
+
+    setSelectedContactsForTemplate(activeSelectedContacts)
+    setIsInitiateModalOpen(true)
   }
 
   const handleExport = (format: 'csv' | 'xlsx', scope: 'all' | 'selected') => {
@@ -716,11 +718,11 @@ export const ContactsList: React.FC = () => {
                                   toast.error('Cannot send message to an inactive contact.', { duration: 3000 })
                                   return
                                 }
-                                setSelectedContactForTemplate({
+                                setSelectedContactsForTemplate([{
                                   id: contact.id,
                                   name: contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
                                   phone: contact.phone
-                                })
+                                }])
                                 setIsInitiateModalOpen(true)
                               }}
                               title="Start WhatsApp Chat"
@@ -871,9 +873,9 @@ export const ContactsList: React.FC = () => {
         isOpen={isInitiateModalOpen}
         onClose={() => {
           setIsInitiateModalOpen(false)
-          setSelectedContactForTemplate(null)
+          setSelectedContactsForTemplate([])
         }}
-        contact={selectedContactForTemplate}
+        contacts={selectedContactsForTemplate}
       />
     </div>
   )

@@ -8,6 +8,15 @@ public class CreateContactRequest
     public string Status { get; set; } = string.Empty;
     public string Source { get; set; } = string.Empty;
     public string? AssignedTo { get; set; }
+    public string? Email { get; set; }
+    public string? Company { get; set; }
+    public string? Website { get; set; }
+    public string? City { get; set; }
+    public string? State { get; set; }
+    public string? Country { get; set; }
+    public string? ZipCode { get; set; }
+    public string? Address { get; set; }
+    public string? Description { get; set; }
     public List<int>? GroupIds { get; set; }
 }
 
@@ -22,6 +31,15 @@ public class ContactResponse
     public string Status { get; set; } = string.Empty;
     public string Source { get; set; } = string.Empty;
     public string? AssignedTo { get; set; }
+    public string? Email { get; set; }
+    public string? Company { get; set; }
+    public string? Website { get; set; }
+    public string? City { get; set; }
+    public string? State { get; set; }
+    public string? Country { get; set; }
+    public string? ZipCode { get; set; }
+    public string? Address { get; set; }
+    public string? Description { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

@@ -35,6 +35,7 @@ public class TemplateResponse
     public string? HeaderContent { get; set; }
     public string? FooterText { get; set; }
     public string? WhatsAppTemplateId { get; set; }
+    public string? RejectReason { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public List<TemplateVariableRequest> Variables { get; set; } = [];

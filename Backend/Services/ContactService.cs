@@ -163,6 +163,15 @@ public class ContactService : IContactService
                 existingContact.Status = Enum.Parse<ContactStatus>(request.Status, true);
                 existingContact.Source = Enum.Parse<ContactSource>(request.Source, true);
                 existingContact.AssignedTo = request.AssignedTo;
+                existingContact.Email = request.Email;
+                existingContact.Company = request.Company;
+                existingContact.Website = request.Website;
+                existingContact.City = request.City;
+                existingContact.State = request.State;
+                existingContact.Country = request.Country;
+                existingContact.ZipCode = request.ZipCode;
+                existingContact.Address = request.Address;
+                existingContact.Description = request.Description;
                 existingContact.UpdatedAt = DateTime.UtcNow;
 
                 // Clear and update group memberships
@@ -201,6 +210,15 @@ public class ContactService : IContactService
             Status = Enum.Parse<ContactStatus>(request.Status, true),
             Source = Enum.Parse<ContactSource>(request.Source, true),
             AssignedTo = request.AssignedTo,
+            Email = request.Email,
+            Company = request.Company,
+            Website = request.Website,
+            City = request.City,
+            State = request.State,
+            Country = request.Country,
+            ZipCode = request.ZipCode,
+            Address = request.Address,
+            Description = request.Description,
             IsDeleted = false,
             IsActive = true
         };
@@ -247,6 +265,16 @@ public class ContactService : IContactService
         contact.Status = Enum.Parse<ContactStatus>(request.Status, true);
         contact.Source = Enum.Parse<ContactSource>(request.Source, true);
         contact.AssignedTo = request.AssignedTo;
+        contact.Email = request.Email;
+        contact.Company = request.Company;
+        contact.Website = request.Website;
+        contact.City = request.City;
+        contact.State = request.State;
+        contact.Country = request.Country;
+        contact.ZipCode = request.ZipCode;
+        contact.Address = request.Address;
+        contact.Description = request.Description;
+        contact.UpdatedAt = DateTime.UtcNow;
 
         if (request.GroupIds != null)
         {
@@ -304,6 +332,15 @@ public class ContactService : IContactService
             Status = c.Status.ToString(),
             Source = c.Source.ToString(),
             AssignedTo = c.AssignedTo,
+            Email = c.Email,
+            Company = c.Company,
+            Website = c.Website,
+            City = c.City,
+            State = c.State,
+            Country = c.Country,
+            ZipCode = c.ZipCode,
+            Address = c.Address,
+            Description = c.Description,
             IsActive = c.IsActive,
             CreatedAt = c.CreatedAt,
             UpdatedAt = c.UpdatedAt,

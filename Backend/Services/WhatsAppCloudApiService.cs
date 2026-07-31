@@ -343,6 +343,88 @@ public class WhatsAppCloudApiService : IWhatsAppService
         }
     }
 
+    public async Task<List<WhatsAppTemplateInfo>> GetTemplatesForConnectionAsync(int connectionId)
+    {
+        try
+        {
+            var config = await _dbContext.WabaConfigurations.FirstOrDefaultAsync(c => c.ConnectionId == connectionId);
+            if (config == null || string.IsNullOrEmpty(config.WabaId) || string.IsNullOrEmpty(config.AccessToken))
+            {
+                return await GetTemplatesAsync();
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/{config.WabaId}/message_templates?limit=100");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.AccessToken);
+
+            var response = await _httpClient.SendAsync(request);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Failed to fetch templates for connection {ConnectionId}. Status: {Status}, Response: {Response}", connectionId, response.StatusCode, responseBody);
+                return await GetTemplatesAsync();
+            }
+
+            using var doc = JsonDocument.Parse(responseBody);
+            var templates = new List<WhatsAppTemplateInfo>();
+
+            if (doc.RootElement.TryGetProperty("data", out var dataArray))
+            {
+                foreach (var item in dataArray.EnumerateArray())
+                {
+                    var templateInfo = new WhatsAppTemplateInfo
+                    {
+                        Id = item.GetProperty("id").GetString() ?? string.Empty,
+                        Name = item.GetProperty("name").GetString() ?? string.Empty,
+                        Language = item.GetProperty("language").GetString() ?? "en",
+                        Category = item.GetProperty("category").GetString() ?? string.Empty,
+                        Status = item.GetProperty("status").GetString() ?? string.Empty,
+                        TemplateType = "TEXT"
+                    };
+
+                    if (item.TryGetProperty("rejected_reason", out var rejectProp))
+                    {
+                        templateInfo.RejectReason = rejectProp.GetString();
+                    }
+
+                    if (item.TryGetProperty("components", out var components))
+                    {
+                        foreach (var component in components.EnumerateArray())
+                        {
+                            var type = component.GetProperty("type").GetString();
+                            if (type == "BODY" && component.TryGetProperty("text", out var bodyText))
+                            {
+                                templateInfo.BodyText = bodyText.GetString() ?? string.Empty;
+                            }
+                            else if (type == "HEADER")
+                            {
+                                var format = component.GetProperty("format").GetString();
+                                templateInfo.TemplateType = format ?? "TEXT";
+                                if (component.TryGetProperty("text", out var headerText))
+                                {
+                                    templateInfo.HeaderContent = headerText.GetString();
+                                }
+                            }
+                            else if (type == "FOOTER" && component.TryGetProperty("text", out var footerText))
+                            {
+                                templateInfo.FooterText = footerText.GetString();
+                            }
+                        }
+                    }
+
+                    templates.Add(templateInfo);
+                }
+            }
+
+            return templates;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching templates for connection {ConnectionId}", connectionId);
+            return await GetTemplatesAsync();
+        }
+    }
+
     public bool VerifyWebhook(string mode, string token, string challenge)
     {
         // Multi-connection support: check ALL WABA configurations for a matching verify token

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
   AlertCircle,
   AlertTriangle,
@@ -10,6 +10,7 @@ import {
   Clock3,
   FileText,
   Info,
+  Link2,
   MessageCircle,
   MessageSquare,
   MoreVertical,
@@ -62,6 +63,7 @@ const getFullMediaUrl = (url: string | null | undefined) => {
 
 export const Chat: React.FC = () => {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const { connections, fetchDashboard: fetchConnectionDashboard } = useConnectionStore()
   const {
     accounts,
@@ -90,9 +92,13 @@ export const Chat: React.FC = () => {
   const [messageText, setMessageText] = useState('')
   const [showTimeBanner, setShowTimeBanner] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const prevMessagesCountRef = useRef(0)
   const prevActiveConvIdRef = useRef<number | null>(null)
   const requestedContactId = Number(searchParams.get('contactId') || 0)
+
+  const selectedConnection = connections.find(c => c.id === selectedConnectionId)
+  const isSelectedConnectionDisconnected = selectedConnection ? !selectedConnection.isConnected : false
 
   // Popover & Upload States
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -183,13 +189,13 @@ export const Chat: React.FC = () => {
     const interval = window.setInterval(() => {
       if (activeConversationId) {
         refreshActiveMessages()
-      } else {
+      } else if (conversations.length > 0) {
         loadConversations()
       }
     }, 2000)
 
     return () => window.clearInterval(interval)
-  }, [activeConversationId, refreshActiveMessages, loadConversations, connections, selectedConnectionId])
+  }, [activeConversationId, refreshActiveMessages, loadConversations, connections, selectedConnectionId, conversations.length])
 
   useEffect(() => {
     if (!requestedContactId || conversations.length === 0) return
@@ -532,6 +538,50 @@ export const Chat: React.FC = () => {
     }
   }
 
+  // Auto-resize textarea like WhatsApp
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (textarea) {
+      textarea.style.height = 'auto'
+      textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px'
+    }
+  }, [messageText])
+
+  // Close all popovers on Escape key or click outside
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowEmojiPicker(false)
+        setShowAttachmentMenu(false)
+        setShowDeleteMenu(false)
+        setShowMsgSearch(false)
+        setShowTimeBanner(false)
+        setShowDeleteChatModal(false)
+        setIsTemplateModalOpen(false)
+      }
+    }
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (showEmojiPicker && !target.closest('.chat-composer-popover-anchor')) {
+        setShowEmojiPicker(false)
+      }
+      if (showAttachmentMenu && !target.closest('.chat-composer-popover-anchor')) {
+        setShowAttachmentMenu(false)
+      }
+      if (showDeleteMenu && !target.closest('.chat-header-more-menu-wrapper')) {
+        setShowDeleteMenu(false)
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showEmojiPicker, showAttachmentMenu, showDeleteMenu])
+
   const EmptyStateIllustration = () => (
     <svg className="chat-empty-state-illustration" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
       <rect x="65" y="20" width="70" height="140" rx="12" fill="#E2E8F0" stroke="#94A3B8" strokeWidth="3" />
@@ -675,7 +725,26 @@ export const Chat: React.FC = () => {
       </div>
 
       <div className="chat-window">
-        {activeConversation ? (
+        {isSelectedConnectionDisconnected ? (
+          <div className="chat-disconnected-overlay">
+            <div className="chat-disconnected-card">
+              <div className="chat-disconnected-icon">
+                <AlertCircle size={48} />
+              </div>
+              <h2 className="chat-disconnected-title">Your Account Is Disconnected!</h2>
+              <p className="chat-disconnected-desc">
+                Your account is no longer connected to our system. This may be due to an expired token, a disconnected webhook, invalid token, or changes in your Meta account settings.
+              </p>
+              <button
+                className="chat-disconnected-connect-btn"
+                onClick={() => navigate(`/connect-waba?connectionId=${selectedConnectionId}`)}
+              >
+                <Link2 size={16} />
+                Connect Account
+              </button>
+            </div>
+          </div>
+        ) : activeConversation ? (
           <div className="chat-window-inner-layout">
             <div className="chat-window-header">
               <div className="chat-header-user-info flex-1">
@@ -898,6 +967,7 @@ export const Chat: React.FC = () => {
                   <form onSubmit={handleSend} className="chat-composer-container">
                     <div className="chat-composer-input-row">
                       <textarea
+                        ref={textareaRef}
                         className="chat-composer-textarea"
                         rows={1}
                         placeholder={`Message to ${activeConversation.name} - Shift + Enter for newline`}

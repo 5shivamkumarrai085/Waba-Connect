@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle } from 'lucide-react'
 import './ConfirmationModal.css'
@@ -26,11 +26,24 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   isDestructive = false,
   showWarningIcon = false
 }) => {
+  const handleEscape = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onCancel()
+    }
+  }, [onCancel])
+
+  useEffect(() => {
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape)
+      return () => document.removeEventListener('keydown', handleEscape)
+    }
+  }, [isOpen, handleEscape])
+
   if (!isOpen) return null
 
   return createPortal(
-    <div className="modal-overlay">
-      <div className="modal-container fade-in-up">
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal-container fade-in-up" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header-row">
           {showWarningIcon && (
             <div className="modal-icon-wrapper destructive">

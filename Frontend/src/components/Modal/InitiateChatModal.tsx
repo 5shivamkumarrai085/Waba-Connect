@@ -50,12 +50,18 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
 
     fetchDashboard()
 
+    const activeConnId = connectionId || selectedConnectionIds[0] || (connectedConnections.length > 0 ? connectedConnections[0].id : undefined)
+
     const loadTemplates = async () => {
       setIsLoadingTemplates(true)
       try {
-        const allTemplates = await templateService.getTemplates()
-        const approved = allTemplates.filter((t) => t.status?.toUpperCase() === 'APPROVED')
-        setTemplates(approved)
+        let tpls: any[] = []
+        if (activeConnId) {
+          tpls = await templateService.getTemplatesByConnection(activeConnId)
+        } else {
+          tpls = await templateService.getTemplates()
+        }
+        setTemplates(tpls)
       } catch (err) {
         toast.error('Failed to load templates.')
       } finally {
@@ -66,7 +72,7 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
     void loadTemplates()
     setSelectedTemplateId('')
     setVariables({})
-  }, [isOpen, fetchDashboard])
+  }, [isOpen, connectionId])
 
   // Initialize selected connection(s) when connection list becomes available
   useEffect(() => {
@@ -118,10 +124,24 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
     setVariables((prev) => ({ ...prev, [key]: value }))
   }
 
-  const toggleConnection = (id: number) => {
-    setSelectedConnectionIds((prev) =>
-      prev.includes(id) ? prev.filter((cid) => cid !== id) : [...prev, id]
-    )
+  const toggleConnection = async (id: number) => {
+    const nextIds = selectedConnectionIds.includes(id) ? [] : [id]
+    setSelectedConnectionIds(nextIds)
+    setSelectedTemplateId('')
+    setVariables({})
+    if (nextIds.length > 0) {
+      setIsLoadingTemplates(true)
+      try {
+        const connTpls = await templateService.getTemplatesByConnection(nextIds[0])
+        setTemplates(connTpls)
+      } catch {
+        // Fallback
+      } finally {
+        setIsLoadingTemplates(false)
+      }
+    } else {
+      setTemplates([])
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -204,7 +224,7 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
           {showConnectionPicker && (
             <div className="form-group connection-picker-group">
               <label className="initiate-chat-label">
-                <span className="required-star">*</span> Send From Connection(s)
+                <span className="required-star">*</span> Send From Connection
               </label>
               <div className="connection-chips-container">
                 {connectedConnections.map((conn) => {
@@ -260,7 +280,7 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
             </select>
             {isLoadingTemplates && <span className="loader-text">Loading approved templates...</span>}
             {!isLoadingTemplates && templates.length === 0 && (
-              <span className="error-text">No approved templates found in database.</span>
+              <span className="error-text">No approved templates found for this connection.</span>
             )}
           </div>
 

@@ -19,6 +19,15 @@ export const templateService = {
     }
   },
 
+  getTemplatesByConnection: async (connectionId: number): Promise<Template[]> => {
+    try {
+      const response = await apiClient.get(`/Templates/by-connection/${connectionId}`)
+      return response.data?.data || []
+    } catch (error) {
+      return []
+    }
+  },
+
   getTemplateLanguages: async (): Promise<TemplateLanguage[]> => {
     try {
       const response = await apiClient.get('/Templates/languages')

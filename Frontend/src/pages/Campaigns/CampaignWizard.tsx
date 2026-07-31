@@ -65,6 +65,7 @@ export const CampaignWizard: React.FC = () => {
 
   // Double click prevent
   const [cooldownActive, setCooldownActive] = useState(false)
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
 
   useEffect(() => {
     if (activeStep === 3) {
@@ -401,10 +402,22 @@ export const CampaignWizard: React.FC = () => {
                               fontSize: '13px', fontWeight: 500, cursor: 'pointer',
                               transition: 'all 0.2s', fontFamily: 'inherit'
                             }}
-                            onClick={() => {
-                              const prev: number[] = (wizardForm as any).connectionIds || []
-                              const next = isSelected ? prev.filter((id: number) => id !== conn.id) : [...prev, conn.id]
-                              setWizardForm({ connectionIds: next } as any)
+                            onClick={async () => {
+                              const next = isSelected ? [] : [conn.id]
+                              setWizardForm({ connectionIds: next, templateId: 0, templateName: '' } as any)
+                              setTemplatesList([])
+                              setIsLoadingTemplates(true)
+                              try {
+                                if (next.length > 0) {
+                                  const connTpls = await templateService.getTemplatesByConnection(conn.id)
+                                  setTemplatesList(connTpls)
+                                } else {
+                                  const allTpls = await templateService.getTemplates()
+                                  setTemplatesList(allTpls)
+                                }
+                              } finally {
+                                setIsLoadingTemplates(false)
+                              }
                             }}
                           >
                             {isSelected && <span style={{ fontWeight: 700 }}>✓</span>}
@@ -444,6 +457,7 @@ export const CampaignWizard: React.FC = () => {
                           const t = templatesList.find(x => x.name === e.target.value)
                           setWizardForm({ templateName: e.target.value, templateId: t?.id || 0 })
                         }}
+                        disabled={isLoadingTemplates}
                         required
                       >
                         <option value="">Select Template</option>
@@ -453,6 +467,11 @@ export const CampaignWizard: React.FC = () => {
                           <option key={t.id} value={t.name}>{t.name}</option>
                         ))}
                       </select>
+                      {isLoadingTemplates && (
+                        <div style={{ fontSize: '12px', color: '#6366f1', marginTop: '4px', fontWeight: 500 }}>
+                          Loading approved templates...
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

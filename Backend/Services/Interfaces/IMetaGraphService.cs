@@ -22,5 +22,10 @@ namespace WhatsAppCampaignApi.Services.Interfaces
         /// Checks if the Meta App is already subscribed to receive webhooks for a WABA.
         /// </summary>
         Task<bool> IsAppSubscribedToWabaAsync(string wabaId, string accessToken);
+
+        /// <summary>
+        /// Fetches the configured Webhook Callback URL directly from Meta Graph API for a Meta App / WABA connection.
+        /// </summary>
+        Task<string?> FetchWebhookUrlFromMetaAsync(string appId, string appSecret, string? wabaId = null, string? accessToken = null);
     }
 }

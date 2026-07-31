@@ -56,6 +56,33 @@ export const ConnectionsList: React.FC = () => {
     fetchDashboard()
   }, [fetchDashboard])
 
+  // Close dropdown menus on outside click or Escape
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveMenuId(null)
+        setEditingConn(null)
+        setSelectedConn(null)
+        setDisconnectTarget(null)
+        setDeleteTarget(null)
+      }
+    }
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (activeMenuId !== null && !target.closest('.conn-actions-cell')) {
+        setActiveMenuId(null)
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [activeMenuId])
+
   const filteredConnections = connections.filter((conn: Connection) => {
     const matchesSearch =
       conn.name.toLowerCase().includes(search.toLowerCase()) ||

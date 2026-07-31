@@ -123,10 +123,25 @@ public class ConnectionService : IConnectionService
         if (config != null)
         {
             config.Connected = false;
+            config.FacebookAppId = string.Empty;
+            config.FacebookAppSecret = string.Empty;
+            config.AccessToken = string.Empty;
+            config.WabaId = string.Empty;
+            config.VerifyToken = string.Empty;
+            config.WebhookUrl = string.Empty;
             config.UpdatedAt = DateTime.UtcNow;
-            await _dbContext.SaveChangesAsync();
         }
 
+        // Remove phone numbers associated with this connection
+        var phones = await _dbContext.WabaPhoneNumbers
+            .Where(p => p.ConnectionId == id)
+            .ToListAsync();
+        if (phones.Count > 0)
+        {
+            _dbContext.WabaPhoneNumbers.RemoveRange(phones);
+        }
+
+        await _dbContext.SaveChangesAsync();
         return true;
     }
 
@@ -167,7 +182,7 @@ public class ConnectionService : IConnectionService
             TotalConnections = connections.Count,
             ConnectedCount = connections.Count(c => c.IsConnected),
             DisconnectedCount = connections.Count(c => !c.IsConnected),
-            TotalConnectedNumbers = connections.Count(c => !string.IsNullOrEmpty(c.PhoneNumber)),
+            TotalConnectedNumbers = connections.Count(c => c.IsConnected && !string.IsNullOrEmpty(c.PhoneNumber)),
             Connections = connections
         };
     }

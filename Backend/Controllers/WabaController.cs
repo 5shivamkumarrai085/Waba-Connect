@@ -63,6 +63,17 @@ namespace WhatsAppCampaignApi.Controllers
                 return BadRequest(new { message = "Facebook App ID and App Secret are required." });
             }
 
+            // Check for duplicate Facebook App ID across connected configurations
+            var existingAppConfig = await _dbContext.WabaConfigurations
+                .Include(c => c.Connection)
+                .FirstOrDefaultAsync(c => c.FacebookAppId == request.FacebookAppId.Trim() && c.Connected &&
+                    (!request.ConnectionId.HasValue || c.ConnectionId != request.ConnectionId.Value));
+            if (existingAppConfig != null)
+            {
+                var connName = existingAppConfig.Connection?.Name ?? $"Connection {existingAppConfig.ConnectionId}";
+                return BadRequest(new { message = $"This Facebook App ID is already in use by connection '{connName}'. Please disconnect it first or use a different App ID." });
+            }
+
             // Ensure we have a Connection for this WABA configuration
             ConnectionResponse conn;
             if (request.ConnectionId.HasValue)
@@ -134,6 +145,17 @@ namespace WhatsAppCampaignApi.Controllers
         public async Task<IActionResult> Configure([FromBody] ConfigureWabaRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            // Check for duplicate WABA ID across connected configurations
+            var duplicateConfig = await _dbContext.WabaConfigurations
+                .Include(c => c.Connection)
+                .FirstOrDefaultAsync(c => c.WabaId == request.WabaId && c.Connected && 
+                    (!request.ConnectionId.HasValue || c.ConnectionId != request.ConnectionId.Value));
+            if (duplicateConfig != null)
+            {
+                var connName = duplicateConfig.Connection?.Name ?? $"Connection {duplicateConfig.ConnectionId}";
+                return BadRequest(new { message = $"This WhatsApp Business Account (WABA ID: {request.WabaId}) is already configured on connection '{connName}'. Please disconnect it first or use a different WABA ID." });
+            }
 
             WabaConfiguration? config = null;
             if (request.ConnectionId.HasValue && request.ConnectionId.Value > 0)
@@ -232,9 +254,43 @@ namespace WhatsAppCampaignApi.Controllers
                     // Use config.Connected as the source of truth (not conn.IsConnected which may be stale)
                     bool actuallyConnected = config?.Connected ?? false;
 
+                    if (!actuallyConnected)
+                    {
+                        return Ok(new
+                        {
+                            connectionId = conn.Id,
+                            connectionName = conn.Name,
+                            isConnected = false,
+                            facebookAppId = config?.FacebookAppId ?? string.Empty,
+                            facebookAppSecret = !string.IsNullOrEmpty(config?.FacebookAppSecret) ? "••••••••" : string.Empty,
+                            wabaId = string.Empty,
+                            accessToken = string.Empty,
+                            webhookUrl = config?.WebhookUrl ?? string.Empty,
+                            verifyToken = config?.VerifyToken ?? string.Empty,
+                            phoneNumbers = Array.Empty<object>(),
+                            tokenInfo = (object?)null,
+                            business = (object?)null
+                        });
+                    }
+
                     var todayUtc = DateTime.UtcNow.Date;
                     int sentToday = await _dbContext.ChatMessages
                         .CountAsync(m => m.ConnectionId == connectionId.Value && m.Direction == Models.Enums.ChatMessageDirection.Outgoing && (m.IsTemplate || m.CampaignContactId != null) && m.CreatedAt >= todayUtc);
+
+                    string finalWebhookUrl = config?.WebhookUrl ?? string.Empty;
+                    if (config != null && !string.IsNullOrEmpty(config.FacebookAppId) && !string.IsNullOrEmpty(config.FacebookAppSecret))
+                    {
+                        var metaWebhookUrl = await _metaGraphService.FetchWebhookUrlFromMetaAsync(config.FacebookAppId, config.FacebookAppSecret, config.WabaId, config.AccessToken);
+                        if (!string.IsNullOrWhiteSpace(metaWebhookUrl))
+                        {
+                            finalWebhookUrl = metaWebhookUrl;
+                            if (config.WebhookUrl != metaWebhookUrl)
+                            {
+                                config.WebhookUrl = metaWebhookUrl;
+                                await _wabaRepository.AddOrUpdateAsync(config);
+                            }
+                        }
+                    }
 
                     return Ok(new
                     {
@@ -245,7 +301,7 @@ namespace WhatsAppCampaignApi.Controllers
                         facebookAppSecret = !string.IsNullOrEmpty(config?.FacebookAppSecret) ? "••••••••" : string.Empty,
                         wabaId = config?.WabaId ?? string.Empty,
                         accessToken = config?.AccessToken ?? string.Empty,
-                        webhookUrl = string.IsNullOrWhiteSpace(config?.WebhookUrl) ? $"{Request.Scheme}://{Request.Host}/api/webhook/whatsapp" : config.WebhookUrl,
+                        webhookUrl = finalWebhookUrl,
                         verifyToken = string.IsNullOrWhiteSpace(config?.VerifyToken) ? string.Empty : config.VerifyToken,
                         phoneNumbers = connPhones.Select(p => new
                         {
@@ -350,6 +406,31 @@ namespace WhatsAppCampaignApi.Controllers
 
             await _wabaRepository.DeleteAsync();
             return Ok(new { message = "WhatsApp Business Account soft-disconnected successfully." });
+        }
+
+        [HttpPost("disconnect-webhook")]
+        public async Task<IActionResult> DisconnectWebhook([FromQuery] int? connectionId = null)
+        {
+            if (!connectionId.HasValue)
+            {
+                return BadRequest(new { message = "Connection ID is required." });
+            }
+
+            var config = await _dbContext.WabaConfigurations
+                .FirstOrDefaultAsync(c => c.ConnectionId == connectionId.Value);
+
+            if (config == null)
+            {
+                return BadRequest(new { message = "No configuration found for this connection." });
+            }
+
+            config.VerifyToken = string.Empty;
+            config.FacebookAppSecret = string.Empty;
+            config.WebhookUrl = string.Empty;
+            config.UpdatedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+
+            return Ok(new { message = "Webhook disconnected successfully. Verify Token and App Secret have been cleared." });
         }
 
         [HttpPost("refresh")]

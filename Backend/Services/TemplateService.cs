@@ -21,6 +21,15 @@ public class TemplateService : ITemplateService
 
     public async Task<PagedResponse<TemplateResponse>> GetAllAsync(PagedRequest request, string? status = null, string? category = null)
     {
+        try
+        {
+            await SyncFromWhatsAppAsync();
+        }
+        catch
+        {
+            // Ignore sync errors during page load
+        }
+
         var query = _dbContext.Templates.AsNoTracking().Include(t => t.Variables).AsQueryable();
 
         if (!string.IsNullOrEmpty(status) && Enum.TryParse<TemplateStatus>(status, true, out var parsedStatus))
@@ -167,7 +176,26 @@ public class TemplateService : ITemplateService
 
     public async Task<int> SyncFromWhatsAppAsync()
     {
-        var waTemplates = await _whatsAppService.GetTemplatesAsync();
+        var allConfigs = await _dbContext.WabaConfigurations.AsNoTracking().Where(c => c.ConnectionId != null).ToListAsync();
+        var allWaTemplates = new List<WhatsAppTemplateInfo>();
+
+        if (allConfigs.Count > 0)
+        {
+            foreach (var cfg in allConfigs)
+            {
+                if (cfg.ConnectionId.HasValue)
+                {
+                    var connTpls = await _whatsAppService.GetTemplatesForConnectionAsync(cfg.ConnectionId.Value);
+                    allWaTemplates.AddRange(connTpls);
+                }
+            }
+        }
+        else
+        {
+            allWaTemplates = await _whatsAppService.GetTemplatesAsync();
+        }
+
+        var waTemplates = allWaTemplates.GroupBy(t => t.Name).Select(g => g.First()).ToList();
         int newCount = 0;
 
         foreach (var waTemplate in waTemplates)

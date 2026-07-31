@@ -83,6 +83,15 @@ export const wabaService = {
     }
   },
 
+  disconnectWebhook: async (connectionId?: number): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.post('/disconnect-webhook', null, { params: { connectionId } })
+      return { success: true, message: response.data.message || 'Webhook disconnected successfully.' }
+    } catch (e: any) {
+      return { success: false, message: e.response?.data?.message || 'Failed to disconnect webhook.' }
+    }
+  },
+
   sendTestMessage: async (toPhoneNumber: string, connectionId?: number): Promise<{ success: boolean; message: string }> => {
     try {
       const response = await api.post('/send-message', {

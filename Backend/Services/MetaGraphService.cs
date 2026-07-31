@@ -353,5 +353,62 @@ namespace WhatsAppCampaignApi.Services
                 return false;
             }
         }
+
+        public async Task<string?> FetchWebhookUrlFromMetaAsync(string appId, string appSecret, string? wabaId = null, string? accessToken = null)
+        {
+            if (string.IsNullOrWhiteSpace(appId) || IsMock(appId) || IsMock(appSecret))
+            {
+                return null;
+            }
+
+            try
+            {
+                var client = CreateClient();
+                // 1. Fetch App Webhook Subscriptions from Meta Graph API
+                string appAccessToken = $"{appId}|{appSecret}";
+                string url = $"{MetaGraphBaseUrl}/{appId}/subscriptions?access_token={appAccessToken}";
+                
+                var response = await client.GetAsync(url);
+                if (response.IsSuccessStatusCode)
+                {
+                    string json = await response.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in dataArr.EnumerateArray())
+                        {
+                            if (item.TryGetProperty("callback_url", out var cbProp) && !string.IsNullOrWhiteSpace(cbProp.GetString()))
+                            {
+                                string callbackUrl = cbProp.GetString()!;
+                                _logger.LogInformation("Fetched dynamic Webhook URL from Meta API for App {AppId}: {Url}", appId, callbackUrl);
+                                return callbackUrl;
+                            }
+                        }
+                    }
+                }
+
+                // 2. Query WABA webhook_configuration if wabaId and accessToken provided
+                if (!string.IsNullOrEmpty(wabaId) && !string.IsNullOrEmpty(accessToken) && !IsMock(wabaId) && !IsMock(accessToken))
+                {
+                    string wabaUrl = $"{MetaGraphBaseUrl}/{wabaId}?fields=id,name,subscribed_apps,webhook_configuration&access_token={accessToken}";
+                    var wabaResp = await client.GetAsync(wabaUrl);
+                    if (wabaResp.IsSuccessStatusCode)
+                    {
+                        string wabaJson = await wabaResp.Content.ReadAsStringAsync();
+                        using var wabaDoc = JsonDocument.Parse(wabaJson);
+                        if (wabaDoc.RootElement.TryGetProperty("webhook_configuration", out var whConfig) && whConfig.TryGetProperty("callback_url", out var cbProp) && !string.IsNullOrWhiteSpace(cbProp.GetString()))
+                        {
+                            return cbProp.GetString();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not fetch dynamic Webhook URL from Meta API for App {AppId}", appId);
+            }
+
+            return null;
+        }
     }
 }

@@ -9,7 +9,7 @@ import { HealthCard } from '../../components/HealthCard/HealthCard'
 import { InfoCard } from '../../components/InfoCard/InfoCard'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import toast from 'react-hot-toast'
-import { QrCode, HelpCircle, Key, Send, Globe, Link2, RefreshCw, XCircle, Eye, EyeOff, Camera } from 'lucide-react'
+import { QrCode, HelpCircle, Key, Send, Globe, Link2, Unlink, RefreshCw, XCircle, Eye, EyeOff, Camera } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import './ConnectWABA.css'
 
@@ -89,6 +89,7 @@ export const ConnectWABA: React.FC = () => {
     connectApp,
     configureWaba,
     disconnectWaba,
+    disconnectWebhook,
     sendTestMessage,
     verifyWebhook,
     refreshHealth,
@@ -149,6 +150,15 @@ export const ConnectWABA: React.FC = () => {
 
   const handleVerifyWebhook = async () => {
     const res = await verifyWebhook(connectionId)
+    if (res.success) {
+      toast.success(res.message)
+    } else {
+      toast.error(res.message)
+    }
+  }
+
+  const handleDisconnectWebhook = async () => {
+    const res = await disconnectWebhook(connectionId)
     if (res.success) {
       toast.success(res.message)
     } else {
@@ -259,14 +269,27 @@ export const ConnectWABA: React.FC = () => {
                 </div>
 
                 <div className="waba-card-footer">
-                  <button
-                    type="submit"
-                    className="btn-waba-action"
-                    disabled={isConnecting}
-                  >
-                    <Link2 size={16} />
-                    <span>{isConnecting ? 'Connecting...' : 'Connect Webhook'}</span>
-                  </button>
+                  {isStep1Done ? (
+                    <button
+                      type="button"
+                      className="btn-waba-action"
+                      style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)', borderColor: '#ef4444' }}
+                      onClick={handleDisconnectWebhook}
+                      disabled={isConnecting}
+                    >
+                      <Unlink size={16} />
+                      <span>Disconnect Webhook</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      className="btn-waba-action"
+                      disabled={isConnecting}
+                    >
+                      <Link2 size={16} />
+                      <span>{isConnecting ? 'Connecting...' : 'Connect Webhook'}</span>
+                    </button>
+                  )}
                 </div>
               </form>
 
@@ -469,7 +492,7 @@ export const ConnectWABA: React.FC = () => {
 
               <div className="form-group" style={{ marginTop: '16px' }}>
                 <label className="waba-input-label">Webhook URL</label>
-                <CopyField value={webhookUrl || `${window.location.origin}/api/webhook/whatsapp`} isSensitive={false} />
+                <CopyField value={webhookUrl || ''} isSensitive={false} />
               </div>
             </div>
 

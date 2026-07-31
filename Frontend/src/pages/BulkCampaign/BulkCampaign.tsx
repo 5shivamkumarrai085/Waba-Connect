@@ -46,6 +46,7 @@ export const BulkCampaign: React.FC = () => {
   const [templatesList, setTemplatesList] = useState<Template[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | string>('')
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
 
   // Dynamic variables values state
   const [varValues, setVarValues] = useState<Record<number, string>>({})
@@ -352,10 +353,23 @@ export const BulkCampaign: React.FC = () => {
                         fontSize: '13px', fontWeight: 500, cursor: 'pointer',
                         transition: 'all 0.2s', fontFamily: 'inherit'
                       }}
-                      onClick={() => {
-                        setSelectedConnectionIds(prev =>
-                          isSelected ? prev.filter(id => id !== conn.id) : [...prev, conn.id]
-                        )
+                      onClick={async () => {
+                        const next = isSelected ? [] : [conn.id]
+                        setSelectedConnectionIds(next)
+                        setSelectedTemplateId(0)
+                        setTemplatesList([])
+                        setIsLoadingTemplates(true)
+                        try {
+                          if (next.length > 0) {
+                            const connTpls = await templateService.getTemplatesByConnection(conn.id)
+                            setTemplatesList(connTpls)
+                          } else {
+                            const allTpls = await templateService.getTemplates()
+                            setTemplatesList(allTpls)
+                          }
+                        } finally {
+                          setIsLoadingTemplates(false)
+                        }
                       }}
                     >
                       {isSelected && <span style={{ fontWeight: 700 }}>✓</span>}
@@ -440,6 +454,7 @@ export const BulkCampaign: React.FC = () => {
                   className="form-control"
                   value={selectedTemplateId}
                   onChange={handleTemplateChange}
+                  disabled={isLoadingTemplates}
                   required
                 >
                   <option value="">Nothing Selected</option>
@@ -449,6 +464,11 @@ export const BulkCampaign: React.FC = () => {
                     </option>
                   ))}
                 </select>
+                {isLoadingTemplates && (
+                  <div style={{ fontSize: '12px', color: '#6366f1', marginTop: '4px', fontWeight: 500 }}>
+                    Loading approved templates...
+                  </div>
+                )}
               </div>
             )}
 

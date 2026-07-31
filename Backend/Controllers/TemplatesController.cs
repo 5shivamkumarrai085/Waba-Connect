@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Templates;
 using WhatsAppCampaignApi.Services.Interfaces;
@@ -10,10 +12,53 @@ namespace WhatsAppCampaignApi.Controllers;
 public class TemplatesController : ControllerBase
 {
     private readonly ITemplateService _templateService;
+    private readonly IWhatsAppService _whatsAppService;
+    private readonly AppDbContext _dbContext;
 
-    public TemplatesController(ITemplateService templateService)
+    public TemplatesController(ITemplateService templateService, IWhatsAppService whatsAppService, AppDbContext dbContext)
     {
         _templateService = templateService;
+        _whatsAppService = whatsAppService;
+        _dbContext = dbContext;
+    }
+
+    [HttpGet("by-connection/{connectionId}")]
+    public async Task<ActionResult<ApiResponse<List<TemplateResponse>>>> GetByConnection(int connectionId)
+    {
+        var metaTemplates = await _whatsAppService.GetTemplatesForConnectionAsync(connectionId);
+        var approvedMetaTemplates = metaTemplates.Where(t => t.Status.Equals("APPROVED", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var dbTemplates = await _dbContext.Templates.Include(t => t.Variables).ToListAsync();
+        
+        var results = new List<TemplateResponse>();
+        foreach (var mt in approvedMetaTemplates)
+        {
+            var dbMatch = dbTemplates.FirstOrDefault(t => t.Name.Equals(mt.Name, StringComparison.OrdinalIgnoreCase));
+            if (dbMatch != null)
+            {
+                var fullDbRes = await _templateService.GetByIdAsync(dbMatch.Id);
+                results.Add(fullDbRes);
+            }
+            else
+            {
+                results.Add(new TemplateResponse
+                {
+                    Id = Math.Abs(mt.Name.GetHashCode()),
+                    Name = mt.Name,
+                    Language = mt.Language,
+                    Category = mt.Category,
+                    TemplateType = mt.TemplateType ?? "Text",
+                    Status = "Approved",
+                    BodyText = mt.BodyText ?? string.Empty,
+                    HeaderType = "None",
+                    HeaderContent = mt.HeaderContent,
+                    FooterText = mt.FooterText,
+                    WhatsAppTemplateId = mt.Id
+                });
+            }
+        }
+
+        return Ok(new ApiResponse<List<TemplateResponse>> { Success = true, Data = results });
     }
 
     [HttpGet]

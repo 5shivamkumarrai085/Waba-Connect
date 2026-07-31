@@ -36,6 +36,7 @@ interface WabaStoreState {
   disconnectWaba: (connectionId?: number) => Promise<{ success: boolean; message: string }>
   sendTestMessage: (toPhoneNumber: string, connectionId?: number) => Promise<{ success: boolean; message: string }>
   verifyWebhook: (connectionId?: number) => Promise<{ success: boolean; message: string }>
+  disconnectWebhook: (connectionId?: number) => Promise<{ success: boolean; message: string }>
   refreshHealth: (connectionId?: number) => Promise<void>
   updateMessageLimit: (limit: number, connectionId?: number) => Promise<{ success: boolean; message: string }>
 }
@@ -86,10 +87,19 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
     try {
       const dashboard = await wabaService.getDashboard(targetId)
       if (dashboard) {
-        // Preserve the user-typed facebookAppSecret if backend returns masked or empty
+        // Preserve user-typed facebookAppSecret when backend returns masked value;
+        // clear it only when backend returns genuinely empty (fully disconnected/wiped)
         const currentSecret = get().facebookAppSecret
         const backendSecret = dashboard.facebookAppSecret || ''
-        const resolvedSecret = backendSecret && backendSecret !== '••••••••' ? backendSecret : currentSecret
+        let resolvedSecret = ''
+        if (backendSecret && backendSecret !== '••••••••') {
+          // Backend returned a real (unmasked) secret — use it
+          resolvedSecret = backendSecret
+        } else if (backendSecret === '••••••••') {
+          // Backend has a secret but masked it — keep what user typed locally
+          resolvedSecret = currentSecret
+        }
+        // else: backendSecret is empty → secret was wiped (full disconnect) → resolvedSecret stays ''
 
         set({
           activeConnectionId: targetId ?? null,
@@ -235,6 +245,26 @@ export const useWabaStore = create<WabaStoreState>((set, get) => ({
       return { success: false, message: err?.message || 'Webhook verification failed.' }
     } finally {
       set({ isVerifyingWebhook: false })
+    }
+  },
+  
+  disconnectWebhook: async (connectionId) => {
+    const targetId = connectionId ?? get().activeConnectionId ?? undefined
+    set({ isLoading: true })
+    try {
+      const res = await wabaService.disconnectWebhook(targetId)
+      if (res.success) {
+        set({
+          verifyToken: '',
+          facebookAppSecret: '',
+          webhookUrl: ''
+        })
+      }
+      return res
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Error disconnecting webhook.' }
+    } finally {
+      set({ isLoading: false })
     }
   },
   

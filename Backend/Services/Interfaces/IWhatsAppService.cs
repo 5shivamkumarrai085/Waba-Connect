@@ -47,6 +47,11 @@ public interface IWhatsAppService
     Task<List<WhatsAppTemplateInfo>> GetTemplatesAsync();
 
     /// <summary>
+    /// Fetches all templates for a specific WABA Connection from Meta Graph API.
+    /// </summary>
+    Task<List<WhatsAppTemplateInfo>> GetTemplatesForConnectionAsync(int connectionId);
+
+    /// <summary>
     /// Verifies the webhook callback from Meta.
     /// </summary>
     bool VerifyWebhook(string mode, string token, string challenge);
@@ -78,6 +83,8 @@ public class WhatsAppTemplateInfo
     public string Category { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string? BodyText { get; set; }
+    public string? HeaderContent { get; set; }
+    public string? FooterText { get; set; }
     public string? RejectReason { get; set; }
     public string? TemplateType { get; set; }
 }

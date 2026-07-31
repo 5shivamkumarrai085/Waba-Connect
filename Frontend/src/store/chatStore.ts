@@ -93,16 +93,21 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     const fetchId = activeConversationId
 
     try {
-      const messages = await chatService.getMessages(fetchId)
+      const serverMessages = await chatService.getMessages(fetchId)
       
       if (get().activeConversationId === fetchId) {
-        set((state) => ({
-          messages,
-          messagesCache: {
-            ...state.messagesCache,
-            [fetchId]: messages
+        set((state) => {
+          // Preserve optimistic (temp) messages that haven't been confirmed by server yet
+          const tempMessages = state.messages.filter(m => m.id < 0)
+          const mergedMessages = [...serverMessages, ...tempMessages]
+          return {
+            messages: mergedMessages,
+            messagesCache: {
+              ...state.messagesCache,
+              [fetchId]: mergedMessages
+            }
           }
-        }))
+        })
       }
     } catch {
       // Error handled silently

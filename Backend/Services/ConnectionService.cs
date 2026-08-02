@@ -14,11 +14,13 @@ public class ConnectionService : IConnectionService
 {
     private readonly AppDbContext _dbContext;
     private readonly IPermissionService _permissionService;
+    private readonly ITemplateService _templateService;
 
-    public ConnectionService(AppDbContext dbContext, IPermissionService permissionService)
+    public ConnectionService(AppDbContext dbContext, IPermissionService permissionService, ITemplateService templateService)
     {
         _dbContext = dbContext;
         _permissionService = permissionService;
+        _templateService = templateService;
     }
 
     public async Task<List<ConnectionResponse>> GetAllAsync(string? userId = null, string? departmentId = null)
@@ -142,6 +144,17 @@ public class ConnectionService : IConnectionService
         }
 
         await _dbContext.SaveChangesAsync();
+
+        // Sync templates to remove templates from this now-disconnected connection
+        try
+        {
+            await _templateService.SyncFromWhatsAppAsync();
+        }
+        catch
+        {
+            // Don't fail disconnect if template sync fails
+        }
+
         return true;
     }
 

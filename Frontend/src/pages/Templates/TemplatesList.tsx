@@ -14,6 +14,7 @@ import {
   ChevronRight
 } from 'lucide-react'
 import './TemplatesList.css'
+import { useConnectionStore } from '../../store/connectionStore'
 
 export const TemplatesList: React.FC = () => {
   const {
@@ -52,7 +53,7 @@ export const TemplatesList: React.FC = () => {
   } = useTemplateStore()
 
   // UI state for showing/hiding filters and columns
-  const [showFilters, setShowFilters] = useState(true)
+  const [showFilters, setShowFilters] = useState(false)
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
     id: true,
     name: true,
@@ -63,11 +64,31 @@ export const TemplatesList: React.FC = () => {
     bodyText: true
   })
   const [expandedIds, setExpandedIds] = useState<Record<number, boolean>>({})
+  const [sortKey, setSortKey] = useState<string>('')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
+  const { connections, fetchDashboard } = useConnectionStore()
+
+  // Fetch connections first, then load templates from Meta for each connected connection
   useEffect(() => {
-    loadTemplates()
-    loadFilterOptions()
+    const init = async () => {
+      await fetchDashboard()
+      loadFilterOptions()
+    }
+    init()
   }, [])
+
+  // When connections change, load templates dynamically from Meta
+  useEffect(() => {
+    if (connections.length > 0) {
+      const connectedIds = connections
+        .filter(c => c.isConnected && c.phoneNumber)
+        .map(c => c.id)
+      loadTemplates(connectedIds)
+    } else {
+      // If connections haven't loaded yet, don't clear templates
+    }
+  }, [connections])
 
   // Filter templates locally based on ALL selected filters
   const filteredTemplates = templates.filter((t) => {
@@ -109,25 +130,64 @@ export const TemplatesList: React.FC = () => {
     return true
   })
 
+  // Sort logic — applied after filtering, before pagination
+  const sortedTemplates = [...filteredTemplates].sort((a, b) => {
+    if (!sortKey) return 0
+    let aVal: string | number = ''
+    let bVal: string | number = ''
+    switch (sortKey) {
+      case 'id': aVal = a.id; bVal = b.id; break
+      case 'name': aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase(); break
+      case 'languages': aVal = (a.language || '').toLowerCase(); bVal = (b.language || '').toLowerCase(); break
+      case 'category': aVal = (a.category || '').toLowerCase(); bVal = (b.category || '').toLowerCase(); break
+      case 'type': aVal = (a.templateType || a.type || '').toLowerCase(); bVal = (b.templateType || b.type || '').toLowerCase(); break
+      case 'status': aVal = (a.status || '').toLowerCase(); bVal = (b.status || '').toLowerCase(); break
+      case 'bodyText': aVal = (a.bodyText || '').toLowerCase(); bVal = (b.bodyText || '').toLowerCase(); break
+      default: return 0
+    }
+    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
+    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
+    return 0
+  })
+
+  // Handle column header click for sorting
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDirection('asc')
+    }
+  }
+
   // Pagination calculation
-  const totalResults = filteredTemplates.length
+  const totalResults = sortedTemplates.length
   const startIndex = (currentPage - 1) * pageSize
   const endIndex = Math.min(totalResults, startIndex + pageSize)
-  const paginatedTemplates = filteredTemplates.slice(startIndex, endIndex)
+  const paginatedTemplates = sortedTemplates.slice(startIndex, endIndex)
   const totalPages = Math.max(1, Math.ceil(totalResults / pageSize))
+
+  // Helper to get connected connection IDs
+  const getConnectedIds = () => connections
+    .filter(c => c.isConnected && c.phoneNumber)
+    .map(c => c.id)
 
   const handleLoadTemplates = async () => {
     await refreshTemplates()
+    // After sync, reload from Meta dynamically
+    const connectedIds = getConnectedIds()
+    await loadTemplates(connectedIds)
     toast.success('Templates loaded and synchronized from WABA!')
   }
 
   const handleTemplateManagement = () => {
-    // Open Meta Business Suite template manager in a new tab (Screenshot 2)
+    // Open Meta Business Suite template manager in a new tab
     window.open('https://business.facebook.com/wa/manage/message-templates/', '_blank')
   }
 
   const handleRefresh = async () => {
-    await loadTemplates()
+    const connectedIds = getConnectedIds()
+    await loadTemplates(connectedIds)
     toast.success('Templates list refreshed successfully!')
   }
 
@@ -304,7 +364,20 @@ export const TemplatesList: React.FC = () => {
                   {columnHeaders.map((col) => {
                     const isVisible = visibleColumns[col.key] !== false
                     if (!isVisible) return null
-                    return <th key={col.key}>{col.label}</th>
+                    return (
+                      <th 
+                        key={col.key} 
+                        onClick={() => handleSort(col.key)}
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                      >
+                        {col.label}
+                        {sortKey === col.key && (
+                          <span style={{ marginLeft: '4px', fontSize: '10px' }}>
+                            {sortDirection === 'asc' ? '▲' : '▼'}
+                          </span>
+                        )}
+                      </th>
+                    )
                   })}
                 </tr>
               </thead>
@@ -319,11 +392,11 @@ export const TemplatesList: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  paginatedTemplates.map((template) => (
+                  paginatedTemplates.map((template, index) => (
                     <tr key={template.id}>
-                      {/* ID column */}
+                      {/* ID column - sequential numbering */}
                       {visibleColumns.id !== false && (
-                        <td>{template.id}</td>
+                        <td>{startIndex + index + 1}</td>
                       )}
 
                       {/* Template Name column */}

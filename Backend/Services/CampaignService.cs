@@ -757,7 +757,8 @@ public class CampaignService : ICampaignService
             DeletedAt = c.DeletedAt,
             DeletedBy = c.DeletedBy,
             CreatedAt = c.CreatedAt,
-            UpdatedAt = c.UpdatedAt
+            UpdatedAt = c.UpdatedAt,
+            IsBulkCampaign = c.IsBulkCampaign
         };
     }
 
@@ -884,7 +885,8 @@ public class CampaignService : ICampaignService
             ScheduledAt = request.ScheduledAt,
             Status = Enum.Parse<ScheduleType>(request.ScheduleType, true) == ScheduleType.Immediate ? CampaignStatus.Sending : CampaignStatus.Scheduled,
             TotalRecipients = contactIds.Count,
-            ConnectionId = request.ConnectionId
+            ConnectionId = request.ConnectionId,
+            IsBulkCampaign = true
         };
 
         if (request.Variables != null)

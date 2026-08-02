@@ -91,8 +91,7 @@ export const CampaignWizard: React.FC = () => {
 
       try {
         fetchConnectionDashboard()
-        const [tpls, cts, stats, srcs] = await Promise.all([
-          templateService.getTemplates(),
+        const [cts, stats, srcs] = await Promise.all([
           contactService.getContacts(),
           contactService.getContactStatuses(),
           contactService.getContactSources(),
@@ -100,8 +99,6 @@ export const CampaignWizard: React.FC = () => {
         ])
 
         if (!isMounted) return
-
-        setTemplatesList(tpls)
         setContactsList(cts.filter((c: any) => c.active !== false))
         setStatuses(stats)
         setSources(srcs)
@@ -115,8 +112,21 @@ export const CampaignWizard: React.FC = () => {
             navigate('/campaigns/campaign')
             return
           }
-
-          const template = tpls.find(t => t.name === details.campaign.templateName)
+          // In edit mode, load templates dynamically from connection
+          let editTemplates: Template[] = []
+          if (details.campaign && (details.campaign as any).connectionId) {
+            editTemplates = await templateService.getTemplatesByConnection((details.campaign as any).connectionId)
+          } else {
+            // Fallback: try all connected connections
+            const connList = useConnectionStore.getState().connections
+            const connectedIds = connList.filter((c: any) => c.isConnected && c.phoneNumber).map((c: any) => c.id)
+            for (const cid of connectedIds) {
+              const ct = await templateService.getTemplatesByConnection(cid)
+              editTemplates = [...editTemplates, ...ct]
+            }
+          }
+          setTemplatesList(editTemplates)
+          const template = editTemplates.find((t: Template) => t.name === details.campaign.templateName)
 
           const vars = (details as any).variables || []
           const v1 = vars.find((v: any) => v.variableName === '1')?.variableValue || ''
@@ -411,10 +421,8 @@ export const CampaignWizard: React.FC = () => {
                                 if (next.length > 0) {
                                   const connTpls = await templateService.getTemplatesByConnection(conn.id)
                                   setTemplatesList(connTpls)
-                                } else {
-                                  const allTpls = await templateService.getTemplates()
-                                  setTemplatesList(allTpls)
                                 }
+                                // When deselected, templates stay empty — no DB fallback
                               } finally {
                                 setIsLoadingTemplates(false)
                               }
@@ -448,31 +456,40 @@ export const CampaignWizard: React.FC = () => {
                       </select>
                     </div>
 
-                    <div className="form-group form-group-required">
-                      <label className="form-label">Template</label>
-                      <select
-                        className="form-control"
-                        value={wizardForm.templateName}
-                        onChange={(e) => {
-                          const t = templatesList.find(x => x.name === e.target.value)
-                          setWizardForm({ templateName: e.target.value, templateId: t?.id || 0 })
-                        }}
-                        disabled={isLoadingTemplates}
-                        required
-                      >
-                        <option value="">Select Template</option>
-                        {templatesList
-                          .filter(t => t.status?.toLowerCase() === 'approved')
-                          .map(t => (
-                          <option key={t.id} value={t.name}>{t.name}</option>
-                        ))}
-                      </select>
-                      {isLoadingTemplates && (
-                        <div style={{ fontSize: '12px', color: '#6366f1', marginTop: '4px', fontWeight: 500 }}>
-                          Loading approved templates...
-                        </div>
-                      )}
-                    </div>
+                    {((wizardForm as any).connectionIds?.length > 0) ? (
+                      <div className="form-group form-group-required">
+                        <label className="form-label">Template</label>
+                        <select
+                          className="form-control"
+                          value={wizardForm.templateName}
+                          onChange={(e) => {
+                            const t = templatesList.find(x => x.name === e.target.value)
+                            setWizardForm({ templateName: e.target.value, templateId: t?.id || 0 })
+                          }}
+                          disabled={isLoadingTemplates}
+                          required
+                        >
+                          <option value="">Select Template</option>
+                          {templatesList
+                            .filter(t => t.status?.toLowerCase() === 'approved')
+                            .map(t => (
+                            <option key={t.id} value={t.name}>{t.name}</option>
+                          ))}
+                        </select>
+                        {isLoadingTemplates && (
+                          <div style={{ fontSize: '12px', color: '#6366f1', marginTop: '4px', fontWeight: 500 }}>
+                            Loading approved templates...
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="form-group">
+                        <label className="form-label">Template</label>
+                        <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px', fontStyle: 'italic' }}>
+                          Select a connection to load templates
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

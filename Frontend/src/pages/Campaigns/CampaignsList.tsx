@@ -34,10 +34,13 @@ export const CampaignsList: React.FC = () => {
     deleteCampaign
   } = useCampaignStore()
 
-  const [showFilters, setShowFilters] = useState(true)
+  const [showFilters, setShowFilters] = useState(false)
+  const [sortKey, setSortKey] = useState<string>('')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
     id: true,
     name: true,
+    source: true,
     template: true,
     relation: true,
     total: true,
@@ -114,11 +117,43 @@ export const CampaignsList: React.FC = () => {
     return true
   })
 
+  // Sort logic — applied after filtering, before pagination
+  const sortedCampaigns = [...filteredCampaigns].sort((a, b) => {
+    if (!sortKey) return 0
+    let aVal: string | number = ''
+    let bVal: string | number = ''
+    switch (sortKey) {
+      case 'id': aVal = a.id; bVal = b.id; break
+      case 'name': aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase(); break
+      case 'source': aVal = a.isBulkCampaign ? 1 : 0; bVal = b.isBulkCampaign ? 1 : 0; break
+      case 'template': aVal = a.templateName.toLowerCase(); bVal = b.templateName.toLowerCase(); break
+      case 'relation': aVal = a.relationType.toLowerCase(); bVal = b.relationType.toLowerCase(); break
+      case 'total': aVal = a.total; bVal = b.total; break
+      case 'delivered': aVal = a.deliveredTo; bVal = b.deliveredTo; break
+      case 'read': aVal = a.readBy; bVal = b.readBy; break
+      case 'createdAt': aVal = new Date(a.createdAt).getTime(); bVal = new Date(b.createdAt).getTime(); break
+      default: return 0
+    }
+    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
+    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
+    return 0
+  })
+
+  // Handle column header click for sorting
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDirection('asc')
+    }
+  }
+
   // Pagination parameters
-  const totalResults = filteredCampaigns.length
+  const totalResults = sortedCampaigns.length
   const startIndex = (currentPage - 1) * pageSize
   const endIndex = Math.min(totalResults, startIndex + pageSize)
-  const paginatedCampaigns = filteredCampaigns.slice(startIndex, endIndex)
+  const paginatedCampaigns = sortedCampaigns.slice(startIndex, endIndex)
   const totalPages = Math.max(1, Math.ceil(totalResults / pageSize))
 
   const handleRefresh = async () => {
@@ -142,10 +177,10 @@ export const CampaignsList: React.FC = () => {
     }
   }
 
-  // Column definitions mapping
   const columnHeaders = [
     { key: 'id', label: 'ID' },
     { key: 'name', label: 'Campaign Name' },
+    { key: 'source', label: 'Source' },
     { key: 'template', label: 'Template' },
     { key: 'relation', label: 'Relation Type' },
     { key: 'total', label: 'Total' },
@@ -278,7 +313,20 @@ export const CampaignsList: React.FC = () => {
                   {columnHeaders.map((col) => {
                     const isVisible = visibleColumns[col.key] !== false
                     if (!isVisible) return null
-                    return <th key={col.key}>{col.label}</th>
+                    return (
+                      <th 
+                        key={col.key}
+                        onClick={() => handleSort(col.key)}
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                      >
+                        {col.label}
+                        {sortKey === col.key && (
+                          <span style={{ marginLeft: '4px', fontSize: '10px' }}>
+                            {sortDirection === 'asc' ? '▲' : '▼'}
+                          </span>
+                        )}
+                      </th>
+                    )
                   })}
                 </tr>
               </thead>
@@ -293,11 +341,11 @@ export const CampaignsList: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  paginatedCampaigns.map((camp) => (
+                  paginatedCampaigns.map((camp, index) => (
                     <tr key={camp.id}>
-                      {/* ID Column */}
+                      {/* ID Column - sequential numbering */}
                       {visibleColumns.id !== false && (
-                        <td>{camp.id}</td>
+                        <td>{startIndex + index + 1}</td>
                       )}
 
                       {/* Campaign Name Column with hover view/edit/delete menu */}
@@ -330,6 +378,15 @@ export const CampaignsList: React.FC = () => {
                               </span>
                             </div>
                           </div>
+                        </td>
+                      )}
+
+                      {/* Source Column (Bulk/Normal - from DB) */}
+                      {visibleColumns.source !== false && (
+                        <td>
+                          <span className={`relation-badge ${camp.isBulkCampaign ? 'csv' : 'lead'}`}>
+                            {camp.isBulkCampaign ? 'Bulk' : 'Normal'}
+                          </span>
                         </td>
                       )}
 

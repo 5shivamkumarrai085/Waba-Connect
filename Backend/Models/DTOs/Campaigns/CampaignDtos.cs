@@ -39,6 +39,7 @@ public class CampaignResponse
     public string? DeletedBy { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public bool IsBulkCampaign { get; set; }
 }
 
 public class CampaignDetailResponse : CampaignResponse

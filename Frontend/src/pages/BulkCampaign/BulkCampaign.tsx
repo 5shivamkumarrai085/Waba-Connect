@@ -66,18 +66,8 @@ export const BulkCampaign: React.FC = () => {
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<number[]>([])
   const { connections, fetchDashboard } = useConnectionStore()
 
-  // Load templates on mount
+  // Load connections on mount (templates load only when connection is selected)
   useEffect(() => {
-    const fetchTemplates = async () => {
-      try {
-        const tpls = await templateService.getTemplates()
-        // Only allow APPROVED templates
-        setTemplatesList(tpls.filter(t => t.status === 'Approved'))
-      } catch (err) {
-        toast.error('Failed to load approved templates.')
-      }
-    }
-    fetchTemplates()
     fetchDashboard()
   }, [])
 
@@ -363,10 +353,8 @@ export const BulkCampaign: React.FC = () => {
                           if (next.length > 0) {
                             const connTpls = await templateService.getTemplatesByConnection(conn.id)
                             setTemplatesList(connTpls)
-                          } else {
-                            const allTpls = await templateService.getTemplates()
-                            setTemplatesList(allTpls)
                           }
+                          // When deselected, templates stay empty — no DB fallback
                         } finally {
                           setIsLoadingTemplates(false)
                         }
@@ -447,7 +435,7 @@ export const BulkCampaign: React.FC = () => {
             )}
 
             {/* Template selector dropdown */}
-            {validationData && (
+            {validationData && selectedConnectionIds.length > 0 ? (
               <div className="form-group form-group-required margin-top-20 fade-in">
                 <label className="form-label">Template</label>
                 <select
@@ -470,7 +458,14 @@ export const BulkCampaign: React.FC = () => {
                   </div>
                 )}
               </div>
-            )}
+            ) : validationData && selectedConnectionIds.length === 0 ? (
+              <div className="form-group margin-top-20 fade-in">
+                <label className="form-label">Template</label>
+                <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px', fontStyle: 'italic' }}>
+                  Select a connection to load templates
+                </p>
+              </div>
+            ) : null}
 
             {/* Details Footer Nav Button */}
             <div className="step-nav-buttons-row margin-top-20">

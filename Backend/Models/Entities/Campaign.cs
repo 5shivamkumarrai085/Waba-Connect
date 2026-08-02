@@ -35,6 +35,7 @@ public class Campaign
     public string? FileUrl { get; set; }
     
     public bool IsDeleted { get; set; } = false;
+    public bool IsBulkCampaign { get; set; } = false;
     public DateTime? DeletedAt { get; set; }
     
     [MaxLength(100)]

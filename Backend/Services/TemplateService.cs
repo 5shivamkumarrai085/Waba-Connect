@@ -176,27 +176,30 @@ public class TemplateService : ITemplateService
 
     public async Task<int> SyncFromWhatsAppAsync()
     {
-        var allConfigs = await _dbContext.WabaConfigurations.AsNoTracking().Where(c => c.ConnectionId != null).ToListAsync();
+        var allConfigs = await _dbContext.WabaConfigurations.AsNoTracking().Where(c => c.ConnectionId != null && c.Connected).ToListAsync();
         var allWaTemplates = new List<WhatsAppTemplateInfo>();
 
-        if (allConfigs.Count > 0)
+        foreach (var cfg in allConfigs)
         {
-            foreach (var cfg in allConfigs)
+            if (cfg.ConnectionId.HasValue)
             {
-                if (cfg.ConnectionId.HasValue)
+                try
                 {
                     var connTpls = await _whatsAppService.GetTemplatesForConnectionAsync(cfg.ConnectionId.Value);
                     allWaTemplates.AddRange(connTpls);
                 }
+                catch
+                {
+                    // Skip connections that fail to fetch templates
+                }
             }
-        }
-        else
-        {
-            allWaTemplates = await _whatsAppService.GetTemplatesAsync();
         }
 
         var waTemplates = allWaTemplates.GroupBy(t => t.Name).Select(g => g.First()).ToList();
         int newCount = 0;
+
+        // Track which template names came from Meta
+        var metaTemplateNames = new HashSet<string>(waTemplates.Select(t => t.Name), StringComparer.OrdinalIgnoreCase);
 
         foreach (var waTemplate in waTemplates)
         {
@@ -245,6 +248,23 @@ public class TemplateService : ITemplateService
                 {
                     localTemplate.BodyText = waTemplate.BodyText;
                 }
+            }
+        }
+
+        // Delete DB templates NOT in the Meta response (only connected connections' templates should exist)
+        var allLocalTemplates = await _dbContext.Templates.ToListAsync();
+        var templatesToDelete = allLocalTemplates.Where(t => !metaTemplateNames.Contains(t.Name)).ToList();
+        
+        foreach (var toDelete in templatesToDelete)
+        {
+            // Don't delete templates that are referenced by existing campaigns
+            var isInUse = await _dbContext.Campaigns.AnyAsync(c => c.TemplateId == toDelete.Id);
+            if (!isInUse)
+            {
+                // Also remove any associated variables
+                var vars = await _dbContext.TemplateVariables.Where(v => v.TemplateId == toDelete.Id).ToListAsync();
+                _dbContext.TemplateVariables.RemoveRange(vars);
+                _dbContext.Templates.Remove(toDelete);
             }
         }
 

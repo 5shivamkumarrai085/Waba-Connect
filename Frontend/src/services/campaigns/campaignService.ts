@@ -14,6 +14,7 @@ const mapCampaign = (c: any): Campaign => ({
   createdAt: c.createdAt,
   scheduledAt: c.scheduledAt,
   isDeleted: c.isDeleted,
+  isBulkCampaign: c.isBulkCampaign || false,
   deletedAt: c.deletedAt,
   deletedBy: c.deletedBy
 })

@@ -13,6 +13,7 @@ export interface Campaign {
   createdAt: string
   scheduledAt?: string
   isDeleted?: boolean
+  isBulkCampaign?: boolean
   deletedAt?: string
   deletedBy?: string
 }

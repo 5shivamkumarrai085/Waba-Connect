@@ -39,7 +39,7 @@ interface TemplateStoreState {
   setPageSize: (size: number) => void
   setSort: (column: string, order: 'asc' | 'desc') => void
   
-  loadTemplates: () => Promise<void>
+  loadTemplates: (connectedConnectionIds?: number[]) => Promise<void>
   refreshTemplates: () => Promise<void>
   loadFilterOptions: () => Promise<void>
 }
@@ -79,13 +79,32 @@ export const useTemplateStore = create<TemplateStoreState>((set, get) => ({
   setPageSize: (pageSize) => set({ pageSize, currentPage: 1 }),
   setSort: (sortColumn, sortOrder) => set({ sortColumn, sortOrder }),
   
-  loadTemplates: async () => {
+  loadTemplates: async (connectedConnectionIds?: number[]) => {
     const hasCache = get().templates.length > 0
     if (!hasCache) {
       set({ isLoading: true })
     }
     try {
-      const fetched = await templateService.getTemplates()
+      let fetched: Template[] = []
+      
+      if (connectedConnectionIds && connectedConnectionIds.length > 0) {
+        // Fetch templates dynamically from Meta for each connected connection
+        const results = await Promise.all(
+          connectedConnectionIds.map(id => templateService.getTemplatesByConnection(id))
+        )
+        // Merge and deduplicate by template name
+        const seen = new Set<string>()
+        for (const connTemplates of results) {
+          for (const t of connTemplates) {
+            if (!seen.has(t.name)) {
+              seen.add(t.name)
+              fetched.push(t)
+            }
+          }
+        }
+      }
+      // If no connected connections, fetched stays empty — no templates to show
+      
       set({ templates: fetched, isLoading: false })
     } catch (err) {
       console.error('Error loading templates:', err)

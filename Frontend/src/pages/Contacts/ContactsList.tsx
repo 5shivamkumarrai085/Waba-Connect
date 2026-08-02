@@ -650,7 +650,7 @@ export const ContactsList: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  paginatedContacts.map((contact) => {
+                  paginatedContacts.map((contact, index) => {
                     const isRowSelected = selectedIds.includes(contact.id)
                     
                     return (
@@ -663,9 +663,9 @@ export const ContactsList: React.FC = () => {
                           />
                         </td>
 
-                        {/* ID column */}
+                        {/* ID column - sequential numbering */}
                         {visibleColumns.id !== false && (
-                          <td>{contact.id}</td>
+                          <td>{startIndex + index + 1}</td>
                         )}
 
                         {/* Name column with link styling */}

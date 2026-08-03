@@ -4,6 +4,31 @@ import { toast } from 'react-hot-toast'
 import { chatService } from '../services/chat/chatService'
 import type { ChatAccount, Conversation, Message } from '../types/chat'
 
+const SELECTED_CONNECTION_STORAGE_KEY = 'chat_selected_connection_id'
+
+const readPersistedConnectionId = (): number | null => {
+  try {
+    const raw = window.localStorage.getItem(SELECTED_CONNECTION_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+const persistConnectionId = (id: number | null) => {
+  try {
+    if (id === null) {
+      window.localStorage.removeItem(SELECTED_CONNECTION_STORAGE_KEY)
+    } else {
+      window.localStorage.setItem(SELECTED_CONNECTION_STORAGE_KEY, String(id))
+    }
+  } catch {
+    // localStorage unavailable — ignore, falls back to in-memory only
+  }
+}
+
 interface ChatStoreState {
   accounts: ChatAccount[]
   conversations: Conversation[]
@@ -36,7 +61,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   accounts: [],
   conversations: [],
   activeConversationId: null,
-  selectedConnectionId: null,
+  selectedConnectionId: readPersistedConnectionId(),
   messages: [],
   messagesCache: {},
   activeAbortController: null,
@@ -49,6 +74,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   sidebarSearchQuery: '',
 
   setSelectedConnectionId: (id) => {
+    persistConnectionId(id)
     set({
       selectedConnectionId: id,
       conversations: [],
@@ -73,6 +99,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   loadConversations: async () => {
     const { sidebarSearchQuery, conversationsFilter, selectedConnectionId, isLoadingConversations } = get()
     if (isLoadingConversations) return
+    // No connection resolved yet (fresh session before auto-select runs, or persisted id not restored) —
+    // skip rather than hitting the unfiltered endpoint, which would return every connection's chats mixed together.
+    if (!selectedConnectionId) return
 
     set({ isLoadingConversations: true })
     try {
@@ -159,8 +188,10 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   sendMessage: async (text, mediaUrl, mediaType, mediaFileName) => {
-    const { activeConversationId, fromNumber } = get()
+    const { activeConversationId, fromNumber, conversations } = get()
     if (!activeConversationId) return
+
+    const activeConversation = conversations.find((c) => c.id === activeConversationId)
 
     const tempId = -Date.now()
     const displayBody = mediaUrl 
@@ -205,7 +236,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         mediaUrl,
         mediaType,
         mediaFileName,
-        get().selectedConnectionId || undefined
+        activeConversation?.connectionId || get().selectedConnectionId || undefined
       )
       if (newMsg) {
         set((state) => {

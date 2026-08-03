@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useCampaignStore } from '../../store/campaignStore'
 import { useConnectionStore } from '../../store/connectionStore'
@@ -341,7 +343,7 @@ export const CampaignWizard: React.FC = () => {
   const finalRecipientsCount = wizardForm.selectAllContacts ? filteredContacts.length : wizardForm.selectedContactIds.length
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       {/* Page Title with horizontal badges row */}
       <div className="wizard-title-row">
         <h2 className="wizard-title">{isEditMode ? 'Edit Campaign' : 'Create Campaign'}</h2>
@@ -835,7 +837,7 @@ export const CampaignWizard: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   )
 }
 

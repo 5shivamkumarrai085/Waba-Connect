@@ -471,21 +471,41 @@ a {
   background: #bac4d8;
 }
 
-/* Gen-Z Animations */
-.fade-in { animation: fadeIn 0.4s ease-out forwards; }
-.slide-up { animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-.slide-in-left { animation: slideInLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-.slide-in-right { animation: slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-.scale-in { animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+/* ─── CSS Animations (kept for non-Motion usage) ─── */
 
-/* Stagger delay utilities */
-.stagger-1 { animation-delay: 0.1s; }
-.stagger-2 { animation-delay: 0.2s; }
-.stagger-3 { animation-delay: 0.3s; }
-.stagger-4 { animation-delay: 0.4s; }
-.stagger-5 { animation-delay: 0.5s; }
+/* Simple fade-in for loading states not wrapped by Motion */
+.fade-in { animation: fadeIn 0.3s ease-out forwards; }
 
-/* Effects */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Spinner rotation */
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Effects — utility classes for non-Motion components */
 .glass-panel {
   background: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(12px);
@@ -499,119 +519,21 @@ a {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.hover-lift {
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
-}
-.hover-lift:hover {
-  transform: translateY(-4px) scale(1.01);
-  box-shadow: 0 12px 24px -8px rgba(90, 82, 229, 0.15);
-}
-
-.hover-glow:hover {
-  box-shadow: 0 0 15px rgba(90, 82, 229, 0.4);
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes slideInRight {
-  from { opacity: 0; transform: translateX(20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-@keyframes shimmer {
-  0% { background-position: -1000px 0; }
-  100% { background-position: 1000px 0; }
-}
-
-@keyframes pulse-glow {
-  0% { box-shadow: 0 0 0 0 rgba(90, 82, 229, 0.4); }
-  70% { box-shadow: 0 0 0 10px rgba(90, 82, 229, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(90, 82, 229, 0); }
-}
-
-@keyframes float {
-  0% { transform: translateY(0px); }
-  50% { transform: translateY(-5px); }
-  100% { transform: translateY(0px); }
-}
-
-/* === Gen-Z Animation Utility Classes === */
-.genz-fade-in { animation: fadeIn 0.4s ease-out both; }
-.genz-slide-up { animation: slideUp 0.45s ease-out both; }
-.genz-slide-left { animation: slideInLeft 0.4s ease-out both; }
-.genz-slide-right { animation: slideInRight 0.4s ease-out both; }
-.genz-scale-in { animation: scaleIn 0.35s ease-out both; }
-.genz-float { animation: float 3s ease-in-out infinite; }
-
-/* Stagger delays for lists */
-.genz-stagger-1 { animation-delay: 0.05s; }
-.genz-stagger-2 { animation-delay: 0.1s; }
-.genz-stagger-3 { animation-delay: 0.15s; }
-.genz-stagger-4 { animation-delay: 0.2s; }
-
-/* Gen-Z card hover effect */
-.genz-card-hover {
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
-}
-.genz-card-hover:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(99, 102, 241, 0.12), 0 4px 10px rgba(0,0,0,0.06);
-}
-
-/* Gen-Z button interactions */
-.btn, button[type="submit"], .btn-primary, .btn-secondary {
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
-}
-.btn:hover, .btn-primary:hover {
-  transform: translateY(-1px);
-}
-.btn:active, .btn-primary:active {
-  transform: translateY(0) scale(0.98);
-}
-
-/* Gen-Z input focus glow */
+/* Input focus glow */
 .form-control:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
   border-color: #818cf8 !important;
   transition: all 0.2s ease !important;
 }
 
-/* Gen-Z gradient text for headings */
-.genz-gradient-text {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* Gen-Z glassmorphism card */
-.genz-glass {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-.dark-theme .genz-glass {
-  background: rgba(30, 41, 59, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* ─── Accessibility: Reduced Motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Base Themes (Dark) Overrides */

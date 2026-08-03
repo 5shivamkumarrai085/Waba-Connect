@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, X, UploadCloud, FileText, Trash2, Loader2 } from 'lucide-react'
 import { templateBotService } from '../../services/templateBot/templateBotService'
 import { templateService } from '../../services/templates/templateService'
 import { campaignService } from '../../services/campaigns/campaignService'
+import { useConnectionStore } from '../../store/connectionStore'
 import { toast } from 'react-hot-toast'
 import type { Template } from '../../types/templates'
 import type { TemplateBotVariable } from '../../types/templateBot'
@@ -23,6 +26,12 @@ export const TemplateBotWizard: React.FC = () => {
   const [templateId, setTemplateId] = useState<number | ''>('')
   const [replyType, setReplyType] = useState('On Exact Match')
   const [isActive, setIsActive] = useState(true)
+  const [connectionId, setConnectionId] = useState<number | ''>('')
+  const { connections, fetchConnections } = useConnectionStore()
+
+  useEffect(() => {
+    fetchConnections()
+  }, [fetchConnections])
 
   // Keyword tags state
   const [keywordInput, setKeywordInput] = useState('')
@@ -92,7 +101,8 @@ export const TemplateBotWizard: React.FC = () => {
           setTemplateId(bot.templateId)
           setReplyType(bot.replyType)
           setIsActive(bot.isActive)
-          
+          setConnectionId(bot.connectionId ?? '')
+
           if (bot.triggerKeyword) {
             setKeywords(bot.triggerKeyword.split(',').map((k: string) => k.trim()).filter(Boolean))
           }
@@ -225,7 +235,8 @@ export const TemplateBotWizard: React.FC = () => {
       replyType,
       triggerKeyword: keywords.join(', '),
       isActive,
-      variables: variablesPayload
+      variables: variablesPayload,
+      connectionId: connectionId === '' ? undefined : connectionId
     }
 
     setIsSaving(true)
@@ -267,7 +278,7 @@ export const TemplateBotWizard: React.FC = () => {
     : []
 
   return (
-    <div className="template-bot-wizard-container">
+    <motion.div {...pageTransitionProps}>
       {/* Title Bar */}
       <div className="wizard-title-bar">
         <button className="back-arrow-btn" onClick={() => navigate('/template-bot')}>
@@ -309,6 +320,21 @@ export const TemplateBotWizard: React.FC = () => {
                 <option value="Customer">Customer</option>
               </select>
               {errors.relationType && <span className="error-text">{errors.relationType}</span>}
+            </div>
+
+            {/* Connection scope */}
+            <div className="form-group">
+              <label>Connection</label>
+              <select
+                disabled={isViewMode}
+                value={connectionId}
+                onChange={(e) => setConnectionId(e.target.value ? Number(e.target.value) : '')}
+              >
+                <option value="">All Connections</option>
+                {connections.map((conn) => (
+                  <option key={conn.id} value={conn.id}>{conn.name}</option>
+                ))}
+              </select>
             </div>
 
             {/* Template select */}
@@ -579,6 +605,6 @@ export const TemplateBotWizard: React.FC = () => {
       </>
     )}
   </form>
-    </div>
+    </motion.div>
   )
 }

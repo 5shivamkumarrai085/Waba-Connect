@@ -27,7 +27,8 @@ public class TemplateBotsController : ControllerBase
         [FromQuery] bool? isActive = null,
         [FromQuery] string? search = null,
         [FromQuery] string? sortBy = null,
-        [FromQuery] bool sortDescending = false)
+        [FromQuery] bool sortDescending = false,
+        [FromQuery] int? connectionId = null)
     {
         var request = new PagedRequest
         {
@@ -38,7 +39,7 @@ public class TemplateBotsController : ControllerBase
             SortDescending = sortDescending
         };
 
-        var data = await _botService.GetPagedAsync(request, relationType, isActive);
+        var data = await _botService.GetPagedAsync(request, relationType, isActive, connectionId);
         return Ok(new ApiResponse<PagedResponse<TemplateBotResponse>> { Success = true, Data = data });
     }
 

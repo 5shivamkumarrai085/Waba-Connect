@@ -91,7 +91,9 @@ public class FlowExecutionService : IFlowExecutionService
 
     private async Task<bool> EvaluateTriggersAsync(string phoneNumber, string incomingMessage, int? connectionId = null)
     {
-        var activeFlows = await _dbContext.BotFlows.Where(f => f.IsActive).ToListAsync();
+        var activeFlows = await _dbContext.BotFlows
+            .Where(f => f.IsActive && (f.ConnectionId == null || f.ConnectionId == connectionId))
+            .ToListAsync();
 
         foreach (var flow in activeFlows)
         {

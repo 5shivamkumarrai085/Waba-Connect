@@ -1265,7 +1265,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
             _logger.LogInformation("TryTriggerTemplateBotAsync called for phone {Phone}, text '{Text}', connectionId {ConnectionId}", normalizedPhone, incomingText, connectionId);
 
             var activeTemplateBots = await _dbContext.TemplateBots
-                .Where(b => b.IsActive)
+                .Where(b => b.IsActive && (b.ConnectionId == null || b.ConnectionId == connectionId))
                 .Include(b => b.Template)
                 .Include(b => b.Variables)
                 .ToListAsync();

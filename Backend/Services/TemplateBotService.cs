@@ -22,13 +22,15 @@ public class TemplateBotService : ITemplateBotService
     }
 
     public async Task<PagedResponse<TemplateBotResponse>> GetPagedAsync(
-        PagedRequest request, 
-        string? relationType, 
-        bool? isActive)
+        PagedRequest request,
+        string? relationType,
+        bool? isActive,
+        int? connectionId = null)
     {
         var query = _dbContext.TemplateBots
             .Include(b => b.Template)
             .Include(b => b.Variables)
+            .Include(b => b.Connection)
             .AsQueryable();
 
         // Filters
@@ -40,6 +42,12 @@ public class TemplateBotService : ITemplateBotService
         if (isActive.HasValue)
         {
             query = query.Where(b => b.IsActive == isActive.Value);
+        }
+
+        if (connectionId.HasValue)
+        {
+            // A connection's bot list includes its own scoped bots plus global (unscoped) bots, since those still apply.
+            query = query.Where(b => b.ConnectionId == null || b.ConnectionId == connectionId.Value);
         }
 
         // Search
@@ -111,6 +119,7 @@ public class TemplateBotService : ITemplateBotService
         var bot = await _dbContext.TemplateBots
             .Include(b => b.Template)
             .Include(b => b.Variables)
+            .Include(b => b.Connection)
             .FirstOrDefaultAsync(b => b.Id == id);
 
         if (bot == null)
@@ -147,6 +156,7 @@ public class TemplateBotService : ITemplateBotService
             ReplyType = request.ReplyType,
             TriggerKeyword = request.TriggerKeyword,
             IsActive = request.IsActive,
+            ConnectionId = request.ConnectionId,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -206,6 +216,7 @@ public class TemplateBotService : ITemplateBotService
         bot.ReplyType = request.ReplyType;
         bot.TriggerKeyword = request.TriggerKeyword;
         bot.IsActive = request.IsActive;
+        bot.ConnectionId = request.ConnectionId;
         bot.UpdatedAt = DateTime.UtcNow;
 
         // Clear existing variables
@@ -272,6 +283,7 @@ public class TemplateBotService : ITemplateBotService
             ReplyType = bot.ReplyType,
             TriggerKeyword = bot.TriggerKeyword,
             IsActive = bot.IsActive,
+            ConnectionId = bot.ConnectionId,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -321,6 +333,8 @@ public class TemplateBotService : ITemplateBotService
             ReplyType = bot.ReplyType,
             TriggerKeyword = bot.TriggerKeyword,
             IsActive = bot.IsActive,
+            ConnectionId = bot.ConnectionId,
+            ConnectionName = bot.Connection?.Name,
             CreatedAt = bot.CreatedAt,
             UpdatedAt = bot.UpdatedAt,
             Variables = bot.Variables.Select(v => new TemplateBotVariableDto

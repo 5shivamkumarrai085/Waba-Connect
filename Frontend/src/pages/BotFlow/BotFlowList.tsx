@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { Plus, RefreshCw, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { useBotFlowStore } from '../../store/botFlowStore'
+import { useConnectionStore } from '../../store/connectionStore'
 import { Toggle } from '../../components/Toggle/Toggle'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
@@ -28,15 +31,17 @@ export const BotFlowList: React.FC = () => {
     deleteFlow,
     toggleFlowActive
   } = useBotFlowStore()
+  const { connections, fetchConnections } = useConnectionStore()
 
   // UI state
   const [searchTerm, setSearchTerm] = useState(search)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingFlowId, setEditingFlowId] = useState<number | null>(null)
-  
+
   // Form modal inputs
   const [modalName, setModalName] = useState('')
   const [modalDescription, setModalDescription] = useState('')
+  const [modalConnectionId, setModalConnectionId] = useState<number | ''>('')
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
   // Delete modal state
@@ -46,6 +51,10 @@ export const BotFlowList: React.FC = () => {
   useEffect(() => {
     fetchFlows()
   }, [page, pageSize])
+
+  useEffect(() => {
+    fetchConnections()
+  }, [fetchConnections])
 
   useEffect(() => {
     const delay = setTimeout(() => {
@@ -59,14 +68,16 @@ export const BotFlowList: React.FC = () => {
     setEditingFlowId(null)
     setModalName('')
     setModalDescription('')
+    setModalConnectionId('')
     setFormErrors({})
     setIsModalOpen(true)
   }
 
-  const handleOpenEditModal = (id: number, name: string, description?: string) => {
+  const handleOpenEditModal = (id: number, name: string, description?: string, connectionId?: number | null) => {
     setEditingFlowId(id)
     setModalName(name)
     setModalDescription(description || '')
+    setModalConnectionId(connectionId ?? '')
     setFormErrors({})
     setIsModalOpen(true)
   }
@@ -86,11 +97,12 @@ export const BotFlowList: React.FC = () => {
     }
 
     try {
+      const connId = modalConnectionId === '' ? null : modalConnectionId
       if (editingFlowId !== null) {
-        await updateFlow(editingFlowId, modalName.trim(), modalDescription.trim())
+        await updateFlow(editingFlowId, modalName.trim(), modalDescription.trim(), undefined, connId)
         toast.success('Bot flow updated successfully!')
       } else {
-        await createFlow(modalName.trim(), modalDescription.trim())
+        await createFlow(modalName.trim(), modalDescription.trim(), connId)
         toast.success('Bot flow created successfully!')
       }
       setIsModalOpen(false)
@@ -120,7 +132,7 @@ export const BotFlowList: React.FC = () => {
   const totalPages = Math.ceil(totalCount / pageSize)
 
   return (
-    <div className="bot-flow-list-container">
+    <motion.div {...pageTransitionProps}>
       {/* Action buttons bar */}
       <div className="bot-flow-header-actions">
         <button 
@@ -196,7 +208,7 @@ export const BotFlowList: React.FC = () => {
                         </button>
                         <button 
                           className="action-flow-btn btn-edit"
-                          onClick={() => handleOpenEditModal(flow.id, flow.name, flow.description)}
+                          onClick={() => handleOpenEditModal(flow.id, flow.name, flow.description, flow.connectionId)}
                         >
                           Edit
                         </button>
@@ -281,6 +293,18 @@ export const BotFlowList: React.FC = () => {
                     placeholder="Enter flow description..."
                   />
                 </div>
+                <div className="form-group">
+                  <label>Connection</label>
+                  <select
+                    value={modalConnectionId}
+                    onChange={(e) => setModalConnectionId(e.target.value ? Number(e.target.value) : '')}
+                  >
+                    <option value="">All Connections</option>
+                    {connections.map((conn) => (
+                      <option key={conn.id} value={conn.id}>{conn.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="popup-footer">
                 <button 
@@ -313,6 +337,6 @@ export const BotFlowList: React.FC = () => {
           setFlowToDelete(null)
         }}
       />
-    </div>
+    </motion.div>
   )
 }

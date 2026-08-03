@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useContactStore } from '../../store/contactStore'
 import { contactService } from '../../services/contacts/contactService'
@@ -322,7 +324,7 @@ export const AddContact: React.FC = () => {
   }
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       <h2 className="add-contact-title">{isViewMode ? 'View Contact' : (isEditMode ? 'Edit Contact' : 'Add New Contact')}</h2>
 
       <div className="add-contact-card">
@@ -743,7 +745,7 @@ export const AddContact: React.FC = () => {
           </div>
         </form>
       </div>
-    </div>
+    </motion.div>
   )
 }
 export default AddContact

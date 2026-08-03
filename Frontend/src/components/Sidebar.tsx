@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useSidebarStore } from '../store/zustand'
 import {
   LayoutDashboard,
@@ -141,41 +142,73 @@ export const Sidebar: React.FC = () => {
   return (
     <>
       {/* Floating hamburger button for tablet/mobile */}
-      <button 
+      <motion.button 
         className="sidebar-hamburger" 
         onClick={toggleSidebar}
         aria-label="Toggle Navigation Menu"
+        whileTap={{ scale: 0.9 }}
+        transition={{ duration: 0.1 }}
       >
         {isCollapsed ? <Menu size={20} /> : <X size={20} />}
-      </button>
+      </motion.button>
 
       {/* Backdrop overlay for tablet/mobile */}
-      {!isCollapsed && (
-        <div className="sidebar-backdrop" onClick={() => setCollapsed(true)} />
-      )}
+      <AnimatePresence>
+        {!isCollapsed && (
+          <motion.div 
+            className="sidebar-backdrop" 
+            onClick={() => setCollapsed(true)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          />
+        )}
+      </AnimatePresence>
 
       <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
-          {!isCollapsed && (
-            <div className="sidebar-logo">
-              <img src="/rma.png" alt="RMA Logo" className="sidebar-logo-img" />
-            </div>
-          )}
-          <button 
+          <AnimatePresence mode="wait">
+            {!isCollapsed && (
+              <motion.div 
+                className="sidebar-logo"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+              >
+                <img src="/rma.png" alt="RMA Logo" className="sidebar-logo-img" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <motion.button 
             className="sidebar-toggle-btn" 
             onClick={toggleSidebar}
             aria-label={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            transition={{ duration: 0.1 }}
           >
             {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-          </button>
+          </motion.button>
         </div>
 
         <div className="sidebar-content">
           {menuSections.map((section, idx) => (
             <div key={idx} className="sidebar-section">
-              {section.title && !isCollapsed && (
-                <h3 className="sidebar-section-title">{section.title}</h3>
-              )}
+              <AnimatePresence>
+                {section.title && !isCollapsed && (
+                  <motion.h3 
+                    className="sidebar-section-title"
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -8 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    {section.title}
+                  </motion.h3>
+                )}
+              </AnimatePresence>
               {section.items.map((item) => (
                 <NavLink
                   key={item.name}
@@ -193,6 +226,22 @@ export const Sidebar: React.FC = () => {
             </div>
           ))}
         </div>
+
+        {/* Sidebar Footer — version & fun tagline */}
+        <AnimatePresence>
+          {!isCollapsed && (
+            <motion.div 
+              className="sidebar-footer"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+            >
+              <div className="sidebar-footer-version">OmniConnect v2.0</div>
+              <div className="sidebar-footer-tagline">Built with ☕ and ambition</div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </aside>
     </>
   )

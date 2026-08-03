@@ -12,8 +12,11 @@ public class CreateBotFlowRequest
     public string? Description { get; set; }
     
     public bool IsActive { get; set; } = true;
-    
+
     public string? FlowData { get; set; } // Serialized canvas JSON
+
+    // Null = fires on all connections. Set = scoped to one connection only.
+    public int? ConnectionId { get; set; }
 }
 
 public class UpdateBotFlowRequest : CreateBotFlowRequest
@@ -29,4 +32,8 @@ public class BotFlowResponse
     public string FlowData { get; set; } = "{}";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+
+    // Null = fires on all connections. Set = scoped to one connection only.
+    public int? ConnectionId { get; set; }
+    public string? ConnectionName { get; set; }
 }

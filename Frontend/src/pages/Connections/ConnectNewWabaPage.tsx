@@ -1,4 +1,6 @@
 import React, { useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import { X } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -37,7 +39,7 @@ export const ConnectNewWabaPage: React.FC = () => {
   }
 
   return (
-    <div className="waba-wizard-wrapper fade-in">
+    <motion.div className="waba-wizard-wrapper" {...pageTransitionProps}>
       <div className="waba-wizard-card">
         {/* Header */}
         <div className="waba-wizard-header">
@@ -132,6 +134,6 @@ export const ConnectNewWabaPage: React.FC = () => {
           </div>
         </form>
       </div>
-    </div>
+    </motion.div>
   )
 }

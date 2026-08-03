@@ -20,4 +20,8 @@ public class BotFlow
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    // Null = fires on all connections (legacy/global bot). Set = scoped to one connection only.
+    public int? ConnectionId { get; set; }
+    public Connection? Connection { get; set; }
 }

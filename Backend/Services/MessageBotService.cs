@@ -21,11 +21,12 @@ public class MessageBotService : IMessageBotService
     }
 
     public async Task<PagedResponse<MessageBotResponse>> GetPagedAsync(
-        PagedRequest request, 
-        string? relationType, 
-        bool? isActive)
+        PagedRequest request,
+        string? relationType,
+        bool? isActive,
+        int? connectionId = null)
     {
-        var query = _dbContext.MessageBots.AsQueryable();
+        var query = _dbContext.MessageBots.Include(b => b.Connection).AsQueryable();
 
         // Filters
         if (!string.IsNullOrEmpty(relationType))
@@ -36,6 +37,12 @@ public class MessageBotService : IMessageBotService
         if (isActive.HasValue)
         {
             query = query.Where(b => b.IsActive == isActive.Value);
+        }
+
+        if (connectionId.HasValue)
+        {
+            // A connection's bot list includes its own scoped bots plus global (unscoped) bots, since those still apply.
+            query = query.Where(b => b.ConnectionId == null || b.ConnectionId == connectionId.Value);
         }
 
         // Search
@@ -103,7 +110,7 @@ public class MessageBotService : IMessageBotService
 
     public async Task<MessageBotResponse> GetByIdAsync(int id)
     {
-        var bot = await _dbContext.MessageBots.FindAsync(id);
+        var bot = await _dbContext.MessageBots.Include(b => b.Connection).FirstOrDefaultAsync(b => b.Id == id);
         if (bot == null)
         {
             throw new KeyNotFoundException($"Message bot with ID {id} not found.");
@@ -150,6 +157,7 @@ public class MessageBotService : IMessageBotService
             FileUrl = request.FileUrl,
             
             AssistantName = request.AssistantName,
+            ConnectionId = request.ConnectionId,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -206,6 +214,7 @@ public class MessageBotService : IMessageBotService
         bot.FileUrl = request.FileUrl;
         
         bot.AssistantName = request.AssistantName;
+        bot.ConnectionId = request.ConnectionId;
         bot.UpdatedAt = DateTime.UtcNow;
 
         _dbContext.MessageBots.Entry(bot).State = EntityState.Modified;
@@ -274,6 +283,7 @@ public class MessageBotService : IMessageBotService
             FileUrl = bot.FileUrl,
             
             AssistantName = bot.AssistantName,
+            ConnectionId = bot.ConnectionId,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -331,6 +341,8 @@ public class MessageBotService : IMessageBotService
             FileUrl = bot.FileUrl,
             
             AssistantName = bot.AssistantName,
+            ConnectionId = bot.ConnectionId,
+            ConnectionName = bot.Connection?.Name,
             CreatedAt = bot.CreatedAt,
             UpdatedAt = bot.UpdatedAt
         };

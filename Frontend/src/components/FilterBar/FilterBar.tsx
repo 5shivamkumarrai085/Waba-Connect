@@ -1,4 +1,5 @@
 import React from 'react'
+import { motion } from 'framer-motion'
 import './FilterBar.css'
 
 interface FilterBarProps {
@@ -15,13 +16,23 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   return (
     <div className="filter-bar">
       {options.map((option) => (
-        <button
+        <motion.button
           key={option}
           className={`filter-btn ${activeOption === option ? 'active' : ''}`}
           onClick={() => onChange(option)}
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.97 }}
+          transition={{ duration: 0.12 }}
         >
           {option}
-        </button>
+          {activeOption === option && (
+            <motion.div
+              className="filter-btn-indicator"
+              layoutId="filter-active-indicator"
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+            />
+          )}
+        </motion.button>
       ))}
     </div>
   )

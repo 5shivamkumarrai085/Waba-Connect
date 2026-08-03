@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import {
   Building2,
   CheckSquare,
@@ -93,7 +95,7 @@ export const DepartmentPermissionsList: React.FC = () => {
   })
 
   return (
-    <div className="permission-page-container fade-in">
+    <motion.div className="permission-page-container" {...pageTransitionProps}>
       {/* Breadcrumb & Header */}
       <div className="mb-2 text-xs font-semibold text-slate-500 flex items-center gap-1.5">
         <span>Admin</span>
@@ -317,6 +319,6 @@ export const DepartmentPermissionsList: React.FC = () => {
           onAssignDepartment={handleAssignDepartment}
         />
       )}
-    </div>
+    </motion.div>
   )
 }

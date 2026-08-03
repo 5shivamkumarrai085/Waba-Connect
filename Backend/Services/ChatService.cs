@@ -139,10 +139,9 @@ public class ChatService : IChatService
             dbText = string.IsNullOrWhiteSpace(text) ? $"[Attachment: {fileName}]" : $"[Attachment: {fileName}]\n\n{text}";
         }
 
-        if (request.ConnectionId.HasValue && conversation.ConnectionId != request.ConnectionId)
-        {
-            conversation.ConnectionId = request.ConnectionId;
-        }
+        // A conversation's ConnectionId is fixed at creation (unique index on ContactId+ConnectionId) —
+        // never reassign it here, or it can collide with another pre-existing conversation for the same
+        // contact on a different connection and throw a DbUpdateException on SaveChanges.
         var effectiveConnectionId = conversation.ConnectionId ?? request.ConnectionId;
 
         var account = await ResolveAccountAsync(request.FromPhoneNumberId, conversation);

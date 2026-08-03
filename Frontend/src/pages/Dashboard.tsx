@@ -1,34 +1,73 @@
 import React, { useEffect, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { StatCard } from '../components/StatCard'
+import { QuickActions } from '../components/QuickActions'
 import { MessageSquare, Users, Megaphone, FileText, Plus } from 'lucide-react'
 import { useDashboardStore } from '../store/dashboardStore'
 import { Skeleton } from '../components/Skeleton'
 import { FilterBar } from '../components/FilterBar/FilterBar'
+import {
+  fadeSlideUp,
+  staggerContainer,
+  staggerChild,
+  transitions,
+  buttonHoverProps,
+  pageTransitionProps
+} from '../utils/motion'
+import { getLoadingQuote, resetLoadingQuote } from '../utils/quotes'
 
 // Lazy-loaded below-the-fold heavy charts and tables
 const ChartCard = lazy(() => import('../components/ChartCard'))
-const TrendCard = lazy(() => import('../components/TrendCard'))
-const TableCard = lazy(() => import('../components/TableCard'))
+const DeliveryRateCard = lazy(() => import('../components/DeliveryRateCard'))
+const TopCampaignsCard = lazy(() => import('../components/TopCampaignsCard'))
+const RecentActivityCard = lazy(() => import('../components/RecentActivityCard'))
+
+const PERIOD_LABEL: Record<string, string | undefined> = {
+  today: 'yesterday',
+  week: 'last week',
+  month: 'last month',
+  all: undefined
+}
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate()
-  
+
   // Atomic store selectors to prevent unnecessary parent re-renders
   const summary = useDashboardStore(state => state.summary)
   const metrics = useDashboardStore(state => state.metrics)
+  const deliveryBreakdown = useDashboardStore(state => state.deliveryBreakdown)
+  const readBreakdown = useDashboardStore(state => state.readBreakdown)
+  const topCampaigns = useDashboardStore(state => state.topCampaigns)
+  const recentActivity = useDashboardStore(state => state.recentActivity)
   const isLoading = useDashboardStore(state => state.isLoading)
+  const isBackgroundSyncing = useDashboardStore(state => state.isBackgroundSyncing)
   const loadDashboardData = useDashboardStore(state => state.loadDashboardData)
+  const startPolling = useDashboardStore(state => state.startPolling)
   const dashboardTimeFilter = useDashboardStore(state => state.dashboardTimeFilter)
   const setDashboardTimeFilter = useDashboardStore(state => state.setDashboardTimeFilter)
 
   useEffect(() => {
+    resetLoadingQuote()
     loadDashboardData()
   }, [])
 
+  // Keep the dashboard live: re-poll on an interval matched to the active filter's cache TTL.
+  useEffect(() => {
+    const stopPolling = startPolling()
+    return stopPolling
+  }, [dashboardTimeFilter, startPolling])
+
   const handleNewCampaignClick = () => {
-    navigate('/campaigns/campaign')
+    navigate('/campaigns/campaign/create')
   }
+
+  const periodLabel = PERIOD_LABEL[dashboardTimeFilter]
+  const istHour = Number(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hourCycle: 'h23' }).format(new Date())
+  )
+  const timeGreeting = istHour < 12 ? 'Good Morning' : istHour < 17 ? 'Good Afternoon' : 'Good Evening'
+  const greeting = `${timeGreeting}, RMA! 👋`
 
   if (isLoading) {
     return (
@@ -41,6 +80,11 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
 
+        {/* Fun Loading Quote */}
+        <div className="loading-quote-banner">
+          <p className="loading-quote-text">{getLoadingQuote()}</p>
+        </div>
+
         {/* Statistical Cards Grid Skeleton */}
         <div className="stat-cards-grid">
           <Skeleton variant="stat-card" count={4} />
@@ -49,13 +93,7 @@ export const Dashboard: React.FC = () => {
         {/* Main Hourly Chart Skeleton */}
         <Skeleton variant="chart" />
 
-        {/* Trends Sub-charts Skeleton */}
-        <div className="dashboard-trends-grid">
-          <Skeleton variant="chart" style={{ height: 260 }} />
-          <Skeleton variant="chart" style={{ height: 260 }} />
-        </div>
-
-        {/* Campaign Statistics Tables Skeleton */}
+        {/* Tables Skeleton */}
         <div className="dashboard-tables-grid">
           <Skeleton variant="table" style={{ height: 380 }} />
           <Skeleton variant="table" style={{ height: 380 }} />
@@ -65,11 +103,20 @@ export const Dashboard: React.FC = () => {
   }
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       {/* Welcome Banner */}
-      <div className="dashboard-welcome">
+      <motion.div
+        className="dashboard-welcome"
+        variants={fadeSlideUp}
+        initial="hidden"
+        animate="visible"
+        transition={transitions.normal}
+      >
         <div className="dashboard-welcome-left">
-          <h1>Welcome Back, super ! 👋</h1>
+          <h1>
+            {greeting}
+            {isBackgroundSyncing && <span className="dashboard-sync-dot" title="Refreshing…" />}
+          </h1>
           <p>Here's what's happening with your WhatsApp business today.</p>
         </div>
         <div className="dashboard-welcome-right">
@@ -78,74 +125,115 @@ export const Dashboard: React.FC = () => {
             activeOption={dashboardTimeFilter}
             onChange={setDashboardTimeFilter}
           />
-          <button className="btn btn-primary" onClick={handleNewCampaignClick}>
+          <motion.button
+            className="btn btn-primary"
+            onClick={handleNewCampaignClick}
+            {...buttonHoverProps}
+          >
             <Plus size={16} /> New Campaign
-          </button>
+          </motion.button>
         </div>
-      </div>
+      </motion.div>
 
-      {/* Statistical Cards Grid */}
-      <div className="stat-cards-grid">
-        <StatCard
-          icon={<MessageSquare size={20} />}
-          label="Total Messages"
-          value={metrics.messages.total}
-          bottomLabel="Today"
-          bottomValue={metrics.messages.today}
-          colorClass="blue"
-        />
-        <StatCard
-          icon={<Users size={20} />}
-          label="Total Contacts"
-          value={metrics.contacts.total}
-          bottomLabel="Active"
-          bottomValue={metrics.contacts.active}
-          colorClass="purple"
-        />
-        <StatCard
-          icon={<Megaphone size={20} />}
-          label="Total Campaigns"
-          value={metrics.campaigns.total}
-          bottomLabel="Active"
-          bottomValue={metrics.campaigns.active}
-          colorClass="green"
-        />
-        <StatCard
-          icon={<FileText size={20} />}
-          label="Total Templates"
-          value={metrics.templates.total}
-          bottomLabel="Approved"
-          bottomValue={metrics.templates.approved}
-          colorClass="orange"
-        />
-      </div>
+      {/* Statistical Cards Grid — Staggered entrance */}
+      <motion.div
+        className="stat-cards-grid"
+        variants={staggerContainer(0.08, 0.1)}
+        initial="hidden"
+        animate="visible"
+      >
+        <motion.div variants={staggerChild}>
+          <StatCard
+            icon={<MessageSquare size={20} />}
+            label="Total Messages"
+            value={metrics.messages.total}
+            bottomLabel="Delivered"
+            bottomValue={metrics.messages.bottom}
+            colorClass="blue"
+            changePercent={periodLabel ? metrics.messages.changePercent : undefined}
+            periodLabel={periodLabel}
+            sparkline={metrics.messages.sparkline}
+          />
+        </motion.div>
+        <motion.div variants={staggerChild}>
+          <StatCard
+            icon={<Users size={20} />}
+            label="Total Contacts"
+            value={metrics.contacts.total}
+            bottomLabel="Active"
+            bottomValue={metrics.contacts.bottom}
+            colorClass="purple"
+            changePercent={periodLabel ? metrics.contacts.changePercent : undefined}
+            periodLabel={periodLabel}
+            sparkline={metrics.contacts.sparkline}
+          />
+        </motion.div>
+        <motion.div variants={staggerChild}>
+          <StatCard
+            icon={<Megaphone size={20} />}
+            label="Total Campaigns"
+            value={metrics.campaigns.total}
+            bottomLabel="Active"
+            bottomValue={metrics.campaigns.bottom}
+            colorClass="green"
+            changePercent={periodLabel ? metrics.campaigns.changePercent : undefined}
+            periodLabel={periodLabel}
+            sparkline={metrics.campaigns.sparkline}
+          />
+        </motion.div>
+        <motion.div variants={staggerChild}>
+          <StatCard
+            icon={<FileText size={20} />}
+            label="Total Templates"
+            value={metrics.templates.total}
+            bottomLabel="Approved"
+            bottomValue={metrics.templates.bottom}
+            colorClass="orange"
+            changePercent={periodLabel ? metrics.templates.changePercent : undefined}
+            periodLabel={periodLabel}
+            sparkline={metrics.templates.sparkline}
+          />
+        </motion.div>
+      </motion.div>
 
       {/* Below-the-fold lazy loaded sections */}
-      <Suspense fallback={<Skeleton variant="chart" />}>
-        {/* Main Hourly Chart */}
-        <ChartCard data={summary?.hourlyChartData} />
-      </Suspense>
+      <div className="dashboard-main-grid">
+        <Suspense fallback={<Skeleton variant="chart" />}>
+          <motion.div
+            variants={fadeSlideUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: '-40px' }}
+            transition={{ ...transitions.normal, delay: 0.1 }}
+          >
+            <ChartCard data={summary?.hourlyChartData} />
+          </motion.div>
+        </Suspense>
 
-      <Suspense fallback={
-        <div className="dashboard-trends-grid">
-          <Skeleton variant="chart" style={{ height: 260 }} />
-          <Skeleton variant="chart" style={{ height: 260 }} />
+        <div className="dashboard-side-column">
+          <Suspense fallback={<Skeleton variant="chart" style={{ height: 260 }} />}>
+            <motion.div
+              variants={fadeSlideUp}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ ...transitions.normal, delay: 0.1 }}
+            >
+              <DeliveryRateCard deliveryBreakdown={deliveryBreakdown} readBreakdown={readBreakdown} />
+            </motion.div>
+          </Suspense>
+
+          <motion.div
+            variants={fadeSlideUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: '-40px' }}
+            transition={{ ...transitions.normal, delay: 0.15 }}
+          >
+            <QuickActions />
+          </motion.div>
         </div>
-      }>
-        {/* Trends Sub-charts (Delivery & Read trends) */}
-        <div className="dashboard-trends-grid">
-          <TrendCard 
-            type="delivery" 
-            value={summary?.overallDeliveryRate !== undefined ? `${summary.overallDeliveryRate}%` : undefined} 
-            data={summary?.deliveryTrend} 
-          />
-          <TrendCard 
-            type="read" 
-            value={summary?.overallReadRate !== undefined ? `${summary.overallReadRate}%` : undefined} 
-            data={summary?.readTrend} 
-          />
-        </div>
-      </Suspense>
+      </div>
 
       <Suspense fallback={
         <div className="dashboard-tables-grid">
@@ -153,12 +241,21 @@ export const Dashboard: React.FC = () => {
           <Skeleton variant="table" style={{ height: 380 }} />
         </div>
       }>
-        {/* Campaign Statistics Tables */}
-        <div className="dashboard-tables-grid">
-          <TableCard type="read-rate" data={summary?.topReadRateCampaigns} />
-          <TableCard type="delivery-rate" data={summary?.topDeliveryRateCampaigns} />
-        </div>
+        <motion.div
+          className="dashboard-tables-grid"
+          variants={staggerContainer(0.1, 0)}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: '-40px' }}
+        >
+          <motion.div variants={staggerChild} className="dashboard-tables-grid-main">
+            <TopCampaignsCard data={topCampaigns} />
+          </motion.div>
+          <motion.div variants={staggerChild}>
+            <RecentActivityCard data={recentActivity} />
+          </motion.div>
+        </motion.div>
       </Suspense>
-    </div>
+    </motion.div>
   )
 }

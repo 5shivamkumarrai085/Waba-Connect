@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react'
+import { motion } from 'framer-motion'
 import { useActivityLogStore } from '../store/zustand'
 import { MetricCard } from '../components/MetricCard/MetricCard'
 import { DataTable } from '../components/DataTable/DataTable'
@@ -11,6 +12,8 @@ import { EmptyState } from '../components/EmptyState/EmptyState'
 import type { LoginSuccessModel, AuditLogModel } from '../types/reporting'
 import { Shield } from 'lucide-react'
 import { Skeleton } from '../components/Skeleton'
+import { pageTransitionProps } from '../utils/motion'
+import { getRandomLoadingQuote } from '../utils/quotes'
 import './ActivityLogs.css'
 
 export const ActivityLogs: React.FC = () => {
@@ -89,6 +92,9 @@ export const ActivityLogs: React.FC = () => {
             <Skeleton variant="text" width={500} style={{ marginTop: 8 }} />
           </div>
         </div>
+        <div className="loading-quote-banner">
+          <p className="loading-quote-text">{getRandomLoadingQuote()}</p>
+        </div>
         <div className="stat-cards-grid margin-bottom-24" style={{ marginBottom: 24 }}>
           <Skeleton variant="stat-card" count={4} />
         </div>
@@ -100,7 +106,7 @@ export const ActivityLogs: React.FC = () => {
   }
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       {/* Activity Logs page header and date range filters */}
       <div className="activity-header">
         <div className="activity-title-area">
@@ -170,6 +176,6 @@ export const ActivityLogs: React.FC = () => {
           )}
         </div>
       </div>
-    </div>
+    </motion.div>
   )
 }

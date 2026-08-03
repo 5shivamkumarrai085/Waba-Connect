@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { campaignService } from '../services/campaigns/campaignService'
 import { contactService } from '../services/contacts/contactService'
 import type { Campaign, CampaignStatistics, CampaignRecipient, CampaignWizardForm } from '../types/campaigns'
+import { useDashboardStore } from './dashboardStore'
 
 interface CampaignStoreState {
   campaigns: Campaign[]
@@ -185,6 +186,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
         }
         const fetched = await campaignService.getCampaigns()
         set({ campaigns: fetched })
+        useDashboardStore.getState().loadDashboardData(false)
         return lastRes
       }
 
@@ -196,6 +198,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
       const res = await campaignService.createCampaign(singleForm)
       const fetched = await campaignService.getCampaigns()
       set({ campaigns: fetched })
+      useDashboardStore.getState().loadDashboardData(false)
       return res
     } finally {
       set({ isLoading: false })
@@ -210,6 +213,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
       // Reload campaigns
       const fetched = await campaignService.getCampaigns()
       set({ campaigns: fetched })
+      useDashboardStore.getState().loadDashboardData(false)
       return res
     } finally {
       set({ isLoading: false })
@@ -222,6 +226,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
       await campaignService.deleteCampaign(id)
       const fetched = await campaignService.getCampaigns()
       set({ campaigns: fetched })
+      useDashboardStore.getState().loadDashboardData(false)
     } finally {
       set({ isLoading: false })
     }
@@ -252,11 +257,12 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
       
       const fetched = await campaignService.getCampaigns()
       set({ campaigns: fetched })
+      useDashboardStore.getState().loadDashboardData(false)
     } finally {
       set({ isLoading: false })
     }
   },
-  
+
   setSelectedTab: (currentDetailsTab) => set({ currentDetailsTab })
 }))
 export default useCampaignStore

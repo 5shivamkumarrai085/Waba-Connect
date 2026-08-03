@@ -16,4 +16,8 @@ export interface TemplateBot {
   createdAt: string
   updatedAt: string
   variables: TemplateBotVariable[]
+
+  // Null = fires on all connections. Set = scoped to one connection only.
+  connectionId?: number | null
+  connectionName?: string | null
 }

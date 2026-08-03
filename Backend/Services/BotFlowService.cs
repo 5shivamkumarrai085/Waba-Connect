@@ -21,14 +21,21 @@ public class BotFlowService : IBotFlowService
     }
 
     public async Task<PagedResponse<BotFlowResponse>> GetPagedAsync(
-        PagedRequest request, 
-        bool? isActive)
+        PagedRequest request,
+        bool? isActive,
+        int? connectionId = null)
     {
-        var query = _dbContext.BotFlows.AsQueryable();
+        var query = _dbContext.BotFlows.Include(f => f.Connection).AsQueryable();
 
         if (isActive.HasValue)
         {
             query = query.Where(f => f.IsActive == isActive.Value);
+        }
+
+        if (connectionId.HasValue)
+        {
+            // A connection's flow list includes its own scoped flows plus global (unscoped) flows, since those still apply.
+            query = query.Where(f => f.ConnectionId == null || f.ConnectionId == connectionId.Value);
         }
 
         if (!string.IsNullOrEmpty(request.Search))
@@ -60,7 +67,7 @@ public class BotFlowService : IBotFlowService
 
     public async Task<BotFlowResponse> GetByIdAsync(int id)
     {
-        var flow = await _dbContext.BotFlows.FindAsync(id);
+        var flow = await _dbContext.BotFlows.Include(f => f.Connection).FirstOrDefaultAsync(f => f.Id == id);
         if (flow == null)
         {
             throw new KeyNotFoundException($"Bot flow with ID {id} not found.");
@@ -81,6 +88,7 @@ public class BotFlowService : IBotFlowService
             Description = request.Description,
             IsActive = request.IsActive,
             FlowData = request.FlowData ?? "{}",
+            ConnectionId = request.ConnectionId,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -114,6 +122,7 @@ public class BotFlowService : IBotFlowService
         {
             flow.FlowData = request.FlowData;
         }
+        flow.ConnectionId = request.ConnectionId;
         flow.UpdatedAt = DateTime.UtcNow;
 
         _dbContext.BotFlows.Entry(flow).State = EntityState.Modified;
@@ -283,6 +292,8 @@ public class BotFlowService : IBotFlowService
             Description = flow.Description,
             IsActive = flow.IsActive,
             FlowData = flow.FlowData,
+            ConnectionId = flow.ConnectionId,
+            ConnectionName = flow.Connection?.Name,
             CreatedAt = flow.CreatedAt,
             UpdatedAt = flow.UpdatedAt
         };

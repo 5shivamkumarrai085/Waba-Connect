@@ -7,9 +7,10 @@ namespace WhatsAppCampaignApi.Services.Interfaces;
 public interface IMessageBotService
 {
     Task<PagedResponse<MessageBotResponse>> GetPagedAsync(
-        PagedRequest request, 
-        string? relationType, 
-        bool? isActive);
+        PagedRequest request,
+        string? relationType,
+        bool? isActive,
+        int? connectionId = null);
         
     Task<MessageBotResponse> GetByIdAsync(int id);
     

@@ -1,4 +1,6 @@
 import React, { useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useContactStore } from '../../store/contactStore'
@@ -48,7 +50,7 @@ export const ImportContacts: React.FC = () => {
   }
 
   return (
-    <div className="fade-in import-contacts-container">
+    <motion.div className="import-contacts-container" {...pageTransitionProps}>
       <h2 className="import-contacts-title">Import contacts from CSV file</h2>
 
       <div className="import-card-wrapper">
@@ -169,7 +171,7 @@ export const ImportContacts: React.FC = () => {
         </div>,
         document.body
       )}
-    </div>
+    </motion.div>
   )
 }
 export default ImportContacts

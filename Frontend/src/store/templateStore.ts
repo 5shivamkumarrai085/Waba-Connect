@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { templateService } from '../services/templates/templateService'
 import type { Template, TemplateLanguage, TemplateCategory, TemplateStatus, TemplateType } from '../types/templates'
+import { useDashboardStore } from './dashboardStore'
 
 interface TemplateStoreState {
   templates: Template[]
@@ -117,6 +118,7 @@ export const useTemplateStore = create<TemplateStoreState>((set, get) => ({
     try {
       const fetched = await templateService.refreshTemplates()
       set({ templates: fetched, currentPage: 1, isRefreshing: false })
+      useDashboardStore.getState().loadDashboardData(false)
     } catch (err) {
       console.error('Error refreshing templates:', err)
       set({ isRefreshing: false })

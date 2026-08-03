@@ -19,7 +19,9 @@
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: color 0.15s ease;
+  position: relative;
+  overflow: hidden;
 }
 
 .filter-btn:hover {
@@ -27,7 +29,15 @@
 }
 
 .filter-btn.active {
-  background-color: var(--primary-light);
   color: var(--primary);
   font-weight: 600;
+}
+
+/* Animated active indicator — positioned behind text */
+.filter-btn-indicator {
+  position: absolute;
+  inset: 0;
+  background-color: var(--primary-light);
+  border-radius: var(--radius-sm);
+  z-index: -1;
 }

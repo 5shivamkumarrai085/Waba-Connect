@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import { useContactStore } from '../../store/contactStore'
 import { contactService } from '../../services/contacts/contactService'
@@ -361,7 +363,7 @@ export const ContactsList: React.FC = () => {
   const isAllSelected = paginatedContacts.length > 0 && paginatedContacts.every(c => selectedIds.includes(c.id))
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       {/* Top action buttons */}
       <div className="contacts-toolbar">
         <button 
@@ -891,7 +893,7 @@ export const ContactsList: React.FC = () => {
         }}
         contacts={selectedContactsForTemplate}
       />
-    </div>
+    </motion.div>
   )
 }
 export default ContactsList

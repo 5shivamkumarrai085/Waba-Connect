@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useCampaignStore } from '../../store/campaignStore'
 import { StatusBadge } from '../../components/StatusBadge/StatusBadge'
@@ -107,7 +109,7 @@ export const CampaignDetails: React.FC = () => {
   }
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       {/* Top action buttons */}
       <div className="campaign-details-header">
         <button 
@@ -342,7 +344,7 @@ export const CampaignDetails: React.FC = () => {
         </div>
 
       </div>
-    </div>
+    </motion.div>
   )
 }
 

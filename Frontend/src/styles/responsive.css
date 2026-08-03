@@ -81,7 +81,7 @@
     gap: 16px !important;
   }
 
-  .dashboard-trends-grid,
+  .dashboard-main-grid,
   .dashboard-tables-grid,
   .reporting-bottom-grid {
     grid-template-columns: 1fr !important;

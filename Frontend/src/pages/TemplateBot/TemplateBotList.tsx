@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useTemplateBotStore } from '../../store/templateBotStore'
@@ -140,7 +142,7 @@ export const TemplateBotList: React.FC = () => {
   const totalPages = Math.ceil(totalCount / pageSize)
 
   return (
-    <div className="template-bot-list-container">
+    <motion.div {...pageTransitionProps}>
       {/* Top Action buttons */}
       <div className="template-bot-header-actions">
         <button 
@@ -388,6 +390,6 @@ export const TemplateBotList: React.FC = () => {
           setBotToDelete(null)
         }}
       />
-    </div>
+    </motion.div>
   )
 }

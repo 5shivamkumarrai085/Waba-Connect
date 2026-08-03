@@ -57,23 +57,22 @@
   }
 }
 
-/* Stat Card design */
+/* Stat Card design — hover animations handled by Motion */
 .stat-card {
   background-color: var(--bg-secondary);
   border-radius: var(--radius-lg);
   padding: 28px 24px;
   border: 1px solid var(--border-color);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   min-height: 175px;
-  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s ease;
+  transition: box-shadow 0.22s ease;
 }
 
 .stat-card:hover {
-  transform: translateY(-4px) scale(1.015);
-  box-shadow: 0 20px 35px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.08);
 }
 
 .stat-card-top {

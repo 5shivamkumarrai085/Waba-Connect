@@ -1,5 +1,7 @@
 import React from 'react'
+import { motion } from 'framer-motion'
 import * as Icons from 'lucide-react'
+import { cardHoverProps } from '../../utils/motion'
 import type { MetricCardModel } from '../../types/reporting'
 import './MetricCard.css'
 
@@ -35,7 +37,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({ metric }) => {
   }
 
   return (
-    <div className="metric-card">
+    <motion.div className="metric-card" {...cardHoverProps}>
       <div className="metric-card-header">
         <div className={`metric-card-icon-box ${badgeType || ''}`}>
           <LucideIcon size={18} />
@@ -53,6 +55,6 @@ export const MetricCard: React.FC<MetricCardProps> = ({ metric }) => {
           {formatValue(value)}
         </div>
       </div>
-    </div>
+    </motion.div>
   )
 }

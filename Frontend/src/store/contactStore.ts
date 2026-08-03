@@ -4,6 +4,7 @@ import { contactService } from '../services/contacts/contactService'
 import type { Contact, ContactFormModel } from '../types/contacts'
 import { getErrorMessage } from '../utils/errorHelper'
 import toast from 'react-hot-toast'
+import { useDashboardStore } from './dashboardStore'
 
 interface ContactStoreState {
   contacts: Contact[]
@@ -136,6 +137,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
     try {
       const newContact = await contactService.addContact(form)
       set((state) => ({ contacts: [newContact, ...state.contacts] }))
+      useDashboardStore.getState().loadDashboardData(false)
       return newContact
     } catch (err) {
       console.error('Error adding contact:', err)
@@ -156,6 +158,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
         selectedIds: [],
         isLoading: false
       })
+      useDashboardStore.getState().loadDashboardData(false)
     } catch (err) {
       console.error(err)
       set({ isLoading: false })
@@ -175,6 +178,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       set({
         contacts: contacts.map(c => c.id === id ? mappedContact : c)
       })
+      useDashboardStore.getState().loadDashboardData(false)
 
       if (mappedContact.active) {
         toast.success('user enabled successfully')
@@ -193,6 +197,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       const res = await contactService.importContacts(file)
       const fetched = await contactService.getContacts()
       set({ contacts: fetched })
+      useDashboardStore.getState().loadDashboardData(false)
       return res
     } catch (err: any) {
       return { success: false, message: getErrorMessage(err, 'Import failed.') }

@@ -1,7 +1,9 @@
 import React, { useRef, useState } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { motion } from 'framer-motion'
 import { Image, Info, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { buttonHoverProps } from '../utils/motion'
 
 // Hours from 00:00 to 23:00
 const hours = Array.from({ length: 24 }, (_, i) => {
@@ -30,6 +32,11 @@ export const ChartCard: React.FC<ChartCardProps> = React.memo(({ data: propData 
   const data = propData && propData.length > 0 ? propData : emptyData
   const chartCardRef = useRef<HTMLDivElement>(null)
   const [isCapturing, setIsCapturing] = useState(false)
+
+  const sentValues = data.map((d) => d.sent || 0)
+  const lowestSent = sentValues.length > 0 ? Math.min(...sentValues) : 0
+  const highestSent = sentValues.length > 0 ? Math.max(...sentValues) : 0
+  const yAxisMax = Math.max(highestSent, 1)
 
   const handleDownloadScreenshot = async () => {
     if (!chartCardRef.current || isCapturing) return
@@ -98,15 +105,15 @@ export const ChartCard: React.FC<ChartCardProps> = React.memo(({ data: propData 
               ctx.lineWidth = 1
               ctx.strokeRect(0, 0, canvasWidth, canvasHeight)
 
-              // Draw title "Messages Sent Per Day"
+              // Draw title "Messages Sent Overview"
               ctx.fillStyle = '#1e293b'
               ctx.font = '600 16px Inter, system-ui, sans-serif'
-              ctx.fillText('Messages Sent Per Day', padding, padding + 18)
+              ctx.fillText('Messages Sent Overview', padding, padding + 18)
 
-              // Draw subtitle "Daily volume trend"
+              // Draw subtitle "Hourly volume trend"
               ctx.fillStyle = '#64748b'
               ctx.font = '400 12px Inter, system-ui, sans-serif'
-              ctx.fillText('Daily volume trend', padding, padding + 36)
+              ctx.fillText('Hourly volume trend', padding, padding + 36)
 
               // Draw legend indicators at top-right
               const legendY = padding + 22
@@ -165,11 +172,11 @@ export const ChartCard: React.FC<ChartCardProps> = React.memo(({ data: propData 
     <div className="dashboard-main-chart" ref={chartCardRef}>
       <div className="chart-header">
         <div className="chart-title-area">
-          <h2>Messages Sent Per Day</h2>
-          <p>Daily volume trend</p>
+          <h2>Messages Sent Overview</h2>
+          <p>Hourly volume trend</p>
           <div className="chart-badges">
-            <span className="chart-badge blue">Lowest: ~0</span>
-            <span className="chart-badge gray">Highest: ~0</span>
+            <span className="chart-badge blue">Lowest: {lowestSent}</span>
+            <span className="chart-badge gray">Highest: {highestSent}</span>
           </div>
         </div>
         <div className="chart-actions">
@@ -183,15 +190,16 @@ export const ChartCard: React.FC<ChartCardProps> = React.memo(({ data: propData 
               <span>Errors</span>
             </div>
           </div>
-          <button 
+          <motion.button 
             className="btn btn-secondary btn-chart-image"
             onClick={handleDownloadScreenshot}
             disabled={isCapturing}
             title="Download screenshot of chart"
+            {...buttonHoverProps}
           >
             {isCapturing ? <Loader2 size={14} className="animate-spin" /> : <Image size={14} />} 
             Image
-          </button>
+          </motion.button>
         </div>
       </div>
 
@@ -227,9 +235,9 @@ export const ChartCard: React.FC<ChartCardProps> = React.memo(({ data: propData 
                 axisLine={{ stroke: COLOR_BORDER }}
                 tick={{ fontSize: 11, fill: COLOR_TEXT_MUTED }}
               />
-              <YAxis 
-                domain={[0, 4]} 
-                ticks={[0, 1, 2, 3, 4]}
+              <YAxis
+                domain={[0, yAxisMax]}
+                allowDecimals={false}
                 tickLine={false}
                 axisLine={{ stroke: COLOR_BORDER }}
                 tick={{ fontSize: 11, fill: COLOR_TEXT_MUTED }}

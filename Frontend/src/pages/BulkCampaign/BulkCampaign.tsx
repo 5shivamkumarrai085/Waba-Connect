@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { UploadArea } from '../../components/UploadArea/UploadArea'
@@ -286,7 +288,7 @@ export const BulkCampaign: React.FC = () => {
     selectedTemplateId !== ''
 
   return (
-    <div className="fade-in bulk-campaign-container">
+    <motion.div className="bulk-campaign-container" {...pageTransitionProps}>
       <h2 className="bulk-campaign-title">Campaigns from CSV File</h2>
 
       {/* Modern Stepper Indicator */}
@@ -802,7 +804,7 @@ export const BulkCampaign: React.FC = () => {
         </div>,
         document.body
       )}
-    </div>
+    </motion.div>
   )
 }
 

@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
+import { motion } from 'framer-motion'
 import { Heart, RefreshCw, Shield, Briefcase, Layers, MessageSquare } from 'lucide-react'
+import { cardHoverProps } from '../../utils/motion'
 import type { WabaHealthModel } from '../../types/waba'
 import './HealthCard.css'
 
@@ -25,7 +27,7 @@ export const HealthCard: React.FC<HealthCardProps> = ({ healthInfo, onRefresh })
   const { lastChecked, wabaId, wabaStatus, businessId, businessStatus, appId, appStatus } = healthInfo
 
   return (
-    <div className="health-card">
+    <motion.div className="health-card" {...cardHoverProps}>
       <div className="health-card-header">
         <div className="health-card-icon-box">
           <Heart size={18} />
@@ -125,7 +127,7 @@ export const HealthCard: React.FC<HealthCardProps> = ({ healthInfo, onRefresh })
           <span>Refresh health status</span>
         </button>
       </div>
-    </div>
+    </motion.div>
   )
 }
 export default HealthCard

@@ -1,8 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Upload, X } from 'lucide-react'
 import { useMessageBotStore } from '../../store/messageBotStore'
 import { messageBotService } from '../../services/messageBot/messageBotService'
+import { useConnectionStore } from '../../store/connectionStore'
 import { toast } from 'react-hot-toast'
 import './MessageBotWizard.css'
 import { getErrorMessage } from '../../utils/errorHelper'
@@ -27,6 +30,12 @@ export const MessageBotWizard: React.FC = () => {
   const [footer, setFooter] = useState('')
   const [isActive, setIsActive] = useState(true)
   const [optionType, setOptionType] = useState<TabType>('ReplyButtons')
+  const [connectionId, setConnectionId] = useState<number | ''>('')
+  const { connections, fetchConnections } = useConnectionStore()
+
+  useEffect(() => {
+    fetchConnections()
+  }, [fetchConnections])
 
   // Chips for trigger keywords
   const [keywordInput, setKeywordInput] = useState('')
@@ -71,6 +80,7 @@ export const MessageBotWizard: React.FC = () => {
           setFooter(bot.footer || '')
           setIsActive(bot.isActive)
           setOptionType(bot.optionType as TabType)
+          setConnectionId(bot.connectionId ?? '')
           
           if (bot.triggerKeyword) {
             setKeywords(bot.triggerKeyword.split(',').map((k: string) => k.trim()).filter(Boolean))
@@ -182,7 +192,8 @@ export const MessageBotWizard: React.FC = () => {
       footer: footer || undefined,
       isActive,
       optionType,
-      
+      connectionId: connectionId === '' ? undefined : connectionId,
+
       button1: optionType === 'ReplyButtons' ? button1 || undefined : undefined,
       button1Id: optionType === 'ReplyButtons' ? button1Id || undefined : undefined,
       button2: optionType === 'ReplyButtons' ? button2 || undefined : undefined,
@@ -215,7 +226,7 @@ export const MessageBotWizard: React.FC = () => {
   }
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       <div className="wizard-header">
         <button className="btn-back" onClick={() => navigate('/message-bot')} aria-label="Go Back">
           <ArrowLeft size={18} />
@@ -253,6 +264,21 @@ export const MessageBotWizard: React.FC = () => {
               >
                 <option value="Lead">Lead</option>
                 <option value="Customer">Customer</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Connection</label>
+              <select
+                className="form-control"
+                value={connectionId}
+                onChange={(e) => setConnectionId(e.target.value ? Number(e.target.value) : '')}
+                disabled={isViewMode}
+              >
+                <option value="">All Connections</option>
+                {connections.map((conn) => (
+                  <option key={conn.id} value={conn.id}>{conn.name}</option>
+                ))}
               </select>
             </div>
 
@@ -603,7 +629,7 @@ export const MessageBotWizard: React.FC = () => {
           </div>
         </div>
       </form>
-    </div>
+    </motion.div>
   )
 }
 

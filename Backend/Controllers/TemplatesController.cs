@@ -14,12 +14,14 @@ public class TemplatesController : ControllerBase
     private readonly ITemplateService _templateService;
     private readonly IWhatsAppService _whatsAppService;
     private readonly AppDbContext _dbContext;
+    private readonly IDashboardCacheService _dashboardCacheService;
 
-    public TemplatesController(ITemplateService templateService, IWhatsAppService whatsAppService, AppDbContext dbContext)
+    public TemplatesController(ITemplateService templateService, IWhatsAppService whatsAppService, AppDbContext dbContext, IDashboardCacheService dashboardCacheService)
     {
         _templateService = templateService;
         _whatsAppService = whatsAppService;
         _dbContext = dbContext;
+        _dashboardCacheService = dashboardCacheService;
     }
 
     [HttpGet("by-connection/{connectionId}")]
@@ -85,6 +87,7 @@ public class TemplatesController : ControllerBase
     public async Task<ActionResult<ApiResponse<TemplateResponse>>> Create([FromBody] CreateTemplateRequest request)
     {
         var data = await _templateService.CreateAsync(request);
+        _dashboardCacheService.InvalidateCache();
         return CreatedAtAction(nameof(GetById), new { id = data.Id }, new ApiResponse<TemplateResponse> { Success = true, Data = data });
     }
 
@@ -92,6 +95,7 @@ public class TemplatesController : ControllerBase
     public async Task<ActionResult<ApiResponse<TemplateResponse>>> Update(int id, [FromBody] UpdateTemplateRequest request)
     {
         var data = await _templateService.UpdateAsync(id, request);
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse<TemplateResponse> { Success = true, Data = data });
     }
 
@@ -99,6 +103,7 @@ public class TemplatesController : ControllerBase
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {
         await _templateService.DeleteAsync(id);
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse { Success = true, Message = "Template deleted successfully." });
     }
 
@@ -156,6 +161,7 @@ public class TemplatesController : ControllerBase
     public async Task<ActionResult<ApiResponse>> SyncFromWhatsApp()
     {
         var count = await _templateService.SyncFromWhatsAppAsync();
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse { Success = true, Message = $"Successfully synced templates. Added/Updated: {count}" });
     }
 

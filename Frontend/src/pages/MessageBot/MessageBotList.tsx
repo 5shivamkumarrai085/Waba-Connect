@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMessageBotStore } from '../../store/messageBotStore'
@@ -124,7 +126,7 @@ export const MessageBotList: React.FC = () => {
   const endIndex = Math.min(totalCount, startIndex + pageSize)
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       {/* Top Toolbar actions */}
       <div className="message-bots-toolbar">
         <button 
@@ -381,7 +383,7 @@ export const MessageBotList: React.FC = () => {
         onCancel={() => setDeleteModalOpen(false)}
         isDestructive={true}
       />
-    </div>
+    </motion.div>
   )
 }
 

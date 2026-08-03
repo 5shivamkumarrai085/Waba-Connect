@@ -29,7 +29,11 @@ export interface MessageBot {
   
   // Assistant
   assistantName?: string
-  
+
+  // Null = fires on all connections. Set = scoped to one connection only.
+  connectionId?: number | null
+  connectionName?: string | null
+
   createdAt: string
   updatedAt: string
 }
@@ -60,6 +64,9 @@ export interface CreateMessageBotRequest {
   fileUrl?: string
   
   assistantName?: string
+
+  // Null/undefined = fires on all connections. Set = scoped to one connection only.
+  connectionId?: number | null
 }
 
 export interface UpdateMessageBotRequest extends CreateMessageBotRequest {}

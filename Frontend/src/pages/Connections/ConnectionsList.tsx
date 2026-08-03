@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -162,7 +164,7 @@ export const ConnectionsList: React.FC = () => {
   }
 
   return (
-    <div className="conn-page-wrapper fade-in">
+    <motion.div className="conn-page-wrapper" {...pageTransitionProps}>
       {/* Breadcrumb */}
       <div className="conn-page-breadcrumb">
         <span>Admin</span>
@@ -470,6 +472,6 @@ export const ConnectionsList: React.FC = () => {
         isDestructive={true}
         showWarningIcon={true}
       />
-    </div>
+    </motion.div>
   )
 }

@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { useWabaStore } from '../../store/wabaStore'
@@ -188,7 +190,7 @@ export const ConnectWABA: React.FC = () => {
   const isStep1Done = Boolean((facebookAppId || webhookUrl) && verifyToken);
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       {/* Title Header with Top Action Button triggers */}
       <div className="waba-page-header">
         <div className="waba-page-title">
@@ -674,7 +676,7 @@ export const ConnectWABA: React.FC = () => {
         </div>,
         document.body
       )}
-    </div>
+    </motion.div>
   )
 }
 export default ConnectWABA

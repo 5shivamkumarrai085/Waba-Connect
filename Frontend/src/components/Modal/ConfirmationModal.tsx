@@ -1,6 +1,8 @@
 import React, { useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { motion, AnimatePresence } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
+import { fadeScale, transitions, buttonHoverProps } from '../../utils/motion'
 import './ConfirmationModal.css'
 
 interface ConfirmationModalProps {
@@ -39,33 +41,55 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
     }
   }, [isOpen, handleEscape])
 
-  if (!isOpen) return null
-
   return createPortal(
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-container fade-in-up" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header-row">
-          {showWarningIcon && (
-            <div className="modal-icon-wrapper destructive">
-              <AlertTriangle size={20} />
-            </div>
-          )}
-          <h3 className="modal-title">{title}</h3>
-        </div>
-        <p className="modal-message">{message}</p>
-        <div className="modal-actions">
-          <button className="btn-modal-cancel" onClick={onCancel}>
-            {cancelText}
-          </button>
-          <button 
-            className={isDestructive ? 'btn-modal-destructive' : 'btn-modal-confirm'} 
-            onClick={onConfirm}
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="modal-overlay"
+          onClick={onCancel}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+        >
+          <motion.div
+            className="modal-container"
+            onClick={(e) => e.stopPropagation()}
+            variants={fadeScale}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            transition={transitions.snappy}
           >
-            {confirmText}
-          </button>
-        </div>
-      </div>
-    </div>,
+            <div className="modal-header-row">
+              {showWarningIcon && (
+                <div className="modal-icon-wrapper destructive">
+                  <AlertTriangle size={20} />
+                </div>
+              )}
+              <h3 className="modal-title">{title}</h3>
+            </div>
+            <p className="modal-message">{message}</p>
+            <div className="modal-actions">
+              <motion.button
+                className="btn-modal-cancel"
+                onClick={onCancel}
+                {...buttonHoverProps}
+              >
+                {cancelText}
+              </motion.button>
+              <motion.button
+                className={isDestructive ? 'btn-modal-destructive' : 'btn-modal-confirm'}
+                onClick={onConfirm}
+                {...buttonHoverProps}
+              >
+                {confirmText}
+              </motion.button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
     document.body
   )
 }

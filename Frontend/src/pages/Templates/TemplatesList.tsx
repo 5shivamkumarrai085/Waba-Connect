@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useTemplateStore } from '../../store/templateStore'
 import { StatusBadge } from '../../components/StatusBadge/StatusBadge'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
@@ -211,7 +213,7 @@ export const TemplatesList: React.FC = () => {
   const isLoadingOrRefreshing = isLoading || isRefreshing
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       {/* Top action buttons */}
       <div className="templates-toolbar">
         <button 
@@ -511,7 +513,7 @@ export const TemplatesList: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   )
 }
 export default TemplatesList

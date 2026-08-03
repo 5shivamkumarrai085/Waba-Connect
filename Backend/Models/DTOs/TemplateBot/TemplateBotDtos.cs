@@ -31,8 +31,11 @@ public class CreateTemplateBotRequest
     public string TriggerKeyword { get; set; } = string.Empty;
     
     public bool IsActive { get; set; } = true;
-    
+
     public List<TemplateBotVariableDto> Variables { get; set; } = [];
+
+    // Null = fires on all connections. Set = scoped to one connection only.
+    public int? ConnectionId { get; set; }
 }
 
 public class UpdateTemplateBotRequest : CreateTemplateBotRequest
@@ -52,4 +55,8 @@ public class TemplateBotResponse
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public List<TemplateBotVariableDto> Variables { get; set; } = [];
+
+    // Null = fires on all connections. Set = scoped to one connection only.
+    public int? ConnectionId { get; set; }
+    public string? ConnectionName { get; set; }
 }

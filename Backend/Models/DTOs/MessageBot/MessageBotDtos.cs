@@ -35,7 +35,11 @@ public class MessageBotResponse
     
     // Assistant
     public string? AssistantName { get; set; }
-    
+
+    // Null = fires on all connections. Set = scoped to one connection only.
+    public int? ConnectionId { get; set; }
+    public string? ConnectionName { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
@@ -101,6 +105,9 @@ public class CreateMessageBotRequest
     // Assistant
     [MaxLength(100)]
     public string? AssistantName { get; set; }
+
+    // Null = fires on all connections. Set = scoped to one connection only.
+    public int? ConnectionId { get; set; }
 }
 
 public class UpdateMessageBotRequest : CreateMessageBotRequest

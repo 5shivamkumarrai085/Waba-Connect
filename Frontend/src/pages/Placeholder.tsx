@@ -1,6 +1,8 @@
 import React from 'react'
 import { useLocation } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { Info, HelpCircle } from 'lucide-react'
+import { pageTransitionProps } from '../utils/motion'
 
 export const Placeholder: React.FC = () => {
   const location = useLocation()
@@ -15,12 +17,17 @@ export const Placeholder: React.FC = () => {
   }
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       <div className="campaign-page-header">
         <h1>{getPageTitle()}</h1>
       </div>
 
-      <div className="campaign-form-card placeholder-card">
+      <motion.div 
+        className="campaign-form-card placeholder-card"
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.25, delay: 0.1 }}
+      >
         <div className="placeholder-icon-wrapper">
           <HelpCircle size={32} />
         </div>
@@ -37,7 +44,7 @@ export const Placeholder: React.FC = () => {
           <Info size={14} color="var(--primary)" />
           <span>No API connection detected (tables & forms showing default initial states)</span>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }

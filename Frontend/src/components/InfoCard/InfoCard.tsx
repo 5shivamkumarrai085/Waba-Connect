@@ -1,5 +1,7 @@
 import React from 'react'
+import { motion } from 'framer-motion'
 import { HelpCircle, AlertTriangle } from 'lucide-react'
+import { cardHoverProps } from '../../utils/motion'
 import './InfoCard.css'
 
 interface InfoCardProps {
@@ -26,7 +28,7 @@ export const InfoCard: React.FC<InfoCardProps> = ({
   }
 
   return (
-    <div className={`info-card theme-${theme}`}>
+    <motion.div className={`info-card theme-${theme}`} {...cardHoverProps}>
       <div className="info-card-header">
         {renderIcon()}
         <h4 className="info-card-title">{title}</h4>
@@ -34,7 +36,7 @@ export const InfoCard: React.FC<InfoCardProps> = ({
       <div className="info-card-body">
         {children}
       </div>
-    </div>
+    </motion.div>
   )
 }
 export default InfoCard

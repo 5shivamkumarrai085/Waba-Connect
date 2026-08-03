@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Settings, 
   Plus, 
@@ -14,6 +15,7 @@ import {
   Sliders,
   Layers
 } from 'lucide-react'
+import { fadeScale, transitions } from '../utils/motion'
 
 export const Header: React.FC = () => {
   const location = useLocation()
@@ -64,53 +66,77 @@ export const Header: React.FC = () => {
     <header className="header">
       <div className="header-left">
         {location.pathname !== '/' && (
-          <button 
+          <motion.button 
             className="header-icon-btn header-back-btn" 
             onClick={() => navigate(-1)}
             aria-label="Go Back"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            transition={{ duration: 0.1 }}
           >
             <ArrowLeft size={20} strokeWidth={2.5} />
-          </button>
+          </motion.button>
         )}
       </div>
 
       <div className="header-right">
         {/* Header Action Buttons */}
         <div className="header-actions">
-          <button className="header-icon-btn" aria-label="Settings">
+          <motion.button 
+            className="header-icon-btn" 
+            aria-label="Settings"
+            whileHover={{ scale: 1.05, rotate: 15 }}
+            whileTap={{ scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+          >
             <Settings size={18} />
-          </button>
+          </motion.button>
           
           <div className="dropdown-container" ref={quickCreateRef}>
-            <button 
+            <motion.button 
               className={`header-icon-btn header-create-plus-btn ${showQuickCreate ? 'active' : ''}`}
               onClick={() => setShowQuickCreate(!showQuickCreate)}
               aria-label="Quick Create Menu"
+              whileTap={{ scale: 0.9 }}
+              transition={{ duration: 0.1 }}
             >
               <Plus size={18} strokeWidth={2.5} />
-            </button>
+            </motion.button>
 
-            {showQuickCreate && (
-              <div className="quick-create-dropdown-menu">
-                {menuItems.map((item) => {
-                  const Icon = item.icon
-                  return (
-                    <button
-                      key={item.label}
-                      className="quick-create-item"
-                      onClick={() => handleNavigate(item.path)}
-                    >
-                      <Icon size={18} className="quick-create-icon" />
-                      <span>{item.label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
+            <AnimatePresence>
+              {showQuickCreate && (
+                <motion.div 
+                  className="quick-create-dropdown-menu"
+                  variants={fadeScale}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  transition={transitions.snappy}
+                  style={{ transformOrigin: 'top right' }}
+                >
+                  {menuItems.map((item, index) => {
+                    const Icon = item.icon
+                    return (
+                      <motion.button
+                        key={item.label}
+                        className="quick-create-item"
+                        onClick={() => handleNavigate(item.path)}
+                        initial={{ opacity: 0, x: 8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.03, duration: 0.15 }}
+                        whileHover={{ x: 4, backgroundColor: '#f1f5f9' }}
+                      >
+                        <Icon size={18} className="quick-create-icon" />
+                        <span>{item.label}</span>
+                      </motion.button>
+                    )
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>
     </header>
   )
 }
-

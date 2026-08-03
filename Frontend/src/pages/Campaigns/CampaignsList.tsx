@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import { useCampaignStore } from '../../store/campaignStore'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
@@ -197,7 +199,7 @@ export const CampaignsList: React.FC = () => {
   }
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       {/* Top Toolbar actions */}
       <div className="campaigns-toolbar">
         <button 
@@ -490,7 +492,7 @@ export const CampaignsList: React.FC = () => {
         onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />
-    </div>
+    </motion.div>
   )
 }
 export default CampaignsList

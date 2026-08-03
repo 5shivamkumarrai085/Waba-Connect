@@ -205,7 +205,7 @@ public class BotRouterService : IBotRouterService
         // 3. Message Bot Keyword Matching
         _logger.LogDebug("Evaluating Message Bot triggers for phone {Phone}", normalizedPhone);
         var activeBots = await _dbContext.MessageBots
-            .Where(b => b.IsActive)
+            .Where(b => b.IsActive && (b.ConnectionId == null || b.ConnectionId == connectionId))
             .ToListAsync();
 
         MessageBot? matchedBot = null;

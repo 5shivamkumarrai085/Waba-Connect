@@ -585,6 +585,7 @@ public class CampaignService : ICampaignService
                 {
                     cc.WhatsAppMessageId = sendResult.MessageId;
                     cc.Status = MessageStatus.Sent;
+                    cc.SentAt ??= DateTime.UtcNow;
                     await chatService.MarkCampaignMessageSentAsync(chatMessage.Id, sendResult.MessageId);
                     
                     // Case B: No media header in template, but attachment is present

@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { useCampaignStore, usePreviewStore } from '../store/zustand'
 import { Calendar, Info } from 'lucide-react'
-
+import { pageTransitionProps } from '../utils/motion'
 import toast from 'react-hot-toast'
 
 export const Campaign: React.FC = () => {
@@ -61,7 +62,7 @@ export const Campaign: React.FC = () => {
   }
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       <div className="campaign-page-header">
         <h1>Create Campaign</h1>
       </div>
@@ -173,6 +174,6 @@ export const Campaign: React.FC = () => {
           </button>
         </div>
       </form>
-    </div>
+    </motion.div>
   )
 }

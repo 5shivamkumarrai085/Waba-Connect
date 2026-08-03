@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react'
+import { motion } from 'framer-motion'
 import { useReportingStore } from '../store/zustand'
 import { MetricCard } from '../components/MetricCard/MetricCard'
 import { DataTable } from '../components/DataTable/DataTable'
@@ -8,6 +9,8 @@ import { ExportList } from '../components/ExportList/ExportList'
 import type { AccuracyRecord, FreshnessRecord } from '../types/reporting'
 import { Check } from 'lucide-react'
 import { Skeleton } from '../components/Skeleton'
+import { pageTransitionProps } from '../utils/motion'
+import { getRandomLoadingQuote } from '../utils/quotes'
 import './Reporting.css'
 
 export const Reporting: React.FC = () => {
@@ -69,6 +72,9 @@ export const Reporting: React.FC = () => {
             <Skeleton variant="text" width={500} style={{ marginTop: 8 }} />
           </div>
         </div>
+        <div className="loading-quote-banner">
+          <p className="loading-quote-text">{getRandomLoadingQuote()}</p>
+        </div>
         <div className="stat-cards-grid" style={{ marginBottom: 24 }}>
           <Skeleton variant="stat-card" count={4} />
         </div>
@@ -81,7 +87,7 @@ export const Reporting: React.FC = () => {
   }
 
   return (
-    <div className="fade-in">
+    <motion.div {...pageTransitionProps}>
       {/* Reporting Page Title & Date Filter Header */}
       <div className="reporting-header">
         <div className="reporting-title-area">
@@ -155,6 +161,6 @@ export const Reporting: React.FC = () => {
           <ExportList items={exportItems || []} />
         </div>
       </div>
-    </div>
+    </motion.div>
   )
 }

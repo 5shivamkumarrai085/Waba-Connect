@@ -13,10 +13,12 @@ namespace WhatsAppCampaignApi.Controllers;
 public class BotFlowsController : ControllerBase
 {
     private readonly IBotFlowService _flowService;
+    private readonly IDashboardCacheService _dashboardCacheService;
 
-    public BotFlowsController(IBotFlowService flowService)
+    public BotFlowsController(IBotFlowService flowService, IDashboardCacheService dashboardCacheService)
     {
         _flowService = flowService;
+        _dashboardCacheService = dashboardCacheService;
     }
 
     [HttpGet]
@@ -24,7 +26,8 @@ public class BotFlowsController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
         [FromQuery] bool? isActive = null,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] int? connectionId = null)
     {
         var request = new PagedRequest
         {
@@ -33,7 +36,7 @@ public class BotFlowsController : ControllerBase
             Search = search
         };
 
-        var data = await _flowService.GetPagedAsync(request, isActive);
+        var data = await _flowService.GetPagedAsync(request, isActive, connectionId);
         return Ok(new ApiResponse<PagedResponse<BotFlowResponse>> { Success = true, Data = data });
     }
 
@@ -60,6 +63,7 @@ public class BotFlowsController : ControllerBase
         }
 
         var data = await _flowService.CreateAsync(request);
+        _dashboardCacheService.InvalidateCache();
         return CreatedAtAction(nameof(GetById), new { id = data.Id }, new ApiResponse<BotFlowResponse> { Success = true, Data = data });
     }
 
@@ -74,6 +78,7 @@ public class BotFlowsController : ControllerBase
         try
         {
             var data = await _flowService.UpdateAsync(id, request);
+            _dashboardCacheService.InvalidateCache();
             return Ok(new ApiResponse<BotFlowResponse> { Success = true, Data = data });
         }
         catch (KeyNotFoundException ex)
@@ -90,6 +95,7 @@ public class BotFlowsController : ControllerBase
         {
             return NotFound(new ApiResponse<bool> { Success = false, Message = $"Bot flow with ID {id} not found." });
         }
+        _dashboardCacheService.InvalidateCache();
         return Ok(new ApiResponse<bool> { Success = true, Data = true });
     }
 
@@ -99,6 +105,7 @@ public class BotFlowsController : ControllerBase
         try
         {
             var data = await _flowService.ToggleActiveAsync(id);
+            _dashboardCacheService.InvalidateCache();
             return Ok(new ApiResponse<BotFlowResponse> { Success = true, Data = data });
         }
         catch (KeyNotFoundException ex)

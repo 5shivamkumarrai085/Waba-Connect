@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { motion } from 'framer-motion'
+import { pageTransitionProps } from '../../utils/motion'
 import toast from 'react-hot-toast'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
@@ -152,14 +154,15 @@ export const Chat: React.FC = () => {
   }, [fetchConnectionDashboard, loadAccounts, loadConversations])
 
   useEffect(() => {
-    if (selectedConnectionId === null && connections.length > 0) {
-      const firstConnected = connections.find(c => c.isConnected && c.phoneNumber)
-      if (firstConnected) {
-        setSelectedConnectionId(firstConnected.id)
-      } else if (connections.length > 0) {
-        setSelectedConnectionId(connections[0].id)
-      }
-    }
+    if (connections.length === 0) return
+
+    const selectionIsValid = selectedConnectionId !== null && connections.some(c => c.id === selectedConnectionId)
+    if (selectionIsValid) return
+
+    // No connection selected yet, or the persisted/previously-selected one no longer exists
+    // (e.g. it was deleted) — fall back to the first connected line, or just the first connection.
+    const firstConnected = connections.find(c => c.isConnected && c.phoneNumber)
+    setSelectedConnectionId(firstConnected ? firstConnected.id : connections[0].id)
   }, [connections, selectedConnectionId, setSelectedConnectionId])
 
   useEffect(() => {
@@ -599,7 +602,7 @@ export const Chat: React.FC = () => {
   )
 
   return (
-    <div className="fade-in chat-container-layout">
+    <motion.div className="chat-container-layout" {...pageTransitionProps}>
       <div className="chat-sidebar">
         <div className="chat-sidebar-header">
           {/* Connection Filter Dropdown (matching Image 2) */}
@@ -1209,7 +1212,7 @@ export const Chat: React.FC = () => {
         isDestructive={true}
         showWarningIcon={true}
       />
-    </div>
+    </motion.div>
   )
 }
 

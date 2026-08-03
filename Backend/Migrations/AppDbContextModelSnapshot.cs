@@ -74,6 +74,9 @@ namespace WhatsAppCampaignApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("ConnectionId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -97,6 +100,8 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ConnectionId");
 
                     b.HasIndex("Name");
 
@@ -218,6 +223,9 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.Property<string>("FileUrl")
                         .HasColumnType("text");
+
+                    b.Property<bool>("IsBulkCampaign")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
@@ -962,6 +970,9 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<int?>("ConnectionId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1030,6 +1041,8 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ConnectionId");
 
                     b.HasIndex("Name");
 
@@ -1119,6 +1132,9 @@ namespace WhatsAppCampaignApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("ConnectionId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1152,6 +1168,8 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ConnectionId");
 
                     b.HasIndex("Name");
 
@@ -1380,6 +1398,16 @@ namespace WhatsAppCampaignApi.Migrations
                     b.Navigation("MessageBot");
                 });
 
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.BotFlow", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Connection", "Connection")
+                        .WithMany("BotFlows")
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Connection");
+                });
+
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.BotMessage", b =>
                 {
                     b.HasOne("WhatsAppCampaignApi.Models.Entities.BotFlow", "Flow")
@@ -1581,13 +1609,30 @@ namespace WhatsAppCampaignApi.Migrations
                     b.Navigation("Flow");
                 });
 
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.MessageBot", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Connection", "Connection")
+                        .WithMany("MessageBots")
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Connection");
+                });
+
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.TemplateBot", b =>
                 {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Connection", "Connection")
+                        .WithMany("TemplateBots")
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("WhatsAppCampaignApi.Models.Entities.Template", "Template")
                         .WithMany()
                         .HasForeignKey("TemplateId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Connection");
 
                     b.Navigation("Template");
                 });
@@ -1659,11 +1704,17 @@ namespace WhatsAppCampaignApi.Migrations
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Connection", b =>
                 {
+                    b.Navigation("BotFlows");
+
                     b.Navigation("Campaigns");
 
                     b.Navigation("ChatConversations");
 
                     b.Navigation("ChatMessages");
+
+                    b.Navigation("MessageBots");
+
+                    b.Navigation("TemplateBots");
 
                     b.Navigation("WabaConfigurations");
 

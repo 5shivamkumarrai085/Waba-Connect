@@ -26,3 +26,11 @@
   font-weight: 500;
   color: var(--text-muted);
 }
+
+.empty-state-quote {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-light);
+  margin-top: 8px;
+  opacity: 0.8;
+}

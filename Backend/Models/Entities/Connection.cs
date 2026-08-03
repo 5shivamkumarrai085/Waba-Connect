@@ -26,4 +26,7 @@ public class Connection
     public virtual ICollection<ChatConversation> ChatConversations { get; set; } = new List<ChatConversation>();
     public virtual ICollection<ChatMessage> ChatMessages { get; set; } = new List<ChatMessage>();
     public virtual ICollection<Campaign> Campaigns { get; set; } = new List<Campaign>();
+    public virtual ICollection<MessageBot> MessageBots { get; set; } = new List<MessageBot>();
+    public virtual ICollection<TemplateBot> TemplateBots { get; set; } = new List<TemplateBot>();
+    public virtual ICollection<BotFlow> BotFlows { get; set; } = new List<BotFlow>();
 }

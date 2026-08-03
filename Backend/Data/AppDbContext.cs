@@ -159,6 +159,7 @@ public class AppDbContext : DbContext
         {
             entity.HasIndex(e => e.Name);
             entity.HasIndex(e => e.TriggerKeyword);
+            entity.HasOne(e => e.Connection).WithMany(c => c.MessageBots).HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // TemplateBot configurations
@@ -168,12 +169,14 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.TriggerKeyword);
             entity.HasOne(e => e.Template).WithMany().HasForeignKey(e => e.TemplateId).OnDelete(DeleteBehavior.Restrict);
             entity.HasMany(e => e.Variables).WithOne(v => v.TemplateBot).HasForeignKey(v => v.TemplateBotId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Connection).WithMany(c => c.TemplateBots).HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // BotFlow configurations
         modelBuilder.Entity<BotFlow>(entity =>
         {
             entity.HasIndex(e => e.Name);
+            entity.HasOne(e => e.Connection).WithMany(c => c.BotFlows).HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<FlowNode>(entity =>

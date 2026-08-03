@@ -1,4 +1,5 @@
 import React from 'react'
+import { motion } from 'framer-motion'
 import './Toggle.css'
 
 interface ToggleProps {
@@ -21,7 +22,11 @@ export const Toggle: React.FC<ToggleProps> = ({
   }
 
   return (
-    <div className={`toggle-switch-container ${disabled ? 'disabled-toggle' : ''}`} onClick={handleToggle}>
+    <motion.div
+      className={`toggle-switch-container ${disabled ? 'disabled-toggle' : ''}`}
+      onClick={handleToggle}
+      whileTap={{ scale: 0.9 }}
+    >
       <input
         type="checkbox"
         className="toggle-switch-input"
@@ -29,9 +34,9 @@ export const Toggle: React.FC<ToggleProps> = ({
         readOnly
         disabled={disabled}
       />
-      <div className="toggle-switch-slider" />
+      <motion.div className="toggle-switch-slider" layout transition={{ type: 'spring', stiffness: 500, damping: 30 }} />
       {label && <span className="form-toggle-label">{label}</span>}
-    </div>
+    </motion.div>
   )
 }
 export default Toggle

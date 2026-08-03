@@ -7,8 +7,9 @@ namespace WhatsAppCampaignApi.Services.Interfaces;
 public interface IBotFlowService
 {
     Task<PagedResponse<BotFlowResponse>> GetPagedAsync(
-        PagedRequest request, 
-        bool? isActive);
+        PagedRequest request,
+        bool? isActive,
+        int? connectionId = null);
         
     Task<BotFlowResponse> GetByIdAsync(int id);
     

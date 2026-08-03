@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { toast } from 'react-hot-toast'
 import { botFlowService } from '../services/botFlow/botFlowService'
 import type { BotFlow } from '../types/botFlow'
+import { useDashboardStore } from './dashboardStore'
 
 interface BotFlowStoreState {
   flows: BotFlow[]
@@ -19,8 +20,8 @@ interface BotFlowStoreState {
 
   fetchFlows: () => Promise<void>
   fetchFlowById: (id: number) => Promise<BotFlow | null>
-  createFlow: (name: string, description?: string) => Promise<BotFlow>
-  updateFlow: (id: number, name: string, description?: string, flowData?: string) => Promise<BotFlow>
+  createFlow: (name: string, description?: string, connectionId?: number | null) => Promise<BotFlow>
+  updateFlow: (id: number, name: string, description?: string, flowData?: string, connectionId?: number | null) => Promise<BotFlow>
   deleteFlow: (id: number) => Promise<boolean>
   toggleFlowActive: (id: number) => Promise<void>
 }
@@ -78,10 +79,11 @@ export const useBotFlowStore = create<BotFlowStoreState>((set, get) => ({
     }
   },
 
-  createFlow: async (name, description) => {
+  createFlow: async (name, description, connectionId) => {
     try {
-      const flow = await botFlowService.createBotFlow({ name, description })
+      const flow = await botFlowService.createBotFlow({ name, description, connectionId: connectionId ?? undefined })
       get().fetchFlows()
+      useDashboardStore.getState().loadDashboardData(false)
       return flow
     } catch (error) {
       toast.error('Failed to save flow')
@@ -89,10 +91,11 @@ export const useBotFlowStore = create<BotFlowStoreState>((set, get) => ({
     }
   },
 
-  updateFlow: async (id, name, description, flowData) => {
+  updateFlow: async (id, name, description, flowData, connectionId) => {
     try {
-      const flow = await botFlowService.updateBotFlow(id, { name, description, flowData })
+      const flow = await botFlowService.updateBotFlow(id, { name, description, flowData, connectionId: connectionId ?? undefined })
       get().fetchFlows()
+      useDashboardStore.getState().loadDashboardData(false)
       if (get().currentFlow?.id === id) {
         set({ currentFlow: flow })
       }
@@ -108,6 +111,7 @@ export const useBotFlowStore = create<BotFlowStoreState>((set, get) => ({
       const success = await botFlowService.deleteBotFlow(id)
       if (success) {
         get().fetchFlows()
+        useDashboardStore.getState().loadDashboardData(false)
       }
       return success
     } catch (error) {
@@ -122,6 +126,7 @@ export const useBotFlowStore = create<BotFlowStoreState>((set, get) => ({
       set({
         flows: get().flows.map(f => f.id === id ? { ...f, isActive: !f.isActive } : f)
       })
+      useDashboardStore.getState().loadDashboardData(false)
     } catch {
       toast.error('Failed to toggle status')
     }

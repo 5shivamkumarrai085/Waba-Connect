@@ -29,4 +29,8 @@ public class TemplateBot
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     
     public ICollection<TemplateBotVariable> Variables { get; set; } = [];
+
+    // Null = fires on all connections (legacy/global bot). Set = scoped to one connection only.
+    public int? ConnectionId { get; set; }
+    public Connection? Connection { get; set; }
 }

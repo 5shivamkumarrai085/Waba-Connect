@@ -129,9 +129,9 @@ export const ConnectionsList: React.FC = () => {
     navigate(`/connect-waba?connectionId=${id}`)
   }
 
-  const handleEditSave = async (id: number, name: string, description?: string) => {
+  const handleEditSave = async (id: number, name: string, description?: string, nickname?: string) => {
     try {
-      await updateConnection(id, name, description)
+      await updateConnection(id, name, description, nickname)
       toast.success('Connection updated successfully!')
       setEditingConn(null)
     } catch {

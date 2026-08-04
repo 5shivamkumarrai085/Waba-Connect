@@ -78,6 +78,8 @@ public class ConnectionService : IConnectionService
             existing.IsActive = true;
             if (!string.IsNullOrWhiteSpace(request.Description))
                 existing.Description = request.Description.Trim();
+            if (!string.IsNullOrWhiteSpace(request.Nickname))
+                existing.Nickname = request.Nickname.Trim();
             existing.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
             return (await GetByIdAsync(existing.Id))!;
@@ -86,6 +88,7 @@ public class ConnectionService : IConnectionService
         var connection = new Connection
         {
             Name = trimmedName,
+            Nickname = request.Nickname?.Trim(),
             Description = request.Description?.Trim(),
             IsActive = true,
             CreatedAt = DateTime.UtcNow
@@ -104,6 +107,9 @@ public class ConnectionService : IConnectionService
 
         if (!string.IsNullOrWhiteSpace(request.Name))
             connection.Name = request.Name.Trim();
+
+        if (request.Nickname != null)
+            connection.Nickname = request.Nickname.Trim();
 
         if (request.Description != null)
             connection.Description = request.Description.Trim();
@@ -231,6 +237,7 @@ public class ConnectionService : IConnectionService
         {
             Id = connection.Id,
             Name = connection.Name,
+            Nickname = connection.Nickname,
             Description = connection.Description,
             IsActive = connection.IsActive,
             PhoneNumber = phone?.PhoneNumber,

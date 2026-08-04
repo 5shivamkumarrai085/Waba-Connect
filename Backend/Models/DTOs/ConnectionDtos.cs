@@ -6,12 +6,14 @@ namespace WhatsAppCampaignApi.Models.DTOs;
 public class CreateConnectionRequest
 {
     public string Name { get; set; } = string.Empty;
+    public string? Nickname { get; set; }
     public string? Description { get; set; }
 }
 
 public class UpdateConnectionRequest
 {
     public string Name { get; set; } = string.Empty;
+    public string? Nickname { get; set; }
     public string? Description { get; set; }
     public bool? IsActive { get; set; }
 }
@@ -20,6 +22,7 @@ public class ConnectionResponse
 {
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? Nickname { get; set; }
     public string? Description { get; set; }
     public bool IsActive { get; set; }
     public string? PhoneNumber { get; set; }

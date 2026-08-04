@@ -1,6 +1,7 @@
 export interface Connection {
   id: number
   name: string
+  nickname?: string
   description?: string
   isActive: boolean
   phoneNumber?: string
@@ -23,11 +24,13 @@ export interface ConnectionDashboard {
 
 export interface CreateConnectionPayload {
   name: string
+  nickname?: string
   description?: string
 }
 
 export interface UpdateConnectionPayload {
   name?: string
+  nickname?: string
   description?: string
   isActive?: boolean
 }

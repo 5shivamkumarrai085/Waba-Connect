@@ -12,6 +12,9 @@ public class Connection
     [Required]
     public string Name { get; set; } = string.Empty;
 
+    [MaxLength(4)]
+    public string? Nickname { get; set; }
+
     public string? Description { get; set; }
 
     public bool IsActive { get; set; } = true;

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { X, MessageSquare, Check } from 'lucide-react'
 import { templateService } from '../../services/templates/templateService'
 import { chatService } from '../../services/chat/chatService'
+import { wabaService } from '../../services/waba/wabaService'
 import { useConnectionStore } from '../../store/connectionStore'
 import type { Template } from '../../types/templates'
 import toast from 'react-hot-toast'
@@ -164,6 +165,12 @@ export const InitiateChatModal: React.FC<InitiateChatModalProps> = ({
 
     setIsSending(true)
     try {
+      const checkResult = await wabaService.checkLimitFast(selectedConnectionIds[0])
+      if (checkResult.limitReached) {
+        toast.error(checkResult.message || 'Daily message limit reached for this connection.', { duration: 4000 })
+        return
+      }
+
       let succeededCount = 0
       let failedCount = 0
       let lastErrorMessage = ''

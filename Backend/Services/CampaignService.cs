@@ -25,7 +25,7 @@ public class CampaignService : ICampaignService
 
     public async Task<PagedResponse<CampaignResponse>> GetAllAsync(PagedRequest request, string? status = null)
     {
-        var query = _dbContext.Campaigns.AsNoTracking().Include(c => c.Template).AsQueryable();
+        var query = _dbContext.Campaigns.AsNoTracking().Include(c => c.Template).Include(c => c.Connection).AsQueryable();
 
         if (!string.IsNullOrEmpty(status) && Enum.TryParse<CampaignStatus>(status, true, out var parsedStatus))
         {
@@ -59,7 +59,7 @@ public class CampaignService : ICampaignService
         var campaign = await _dbContext.Campaigns
             .AsNoTracking()
             .IgnoreQueryFilters()
-            .Include(c => c.Template)
+            .Include(c => c.Template).Include(c => c.Connection)
             .Include(c => c.Variables)
             .Include(c => c.CampaignContacts)
                 .ThenInclude(cc => cc.Contact)
@@ -207,7 +207,7 @@ public class CampaignService : ICampaignService
             _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
         }
 
-        var created = await _dbContext.Campaigns.Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == campaign.Id);
+        var created = await _dbContext.Campaigns.Include(c => c.Template).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == campaign.Id);
         return MapToResponse(created!);
     }
 
@@ -221,7 +221,7 @@ public class CampaignService : ICampaignService
 
         var campaign = await _dbContext.Campaigns
             .IgnoreQueryFilters()
-            .Include(c => c.Template)
+            .Include(c => c.Template).Include(c => c.Connection)
             .Include(c => c.Variables)
             .Include(c => c.CampaignContacts)
             .FirstOrDefaultAsync(c => c.Id == id);
@@ -303,7 +303,7 @@ public class CampaignService : ICampaignService
             _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
         }
 
-        var updated = await _dbContext.Campaigns.Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == campaign.Id);
+        var updated = await _dbContext.Campaigns.Include(c => c.Template).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == campaign.Id);
         return MapToResponse(updated!);
     }
 
@@ -336,7 +336,7 @@ public class CampaignService : ICampaignService
 
     public async Task<CampaignResponse> CancelAsync(int id)
     {
-        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == id);
+        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == id);
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
 
@@ -354,7 +354,7 @@ public class CampaignService : ICampaignService
 
     public async Task<CampaignResponse> PauseAsync(int id)
     {
-        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == id);
+        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == id);
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
 
@@ -375,7 +375,7 @@ public class CampaignService : ICampaignService
 
     public async Task<CampaignResponse> ResumeAsync(int id)
     {
-        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).FirstOrDefaultAsync(c => c.Id == id);
+        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == id);
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
 
@@ -404,7 +404,7 @@ public class CampaignService : ICampaignService
     {
         var campaign = await _dbContext.Campaigns
             .AsNoTracking()
-            .Include(c => c.Template)
+            .Include(c => c.Template).Include(c => c.Connection)
             .Include(c => c.Variables)
             .FirstOrDefaultAsync(c => c.Id == campaignId);
 
@@ -480,7 +480,7 @@ public class CampaignService : ICampaignService
 
             var campaign = await dbContext.Campaigns
                 .IgnoreQueryFilters()
-                .Include(c => c.Template)
+                .Include(c => c.Template).Include(c => c.Connection)
                 .Include(c => c.Variables)
                 .Include(c => c.CampaignContacts)
                     .ThenInclude(cc => cc.Contact)
@@ -759,7 +759,10 @@ public class CampaignService : ICampaignService
             DeletedBy = c.DeletedBy,
             CreatedAt = c.CreatedAt,
             UpdatedAt = c.UpdatedAt,
-            IsBulkCampaign = c.IsBulkCampaign
+            IsBulkCampaign = c.IsBulkCampaign,
+            ConnectionId = c.ConnectionId,
+            ConnectionName = c.Connection?.Name,
+            ConnectionNickname = c.Connection?.Nickname
         };
     }
 

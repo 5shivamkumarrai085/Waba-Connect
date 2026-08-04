@@ -40,6 +40,9 @@ public class CampaignResponse
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsBulkCampaign { get; set; }
+    public int? ConnectionId { get; set; }
+    public string? ConnectionName { get; set; }
+    public string? ConnectionNickname { get; set; }
 }
 
 public class CampaignDetailResponse : CampaignResponse

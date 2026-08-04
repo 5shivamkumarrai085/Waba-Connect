@@ -48,6 +48,24 @@
   text-decoration: none;
 }
 
+.campaign-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.connection-nickname-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-hover);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
 .campaign-hover-actions {
   display: flex;
   align-items: center;

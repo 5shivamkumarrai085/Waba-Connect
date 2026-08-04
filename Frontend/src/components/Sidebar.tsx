@@ -227,21 +227,6 @@ export const Sidebar: React.FC = () => {
           ))}
         </div>
 
-        {/* Sidebar Footer — version & fun tagline */}
-        <AnimatePresence>
-          {!isCollapsed && (
-            <motion.div 
-              className="sidebar-footer"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-            >
-              <div className="sidebar-footer-version">OmniConnect v2.0</div>
-              <div className="sidebar-footer-tagline">Built with ☕ and ambition</div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </aside>
     </>
   )

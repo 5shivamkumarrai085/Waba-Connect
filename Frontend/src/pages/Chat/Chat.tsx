@@ -256,20 +256,10 @@ export const Chat: React.FC = () => {
   // 1. Template Modal
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
 
-  const handleOpenTemplateModal = async () => {
+  const handleOpenTemplateModal = () => {
     if (activeConversation && activeConversation.contactIsActive === false) {
       toast.error('Cannot send message to an inactive contact.', { duration: 3000 })
       return
-    }
-    try {
-      const connId = activeConversation?.connectionId || selectedConnectionId || undefined
-      const checkResult = await wabaService.checkLimitFast(connId)
-      if (checkResult.limitReached) {
-        toast.error(checkResult.message || 'Daily message limit reached for this connection.', { duration: 4000 })
-        return
-      }
-    } catch (err) {
-      console.error('Error checking connection limit:', err)
     }
     setIsTemplateModalOpen(true)
   }

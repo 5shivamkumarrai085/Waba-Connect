@@ -13,7 +13,7 @@ namespace WhatsAppCampaignApi.Services;
 
 public class DashboardCacheService : IDashboardCacheService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly IMemoryCache _cache;
     private readonly IConfiguration _configuration;
 
@@ -25,9 +25,9 @@ public class DashboardCacheService : IDashboardCacheService
         "Dashboard_Summary_all"
     };
 
-    public DashboardCacheService(AppDbContext dbContext, IMemoryCache cache, IConfiguration configuration)
+    public DashboardCacheService(IDbContextFactory<AppDbContext> dbContextFactory, IMemoryCache cache, IConfiguration configuration)
     {
-        _dbContext = dbContext;
+        _dbContextFactory = dbContextFactory;
         _cache = cache;
         _configuration = configuration;
     }
@@ -78,342 +78,106 @@ public class DashboardCacheService : IDashboardCacheService
                 previousEnd = now.AddDays(-30);
             }
 
-            var queryContacts = _dbContext.Contacts.AsNoTracking();
-            var queryCampaigns = _dbContext.Campaigns.AsNoTracking();
-            var queryTemplates = _dbContext.Templates.AsNoTracking();
+            var sparklineStart = now.Date.AddDays(-6);
 
-            if (currentCutoff.HasValue)
+            // Each of these opens its own short-lived DbContext (via the factory) so they can run
+            // concurrently — AppDbContext itself is scoped/not thread-safe, so a shared context can't
+            // be awaited from multiple in-flight tasks at once.
+            async Task<PreviousPeriodCounts?> GetPreviousPeriodOrNullAsync()
             {
-                queryContacts = queryContacts.Where(c => c.CreatedAt >= currentCutoff.Value);
-                queryCampaigns = queryCampaigns.Where(c => c.CreatedAt >= currentCutoff.Value);
-                queryTemplates = queryTemplates.Where(t => t.CreatedAt >= currentCutoff.Value);
+                if (!previousStart.HasValue || !previousEnd.HasValue) return null;
+                return await GetPreviousPeriodCountsAsync(previousStart.Value, previousEnd.Value);
             }
 
-            var totalContacts = await queryContacts.CountAsync();
-            var contactsActive = await queryContacts.CountAsync(c => c.IsActive);
+            var coreCountsTask = GetCoreCountsAsync(currentCutoff);
+            var previousPeriodTask = GetPreviousPeriodOrNullAsync();
+            var sparklinesTask = GetSparklinesAsync(sparklineStart);
+            var hourlyTask = GetHourlyChartAsync(currentCutoff);
+            var topAndRecentCampaignsTask = GetTopAndRecentCampaignsAsync(currentCutoff);
+            var recentActivityTask = GetRecentActivityAndBusinessNameAsync();
 
-            var campaigns = await queryCampaigns.ToListAsync();
-            var totalCampaigns = campaigns.Count;
-            var campaignsActive = campaigns.Count(c => c.Status == CampaignStatus.Sending || c.Status == CampaignStatus.Scheduled);
+            await Task.WhenAll(
+                coreCountsTask,
+                previousPeriodTask,
+                sparklinesTask,
+                hourlyTask,
+                topAndRecentCampaignsTask,
+                recentActivityTask);
 
-            var templates = await queryTemplates.ToListAsync();
-            var templatesTotal = templates.Count;
-            var templatesApproved = templates.Count(t => t.Status == TemplateStatus.Approved);
-
-            // Message aggregates are scoped by the *campaign's* CreatedAt (via campaign id), not CampaignContact.SentAt —
-            // some historical rows have Status set (Sent/Delivered/...) without SentAt ever being populated, so a
-            // SentAt-based filter would silently drop real messages. Status is the reliable source of truth here.
-            // Aggregated in SQL (GROUP BY status) instead of pulling every CampaignContact row into memory.
-            var campaignIdsInPeriod = campaigns.Select(c => c.Id).ToHashSet();
-            var statusCounts = campaignIdsInPeriod.Count > 0
-                ? await _dbContext.CampaignContacts.AsNoTracking()
-                    .Where(cc => campaignIdsInPeriod.Contains(cc.CampaignId))
-                    .GroupBy(cc => cc.Status)
-                    .Select(g => new { Status = g.Key, Count = g.Count() })
-                    .ToDictionaryAsync(g => g.Status, g => g.Count)
-                : new Dictionary<MessageStatus, int>();
-
-            int CountByStatus(MessageStatus status) => statusCounts.TryGetValue(status, out var c) ? c : 0;
-
-            var messagesSent = statusCounts.Where(kv => kv.Key != MessageStatus.Pending).Sum(kv => kv.Value);
-            var messagesDelivered = CountByStatus(MessageStatus.Delivered) + CountByStatus(MessageStatus.Read);
-            var messagesRead = CountByStatus(MessageStatus.Read);
-            var messagesFailed = CountByStatus(MessageStatus.Failed);
-            // In-flight: dispatched but not yet resolved to Delivered/Read/Failed. delivered+failed+pending == messagesSent.
-            var messagesPending = CountByStatus(MessageStatus.Sent);
+            var core = coreCountsTask.Result;
+            var prev = previousPeriodTask.Result;
+            var sparklines = sparklinesTask.Result;
+            var hourly = hourlyTask.Result;
+            var topAndRecent = topAndRecentCampaignsTask.Result;
+            var recentActivityResult = recentActivityTask.Result;
 
             // Previous-period comparison (null for "all", where there is no meaningful prior window).
             object? previousPeriod = null;
-            if (previousStart.HasValue && previousEnd.HasValue)
+            if (prev != null)
             {
-                var prevContactsCount = await _dbContext.Contacts.AsNoTracking()
-                    .CountAsync(c => c.CreatedAt >= previousStart.Value && c.CreatedAt < previousEnd.Value);
-                var prevCampaignsCount = await _dbContext.Campaigns.AsNoTracking()
-                    .CountAsync(c => c.CreatedAt >= previousStart.Value && c.CreatedAt < previousEnd.Value);
-                var prevTemplatesCount = await _dbContext.Templates.AsNoTracking()
-                    .CountAsync(t => t.CreatedAt >= previousStart.Value && t.CreatedAt < previousEnd.Value);
-                var prevCampaignIds = await _dbContext.Campaigns.AsNoTracking()
-                    .Where(c => c.CreatedAt >= previousStart.Value && c.CreatedAt < previousEnd.Value)
-                    .Select(c => c.Id).ToListAsync();
-                var prevMessagesCount = prevCampaignIds.Count > 0
-                    ? await _dbContext.CampaignContacts.AsNoTracking()
-                        .CountAsync(cc => prevCampaignIds.Contains(cc.CampaignId) && cc.Status != MessageStatus.Pending)
-                    : 0;
-
-                static double PercentChange(int current, int previous)
-                {
-                    if (previous == 0) return current > 0 ? 100.0 : 0.0;
-                    return Math.Round(((double)(current - previous) / previous) * 100, 1);
-                }
-
                 previousPeriod = new
                 {
-                    messagesChangePercent = PercentChange(messagesSent, prevMessagesCount),
-                    contactsChangePercent = PercentChange(totalContacts, prevContactsCount),
-                    campaignsChangePercent = PercentChange(totalCampaigns, prevCampaignsCount),
-                    templatesChangePercent = PercentChange(templatesTotal, prevTemplatesCount)
+                    messagesChangePercent = PercentChange(core.MessagesSent, prev.MessagesCount),
+                    contactsChangePercent = PercentChange(core.TotalContacts, prev.ContactsCount),
+                    campaignsChangePercent = PercentChange(core.TotalCampaigns, prev.CampaignsCount),
+                    templatesChangePercent = PercentChange(core.TemplatesTotal, prev.TemplatesCount)
                 };
             }
 
-            // 7-day sparkline trend for each stat card (independent of the active timeFilter, always daily granularity).
-            // Each series is aggregated in SQL (GROUP BY day) instead of pulling every row into memory and counting.
-            var sparklineStart = now.Date.AddDays(-6);
-
-            var contactsByDay = await _dbContext.Contacts.AsNoTracking()
-                .Where(c => c.CreatedAt >= sparklineStart)
-                .GroupBy(c => c.CreatedAt.Date)
-                .Select(g => new { Day = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(g => g.Day, g => g.Count);
-
-            var campaignsByDay = await _dbContext.Campaigns.AsNoTracking()
-                .Where(c => c.CreatedAt >= sparklineStart)
-                .GroupBy(c => c.CreatedAt.Date)
-                .Select(g => new { Day = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(g => g.Day, g => g.Count);
-
-            var templatesByDay = await _dbContext.Templates.AsNoTracking()
-                .Where(t => t.CreatedAt >= sparklineStart)
-                .GroupBy(t => t.CreatedAt.Date)
-                .Select(g => new { Day = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(g => g.Day, g => g.Count);
-
-            // A message's "day" for this trend is its owning campaign's CreatedAt date (matching the semantics above).
-            var messagesByDay = await _dbContext.CampaignContacts.AsNoTracking()
-                .Where(cc => cc.Status != MessageStatus.Pending && cc.Campaign.CreatedAt >= sparklineStart)
-                .GroupBy(cc => cc.Campaign.CreatedAt.Date)
-                .Select(g => new { Day = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(g => g.Day, g => g.Count);
-
-            var messagesSparkline = new List<object>();
-            var contactsSparkline = new List<object>();
-            var campaignsSparkline = new List<object>();
-            var templatesSparkline = new List<object>();
-
-            for (int i = 0; i < 7; i++)
-            {
-                var day = sparklineStart.AddDays(i);
-                messagesSparkline.Add(new { name = day.ToString("MM/dd"), value = messagesByDay.GetValueOrDefault(day) });
-                contactsSparkline.Add(new { name = day.ToString("MM/dd"), value = contactsByDay.GetValueOrDefault(day) });
-                campaignsSparkline.Add(new { name = day.ToString("MM/dd"), value = campaignsByDay.GetValueOrDefault(day) });
-                templatesSparkline.Add(new { name = day.ToString("MM/dd"), value = templatesByDay.GetValueOrDefault(day) });
-            }
-
-            var recentCampaigns = campaigns
-                .OrderByDescending(c => c.Id)
-                .Take(5)
-                .Select(c => new
-                {
-                    id = c.Id,
-                    name = c.Name,
-                    status = c.Status.ToString(),
-                    totalRecipients = c.TotalRecipients,
-                    deliveredCount = c.DeliveredCount
-                })
-                .ToList();
-
-            // Hourly line-chart data needs each message's own SentAt timestamp for hour-of-day bucketing
-            // (campaign CreatedAt can't tell us what hour a specific message went out), scoped to this period.
-            // Aggregated in SQL (GROUP BY hour, with conditional counts) instead of pulling every row into memory.
-            var hourlyBaseQuery = _dbContext.CampaignContacts.AsNoTracking().Where(cc => cc.SentAt != null);
-            if (currentCutoff.HasValue)
-            {
-                hourlyBaseQuery = hourlyBaseQuery.Where(cc => cc.SentAt >= currentCutoff.Value);
-            }
-
-            var latestDate = await hourlyBaseQuery
-                .OrderByDescending(cc => cc.SentAt)
-                .Select(cc => cc.SentAt!.Value.Date)
-                .FirstOrDefaultAsync();
-            if (latestDate == default)
-            {
-                latestDate = DateTime.UtcNow.Date;
-            }
-
-            var hourlyAggregates = await hourlyBaseQuery
-                .Where(cc => cc.SentAt!.Value.Date == latestDate)
-                .GroupBy(cc => cc.SentAt!.Value.Hour)
-                .Select(g => new
-                {
-                    Hour = g.Key,
-                    Sent = g.Count(),
-                    Errors = g.Count(cc => cc.Status == MessageStatus.Failed),
-                    Delivered = g.Count(cc => cc.Status == MessageStatus.Delivered || cc.Status == MessageStatus.Read),
-                    Read = g.Count(cc => cc.Status == MessageStatus.Read)
-                })
-                .ToDictionaryAsync(g => g.Hour);
-
-            var hourlyChartData = new List<object>();
-            var deliveryTrend = new List<object>();
-            var readTrend = new List<object>();
-
-            for (int i = 0; i < 24; i++)
-            {
-                var hourStr = $"{i:D2}:00";
-                hourlyAggregates.TryGetValue(i, out var agg);
-
-                var sent = agg?.Sent ?? 0;
-                var errors = agg?.Errors ?? 0;
-                var delivered = agg?.Delivered ?? 0;
-                var read = agg?.Read ?? 0;
-
-                hourlyChartData.Add(new { name = hourStr, sent, errors });
-
-                double delRate = sent > 0 ? ((double)delivered / sent) * 100 : 0;
-                double rdRate = delivered > 0 ? ((double)read / delivered) * 100 : 0;
-
-                deliveryTrend.Add(new { name = hourStr, value = Math.Round(delRate, 2) });
-                readTrend.Add(new { name = hourStr, value = Math.Round(rdRate, 2) });
-            }
-
-            // Unified Top Campaigns list — most recent 5, each carrying both delivery & read rate.
-            var topCampaigns = campaigns
-                .OrderByDescending(c => c.CreatedAt)
-                .Take(5)
-                .Select(c => new
-                {
-                    id = c.Id,
-                    name = c.Name,
-                    createdAt = c.CreatedAt,
-                    status = c.Status.ToString(),
-                    messages = c.TotalRecipients,
-                    delivered = c.DeliveredCount,
-                    deliveryRate = c.TotalRecipients > 0 ? Math.Round((double)c.DeliveredCount / c.TotalRecipients * 100, 2) : 0,
-                    readRate = c.TotalRecipients > 0 ? Math.Round((double)c.ReadCount / c.TotalRecipients * 100, 2) : 0
-                })
-                .ToList();
-
             // Overall Rates
-            double overallDeliveryRate = messagesSent > 0 ? ((double)messagesDelivered / messagesSent) * 100 : 0;
-            double overallReadRate = messagesDelivered > 0 ? ((double)messagesRead / messagesDelivered) * 100 : 0;
+            double overallDeliveryRate = core.MessagesSent > 0 ? ((double)core.MessagesDelivered / core.MessagesSent) * 100 : 0;
+            double overallReadRate = core.MessagesDelivered > 0 ? ((double)core.MessagesRead / core.MessagesDelivered) * 100 : 0;
 
             // Delivery / Read breakdown for the donut widget (both always returned; frontend toggles client-side).
             object deliveryBreakdown = new
             {
-                delivered = messagesDelivered,
-                failed = messagesFailed,
-                pending = messagesPending,
-                deliveredPercent = messagesSent > 0 ? Math.Round((double)messagesDelivered / messagesSent * 100, 1) : 0,
-                failedPercent = messagesSent > 0 ? Math.Round((double)messagesFailed / messagesSent * 100, 1) : 0,
-                pendingPercent = messagesSent > 0 ? Math.Round((double)messagesPending / messagesSent * 100, 1) : 0
+                delivered = core.MessagesDelivered,
+                failed = core.MessagesFailed,
+                pending = core.MessagesPending,
+                deliveredPercent = core.MessagesSent > 0 ? Math.Round((double)core.MessagesDelivered / core.MessagesSent * 100, 1) : 0,
+                failedPercent = core.MessagesSent > 0 ? Math.Round((double)core.MessagesFailed / core.MessagesSent * 100, 1) : 0,
+                pendingPercent = core.MessagesSent > 0 ? Math.Round((double)core.MessagesPending / core.MessagesSent * 100, 1) : 0
             };
 
-            var messagesUnread = Math.Max(messagesDelivered - messagesRead, 0);
-            var messagesNotDelivered = messagesFailed + messagesPending;
+            var messagesUnread = Math.Max(core.MessagesDelivered - core.MessagesRead, 0);
+            var messagesNotDelivered = core.MessagesFailed + core.MessagesPending;
             object readBreakdown = new
             {
-                read = messagesRead,
+                read = core.MessagesRead,
                 unread = messagesUnread,
                 notDelivered = messagesNotDelivered,
-                readPercent = messagesSent > 0 ? Math.Round((double)messagesRead / messagesSent * 100, 1) : 0,
-                unreadPercent = messagesSent > 0 ? Math.Round((double)messagesUnread / messagesSent * 100, 1) : 0,
-                notDeliveredPercent = messagesSent > 0 ? Math.Round((double)messagesNotDelivered / messagesSent * 100, 1) : 0
+                readPercent = core.MessagesSent > 0 ? Math.Round((double)core.MessagesRead / core.MessagesSent * 100, 1) : 0,
+                unreadPercent = core.MessagesSent > 0 ? Math.Round((double)messagesUnread / core.MessagesSent * 100, 1) : 0,
+                notDeliveredPercent = core.MessagesSent > 0 ? Math.Round((double)messagesNotDelivered / core.MessagesSent * 100, 1) : 0
             };
-
-            // Synthesized Recent Activity feed — merged from existing tables' own timestamps, no dedicated log table.
-            var activityItems = new List<(DateTime Timestamp, object Item)>();
-
-            var recentContacts = await _dbContext.Contacts.AsNoTracking()
-                .OrderByDescending(c => c.CreatedAt).Take(5)
-                .Select(c => new { c.Name, c.Phone, c.CreatedAt }).ToListAsync();
-            foreach (var c in recentContacts)
-            {
-                activityItems.Add((c.CreatedAt, new
-                {
-                    type = "contact",
-                    title = "New contact added",
-                    subtitle = $"{c.Name} • {c.Phone}",
-                    timestamp = c.CreatedAt
-                }));
-            }
-
-            var recentCampaignActivity = await _dbContext.Campaigns.AsNoTracking()
-                .Where(c => c.Status == CampaignStatus.Sent || c.Status == CampaignStatus.Sending || c.Status == CampaignStatus.Scheduled)
-                .OrderByDescending(c => c.UpdatedAt).Take(5)
-                .Select(c => new { c.Name, c.Status, c.UpdatedAt }).ToListAsync();
-            foreach (var c in recentCampaignActivity)
-            {
-                var verb = c.Status switch
-                {
-                    CampaignStatus.Sent => "was sent",
-                    CampaignStatus.Sending => "is sending",
-                    CampaignStatus.Scheduled => "was scheduled",
-                    _ => "was updated"
-                };
-                activityItems.Add((c.UpdatedAt, new
-                {
-                    type = "campaign",
-                    title = $"Campaign \"{c.Name}\" {verb}",
-                    subtitle = (string?)null,
-                    timestamp = c.UpdatedAt
-                }));
-            }
-
-            var recentTemplateActivity = await _dbContext.Templates.AsNoTracking()
-                .OrderByDescending(t => t.UpdatedAt).Take(5)
-                .Select(t => new { t.Name, t.Status, t.UpdatedAt }).ToListAsync();
-            foreach (var t in recentTemplateActivity)
-            {
-                activityItems.Add((t.UpdatedAt, new
-                {
-                    type = "template",
-                    title = $"Template \"{t.Name}\" {(t.Status == TemplateStatus.Approved ? "was approved" : "was updated")}",
-                    subtitle = (string?)null,
-                    timestamp = t.UpdatedAt
-                }));
-            }
-
-            var recentBotFlowActivity = await _dbContext.BotFlows.AsNoTracking()
-                .OrderByDescending(b => b.UpdatedAt).Take(5)
-                .Select(b => new { b.Name, b.IsActive, b.UpdatedAt }).ToListAsync();
-            foreach (var b in recentBotFlowActivity)
-            {
-                activityItems.Add((b.UpdatedAt, new
-                {
-                    type = "botflow",
-                    title = $"Bot flow \"{b.Name}\" {(b.IsActive ? "was published" : "was disabled")}",
-                    subtitle = (string?)null,
-                    timestamp = b.UpdatedAt
-                }));
-            }
-
-            var recentActivity = activityItems
-                .OrderByDescending(a => a.Timestamp)
-                .Take(8)
-                .Select(a => a.Item)
-                .ToList();
-
-            var businessName = await _dbContext.Businesses.AsNoTracking()
-                .OrderByDescending(b => b.Id)
-                .Select(b => b.BusinessName)
-                .FirstOrDefaultAsync();
 
             return new
             {
-                totalContacts,
-                contactsActive,
-                totalCampaigns,
-                campaignsActive,
-                templatesTotal,
-                templatesApproved,
-                messagesSent,
-                messagesDelivered,
-                messagesRead,
-                messagesFailed,
-                messagesPending,
+                totalContacts = core.TotalContacts,
+                contactsActive = core.ContactsActive,
+                totalCampaigns = core.TotalCampaigns,
+                campaignsActive = core.CampaignsActive,
+                templatesTotal = core.TemplatesTotal,
+                templatesApproved = core.TemplatesApproved,
+                messagesSent = core.MessagesSent,
+                messagesDelivered = core.MessagesDelivered,
+                messagesRead = core.MessagesRead,
+                messagesFailed = core.MessagesFailed,
+                messagesPending = core.MessagesPending,
                 previousPeriod,
-                messagesSparkline,
-                contactsSparkline,
-                campaignsSparkline,
-                templatesSparkline,
-                recentCampaigns,
-                hourlyChartData,
-                deliveryTrend,
-                readTrend,
-                topCampaigns,
+                messagesSparkline = sparklines.MessagesSparkline,
+                contactsSparkline = sparklines.ContactsSparkline,
+                campaignsSparkline = sparklines.CampaignsSparkline,
+                templatesSparkline = sparklines.TemplatesSparkline,
+                recentCampaigns = topAndRecent.RecentCampaigns,
+                hourlyChartData = hourly.HourlyChartData,
+                deliveryTrend = hourly.DeliveryTrend,
+                readTrend = hourly.ReadTrend,
+                topCampaigns = topAndRecent.TopCampaigns,
                 deliveryBreakdown,
                 readBreakdown,
-                recentActivity,
-                businessName,
+                recentActivity = recentActivityResult.RecentActivity,
+                businessName = recentActivityResult.BusinessName,
                 overallDeliveryRate = Math.Round(overallDeliveryRate, 2),
                 overallReadRate = Math.Round(overallReadRate, 2)
             } as object;
@@ -428,5 +192,359 @@ public class DashboardCacheService : IDashboardCacheService
         {
             _cache.Remove(key);
         }
+    }
+
+    private static double PercentChange(int current, int previous)
+    {
+        if (previous == 0) return current > 0 ? 100.0 : 0.0;
+        return Math.Round(((double)(current - previous) / previous) * 100, 1);
+    }
+
+    private record CoreCounts(
+        int TotalContacts, int ContactsActive,
+        int TotalCampaigns, int CampaignsActive,
+        int TemplatesTotal, int TemplatesApproved,
+        int MessagesSent, int MessagesDelivered, int MessagesRead, int MessagesFailed, int MessagesPending);
+
+    private record PreviousPeriodCounts(int ContactsCount, int CampaignsCount, int TemplatesCount, int MessagesCount);
+
+    private record SparklineData(
+        List<object> MessagesSparkline, List<object> ContactsSparkline,
+        List<object> CampaignsSparkline, List<object> TemplatesSparkline);
+
+    private record HourlyChartResult(List<object> HourlyChartData, List<object> DeliveryTrend, List<object> ReadTrend);
+
+    private record TopAndRecentCampaigns(List<object> RecentCampaigns, List<object> TopCampaigns);
+
+    private record RecentActivityResult(List<object> RecentActivity, string? BusinessName);
+
+    // Contacts/campaigns/templates totals + message status breakdown for the active period.
+    // Campaign/template counts and the campaign-id filter used for message status are all done
+    // SQL-side (CountAsync / subquery), never materializing full campaign or template tables.
+    private async Task<CoreCounts> GetCoreCountsAsync(DateTime? currentCutoff)
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+        var queryContacts = db.Contacts.AsNoTracking();
+        var queryCampaigns = db.Campaigns.AsNoTracking();
+        var queryTemplates = db.Templates.AsNoTracking();
+
+        if (currentCutoff.HasValue)
+        {
+            queryContacts = queryContacts.Where(c => c.CreatedAt >= currentCutoff.Value);
+            queryCampaigns = queryCampaigns.Where(c => c.CreatedAt >= currentCutoff.Value);
+            queryTemplates = queryTemplates.Where(t => t.CreatedAt >= currentCutoff.Value);
+        }
+
+        var totalContacts = await queryContacts.CountAsync();
+        var contactsActive = await queryContacts.CountAsync(c => c.IsActive);
+
+        var totalCampaigns = await queryCampaigns.CountAsync();
+        var campaignsActive = await queryCampaigns.CountAsync(c => c.Status == CampaignStatus.Sending || c.Status == CampaignStatus.Scheduled);
+
+        var templatesTotal = await queryTemplates.CountAsync();
+        var templatesApproved = await queryTemplates.CountAsync(t => t.Status == TemplateStatus.Approved);
+
+        // Message aggregates are scoped by the *campaign's* CreatedAt (via campaign id), not CampaignContact.SentAt —
+        // some historical rows have Status set (Sent/Delivered/...) without SentAt ever being populated, so a
+        // SentAt-based filter would silently drop real messages. Status is the reliable source of truth here.
+        // The campaign-id filter is a correlated SQL subquery (queryCampaigns.Select(Id)), never materialized client-side.
+        var campaignIdsInPeriod = queryCampaigns.Select(c => c.Id);
+        var statusCounts = await db.CampaignContacts.AsNoTracking()
+            .Where(cc => campaignIdsInPeriod.Contains(cc.CampaignId))
+            .GroupBy(cc => cc.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Status, g => g.Count);
+
+        int CountByStatus(MessageStatus status) => statusCounts.TryGetValue(status, out var c) ? c : 0;
+
+        var messagesSent = statusCounts.Where(kv => kv.Key != MessageStatus.Pending).Sum(kv => kv.Value);
+        var messagesDelivered = CountByStatus(MessageStatus.Delivered) + CountByStatus(MessageStatus.Read);
+        var messagesRead = CountByStatus(MessageStatus.Read);
+        var messagesFailed = CountByStatus(MessageStatus.Failed);
+        // In-flight: dispatched but not yet resolved to Delivered/Read/Failed. delivered+failed+pending == messagesSent.
+        var messagesPending = CountByStatus(MessageStatus.Sent);
+
+        return new CoreCounts(
+            totalContacts, contactsActive,
+            totalCampaigns, campaignsActive,
+            templatesTotal, templatesApproved,
+            messagesSent, messagesDelivered, messagesRead, messagesFailed, messagesPending);
+    }
+
+    // Raw counts for the immediately preceding period of equal length, used to compute the change-percent shown per stat card.
+    private async Task<PreviousPeriodCounts> GetPreviousPeriodCountsAsync(DateTime previousStart, DateTime previousEnd)
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+        var prevCampaignsQuery = db.Campaigns.AsNoTracking()
+            .Where(c => c.CreatedAt >= previousStart && c.CreatedAt < previousEnd);
+
+        var prevContactsCount = await db.Contacts.AsNoTracking()
+            .CountAsync(c => c.CreatedAt >= previousStart && c.CreatedAt < previousEnd);
+        var prevCampaignsCount = await prevCampaignsQuery.CountAsync();
+        var prevTemplatesCount = await db.Templates.AsNoTracking()
+            .CountAsync(t => t.CreatedAt >= previousStart && t.CreatedAt < previousEnd);
+
+        var prevCampaignIds = prevCampaignsQuery.Select(c => c.Id);
+        var prevMessagesCount = await db.CampaignContacts.AsNoTracking()
+            .CountAsync(cc => prevCampaignIds.Contains(cc.CampaignId) && cc.Status != MessageStatus.Pending);
+
+        return new PreviousPeriodCounts(prevContactsCount, prevCampaignsCount, prevTemplatesCount, prevMessagesCount);
+    }
+
+    // 7-day sparkline trend for each stat card (independent of the active timeFilter, always daily granularity).
+    // Each series is aggregated in SQL (GROUP BY day) instead of pulling every row into memory and counting.
+    private async Task<SparklineData> GetSparklinesAsync(DateTime sparklineStart)
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+        var contactsByDay = await db.Contacts.AsNoTracking()
+            .Where(c => c.CreatedAt >= sparklineStart)
+            .GroupBy(c => c.CreatedAt.Date)
+            .Select(g => new { Day = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Day, g => g.Count);
+
+        var campaignsByDay = await db.Campaigns.AsNoTracking()
+            .Where(c => c.CreatedAt >= sparklineStart)
+            .GroupBy(c => c.CreatedAt.Date)
+            .Select(g => new { Day = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Day, g => g.Count);
+
+        var templatesByDay = await db.Templates.AsNoTracking()
+            .Where(t => t.CreatedAt >= sparklineStart)
+            .GroupBy(t => t.CreatedAt.Date)
+            .Select(g => new { Day = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Day, g => g.Count);
+
+        // A message's "day" for this trend is its owning campaign's CreatedAt date (matching the semantics above).
+        var messagesByDay = await db.CampaignContacts.AsNoTracking()
+            .Where(cc => cc.Status != MessageStatus.Pending && cc.Campaign.CreatedAt >= sparklineStart)
+            .GroupBy(cc => cc.Campaign.CreatedAt.Date)
+            .Select(g => new { Day = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Day, g => g.Count);
+
+        var messagesSparkline = new List<object>();
+        var contactsSparkline = new List<object>();
+        var campaignsSparkline = new List<object>();
+        var templatesSparkline = new List<object>();
+
+        for (int i = 0; i < 7; i++)
+        {
+            var day = sparklineStart.AddDays(i);
+            messagesSparkline.Add(new { name = day.ToString("MM/dd"), value = messagesByDay.GetValueOrDefault(day) });
+            contactsSparkline.Add(new { name = day.ToString("MM/dd"), value = contactsByDay.GetValueOrDefault(day) });
+            campaignsSparkline.Add(new { name = day.ToString("MM/dd"), value = campaignsByDay.GetValueOrDefault(day) });
+            templatesSparkline.Add(new { name = day.ToString("MM/dd"), value = templatesByDay.GetValueOrDefault(day) });
+        }
+
+        return new SparklineData(messagesSparkline, contactsSparkline, campaignsSparkline, templatesSparkline);
+    }
+
+    // Hourly line-chart data needs each message's own SentAt timestamp for hour-of-day bucketing
+    // (campaign CreatedAt can't tell us what hour a specific message went out), scoped to this period.
+    // Aggregated in SQL (GROUP BY hour, with conditional counts) instead of pulling every row into memory.
+    private async Task<HourlyChartResult> GetHourlyChartAsync(DateTime? currentCutoff)
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+        var hourlyBaseQuery = db.CampaignContacts.AsNoTracking().Where(cc => cc.SentAt != null);
+        if (currentCutoff.HasValue)
+        {
+            hourlyBaseQuery = hourlyBaseQuery.Where(cc => cc.SentAt >= currentCutoff.Value);
+        }
+
+        var latestDate = await hourlyBaseQuery
+            .OrderByDescending(cc => cc.SentAt)
+            .Select(cc => cc.SentAt!.Value.Date)
+            .FirstOrDefaultAsync();
+        if (latestDate == default)
+        {
+            latestDate = DateTime.UtcNow.Date;
+        }
+
+        var hourlyAggregates = await hourlyBaseQuery
+            .Where(cc => cc.SentAt!.Value.Date == latestDate)
+            .GroupBy(cc => cc.SentAt!.Value.Hour)
+            .Select(g => new
+            {
+                Hour = g.Key,
+                Sent = g.Count(),
+                Errors = g.Count(cc => cc.Status == MessageStatus.Failed),
+                Delivered = g.Count(cc => cc.Status == MessageStatus.Delivered || cc.Status == MessageStatus.Read),
+                Read = g.Count(cc => cc.Status == MessageStatus.Read)
+            })
+            .ToDictionaryAsync(g => g.Hour);
+
+        var hourlyChartData = new List<object>();
+        var deliveryTrend = new List<object>();
+        var readTrend = new List<object>();
+
+        for (int i = 0; i < 24; i++)
+        {
+            var hourStr = $"{i:D2}:00";
+            hourlyAggregates.TryGetValue(i, out var agg);
+
+            var sent = agg?.Sent ?? 0;
+            var errors = agg?.Errors ?? 0;
+            var delivered = agg?.Delivered ?? 0;
+            var read = agg?.Read ?? 0;
+
+            hourlyChartData.Add(new { name = hourStr, sent, errors });
+
+            double delRate = sent > 0 ? ((double)delivered / sent) * 100 : 0;
+            double rdRate = delivered > 0 ? ((double)read / delivered) * 100 : 0;
+
+            deliveryTrend.Add(new { name = hourStr, value = Math.Round(delRate, 2) });
+            readTrend.Add(new { name = hourStr, value = Math.Round(rdRate, 2) });
+        }
+
+        return new HourlyChartResult(hourlyChartData, deliveryTrend, readTrend);
+    }
+
+    // Top-N campaign lists (most recent, and top-by-created-date with delivery/read rates) fetched
+    // directly as their own targeted SQL queries — never derived from a fully materialized campaigns table.
+    private async Task<TopAndRecentCampaigns> GetTopAndRecentCampaignsAsync(DateTime? currentCutoff)
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+        var queryCampaigns = db.Campaigns.AsNoTracking();
+        if (currentCutoff.HasValue)
+        {
+            queryCampaigns = queryCampaigns.Where(c => c.CreatedAt >= currentCutoff.Value);
+        }
+
+        var recentCampaigns = await queryCampaigns
+            .OrderByDescending(c => c.Id)
+            .Take(5)
+            .Select(c => new
+            {
+                id = c.Id,
+                name = c.Name,
+                status = c.Status.ToString(),
+                totalRecipients = c.TotalRecipients,
+                deliveredCount = c.DeliveredCount
+            })
+            .ToListAsync();
+
+        var topCampaignsRaw = await queryCampaigns
+            .OrderByDescending(c => c.CreatedAt)
+            .Take(5)
+            .Select(c => new
+            {
+                c.Id,
+                c.Name,
+                c.CreatedAt,
+                c.Status,
+                c.TotalRecipients,
+                c.DeliveredCount,
+                c.ReadCount
+            })
+            .ToListAsync();
+
+        // Delivery/read rates are percentages derived from the raw counts above — computed here rather
+        // than in the SQL projection to keep the query itself trivially translatable.
+        var topCampaigns = topCampaignsRaw
+            .Select(c => new
+            {
+                id = c.Id,
+                name = c.Name,
+                createdAt = c.CreatedAt,
+                status = c.Status.ToString(),
+                messages = c.TotalRecipients,
+                delivered = c.DeliveredCount,
+                deliveryRate = c.TotalRecipients > 0 ? Math.Round((double)c.DeliveredCount / c.TotalRecipients * 100, 2) : 0,
+                readRate = c.TotalRecipients > 0 ? Math.Round((double)c.ReadCount / c.TotalRecipients * 100, 2) : 0
+            })
+            .ToList();
+
+        return new TopAndRecentCampaigns(
+            recentCampaigns.Cast<object>().ToList(),
+            topCampaigns.Cast<object>().ToList());
+    }
+
+    // Synthesized Recent Activity feed — merged from existing tables' own timestamps, no dedicated log table.
+    private async Task<RecentActivityResult> GetRecentActivityAndBusinessNameAsync()
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+        var activityItems = new List<(DateTime Timestamp, object Item)>();
+
+        var recentContacts = await db.Contacts.AsNoTracking()
+            .OrderByDescending(c => c.CreatedAt).Take(5)
+            .Select(c => new { c.Name, c.Phone, c.CreatedAt }).ToListAsync();
+        foreach (var c in recentContacts)
+        {
+            activityItems.Add((c.CreatedAt, new
+            {
+                type = "contact",
+                title = "New contact added",
+                subtitle = $"{c.Name} • {c.Phone}",
+                timestamp = c.CreatedAt
+            }));
+        }
+
+        var recentCampaignActivity = await db.Campaigns.AsNoTracking()
+            .Where(c => c.Status == CampaignStatus.Sent || c.Status == CampaignStatus.Sending || c.Status == CampaignStatus.Scheduled)
+            .OrderByDescending(c => c.UpdatedAt).Take(5)
+            .Select(c => new { c.Name, c.Status, c.UpdatedAt }).ToListAsync();
+        foreach (var c in recentCampaignActivity)
+        {
+            var verb = c.Status switch
+            {
+                CampaignStatus.Sent => "was sent",
+                CampaignStatus.Sending => "is sending",
+                CampaignStatus.Scheduled => "was scheduled",
+                _ => "was updated"
+            };
+            activityItems.Add((c.UpdatedAt, new
+            {
+                type = "campaign",
+                title = $"Campaign \"{c.Name}\" {verb}",
+                subtitle = (string?)null,
+                timestamp = c.UpdatedAt
+            }));
+        }
+
+        var recentTemplateActivity = await db.Templates.AsNoTracking()
+            .OrderByDescending(t => t.UpdatedAt).Take(5)
+            .Select(t => new { t.Name, t.Status, t.UpdatedAt }).ToListAsync();
+        foreach (var t in recentTemplateActivity)
+        {
+            activityItems.Add((t.UpdatedAt, new
+            {
+                type = "template",
+                title = $"Template \"{t.Name}\" {(t.Status == TemplateStatus.Approved ? "was approved" : "was updated")}",
+                subtitle = (string?)null,
+                timestamp = t.UpdatedAt
+            }));
+        }
+
+        var recentBotFlowActivity = await db.BotFlows.AsNoTracking()
+            .OrderByDescending(b => b.UpdatedAt).Take(5)
+            .Select(b => new { b.Name, b.IsActive, b.UpdatedAt }).ToListAsync();
+        foreach (var b in recentBotFlowActivity)
+        {
+            activityItems.Add((b.UpdatedAt, new
+            {
+                type = "botflow",
+                title = $"Bot flow \"{b.Name}\" {(b.IsActive ? "was published" : "was disabled")}",
+                subtitle = (string?)null,
+                timestamp = b.UpdatedAt
+            }));
+        }
+
+        var recentActivity = activityItems
+            .OrderByDescending(a => a.Timestamp)
+            .Take(8)
+            .Select(a => a.Item)
+            .ToList();
+
+        var businessName = await db.Businesses.AsNoTracking()
+            .OrderByDescending(b => b.Id)
+            .Select(b => b.BusinessName)
+            .FirstOrDefaultAsync();
+
+        return new RecentActivityResult(recentActivity, businessName);
     }
 }

@@ -16,8 +16,8 @@ interface ConnectionStoreState {
 
   fetchDashboard: () => Promise<void>
   fetchConnections: () => Promise<void>
-  createConnection: (name: string, description?: string) => Promise<Connection>
-  updateConnection: (id: number, name: string, description?: string) => Promise<void>
+  createConnection: (name: string, description?: string, nickname?: string) => Promise<Connection>
+  updateConnection: (id: number, name: string, description?: string, nickname?: string) => Promise<void>
   disconnectConnection: (id: number) => Promise<void>
   reconnectConnection: (id: number) => Promise<void>
   deleteConnection: (id: number) => Promise<void>
@@ -59,14 +59,14 @@ export const useConnectionStore = create<ConnectionStoreState>((set, get) => ({
     }
   },
 
-  createConnection: async (name, description) => {
-    const conn = await connectionService.createConnection({ name, description })
+  createConnection: async (name, description, nickname) => {
+    const conn = await connectionService.createConnection({ name, description, nickname })
     await get().fetchDashboard()
     return conn
   },
 
-  updateConnection: async (id, name, description) => {
-    await connectionService.updateConnection(id, { name, description })
+  updateConnection: async (id, name, description, nickname) => {
+    await connectionService.updateConnection(id, { name, description, nickname })
     await get().fetchDashboard()
   },
 

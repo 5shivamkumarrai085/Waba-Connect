@@ -6,7 +6,7 @@ import type { Connection } from '../../types/connection'
 interface EditConnectionModalProps {
   connection: Connection
   onClose: () => void
-  onSave: (id: number, name: string, description?: string) => Promise<void>
+  onSave: (id: number, name: string, description?: string, nickname?: string) => Promise<void>
 }
 
 export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
@@ -15,6 +15,7 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
   onSave
 }) => {
   const [name, setName] = useState(connection.name)
+  const [nickname, setNickname] = useState(connection.nickname || '')
   const [description, setDescription] = useState(connection.description || '')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -23,7 +24,7 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
     if (!name.trim()) return
     setIsSubmitting(true)
     try {
-      await onSave(connection.id, name.trim(), description.trim() || undefined)
+      await onSave(connection.id, name.trim(), description.trim() || undefined, nickname.trim() || undefined)
     } finally {
       setIsSubmitting(false)
     }
@@ -125,6 +126,36 @@ export const EditConnectionModal: React.FC<EditConnectionModalProps> = ({
             />
             <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.375rem 0 0 0' }}>
               Give a unique name to identify this connection
+            </p>
+          </div>
+
+          <div style={{ marginBottom: '1.25rem' }}>
+            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#1e293b', marginBottom: '0.375rem' }}>
+              Nickname (Optional)
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. SALE"
+              value={nickname}
+              maxLength={4}
+              onChange={(e) => setNickname(e.target.value.toUpperCase())}
+              style={{
+                width: '100%',
+                maxWidth: '160px',
+                padding: '0.625rem 0.875rem',
+                backgroundColor: '#ffffff',
+                border: '1px solid #cbd5e1',
+                borderRadius: '0.5rem',
+                fontSize: '0.875rem',
+                color: '#0f172a',
+                fontWeight: 700,
+                letterSpacing: '0.05em',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+            <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.375rem 0 0 0' }}>
+              A short tag (max 4 characters) shown on campaigns sent from this connection
             </p>
           </div>
 

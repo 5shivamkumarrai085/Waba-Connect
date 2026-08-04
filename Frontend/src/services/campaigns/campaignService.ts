@@ -16,7 +16,10 @@ const mapCampaign = (c: any): Campaign => ({
   isDeleted: c.isDeleted,
   isBulkCampaign: c.isBulkCampaign || false,
   deletedAt: c.deletedAt,
-  deletedBy: c.deletedBy
+  deletedBy: c.deletedBy,
+  connectionId: c.connectionId,
+  connectionName: c.connectionName,
+  connectionNickname: c.connectionNickname
 })
 
 const getApiErrorMessage = (error: unknown): string => {

@@ -16,6 +16,9 @@ export interface Campaign {
   isBulkCampaign?: boolean
   deletedAt?: string
   deletedBy?: string
+  connectionId?: number
+  connectionName?: string
+  connectionNickname?: string
 }
 
 export interface CampaignStatistics {

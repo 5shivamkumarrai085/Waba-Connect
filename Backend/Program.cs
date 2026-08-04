@@ -21,8 +21,14 @@ Log.Logger = new LoggerConfiguration()
 builder.Host.UseSerilog();
 
 // 2. Add Database Context (PostgreSQL/NeonDB)
-builder.Services.AddDbContext<AppDbContext>(options =>
+// Registered as a factory (not AddDbContext) so services that need several independent queries running
+// concurrently can create their own short-lived contexts on demand (DbContext itself isn't thread-safe).
+// AddDbContext and AddDbContextFactory can't coexist for the same context (their DbContextOptions
+// lifetimes conflict), so the regular scoped AppDbContext used everywhere else is derived from the factory.
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddScoped<AppDbContext>(sp =>
+    sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
 
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<IDashboardCacheService, DashboardCacheService>();

@@ -12,6 +12,7 @@ export const ConnectNewWabaPage: React.FC = () => {
 
   // Basic Details Fields
   const [name, setName] = useState('')
+  const [nickname, setNickname] = useState('')
   const [description, setDescription] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -26,6 +27,7 @@ export const ConnectNewWabaPage: React.FC = () => {
     try {
       const created = await connectionService.createConnection({
         name: name.trim(),
+        nickname: nickname.trim() || undefined,
         description: description.trim() || undefined
       })
 
@@ -101,6 +103,20 @@ export const ConnectNewWabaPage: React.FC = () => {
               autoFocus
             />
             <p className="waba-field-hint">This name will help you identify this connection in the future.</p>
+          </div>
+
+          <div className="waba-field-group">
+            <label className="waba-field-label">Nickname (Optional)</label>
+            <input
+              type="text"
+              placeholder="e.g. SALE"
+              value={nickname}
+              maxLength={4}
+              onChange={(e) => setNickname(e.target.value.toUpperCase())}
+              className="waba-field-input"
+              style={{ maxWidth: '160px', fontWeight: 700, letterSpacing: '0.05em' }}
+            />
+            <p className="waba-field-hint">A short tag (max 4 characters) shown on campaigns sent from this connection.</p>
           </div>
 
           <div className="waba-field-group">

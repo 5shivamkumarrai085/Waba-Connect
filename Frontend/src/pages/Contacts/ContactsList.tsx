@@ -257,19 +257,10 @@ export const ContactsList: React.FC = () => {
       return
     }
 
-    await checkLimitAndOpenTemplateModal(activeSelectedContacts)
+    checkLimitAndOpenTemplateModal(activeSelectedContacts)
   }
 
-  const checkLimitAndOpenTemplateModal = async (contactsToSet: Array<{ id: number; name: string; phone: string }>) => {
-    try {
-      const checkResult = await wabaService.checkLimitFast()
-      if (checkResult.limitReached) {
-        toast.error(checkResult.message || 'Daily message limit reached for this connection.', { duration: 4000 })
-        return
-      }
-    } catch (err) {
-      console.error('Error checking limit:', err)
-    }
+  const checkLimitAndOpenTemplateModal = (contactsToSet: Array<{ id: number; name: string; phone: string }>) => {
     setSelectedContactsForTemplate(contactsToSet)
     setIsInitiateModalOpen(true)
   }

@@ -354,9 +354,16 @@ export const CampaignsList: React.FC = () => {
                       {visibleColumns.name !== false && (
                         <td>
                           <div className="campaign-name-cell">
-                            <span className="campaign-title-text">
-                              {camp.name}
-                            </span>
+                            <div className="campaign-name-row">
+                              <span className="campaign-title-text">
+                                {camp.name}
+                              </span>
+                              {camp.connectionNickname && (
+                                <span className="connection-nickname-badge" title={camp.connectionName || undefined}>
+                                  {camp.connectionNickname}
+                                </span>
+                              )}
+                            </div>
                             <div className="campaign-hover-actions">
                               <span 
                                 className="campaign-action-btn"

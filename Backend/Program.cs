@@ -32,6 +32,7 @@ builder.Services.AddScoped<AppDbContext>(sp =>
 
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<IDashboardCacheService, DashboardCacheService>();
+builder.Services.AddScoped<IReportingService, ReportingService>();
 
 // 3. Add Services
 builder.Services.AddScoped<IContactService, ContactService>();

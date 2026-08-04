@@ -1,19 +1,40 @@
 import React, { useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { useReportingStore } from '../store/zustand'
 import { MetricCard } from '../components/MetricCard/MetricCard'
 import { DataTable } from '../components/DataTable/DataTable'
 import { StatusBadge } from '../components/StatusBadge/StatusBadge'
 import { FilterBar } from '../components/FilterBar/FilterBar'
 import { ExportList } from '../components/ExportList/ExportList'
-import type { AccuracyRecord, FreshnessRecord } from '../types/reporting'
+import { apiClient } from '../services/apiClient'
+import type { AccuracyRecord, ExportItemModel, FreshnessRecord } from '../types/reporting'
 import { Check } from 'lucide-react'
 import { Skeleton } from '../components/Skeleton'
 import { pageTransitionProps } from '../utils/motion'
 import { getRandomLoadingQuote } from '../utils/quotes'
 import './Reporting.css'
 
+// Reporting page's own filter values ('today' | 'week' | 'month' | 'all') stay unchanged
+// (they're what's sent to the backend) — this only overrides how each is displayed.
+const timeFilterLabels: Record<string, string> = {
+  today: 'Today',
+  week: 'This Week',
+  month: 'This Month',
+  all: 'All Time'
+}
+
+// Same "strip trailing /api, hit the raw endpoint" pattern as ImportContacts' sample-CSV
+// download — the API has no auth header to lose, so a plain browser navigation is enough
+// to trigger the file download served by the backend's File() result.
+const apiOrigin = () => {
+  const base = apiClient.defaults.baseURL
+  return base?.endsWith('/api') ? base.slice(0, -4) : base
+}
+
 export const Reporting: React.FC = () => {
+  const navigate = useNavigate()
   const {
     reportingTimeFilter,
     setReportingTimeFilter,
@@ -61,6 +82,30 @@ export const Reporting: React.FC = () => {
     return row[key as keyof FreshnessRecord]
   }
 
+  // Export items: CSV downloads hit the backend directly (real-time query, freshly generated
+  // per click); the campaign report is an existing, already-working page, so we just navigate.
+  const handleExportAction = (item: ExportItemModel) => {
+    if (item.actionType === 'external') {
+      navigate('/campaigns/campaign')
+      return
+    }
+
+    const endpointByItemId: Record<string, string> = {
+      'metrics-report': `/Reporting/export/metrics?filter=${reportingTimeFilter}`,
+      'contacts-export': '/Reporting/export/contacts',
+      'chats-export': '/Reporting/export/chats'
+    }
+
+    const path = endpointByItemId[item.id]
+    if (!path) {
+      toast.error(`No export endpoint configured for "${item.title}".`)
+      return
+    }
+
+    window.open(`${apiOrigin()}/api${path}`, '_blank')
+    toast.success(`Downloading ${item.title}...`)
+  }
+
   const showSkeleton = isLoading && (!metrics.length || !accuracyRecords || !freshnessRecords || !exportItems || !features)
 
   if (showSkeleton) {
@@ -98,6 +143,7 @@ export const Reporting: React.FC = () => {
           options={['today', 'week', 'month', 'all']}
           activeOption={reportingTimeFilter}
           onChange={setReportingTimeFilter}
+          labels={timeFilterLabels}
         />
       </div>
 
@@ -158,7 +204,7 @@ export const Reporting: React.FC = () => {
             <h2 className="reporting-section-title">Export Functionality</h2>
             <p className="reporting-section-subtitle">Download report data as CSV files.</p>
           </div>
-          <ExportList items={exportItems || []} />
+          <ExportList items={exportItems || []} onActionClick={handleExportAction} />
         </div>
       </div>
     </motion.div>

@@ -6,12 +6,17 @@ interface FilterBarProps {
   options: string[]
   activeOption: string
   onChange: (option: any) => void
+  // Optional display-label override per option value (e.g. { week: 'This Week' }).
+  // Options without an entry (or when the prop is omitted entirely) render as-is,
+  // so existing callers keep their exact current appearance.
+  labels?: Record<string, string>
 }
 
 export const FilterBar: React.FC<FilterBarProps> = ({
   options,
   activeOption,
-  onChange
+  onChange,
+  labels
 }) => {
   return (
     <div className="filter-bar">
@@ -24,7 +29,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           whileTap={{ scale: 0.97 }}
           transition={{ duration: 0.12 }}
         >
-          {option}
+          {labels?.[option] ?? option}
           {activeOption === option && (
             <motion.div
               className="filter-btn-indicator"

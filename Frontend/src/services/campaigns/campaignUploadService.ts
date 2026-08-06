@@ -1,12 +1,20 @@
 // src/services/campaigns/campaignUploadService.ts
 import { apiClient } from '../apiClient'
 
+export interface CsvRowError {
+  rowNumber: number
+  column?: string | null
+  value: string
+  reason: string
+}
+
 export interface CsvValidationData {
   fileUrl: string
   fileName: string
   totalRecords: number
   validCount: number
   invalidCount: number
+  errors: CsvRowError[]
 }
 
 export const campaignUploadService = {

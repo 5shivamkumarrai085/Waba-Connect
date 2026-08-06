@@ -1,0 +1,107 @@
+/* AssignPermissionModal.css
+   Was styled entirely in inert Tailwind classes (no Tailwind dependency in
+   this project), so it rendered as an unstyled, unpositioned stack of divs
+   with no overlay. Deliberately self-contained rather than reusing
+   InitiateChatModal's near-identical .connection-row: this page never loads
+   that stylesheet, and depending on another page's CSS being incidentally
+   imported elsewhere is exactly the cross-file coupling that made the
+   pre-existing modals fragile (see ConnectWABA / PhoneCard). */
+
+@import '../Connections/ConnectionModals.css';
+
+.assign-perm-connection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  padding-right: 2px;
+  overflow-y: auto;
+}
+
+.assign-perm-empty {
+  margin: 0;
+  padding: 12px 0;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-light);
+}
+
+.assign-perm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+
+  font-family: var(--font-family);
+  text-align: left;
+
+  background-color: var(--bg-primary);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.16s var(--ease-out);
+}
+
+.assign-perm-row:hover {
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+}
+
+.assign-perm-row:active {
+  transform: scale(0.99);
+}
+
+.assign-perm-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.assign-perm-row.is-selected {
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+  box-shadow: 0 2px 10px rgba(90, 82, 229, 0.15);
+}
+
+.assign-perm-status-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background-color: #f59e0b;
+}
+
+.assign-perm-status-dot.is-connected {
+  background-color: #10b981;
+}
+
+.assign-perm-row-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.assign-perm-row-phone {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.assign-perm-check {
+  flex-shrink: 0;
+  color: var(--primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assign-perm-row {
+    transition: none;
+  }
+  .assign-perm-row:active {
+    transform: none;
+  }
+}

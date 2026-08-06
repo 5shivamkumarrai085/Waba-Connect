@@ -427,3 +427,20 @@
 .wizard-badges-row > *:nth-child(3) { animation-delay: 0.15s; }
 .wizard-badges-row > *:nth-child(4) { animation-delay: 0.2s; }
 .form-group { animation: fadeIn 0.35s ease-out forwards; }
+
+/* Live duplicate-name warning, mirroring BulkCampaign.css's .error-text-warning. */
+.error-text-warning {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #ef4444;
+}
+
+.form-control.is-invalid {
+  border-color: #ef4444;
+}
+
+.form-control.is-invalid:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
+  border-color: #ef4444 !important;
+}

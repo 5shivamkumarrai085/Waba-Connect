@@ -1,6 +1,6 @@
 .permission-page-container {
   padding: 1.5rem;
-  background-color: #f8fafc;
+  background-color: var(--bg-primary);
   min-height: 100vh;
 }
 
@@ -12,16 +12,56 @@
 }
 
 .permission-title-group h1 {
-  font-size: 1.5rem;
+  font-size: 1.625rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-main);
   margin: 0 0 0.25rem 0;
+  letter-spacing: -0.02em;
 }
 
 .permission-subtitle {
   font-size: 0.875rem;
-  color: #64748b;
+  color: var(--text-muted);
   margin: 0;
+}
+
+/* Matches Permission History's button treatment below it, so the two
+   header actions read as a consistent pair. */
+.btn-permission-history {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 36px;
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.16s var(--ease-out);
+}
+
+.btn-permission-history:hover {
+  background-color: var(--bg-hover);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.btn-permission-history:active {
+  transform: scale(0.97);
+}
+
+.btn-permission-history:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .permission-kpi-grid {
@@ -32,15 +72,22 @@
 }
 
 .permission-kpi-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
   padding: 1.25rem;
   display: flex;
   align-items: center;
   gap: 1rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+  box-shadow: var(--shadow-card);
+  animation: scaleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
 }
+
+.permission-kpi-card:nth-child(1) { animation-delay: 0.05s; }
+.permission-kpi-card:nth-child(2) { animation-delay: 0.15s; }
+.permission-kpi-card:nth-child(3) { animation-delay: 0.25s; }
+.permission-kpi-card:nth-child(4) { animation-delay: 0.35s; }
 
 .permission-kpi-icon {
   width: 44px;
@@ -130,22 +177,35 @@
 }
 
 .btn-assign-permission {
-  background-color: #0f172a;
+  background-color: var(--primary);
   color: #ffffff;
   font-size: 0.8125rem;
   font-weight: 600;
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  display: flex;
+  padding: 0 1rem;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   border: none;
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    transform 0.16s var(--ease-out);
 }
 
 .btn-assign-permission:hover {
-  background-color: #1e293b;
+  background-color: var(--primary-hover);
+}
+
+.btn-assign-permission:active {
+  transform: scale(0.97);
+}
+
+.btn-assign-permission:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .permission-table-card {

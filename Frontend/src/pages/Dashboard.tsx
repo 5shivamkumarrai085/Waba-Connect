@@ -15,7 +15,6 @@ import {
   buttonHoverProps,
   pageTransitionProps
 } from '../utils/motion'
-import { getLoadingQuote, resetLoadingQuote } from '../utils/quotes'
 
 // Lazy-loaded below-the-fold heavy charts and tables
 const ChartCard = lazy(() => import('../components/ChartCard'))
@@ -48,7 +47,6 @@ export const Dashboard: React.FC = () => {
   const setDashboardTimeFilter = useDashboardStore(state => state.setDashboardTimeFilter)
 
   useEffect(() => {
-    resetLoadingQuote()
     loadDashboardData()
   }, [])
 
@@ -78,11 +76,6 @@ export const Dashboard: React.FC = () => {
             <Skeleton variant="title" width={280} height={32} />
             <Skeleton variant="text" width={400} style={{ marginTop: 8 }} />
           </div>
-        </div>
-
-        {/* Fun Loading Quote */}
-        <div className="loading-quote-banner">
-          <p className="loading-quote-text">{getLoadingQuote()}</p>
         </div>
 
         {/* Statistical Cards Grid Skeleton */}

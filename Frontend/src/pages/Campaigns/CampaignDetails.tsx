@@ -361,6 +361,9 @@ const getRecipientStatusBadgeType = (status: string) => {
 const getCampaignStatusBadgeType = (status: string) => {
   if (['Sent', 'Success'].includes(status)) return 'success'
   if (status === 'Paused') return 'warning'
+  // Distinct from 'warning' (Paused) — a campaign that partially failed has
+  // already run and needs attention, unlike a paused/not-yet-run one.
+  if (status === 'PartiallyFailed') return 'partial'
   if (['Failed', 'Cancelled'].includes(status)) return 'error'
   return 'info'
 }
@@ -368,6 +371,7 @@ const getCampaignStatusBadgeType = (status: string) => {
 const formatCampaignStatus = (status: string) => {
   if (status === 'Sent') return 'Success'
   if (status === 'Sending') return 'In Progress'
+  if (status === 'PartiallyFailed') return 'Partially Failed'
   return status
 }
 

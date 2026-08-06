@@ -1,11 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
 namespace WhatsAppCampaignApi.Models.DTOs;
 
 public class CreateConnectionRequest
 {
     public string Name { get; set; } = string.Empty;
+
+    // Validation-only requirement (no DB migration/backfill): every new
+    // connection created through the API must supply a nickname; existing
+    // connections that predate this change keep whatever they already have.
+    [Required]
     public string? Nickname { get; set; }
     public string? Description { get; set; }
 }
@@ -13,6 +19,8 @@ public class CreateConnectionRequest
 public class UpdateConnectionRequest
 {
     public string Name { get; set; } = string.Empty;
+
+    [Required]
     public string? Nickname { get; set; }
     public string? Description { get; set; }
     public bool? IsActive { get; set; }

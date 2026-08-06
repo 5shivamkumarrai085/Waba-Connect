@@ -22,12 +22,16 @@ export const ConnectNewWabaPage: React.FC = () => {
       toast.error('Connection name is required.')
       return
     }
+    if (!nickname.trim()) {
+      toast.error('Nickname is required.')
+      return
+    }
 
     setIsSubmitting(true)
     try {
       const created = await connectionService.createConnection({
         name: name.trim(),
-        nickname: nickname.trim() || undefined,
+        nickname: nickname.trim(),
         description: description.trim() || undefined
       })
 
@@ -106,9 +110,12 @@ export const ConnectNewWabaPage: React.FC = () => {
           </div>
 
           <div className="waba-field-group">
-            <label className="waba-field-label">Nickname (Optional)</label>
+            <label className="waba-field-label">
+              Nickname <span className="waba-field-required">*</span>
+            </label>
             <input
               type="text"
+              required
               placeholder="e.g. SALE"
               value={nickname}
               maxLength={4}

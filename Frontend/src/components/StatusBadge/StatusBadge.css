@@ -57,6 +57,16 @@
   border: 1px solid #fed7aa;
 }
 
+/* Partially Failed — a campaign that already ran with a mix of successes and
+   failures. Deliberately distinct from both "warning" (Paused, amber-orange)
+   and "error" (Failed, red) — a gold/amber tone that reads as "needs a look"
+   without implying either full success or full failure. */
+.status-badge.partial {
+  background-color: #fefce8;
+  color: #a16207;
+  border: 1px solid #fde68a;
+}
+
 /* Closed, Stale, Error, Rejected, Unverified */
 .status-badge.closed,
 .status-badge.stale,

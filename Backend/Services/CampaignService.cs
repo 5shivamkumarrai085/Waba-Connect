@@ -111,6 +111,24 @@ public class CampaignService : ICampaignService
         return response;
     }
 
+    // Splits, validates, and re-normalizes a comma-separated RelationType string (e.g.
+    // "lead, customer" -> "Lead,Customer") for the normal (non-CSV) campaign create/update
+    // path, which now supports targeting multiple relation types per campaign.
+    private static string NormalizeRelationTypes(string relationType)
+    {
+        var tokens = relationType.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var normalized = new List<string>();
+        foreach (var token in tokens)
+        {
+            if (!Enum.TryParse<ContactType>(token, true, out var parsed))
+                throw new ArgumentException($"Invalid RelationType value: '{token}'.");
+            normalized.Add(parsed.ToString());
+        }
+        if (normalized.Count == 0)
+            throw new ArgumentException("RelationType is required.");
+        return string.Join(",", normalized.Distinct());
+    }
+
     public async Task<CampaignResponse> CreateAsync(CreateCampaignRequest request)
     {
         // Check for duplicate campaign name
@@ -158,7 +176,7 @@ public class CampaignService : ICampaignService
         {
             Name = request.Name,
             TemplateId = request.TemplateId,
-            RelationType = Enum.Parse<ContactType>(request.RelationType, true),
+            RelationType = NormalizeRelationTypes(request.RelationType),
             ScheduleType = Enum.Parse<ScheduleType>(request.ScheduleType, true),
             ScheduledAt = request.ScheduledAt,
             Status = Enum.Parse<ScheduleType>(request.ScheduleType, true) == ScheduleType.Immediate ? CampaignStatus.Sending : CampaignStatus.Scheduled,
@@ -249,7 +267,7 @@ public class CampaignService : ICampaignService
 
         campaign.Name = request.Name;
         campaign.TemplateId = request.TemplateId;
-        campaign.RelationType = Enum.Parse<ContactType>(request.RelationType, true);
+        campaign.RelationType = NormalizeRelationTypes(request.RelationType);
         campaign.ScheduleType = scheduleType;
         campaign.ScheduledAt = request.ScheduledAt;
         campaign.Status = scheduleType == ScheduleType.Immediate ? CampaignStatus.Sending : CampaignStatus.Scheduled;
@@ -517,7 +535,10 @@ public class CampaignService : ICampaignService
                         cc.Status = MessageStatus.Failed;
                         cc.ErrorMessage = $"Daily message limit reached ({sentToday}/{limit}) for this connection.";
                         campaign.FailedCount++;
-                        campaign.Status = CampaignStatus.Failed;
+                        // Don't set campaign.Status here — let the end-of-loop aggregation
+                        // (below) decide Sent/PartiallyFailed/Failed from what actually
+                        // happened. Contacts already sent before the limit was hit make
+                        // this a partial failure, not a blanket failure.
                         await dbContext.SaveChangesAsync();
                         break;
                     }
@@ -643,7 +664,19 @@ public class CampaignService : ICampaignService
                 await Task.Delay(100); 
             }
 
-            campaign.Status = CampaignStatus.Sent;
+            // Aggregate the real outcome instead of unconditionally overwriting Status to
+            // Sent — this used to clobber the Failed status the daily-limit branch above
+            // had just set, and never accounted for ordinary per-contact send failures at
+            // all (both of which produced the "Success" header / "Failed" row mismatch).
+            // Anchored on actual per-contact status rather than the full recipient count,
+            // so an early break (daily limit hit partway through) is correctly classified:
+            // contacts never reached stay Pending and aren't counted as failures.
+            var succeededCount = campaign.CampaignContacts.Count(c => c.Status == MessageStatus.Sent);
+            campaign.Status = campaign.FailedCount == 0
+                ? CampaignStatus.Sent
+                : succeededCount == 0
+                    ? CampaignStatus.Failed
+                    : CampaignStatus.PartiallyFailed;
             await dbContext.SaveChangesAsync();
         }
         catch (Exception ex)
@@ -777,7 +810,7 @@ public class CampaignService : ICampaignService
         return "document";
     }
 
-    public async Task<CampaignResponse> CreateCsvCampaignAsync(CreateCsvCampaignRequest request)
+    public async Task<CsvCampaignCreateResponse> CreateCsvCampaignAsync(CreateCsvCampaignRequest request)
     {
         var normalizedName = request.Name.Trim().ToLower();
         var exists = await _dbContext.Campaigns.IgnoreQueryFilters().AnyAsync(c => !c.IsDeleted && c.Name.ToLower() == normalizedName);
@@ -820,14 +853,20 @@ public class CampaignService : ICampaignService
 
         var contactIds = new HashSet<int>();
         var phoneRegex = new System.Text.RegularExpressions.Regex(@"^\+[1-9]\d{6,14}$");
+        var skippedRows = new List<CsvRowError>();
 
         for (int i = 1; i < lines.Length; i++)
         {
             var line = lines[i];
             if (string.IsNullOrWhiteSpace(line)) continue;
 
+            var rowNumber = i + 1;
             var fields = SplitCsvRow(line);
-            if (fields.Count <= Math.Max(phoneIdx, firstNameIdx)) continue;
+            if (fields.Count <= Math.Max(phoneIdx, firstNameIdx))
+            {
+                skippedRows.Add(new CsvRowError { RowNumber = rowNumber, Column = null, Value = line, Reason = "Row has fewer columns than the header row." });
+                continue;
+            }
 
             var phoneVal = fields[phoneIdx].Trim();
             var cleanedPhone = phoneVal.Replace(" ", "").Replace("-", "").Replace("(", "").Replace(")", "");
@@ -838,6 +877,7 @@ public class CampaignService : ICampaignService
 
             if (!phoneRegex.IsMatch(cleanedPhone))
             {
+                skippedRows.Add(new CsvRowError { RowNumber = rowNumber, Column = "phone", Value = phoneVal, Reason = "Phone number is not a valid international format (e.g. +15551234567)." });
                 continue;
             }
 
@@ -852,7 +892,10 @@ public class CampaignService : ICampaignService
                 fullName = "CSV User";
             }
 
-            var contact = await _dbContext.Contacts.FirstOrDefaultAsync(c => c.Phone == cleanedPhone);
+            // IgnoreQueryFilters + restore-if-soft-deleted mirrors ContactService.CreateAsync's pattern —
+            // without this, a phone number reused from a previously soft-deleted contact is invisible to
+            // the filtered lookup below, causing a duplicate-key DbUpdateException on insert.
+            var contact = await _dbContext.Contacts.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == cleanedPhone);
             if (contact == null)
             {
                 contact = new Contact
@@ -867,6 +910,16 @@ public class CampaignService : ICampaignService
                     UpdatedAt = DateTime.UtcNow
                 };
                 _dbContext.Contacts.Add(contact);
+                await _dbContext.SaveChangesAsync();
+            }
+            else if (contact.IsDeleted)
+            {
+                contact.IsDeleted = false;
+                contact.IsActive = true;
+                contact.Name = fullName;
+                contact.Type = Enum.Parse<ContactType>(request.RelationType, true);
+                contact.Source = ContactSource.Import;
+                contact.UpdatedAt = DateTime.UtcNow;
                 await _dbContext.SaveChangesAsync();
             }
 
@@ -884,7 +937,10 @@ public class CampaignService : ICampaignService
         {
             Name = request.Name,
             TemplateId = request.TemplateId,
-            RelationType = Enum.Parse<ContactType>(request.RelationType, true),
+            // CSV path stays single-select (unlike CreateAsync/UpdateAsync above) — still
+            // validated via Enum.Parse (throws on an invalid value), just converted to
+            // string to match Campaign.RelationType's new type.
+            RelationType = Enum.Parse<ContactType>(request.RelationType, true).ToString(),
             ScheduleType = Enum.Parse<ScheduleType>(request.ScheduleType, true),
             ScheduledAt = request.ScheduledAt,
             Status = Enum.Parse<ScheduleType>(request.ScheduleType, true) == ScheduleType.Immediate ? CampaignStatus.Sending : CampaignStatus.Scheduled,
@@ -931,7 +987,7 @@ public class CampaignService : ICampaignService
             _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
         }
 
-        var response = new CampaignResponse
+        var response = new CsvCampaignCreateResponse
         {
             Id = campaign.Id,
             Name = campaign.Name,
@@ -942,7 +998,8 @@ public class CampaignService : ICampaignService
             Status = campaign.Status.ToString(),
             TotalRecipients = campaign.TotalRecipients,
             CreatedAt = campaign.CreatedAt,
-            UpdatedAt = campaign.UpdatedAt
+            UpdatedAt = campaign.UpdatedAt,
+            SkippedRows = skippedRows
         };
 
         return response;

@@ -5,7 +5,8 @@ import { useNavigate } from 'react-router-dom'
 import { useCampaignStore } from '../../store/campaignStore'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
-import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight, MoreVertical } from 'lucide-react'
+import { Menu, MenuItem } from '../../components/Menu/Menu'
 import toast from 'react-hot-toast'
 import { Skeleton } from '../../components/Skeleton'
 import './CampaignsList.css'
@@ -51,6 +52,9 @@ export const CampaignsList: React.FC = () => {
     createdAt: true
   })
 
+  // Row actions dropdown — which row's three-dot menu is open
+  const [openActionsMenuId, setOpenActionsMenuId] = useState<number | null>(null)
+
   const [templates, setTemplates] = useState<any[]>([])
   const [relationTypes, setRelationTypes] = useState<any[]>([])
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
@@ -91,9 +95,12 @@ export const CampaignsList: React.FC = () => {
       if (c.templateName !== templateFilter) return false
     }
 
-    // 3. Relation Type Filter dropdown
+    // 3. Relation Type Filter dropdown — c.relationType may now be a comma-joined
+    // list of multiple types (e.g. "Lead,Customer"); match if the filter is any one
+    // of them.
     if (relationTypeFilter !== 'All') {
-      if (c.relationType !== relationTypeFilter) return false
+      const types = c.relationType.split(',').map(t => t.trim())
+      if (!types.includes(relationTypeFilter)) return false
     }
 
     // 4. Created At Date range filter
@@ -182,7 +189,7 @@ export const CampaignsList: React.FC = () => {
   const columnHeaders = [
     { key: 'id', label: 'ID' },
     { key: 'name', label: 'Campaign Name' },
-    { key: 'source', label: 'Source' },
+    { key: 'source', label: 'Type' },
     { key: 'template', label: 'Template' },
     { key: 'relation', label: 'Relation Type' },
     { key: 'total', label: 'Total' },
@@ -330,13 +337,14 @@ export const CampaignsList: React.FC = () => {
                       </th>
                     )
                   })}
+                  <th className="col-width-actions" style={{ textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {paginatedCampaigns.length === 0 ? (
                   <tr>
-                    <td 
-                      colSpan={columnHeaders.filter(c => visibleColumns[c.key] !== false).length}
+                    <td
+                      colSpan={columnHeaders.filter(c => visibleColumns[c.key] !== false).length + 1}
                       className="no-records-row"
                     >
                       No records found
@@ -350,12 +358,16 @@ export const CampaignsList: React.FC = () => {
                         <td>{startIndex + index + 1}</td>
                       )}
 
-                      {/* Campaign Name Column with hover view/edit/delete menu */}
+                      {/* Campaign Name Column */}
                       {visibleColumns.name !== false && (
                         <td>
                           <div className="campaign-name-cell">
                             <div className="campaign-name-row">
-                              <span className="campaign-title-text">
+                              <span
+                                className="campaign-title-text"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => navigate(`/campaigns/campaign/details/${camp.id}`)}
+                              >
                                 {camp.name}
                               </span>
                               {camp.connectionNickname && (
@@ -364,37 +376,16 @@ export const CampaignsList: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            <div className="campaign-hover-actions">
-                              <span 
-                                className="campaign-action-btn"
-                                onClick={() => navigate(`/campaigns/campaign/details/${camp.id}`)}
-                              >
-                                View
-                              </span>
-                              <span className="action-divider">|</span>
-                              <span 
-                                className="campaign-action-btn"
-                                onClick={() => navigate(`/campaigns/campaign/edit/${camp.id}`)}
-                              >
-                                Edit
-                              </span>
-                              <span className="action-divider">|</span>
-                              <span 
-                                className="campaign-action-btn"
-                                onClick={() => handleDelete(camp.id, camp.name)}
-                              >
-                                Delete
-                              </span>
-                            </div>
                           </div>
                         </td>
                       )}
 
-                      {/* Source Column (Bulk/Normal - from DB) */}
+                      {/* Type Column — driven by camp.isBulkCampaign (plain bool, not an
+                          enum); "Standard"/"Bulk Upload" reads clearer than "Normal"/"Bulk". */}
                       {visibleColumns.source !== false && (
                         <td>
                           <span className={`relation-badge ${camp.isBulkCampaign ? 'csv' : 'lead'}`}>
-                            {camp.isBulkCampaign ? 'Bulk' : 'Normal'}
+                            {camp.isBulkCampaign ? 'Bulk Upload' : 'Standard'}
                           </span>
                         </td>
                       )}
@@ -407,11 +398,18 @@ export const CampaignsList: React.FC = () => {
                       {/* Relation Type Column (colored badge) */}
                       {visibleColumns.relation !== false && (
                         <td>
-                          <span className={`relation-badge ${
-                            camp.relationType === 'Lead' ? 'lead' : camp.relationType === 'Customer' ? 'customer' : 'csv'
-                          }`}>
-                            {camp.relationType}
-                          </span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {camp.relationType.split(',').map(t => t.trim()).filter(Boolean).map((type) => (
+                              <span
+                                key={type}
+                                className={`relation-badge ${
+                                  type === 'Lead' ? 'lead' : type === 'Customer' ? 'customer' : type === 'Vendor' ? 'vendor' : 'csv'
+                                }`}
+                              >
+                                {type}
+                              </span>
+                            ))}
+                          </div>
                         </td>
                       )}
 
@@ -434,6 +432,52 @@ export const CampaignsList: React.FC = () => {
                       {visibleColumns.createdAt !== false && (
                         <td>{formatRelativeTime(camp.createdAt)}</td>
                       )}
+
+                      {/* Actions column — three-dot dropdown, matching ContactsList's pattern */}
+                      <td className="text-center">
+                        <div className="contact-actions-menu-wrapper">
+                          <Menu
+                            open={openActionsMenuId === camp.id}
+                            onOpenChange={(isOpen) =>
+                              setOpenActionsMenuId(isOpen ? camp.id : null)
+                            }
+                            align="end"
+                            offset={4}
+                            className="contact-actions-dropdown"
+                            ariaLabel="Row actions"
+                            trigger={(props) => (
+                              <button
+                                {...props}
+                                type="button"
+                                className="contact-actions-trigger"
+                                aria-label="Row actions"
+                              >
+                                <MoreVertical size={16} />
+                              </button>
+                            )}
+                          >
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => navigate(`/campaigns/campaign/details/${camp.id}`)}
+                            >
+                              View
+                            </MenuItem>
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => navigate(`/campaigns/campaign/edit/${camp.id}`)}
+                            >
+                              Edit
+                            </MenuItem>
+                            <MenuItem
+                              destructive
+                              className="contact-actions-item"
+                              onSelect={() => handleDelete(camp.id, camp.name)}
+                            >
+                              Delete
+                            </MenuItem>
+                          </Menu>
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}

@@ -33,7 +33,33 @@
   border-bottom: 1px solid var(--border-light);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+}
+
+.chat-connection-select-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Replaces inert Tailwind classes (text-[11px] font-semibold text-slate-500
+   uppercase tracking-wider block mb-1) — the label rendered completely
+   unstyled before this, since Tailwind isn't installed in this project. */
+.chat-sidebar-field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Replaces inert `text-xs font-medium bg-slate-50 border-slate-200`. */
+.chat-connection-select {
+  font-size: 13px;
+  font-weight: 500;
+  background-color: var(--bg-primary);
+  border-color: var(--border-color);
 }
 
 .chat-account-display-row {
@@ -69,25 +95,17 @@
   gap: 12px;
   padding: 12px 16px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  animation: staggerFadeIn 0.4s ease-out backwards;
-}
-
-.conversation-item:nth-child(1) { animation-delay: 0.05s; }
-.conversation-item:nth-child(2) { animation-delay: 0.1s; }
-.conversation-item:nth-child(3) { animation-delay: 0.15s; }
-.conversation-item:nth-child(4) { animation-delay: 0.2s; }
-.conversation-item:nth-child(5) { animation-delay: 0.25s; }
-.conversation-item:nth-child(n+6) { animation-delay: 0.3s; }
-
-@keyframes staggerFadeIn {
-  from { opacity: 0; transform: translateX(-10px); }
-  to { opacity: 1; transform: translateX(0); }
+  transition: background-color 0.15s ease;
+  animation: fadeIn 0.2s ease-out backwards;
 }
 
 .conversation-item:hover {
   background-color: var(--bg-hover);
-  transform: translateX(4px);
+}
+
+.conversation-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 
 .conversation-item.active {
@@ -110,6 +128,12 @@
   gap: 6px;
 }
 
+/* Replaces inert `flex flex-col text-left` — min-width: 0 is what actually
+   matters here, letting the name ellipsis-truncate instead of pushing the
+   status badge out of the row on long names. */
+.conversation-name-wrap {
+  min-width: 0;
+}
 
 .conversation-contact-name {
   font-family: var(--font-title);
@@ -208,35 +232,96 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Replaces inert `flex items-center gap-2`. */
+.chat-header-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .chat-header-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  /* Was 8px — with up to 6 elements (search, status dot, optional assigned-
+     user icon, info, whatsapp/initiate-chat, more-vertical) packed into a
+     64px-tall header, that read as congested. Widened to give each 36×36
+     icon button real breathing room. */
+  gap: 14px;
+  flex-shrink: 0;
   color: var(--text-muted);
 }
 
-.chat-header-action-icon {
+/* Shared 36×36 / 18px icon-button scale for every chat action — the header
+   row and the composer row previously used different padding (8px vs 6px)
+   on bare, unwrapped <svg onClick> elements: no button, no real hit target,
+   no focus state, no :active feedback. Every action here is now a real
+   <button>, sized identically wherever it appears. */
+.chat-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-muted);
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.16s var(--ease-out);
 }
 
-.chat-header-action-icon:hover {
+.chat-icon-btn:hover {
   color: var(--primary);
+  background-color: var(--bg-hover);
 }
 
-.chat-header-action-icon.whatsapp-green {
+.chat-icon-btn:active {
+  transform: scale(0.93);
+}
+
+.chat-icon-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.chat-icon-btn.active {
+  color: var(--primary);
+  background-color: var(--primary-light);
+}
+
+.chat-icon-btn.whatsapp-green {
   color: #10b981;
 }
 
-.chat-header-action-icon.whatsapp-green:hover {
+.chat-icon-btn.whatsapp-green:hover {
   color: #059669;
+  background-color: #ecfdf5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-icon-btn {
+    transition: none;
+  }
+  .chat-icon-btn:active {
+    transform: none;
+  }
 }
 
 /* Message window panel listing */
 .chat-messages-container {
   background-color: #efeae2;
+  /* FLAGGED, not fixed here (out of this pass's scope): this doodle pattern
+     loads from a raw githubusercontent.com URL at runtime — an external
+     dependency this production app has no control over. Recommend inlining
+     it as a data: URI or a local asset in a follow-up. */
   background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
   background-repeat: repeat;
   background-size: 400px;
@@ -380,7 +465,7 @@
 /* Composer styling */
 .chat-composer-container {
   background-color: #f0f2f5;
-  padding: 12px 20px;
+  padding: 14px 20px;
   border-top: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
@@ -391,23 +476,24 @@
   display: flex;
   align-items: center;
   background-color: #ffffff;
-  border-radius: var(--radius-md);
-  padding: 6px 12px;
+  border-radius: var(--radius-lg);
+  padding: 12px 18px;
   border: 1px solid var(--border-color);
 }
 
 .chat-composer-textarea {
   flex-grow: 1;
+  width: 100%;
   border: none;
   background: transparent;
   outline: none;
   font-family: var(--font-family);
-  font-size: 13px;
+  font-size: 15px;
   color: var(--text-main);
   resize: none;
-  max-height: 150px;
-  min-height: 20px;
-  line-height: 1.5;
+  max-height: 200px;
+  min-height: 28px;
+  line-height: 1.6;
   overflow-y: auto;
   transition: height 0.1s ease;
 }
@@ -421,22 +507,18 @@
 .chat-composer-left-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 4px;
   color: var(--text-muted);
 }
 
-.chat-composer-icon {
-  cursor: pointer;
-  transition: var(--transition-fast);
-}
-
-.chat-composer-icon:hover {
-  color: var(--primary);
-}
+/* Composer icons now share .chat-icon-btn (see chat-header-actions above) —
+   previously 6px padding here vs 8px in the header, an inconsistency users
+   would feel even without being able to name it. */
 
 .chat-composer-voice-btn {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
   border-radius: var(--radius-full);
   background-color: var(--primary);
   color: #ffffff;
@@ -444,17 +526,37 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition:
+    background-color 0.15s ease,
+    transform 0.16s var(--ease-out);
   border: none;
 }
 
-.chat-composer-voice-btn:hover {
+.chat-composer-voice-btn:hover:not(:disabled) {
   background-color: var(--primary-dark);
+}
+
+.chat-composer-voice-btn:active:not(:disabled) {
+  transform: scale(0.93);
+}
+
+.chat-composer-voice-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .chat-composer-voice-btn:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-composer-voice-btn {
+    transition: none;
+  }
+  .chat-composer-voice-btn:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 .chat-empty-thread {
@@ -470,45 +572,6 @@
   border: 1px solid rgba(203, 213, 225, 0.75);
   border-radius: var(--radius-md);
   padding: 10px 14px;
-}
-
-/* Empty State Window */
-.chat-empty-state-container {
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background-color: #f8fafc;
-  padding: 24px;
-}
-
-.chat-empty-state-illustration {
-  max-width: 320px;
-  margin-bottom: 24px;
-  animation: floatIllustration 4s ease-in-out infinite;
-}
-
-@keyframes floatIllustration {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
-}
-
-.chat-empty-state-text {
-  font-family: var(--font-title);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.chat-window-inner-layout {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
 }
 
 /* Empty State Window */
@@ -1055,17 +1118,27 @@
 .chat-header-window-dot {
   width: 10px;
   height: 10px;
+  padding: 0;
+  border: none;
   border-radius: 50%;
   display: inline-block;
   cursor: help;
   flex-shrink: 0;
 }
 
+/* The active state is a real <button> (it opens the time-remaining banner);
+   the expired state stays a plain <div> — informational only, nothing to
+   click. */
 .chat-header-window-dot.active {
   background-color: #22c55e;
   box-shadow: 0 0 6px #22c55e, 0 0 12px #22c55e;
   animation: glow-green-dot 1.5s infinite alternate;
   cursor: pointer;
+}
+
+.chat-header-window-dot.active:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
 }
 
 .chat-header-window-dot.expired {

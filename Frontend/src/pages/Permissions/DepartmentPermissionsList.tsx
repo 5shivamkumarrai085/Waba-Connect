@@ -11,7 +11,8 @@ import {
   Eye,
   Edit2,
   History,
-  MessageSquare
+  MessageSquare,
+  Users
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { permissionService } from '../../services/permissions/permissionService'
@@ -115,9 +116,9 @@ export const DepartmentPermissionsList: React.FC = () => {
         <button
           type="button"
           onClick={() => toast.success('Permission history coming soon')}
-          className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+          className="btn-permission-history"
         >
-          <History className="w-4 h-4 text-slate-500" />
+          <History size={16} />
           <span>Permission History</span>
         </button>
       </div>
@@ -130,7 +131,7 @@ export const DepartmentPermissionsList: React.FC = () => {
           </div>
           <div>
             <div className="permission-kpi-label">Total Departments</div>
-            <div className="permission-kpi-value">{dashboard?.totalDepartments || 12}</div>
+            <div className="permission-kpi-value">{dashboard?.totalDepartments ?? 0}</div>
             <div className="permission-kpi-desc">All departments</div>
           </div>
         </div>
@@ -141,7 +142,7 @@ export const DepartmentPermissionsList: React.FC = () => {
           </div>
           <div>
             <div className="permission-kpi-label">Departments with Access</div>
-            <div className="permission-kpi-value">{dashboard?.departmentsWithAccess || 8}</div>
+            <div className="permission-kpi-value">{dashboard?.departmentsWithAccess ?? 0}</div>
             <div className="permission-kpi-desc">Departments with at least one connection</div>
           </div>
         </div>
@@ -152,7 +153,7 @@ export const DepartmentPermissionsList: React.FC = () => {
           </div>
           <div>
             <div className="permission-kpi-label">Total Connections</div>
-            <div className="permission-kpi-value">{dashboard?.totalConnections || 18}</div>
+            <div className="permission-kpi-value">{dashboard?.totalConnections ?? 0}</div>
             <div className="permission-kpi-desc">All WABA connections</div>
           </div>
         </div>
@@ -163,7 +164,7 @@ export const DepartmentPermissionsList: React.FC = () => {
           </div>
           <div>
             <div className="permission-kpi-label">Active Permissions</div>
-            <div className="permission-kpi-value">{dashboard?.activePermissions || 16}</div>
+            <div className="permission-kpi-value">{dashboard?.activePermissions ?? 0}</div>
             <div className="permission-kpi-desc">Total active department-connection mappings</div>
           </div>
         </div>
@@ -265,14 +266,14 @@ export const DepartmentPermissionsList: React.FC = () => {
                     </div>
                   </td>
                   <td>
+                    {/* No per-member avatar data exists on DepartmentPermission — only a
+                        count. A generic icon + real count is honest; two hardcoded stock
+                        photos previously stood in as if they were real members. */}
                     <div className="members-stack">
-                      <div className="member-avatar">
-                        <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" alt="Member" />
-                      </div>
-                      <div className="member-avatar">
-                        <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80" alt="Member" />
-                      </div>
-                      <span className="member-more-count">+{dept.memberCount || 8}</span>
+                      <span className="member-count-badge">
+                        <Users className="w-3.5 h-3.5" />
+                        {dept.memberCount} {dept.memberCount === 1 ? 'Member' : 'Members'}
+                      </span>
                     </div>
                   </td>
                   <td>
@@ -311,14 +312,13 @@ export const DepartmentPermissionsList: React.FC = () => {
         )}
       </div>
 
-      {showAssignModal && (
-        <AssignPermissionModal
-          type="department"
-          connections={connections}
-          onClose={() => setShowAssignModal(false)}
-          onAssignDepartment={handleAssignDepartment}
-        />
-      )}
+      <AssignPermissionModal
+        isOpen={showAssignModal}
+        type="department"
+        connections={connections}
+        onClose={() => setShowAssignModal(false)}
+        onAssignDepartment={handleAssignDepartment}
+      />
     </motion.div>
   )
 }

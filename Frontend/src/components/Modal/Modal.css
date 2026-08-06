@@ -1,0 +1,311 @@
+/* Modal.css — shared dialog shell.
+   Prefixed `oc-dialog-` rather than `modal-` for two reasons: .modal-overlay,
+   .modal-container, .modal-header-row, .modal-title, .modal-actions and
+   .modal-backdrop are all already defined globally (some twice, in different
+   files), and responsive.css applies width/max-width/max-height/padding with
+   !important to `[class*="modal-container"]` below 992px. Escaping that
+   blanket rule means this file must ship its own mobile sizing — see the
+   media query at the bottom. */
+
+body.is-modal-open {
+  overflow: hidden;
+  /* Compensate for the scrollbar the lock removes, so the page doesn't jump. */
+  padding-right: var(--scrollbar-width, 0px);
+}
+
+.oc-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-backdrop);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+
+  background-color: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  overflow-y: auto;
+}
+
+.oc-dialog-panel {
+  position: relative;
+  z-index: var(--z-modal);
+
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: calc(100vh - 48px);
+
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 24px 48px -12px rgba(15, 23, 42, 0.25),
+    0 8px 16px -8px rgba(15, 23, 42, 0.1);
+
+  /* Modals are the documented exception to origin-aware scaling: they are not
+     anchored to a trigger, so they belong in the centre of the viewport. */
+  transform-origin: center;
+}
+
+.oc-dialog-panel:focus {
+  outline: none;
+}
+
+.oc-dialog-panel--sm { max-width: 420px; }
+.oc-dialog-panel--md { max-width: 540px; }
+.oc-dialog-panel--lg { max-width: 720px; }
+.oc-dialog-panel--xl { max-width: 900px; }
+/* --custom contributes no max-width; the consumer owns its own sizing. */
+
+/* ─── Header ─────────────────────────────────────────────────────── */
+
+.oc-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 24px 24px 0;
+}
+
+.oc-dialog-header--bordered {
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.oc-dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background-color: var(--primary-light);
+  color: var(--primary);
+}
+
+.oc-dialog-icon--destructive {
+  background-color: #fef2f2;
+  color: #dc2626;
+}
+
+.oc-dialog-icon--success {
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.oc-dialog-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.oc-dialog-title {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--text-main);
+}
+
+.oc-dialog-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.oc-dialog-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  margin: -4px -4px 0 0;
+
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.16s var(--ease-out);
+}
+
+.oc-dialog-close:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.oc-dialog-close:active {
+  transform: scale(0.94);
+}
+
+.oc-dialog-close:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ─── Body ───────────────────────────────────────────────────────── */
+
+.oc-dialog-body {
+  flex: 1;
+  min-height: 0;
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+
+.oc-dialog-message {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* ─── Footer ─────────────────────────────────────────────────────── */
+
+.oc-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px 24px 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.oc-dialog-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 18px;
+
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.16s var(--ease-out);
+}
+
+/* Press feedback — confirms the interface heard the click. */
+.oc-dialog-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.oc-dialog-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.oc-dialog-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.oc-dialog-btn-primary {
+  background-color: var(--primary);
+  color: #ffffff;
+}
+
+.oc-dialog-btn-primary:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+}
+
+.oc-dialog-btn-secondary {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-muted);
+}
+
+.oc-dialog-btn-secondary:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.oc-dialog-btn-destructive {
+  background-color: #dc2626;
+  color: #ffffff;
+}
+
+.oc-dialog-btn-destructive:hover:not(:disabled) {
+  background-color: #b91c1c;
+}
+
+/* ─── Mobile ─────────────────────────────────────────────────────── */
+/* Own rules, because oc-dialog-* deliberately does not match
+   responsive.css's [class*="modal-container"] blanket override. */
+
+@media (max-width: 991px) {
+  .oc-dialog-backdrop {
+    padding: 16px;
+  }
+
+  .oc-dialog-panel {
+    max-height: calc(100vh - 32px);
+  }
+
+  .oc-dialog-panel--sm,
+  .oc-dialog-panel--md,
+  .oc-dialog-panel--lg,
+  .oc-dialog-panel--xl {
+    max-width: 100%;
+  }
+
+  .oc-dialog-header {
+    padding: 20px 18px 0;
+  }
+
+  .oc-dialog-body {
+    padding: 16px 18px;
+  }
+
+  .oc-dialog-footer {
+    padding: 14px 18px 18px;
+  }
+}
+
+@media (max-width: 560px) {
+  .oc-dialog-backdrop {
+    padding: 12px;
+    align-items: flex-end;
+  }
+
+  .oc-dialog-footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .oc-dialog-footer .oc-dialog-btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oc-dialog-btn,
+  .oc-dialog-close {
+    transition: none;
+  }
+
+  .oc-dialog-btn:active:not(:disabled),
+  .oc-dialog-close:active {
+    transform: none;
+  }
+}

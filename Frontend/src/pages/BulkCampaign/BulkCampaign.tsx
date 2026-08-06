@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
-import { createPortal } from 'react-dom'
+import { Modal } from '../../components/Modal/Modal'
 import { useNavigate } from 'react-router-dom'
 import { UploadArea } from '../../components/UploadArea/UploadArea'
 import { campaignUploadService } from '../../services/campaigns/campaignUploadService'
-import type { CsvValidationData } from '../../services/campaigns/campaignUploadService'
+import type { CsvValidationData, CsvRowError } from '../../services/campaigns/campaignUploadService'
 import { campaignService } from '../../services/campaigns/campaignService'
 import { templateService } from '../../services/templates/templateService'
 import { WhatsAppPreview } from '../../components/WhatsAppPreview/WhatsAppPreview'
@@ -18,7 +18,6 @@ import {
   Trash2, 
   Loader2, 
   CheckCircle,
-  X,
   ChevronRight,
   ChevronLeft,
   UploadCloud
@@ -41,6 +40,7 @@ export const BulkCampaign: React.FC = () => {
   // CSV File upload states
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [validationData, setValidationData] = useState<CsvValidationData | null>(null)
+  const [csvErrors, setCsvErrors] = useState<CsvRowError[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [isSampleModalOpen, setIsSampleModalOpen] = useState(false)
 
@@ -144,13 +144,20 @@ export const BulkCampaign: React.FC = () => {
       const res = await campaignUploadService.validateCsv(selectedFile)
       if (res.success && res.data) {
         setValidationData(res.data)
-        toast.success(res.message)
+        setCsvErrors(res.data.errors || [])
+        if (res.data.validCount === 0) {
+          toast.error('No valid records found in the CSV file. See the row errors below.')
+        } else {
+          toast.success(res.message)
+        }
       } else {
         setValidationData(null)
+        setCsvErrors([])
         toast.error(res.message || 'cannot upload wrong format csv file')
       }
     } catch (err) {
       setValidationData(null)
+      setCsvErrors([])
       toast.error('cannot upload wrong format csv file')
     } finally {
       setIsUploading(false)
@@ -192,8 +199,8 @@ export const BulkCampaign: React.FC = () => {
       toast.error('Please provide a unique Campaign Name.')
       return
     }
-    if (!validationData) {
-      toast.error('Please upload and validate a CSV file first.')
+    if (!validationData || validationData.validCount === 0) {
+      toast.error('Please upload a CSV file with at least one valid record.')
       return
     }
     if (!selectedTemplateId) {
@@ -364,6 +371,16 @@ export const BulkCampaign: React.FC = () => {
                     >
                       {isSelected && <span style={{ fontWeight: 700 }}>✓</span>}
                       <span>{conn.name}</span>
+                      {conn.nickname && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700, letterSpacing: '0.03em',
+                          padding: '2px 6px', borderRadius: '4px',
+                          backgroundColor: 'rgba(255,255,255,0.6)', border: '1px solid rgba(99,102,241,0.25)',
+                          color: isSelected ? '#4338ca' : '#475569'
+                        }}>
+                          {conn.nickname}
+                        </span>
+                      )}
                       <span style={{ fontSize: '11px', opacity: 0.7 }}>{conn.phoneNumber}</span>
                     </button>
                   )
@@ -433,6 +450,21 @@ export const BulkCampaign: React.FC = () => {
                     campaign can be successfully sent to these {validationData.validCount} User.
                   </p>
                 </div>
+              </div>
+            )}
+
+            {/* Row-level errors — exactly which row/column failed and why, instead of a
+                single opaque toast. Valid rows (above) still proceed regardless. */}
+            {csvErrors.length > 0 && (
+              <div className="bulk-validation-errors-box fade-in">
+                <span className="note-box-title">Row Errors:</span>
+                <ul className="csv-errors-list">
+                  {csvErrors.map((e, idx) => (
+                    <li key={idx}>
+                      Row {e.rowNumber}{e.column ? ` (${e.column})` : ''}: "{e.value}" — {e.reason}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
@@ -725,22 +757,23 @@ export const BulkCampaign: React.FC = () => {
       )}
 
       {/* Download Sample modal popup dialog */}
-      {isSampleModalOpen && createPortal(
-        <div className="modal-overlay-custom" onClick={() => setIsSampleModalOpen(false)}>
-          <div className="modal-content-custom" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header-custom">
-              <h4 className="modal-title-custom">Download Sample</h4>
-              <button 
-                type="button" 
-                className="modal-close-btn-custom" 
-                onClick={() => setIsSampleModalOpen(false)}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
+      <Modal
+        isOpen={isSampleModalOpen}
+        onClose={() => setIsSampleModalOpen(false)}
+        title="Download Sample"
+        size="lg"
+        footer={
+          <button
+            type="button"
+            className="oc-dialog-btn oc-dialog-btn-secondary"
+            onClick={() => setIsSampleModalOpen(false)}
+          >
+            Cancel
+          </button>
+        }
+      >
             <div className="modal-body-custom">
-              
+
               {/* Guidelines */}
               <div className="modal-rule-box blue-alert">
                 <p className="rule-text-row">
@@ -781,7 +814,7 @@ export const BulkCampaign: React.FC = () => {
                       <tr>
                         <td>Sample Data</td>
                         <td>Sample Data</td>
-                        <td>+1 555 123 4567</td>
+                        <td>+15551234567</td>
                         <td>abc@gmail.com</td>
                         <td>Sample Data</td>
                       </tr>
@@ -790,20 +823,7 @@ export const BulkCampaign: React.FC = () => {
                 </div>
               </div>
             </div>
-
-            <div className="modal-footer-custom">
-              <button 
-                type="button" 
-                className="btn-modal-cancel" 
-                onClick={() => setIsSampleModalOpen(false)}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      </Modal>
     </motion.div>
   )
 }

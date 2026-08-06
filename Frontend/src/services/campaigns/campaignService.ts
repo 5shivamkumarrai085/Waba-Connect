@@ -153,7 +153,7 @@ export default campaignService
 const buildCampaignPayload = (form: CampaignWizardForm, connectionId?: number) => ({
   name: form.name,
   templateId: form.templateId,
-  relationType: form.relationType,
+  relationType: form.relationType.join(','),
   scheduleType: form.sendImmediately ? 'Immediate' : 'Scheduled',
   scheduledAt: form.sendImmediately || !form.scheduledTime ? null : new Date(form.scheduledTime).toISOString(),
   contactIds: form.selectedContactIds,

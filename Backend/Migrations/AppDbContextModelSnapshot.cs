@@ -105,7 +105,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("Name");
 
-                    b.ToTable("BotFlows");
+                    b.ToTable("BotFlows", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.BotMessage", b =>
@@ -181,7 +181,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Businesses");
+                    b.ToTable("Businesses", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Campaign", b =>
@@ -275,7 +275,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("TemplateId");
 
-                    b.ToTable("Campaigns");
+                    b.ToTable("Campaigns", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.CampaignContact", b =>
@@ -325,7 +325,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("SentAt", "Status");
 
-                    b.ToTable("CampaignContacts");
+                    b.ToTable("CampaignContacts", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.CampaignVariable", b =>
@@ -356,7 +356,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("CampaignId");
 
-                    b.ToTable("CampaignVariables");
+                    b.ToTable("CampaignVariables", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ChatConversation", b =>
@@ -406,7 +406,7 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasIndex("ContactId", "ConnectionId")
                         .IsUnique();
 
-                    b.ToTable("ChatConversations");
+                    b.ToTable("ChatConversations", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ChatMessage", b =>
@@ -499,7 +499,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("ConversationId", "CreatedAt");
 
-                    b.ToTable("ChatMessages");
+                    b.ToTable("ChatMessages", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ClientAiSetting", b =>
@@ -579,7 +579,7 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("Connections");
+                    b.ToTable("Connections", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Contact", b =>
@@ -677,7 +677,7 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasIndex("Phone")
                         .IsUnique();
 
-                    b.ToTable("Contacts");
+                    b.ToTable("Contacts", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ContactGroup", b =>
@@ -702,7 +702,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ContactGroups");
+                    b.ToTable("ContactGroups", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ContactGroupMember", b =>
@@ -726,7 +726,7 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasIndex("ContactId", "GroupId")
                         .IsUnique();
 
-                    b.ToTable("ContactGroupMembers");
+                    b.ToTable("ContactGroupMembers", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ContactNote", b =>
@@ -752,7 +752,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("ContactId");
 
-                    b.ToTable("ContactNotes");
+                    b.ToTable("ContactNotes", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ConversationState", b =>
@@ -841,7 +841,7 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasIndex("DepartmentId", "ConnectionId")
                         .IsUnique();
 
-                    b.ToTable("DepartmentConnections");
+                    b.ToTable("DepartmentConnections", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.FlowEdge", b =>
@@ -935,7 +935,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("HealthLogs");
+                    b.ToTable("HealthLogs", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.MessageBot", b =>
@@ -1052,7 +1052,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("TriggerKeyword");
 
-                    b.ToTable("MessageBots");
+                    b.ToTable("MessageBots", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Template", b =>
@@ -1125,7 +1125,7 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("Templates");
+                    b.ToTable("Templates", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.TemplateBot", b =>
@@ -1181,7 +1181,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("TriggerKeyword");
 
-                    b.ToTable("TemplateBots");
+                    b.ToTable("TemplateBots", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.TemplateBotVariable", b =>
@@ -1212,7 +1212,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("TemplateBotId");
 
-                    b.ToTable("TemplateBotVariables");
+                    b.ToTable("TemplateBotVariables", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.TemplateVariable", b =>
@@ -1241,7 +1241,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("TemplateId");
 
-                    b.ToTable("TemplateVariables");
+                    b.ToTable("TemplateVariables", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.UserConnection", b =>
@@ -1284,7 +1284,7 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasIndex("UserId", "ConnectionId")
                         .IsUnique();
 
-                    b.ToTable("UserConnections");
+                    b.ToTable("UserConnections", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.WabaConfiguration", b =>
@@ -1335,7 +1335,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("ConnectionId");
 
-                    b.ToTable("WabaConfigurations");
+                    b.ToTable("WabaConfigurations", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.WabaPhoneNumber", b =>
@@ -1382,7 +1382,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("ConnectionId");
 
-                    b.ToTable("PhoneNumbers");
+                    b.ToTable("PhoneNumbers", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.AiSession", b =>

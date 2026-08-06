@@ -341,6 +341,7 @@ public class ContactService : IContactService
             ZipCode = c.ZipCode,
             Address = c.Address,
             Description = c.Description,
+            Tags = c.Tags,
             IsActive = c.IsActive,
             CreatedAt = c.CreatedAt,
             UpdatedAt = c.UpdatedAt,

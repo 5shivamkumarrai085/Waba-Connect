@@ -11,7 +11,7 @@ public interface ICampaignService
     Task<PagedResponse<CampaignResponse>> GetAllAsync(PagedRequest request, string? status = null);
     Task<CampaignDetailResponse> GetByIdAsync(int id);
     Task<CampaignResponse> CreateAsync(CreateCampaignRequest request);
-    Task<CampaignResponse> CreateCsvCampaignAsync(CreateCsvCampaignRequest request);
+    Task<CsvCampaignCreateResponse> CreateCsvCampaignAsync(CreateCsvCampaignRequest request);
     Task<CampaignResponse> UpdateAsync(int id, CreateCampaignRequest request);
     Task DeleteAsync(int id);
     Task<bool> CheckNameExistsAsync(string name, int? excludeId = null);

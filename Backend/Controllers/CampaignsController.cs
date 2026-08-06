@@ -11,11 +11,13 @@ public class CampaignsController : ControllerBase
 {
     private readonly ICampaignService _campaignService;
     private readonly IDashboardCacheService _dashboardCacheService;
+    private readonly ILogger<CampaignsController> _logger;
 
-    public CampaignsController(ICampaignService campaignService, IDashboardCacheService dashboardCacheService)
+    public CampaignsController(ICampaignService campaignService, IDashboardCacheService dashboardCacheService, ILogger<CampaignsController> logger)
     {
         _campaignService = campaignService;
         _dashboardCacheService = dashboardCacheService;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -200,6 +202,7 @@ public class CampaignsController : ControllerBase
         int totalRecords = 0;
         int validCount = 0;
         int invalidCount = 0;
+        var errors = new List<CsvRowError>();
 
         for (int i = 1; i < lines.Length; i++)
         {
@@ -207,10 +210,12 @@ public class CampaignsController : ControllerBase
             if (string.IsNullOrWhiteSpace(line)) continue;
 
             totalRecords++;
+            var rowNumber = i + 1; // 1-based, matches what a user sees opening the file in a spreadsheet (row 1 = header)
             var fields = SplitCsvRow(line);
             if (fields.Count <= Math.Max(phoneIdx, firstNameIdx))
             {
                 invalidCount++;
+                errors.Add(new CsvRowError { RowNumber = rowNumber, Column = null, Value = line, Reason = "Row has fewer columns than the header row." });
                 continue;
             }
 
@@ -222,25 +227,55 @@ public class CampaignsController : ControllerBase
             }
 
             var firstName = fields[firstNameIdx].Trim();
+            var phoneValid = phoneRegex.IsMatch(cleanedPhone);
+            var nameValid = firstName.Length >= 2;
 
-            if (phoneRegex.IsMatch(cleanedPhone) && firstName.Length >= 2)
+            if (phoneValid && nameValid)
             {
                 validCount++;
             }
             else
             {
                 invalidCount++;
+                if (!phoneValid)
+                {
+                    errors.Add(new CsvRowError { RowNumber = rowNumber, Column = "phone", Value = phoneVal, Reason = "Phone number is not a valid international format (e.g. +15551234567)." });
+                }
+                if (!nameValid)
+                {
+                    errors.Add(new CsvRowError { RowNumber = rowNumber, Column = "firstname", Value = firstName, Reason = "Name must be at least 2 characters long." });
+                }
             }
-        }
-
-        if (validCount == 0)
-        {
-            System.IO.File.Delete(filePath);
-            return BadRequest(new ApiResponse<CsvValidationResponse> { Success = false, Message = "cannot upload wrong format csv file" });
         }
 
         var requestScheme = Request.Scheme;
         var requestHost = Request.Host.Value;
+
+        // Valid rows proceed even when some rows in the same file are invalid — invalid
+        // rows are reported (not silently dropped) rather than rejecting the whole upload,
+        // matching standard bulk-import UX. When there are zero valid rows the uploaded
+        // file itself is discarded (nothing usable to create a campaign from), but the
+        // response still succeeds (HTTP 200) with the full row-level error list, instead
+        // of the previous opaque 400 that gave no indication of what was wrong.
+        if (validCount == 0)
+        {
+            System.IO.File.Delete(filePath);
+            return Ok(new ApiResponse<CsvValidationResponse>
+            {
+                Success = true,
+                Data = new CsvValidationResponse
+                {
+                    FileUrl = string.Empty,
+                    FileName = file.FileName,
+                    TotalRecords = totalRecords,
+                    ValidCount = 0,
+                    InvalidCount = invalidCount,
+                    Errors = errors
+                },
+                Message = "No valid records found in the CSV file. See the row errors below."
+            });
+        }
+
         var fileUrl = $"{requestScheme}://{requestHost}/uploads/csv/{uniqueFileName}";
 
         return Ok(new ApiResponse<CsvValidationResponse>
@@ -252,31 +287,33 @@ public class CampaignsController : ControllerBase
                 FileName = file.FileName,
                 TotalRecords = totalRecords,
                 ValidCount = validCount,
-                InvalidCount = invalidCount
+                InvalidCount = invalidCount,
+                Errors = errors
             },
             Message = "CSV uploaded successfully"
         });
     }
 
     [HttpPost("csv-create")]
-    public async Task<ActionResult<ApiResponse<CampaignResponse>>> CreateCsvCampaign([FromBody] CreateCsvCampaignRequest request)
+    public async Task<ActionResult<ApiResponse<CsvCampaignCreateResponse>>> CreateCsvCampaign([FromBody] CreateCsvCampaignRequest request)
     {
         try
         {
             var data = await _campaignService.CreateCsvCampaignAsync(request);
-            return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign created from CSV successfully." });
+            return Ok(new ApiResponse<CsvCampaignCreateResponse> { Success = true, Data = data, Message = "Campaign created from CSV successfully." });
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new ApiResponse<CampaignResponse> { Success = false, Message = ex.Message });
+            return BadRequest(new ApiResponse<CsvCampaignCreateResponse> { Success = false, Message = ex.Message });
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new ApiResponse<CampaignResponse> { Success = false, Message = ex.Message });
+            return BadRequest(new ApiResponse<CsvCampaignCreateResponse> { Success = false, Message = ex.Message });
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new ApiResponse<CampaignResponse> { Success = false, Message = ex.Message });
+            _logger.LogError(ex, "Failed to create campaign from CSV. Inner exception: {InnerException}", ex.InnerException?.Message);
+            return StatusCode(500, new ApiResponse<CsvCampaignCreateResponse> { Success = false, Message = "Failed to create campaign. Please check your CSV data and try again." });
         }
     }
 
@@ -321,4 +358,5 @@ public class CsvValidationResponse
     public int TotalRecords { get; set; }
     public int ValidCount { get; set; }
     public int InvalidCount { get; set; }
+    public List<CsvRowError> Errors { get; set; } = new();
 }

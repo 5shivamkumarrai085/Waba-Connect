@@ -7,6 +7,9 @@
   margin-bottom: 20px;
 }
 
+/* .btn-toolbar / .btn-toolbar-refresh are now styled globally in
+   src/styles/components.css — shared across every page's toolbar. */
+
 .campaigns-card {
   background-color: var(--bg-secondary);
   border-radius: var(--radius-lg);
@@ -122,6 +125,11 @@
 .relation-badge.csv {
   background-color: #fef3c7; /* yellow */
   color: #b45309;
+}
+
+.relation-badge.vendor {
+  background-color: #ede9fe; /* violet — distinct from lead/customer/csv */
+  color: #6d28d9;
 }
 
 /* Campaigns List Datatable styling */

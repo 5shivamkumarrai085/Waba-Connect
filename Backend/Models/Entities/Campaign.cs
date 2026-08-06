@@ -16,7 +16,12 @@ public class Campaign
     public int? ConnectionId { get; set; }
     public virtual Connection? Connection { get; set; }
     
-    public ContactType RelationType { get; set; }
+    // Comma-separated list of ContactType names (e.g. "Lead,Customer"), not a single
+    // enum — a campaign can now target multiple relation types at once. Still a plain
+    // VARCHAR(50) column (HasConversion<string>() was removed from the enum mapping in
+    // AppDbContext.cs since this is no longer an enum-typed property), so no migration
+    // was needed for this change.
+    public string RelationType { get; set; } = string.Empty;
     public ScheduleType ScheduleType { get; set; }
     public DateTime? ScheduledAt { get; set; }
     

@@ -1,0 +1,220 @@
+/* ConnectionModals.css
+   Real styles for the connection dialogs. These components were written
+   entirely in Tailwind classes, but Tailwind is not installed in this project
+   (no dependency, no config, no CDN) — so every one of those classes was inert
+   and the dialogs rendered as unstyled stacked divs with no overlay and no
+   centering. EditConnectionModal had been worked around with ~200 lines of
+   inline styles instead.
+
+   Colours map to design tokens rather than the Tailwind palette they imitated.
+   Note the accent shifts from blue-600 to the app's actual --primary (#5a52e5
+   indigo); these dialogs were off-brand. */
+
+/* ─── Shared form body ──────────────────────────────────────────── */
+
+.conn-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.conn-modal-field:last-child {
+  margin-bottom: 0;
+}
+
+.conn-modal-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.conn-modal-required {
+  color: #e11d48;
+}
+
+.conn-modal-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 14px;
+
+  font-family: var(--font-family);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-main);
+
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.conn-modal-input::placeholder {
+  color: var(--text-light);
+  font-weight: 400;
+}
+
+.conn-modal-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(90, 82, 229, 0.14);
+}
+
+/* ─── Detail dialog ─────────────────────────────────────────────── */
+
+.conn-detail-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.conn-detail-status-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.conn-detail-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.conn-detail-status-pill--on {
+  background-color: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.conn-detail-status-pill--off {
+  background-color: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.conn-detail-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background-color: currentColor;
+}
+
+.conn-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 768px) {
+  .conn-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.conn-detail-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-secondary);
+  min-width: 0;
+}
+
+.conn-detail-cell-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.conn-detail-cell-label svg {
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+.conn-detail-cell-value {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+}
+
+.conn-detail-cell-value--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.conn-detail-note {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background-color: var(--primary-light);
+  border: 1px solid rgba(90, 82, 229, 0.18);
+}
+
+.conn-detail-note-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-dark, var(--primary));
+}
+
+.conn-detail-note-body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* The detail dialog uses the connection id as its header glyph. */
+.conn-detail-id {
+  font-family: var(--font-title);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.conn-modal-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.conn-modal-input--tag {
+  max-width: 160px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.conn-modal-textarea {
+  height: auto;
+  min-height: 84px;
+  padding: 10px 14px;
+  resize: vertical;
+  line-height: 1.5;
+}

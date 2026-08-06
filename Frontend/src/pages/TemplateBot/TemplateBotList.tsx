@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
-import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight, MoreVertical } from 'lucide-react'
+import { Menu, MenuItem } from '../../components/Menu/Menu'
 import { useTemplateBotStore } from '../../store/templateBotStore'
 import { Toggle } from '../../components/Toggle/Toggle'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
@@ -39,6 +40,7 @@ export const TemplateBotList: React.FC = () => {
   const [isFilterVisible, setIsFilterVisible] = useState(false)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [botToDelete, setBotToDelete] = useState<{ id: number; name: string } | null>(null)
+  const [openActionsMenuId, setOpenActionsMenuId] = useState<number | null>(null)
 
   // Columns toggle options
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
@@ -228,18 +230,19 @@ export const TemplateBotList: React.FC = () => {
                 {visibleColumns.relationType !== false && <th>RELATION TYPE</th>}
                 {visibleColumns.active !== false && <th>ACTIVE</th>}
                 {visibleColumns.createdAt !== false && <th>CREATED AT</th>}
+                <th style={{ textAlign: 'center' }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-4">
+                  <td colSpan={8} className="text-center py-4">
                     <div className="loader-spinner">Loading bots...</div>
                   </td>
                 </tr>
               ) : bots.length === 0 ? (
                 <tr>
-                  <td 
+                  <td
                     colSpan={
                       (visibleColumns.id !== false ? 1 : 0) +
                       (visibleColumns.name !== false ? 1 : 0) +
@@ -247,8 +250,9 @@ export const TemplateBotList: React.FC = () => {
                       (visibleColumns.triggerKeyword !== false ? 1 : 0) +
                       (visibleColumns.relationType !== false ? 1 : 0) +
                       (visibleColumns.active !== false ? 1 : 0) +
-                      (visibleColumns.createdAt !== false ? 1 : 0)
-                    } 
+                      (visibleColumns.createdAt !== false ? 1 : 0) +
+                      1
+                    }
                     className="no-records-row"
                   >
                     No records found
@@ -262,40 +266,17 @@ export const TemplateBotList: React.FC = () => {
                       <td>{bot.id}</td>
                     )}
 
-                    {/* Name Column with hover actions */}
+                    {/* Name Column */}
                     {visibleColumns.name !== false && (
                       <td>
                         <div className="name-cell-group">
-                          <span className="bot-name-text">{bot.name}</span>
-                          <div className="bot-hover-actions">
-                            <span 
-                              className="template-bot-action-btn"
-                              onClick={() => navigate(`/template-bot/bot/${bot.id}?view=true`)}
-                            >
-                              View
-                            </span>
-                            <span className="action-divider">|</span>
-                            <span 
-                              className="template-bot-action-btn"
-                              onClick={() => navigate(`/template-bot/bot/${bot.id}`)}
-                            >
-                              Edit
-                            </span>
-                            <span className="action-divider">|</span>
-                            <span 
-                              className="template-bot-action-btn destructive"
-                              onClick={() => handleDeleteClick(bot.id, bot.name)}
-                            >
-                              Delete
-                            </span>
-                            <span className="action-divider">|</span>
-                            <span 
-                              className="template-bot-action-btn"
-                              onClick={() => handleCloneClick(bot.id)}
-                            >
-                              Clone
-                            </span>
-                          </div>
+                          <span
+                            className="bot-name-text"
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => navigate(`/template-bot/bot/${bot.id}?view=true`)}
+                          >
+                            {bot.name}
+                          </span>
                         </div>
                       </td>
                     )}
@@ -335,6 +316,58 @@ export const TemplateBotList: React.FC = () => {
                     {visibleColumns.createdAt !== false && (
                       <td>{formatRelativeDate(bot.createdAt)}</td>
                     )}
+
+                    {/* Actions column — three-dot dropdown, matching ContactsList's pattern */}
+                    <td className="text-center">
+                      <div className="contact-actions-menu-wrapper">
+                        <Menu
+                          open={openActionsMenuId === bot.id}
+                          onOpenChange={(isOpen) =>
+                            setOpenActionsMenuId(isOpen ? bot.id : null)
+                          }
+                          align="end"
+                          offset={4}
+                          className="contact-actions-dropdown"
+                          ariaLabel="Row actions"
+                          trigger={(props) => (
+                            <button
+                              {...props}
+                              type="button"
+                              className="contact-actions-trigger"
+                              aria-label="Row actions"
+                            >
+                              <MoreVertical size={16} />
+                            </button>
+                          )}
+                        >
+                          <MenuItem
+                            className="contact-actions-item"
+                            onSelect={() => navigate(`/template-bot/bot/${bot.id}?view=true`)}
+                          >
+                            View
+                          </MenuItem>
+                          <MenuItem
+                            className="contact-actions-item"
+                            onSelect={() => navigate(`/template-bot/bot/${bot.id}`)}
+                          >
+                            Edit
+                          </MenuItem>
+                          <MenuItem
+                            className="contact-actions-item"
+                            onSelect={() => handleCloneClick(bot.id)}
+                          >
+                            Clone
+                          </MenuItem>
+                          <MenuItem
+                            destructive
+                            className="contact-actions-item"
+                            onSelect={() => handleDeleteClick(bot.id, bot.name)}
+                          >
+                            Delete
+                          </MenuItem>
+                        </Menu>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
@@ -384,6 +417,8 @@ export const TemplateBotList: React.FC = () => {
         message={`Are you sure you want to delete "${botToDelete?.name}" template bot? This action cannot be undone.`}
         confirmText="Delete"
         cancelText="Cancel"
+        isDestructive
+        showWarningIcon
         onConfirm={confirmDelete}
         onCancel={() => {
           setDeleteModalOpen(false)

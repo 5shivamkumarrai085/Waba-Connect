@@ -1,0 +1,105 @@
+/* Menu.css — portal-rendered dropdown surface.
+   Prefixed `oc-` because this codebase has no CSS scoping and .dropdown-*,
+   .modal-*, .sort-icon and .header-cell-content are all already claimed
+   (several of them defined twice, in different files, with different values). */
+
+.oc-menu-surface {
+  position: fixed;
+  z-index: var(--z-menu);
+
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 6px;
+
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 10px 24px -6px rgba(15, 23, 42, 0.12),
+    0 4px 8px -4px rgba(15, 23, 42, 0.06);
+
+  /* A menu near the viewport edge scrolls internally rather than escaping. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.oc-menu-surface:focus {
+  outline: none;
+}
+
+.oc-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+  text-align: left;
+
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.oc-menu-item:hover:not(:disabled),
+.oc-menu-item:focus-visible:not(:disabled) {
+  background-color: var(--bg-hover);
+  color: var(--primary);
+}
+
+/* Press feedback via a deeper background rather than scale: these are
+   full-width list rows in a fixed-position portal, where scaling reads as a
+   glitch rather than a confirmation the way it does on a compact button. */
+.oc-menu-item:active:not(:disabled) {
+  background-color: var(--primary-light);
+}
+
+/* index.css strips outlines from every button globally, so the ring has to be
+   re-established explicitly or keyboard navigation is invisible. */
+.oc-menu-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.oc-menu-item:disabled {
+  color: var(--text-light);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.oc-menu-item--destructive:hover:not(:disabled),
+.oc-menu-item--destructive:focus-visible:not(:disabled) {
+  background-color: #fef2f2;
+  color: #dc2626;
+}
+
+.oc-menu-separator {
+  height: 1px;
+  margin: 4px -2px;
+  background-color: var(--border-color);
+}
+
+.oc-menu-label {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-light);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oc-menu-item {
+    transition: none;
+  }
+}

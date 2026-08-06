@@ -52,7 +52,7 @@ interface CampaignStoreState {
 
 const initialWizardForm: CampaignWizardForm = {
   name: '',
-  relationType: '',
+  relationType: [],
   templateName: '',
   templateId: 0,
   recipientsCount: 0,
@@ -142,8 +142,9 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
         // Filter based on wizard fields
         const filtered = allContacts.filter(c => {
           // Relation Type Filter
-          if (wizardForm.relationType && wizardForm.relationType !== 'All') {
-            if (c.type?.toLowerCase() !== wizardForm.relationType.toLowerCase()) {
+          if (wizardForm.relationType && wizardForm.relationType.length > 0) {
+            const selectedTypesLower = wizardForm.relationType.map(rt => rt.toLowerCase())
+            if (!selectedTypesLower.includes((c.type || '').toLowerCase())) {
               return false
             }
           }

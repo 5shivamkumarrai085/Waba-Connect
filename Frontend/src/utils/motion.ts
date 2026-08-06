@@ -140,3 +140,43 @@ export const counterSpring = {
   damping: 20,
   mass: 0.8,
 }
+
+// ─── Menus & Popovers ───────────────────────────────────────────────
+
+/**
+ * Menus open with ease-out and close faster than they open. Asymmetry is
+ * deliberate: the user is deciding on the way in and the system is just
+ * getting out of the way on the way out.
+ */
+export const menuTransitions = {
+  in: { duration: 0.16, ease: [0.16, 1, 0.3, 1] } as Transition,
+  out: { duration: 0.12, ease: [0.4, 0, 1, 1] } as Transition,
+}
+
+/**
+ * Menu surface entrance. Starts at 0.96, never 0 — nothing in the real world
+ * appears out of nothing, and scale(0) reads as a glitch. Pair with an
+ * origin-aware `transform-origin` so it grows out of its trigger.
+ */
+export const menuScale: Variants = {
+  hidden: { opacity: 0, scale: 0.96 },
+  visible: { opacity: 1, scale: 1, transition: menuTransitions.in },
+  exit: { opacity: 0, scale: 0.96, transition: menuTransitions.out },
+}
+
+// ─── Wizard Steps ───────────────────────────────────────────────────
+
+/**
+ * Directional slide between wizard steps. 24px, not 100% — a full-width slide
+ * inside a dialog reads as a page transition and is far too loud for two steps.
+ * `direction` is 1 going forward, -1 going back.
+ */
+export const stepSlide: Variants = {
+  hidden: (direction: number) => ({ opacity: 0, x: direction * 24 }),
+  visible: { opacity: 1, x: 0, transition: transitions.normal },
+  exit: (direction: number) => ({
+    opacity: 0,
+    x: direction * -24,
+    transition: transitions.snappy,
+  }),
+}

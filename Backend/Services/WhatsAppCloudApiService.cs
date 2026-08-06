@@ -828,15 +828,23 @@ public class WhatsAppCloudApiService : IWhatsAppService
             using var doc = JsonDocument.Parse(responseBody);
             if (doc.RootElement.TryGetProperty("error", out var error))
             {
+                // Prefer "message" — Meta's raw, non-localized error text — over
+                // "error_user_msg", which Meta pre-localizes server-side based on the
+                // Business Manager account's configured display language (this is why
+                // errors were showing up in Hindi regardless of any header this app
+                // sends; there is no Accept-Language/locale knob on our side to control
+                // it). This is a mitigation, not a guaranteed fix — it only helps when
+                // Meta's response actually includes "message"; Meta ultimately controls
+                // what each field contains.
+                if (error.TryGetProperty("message", out var message))
+                    return message.GetString();
+
                 if (error.TryGetProperty("error_user_msg", out var userMessage))
                     return userMessage.GetString();
 
                 if (error.TryGetProperty("error_data", out var errorData)
                     && errorData.TryGetProperty("details", out var details))
                     return details.GetString();
-
-                if (error.TryGetProperty("message", out var message))
-                    return message.GetString();
             }
         }
         catch

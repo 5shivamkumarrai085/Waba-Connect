@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { pageTransitionProps } from '../../utils/motion'
+import { motion, AnimatePresence } from 'framer-motion'
+import { pageTransitionProps, fadeSlideUp, buttonHoverProps, transitions } from '../../utils/motion'
 import { useTemplateStore } from '../../store/templateStore'
 import { StatusBadge } from '../../components/StatusBadge/StatusBadge'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
 import toast from 'react-hot-toast'
 import { Skeleton } from '../../components/Skeleton'
-import { 
-  Download, 
-  Settings, 
-  RefreshCw, 
+import {
+  Download,
+  Settings,
+  RefreshCw,
   Filter,
+  FilterX,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react'
@@ -54,8 +55,11 @@ export const TemplatesList: React.FC = () => {
     loadFilterOptions
   } = useTemplateStore()
 
-  // UI state for showing/hiding filters and columns
+  // Filters default to hidden until toggled — matches the Filter-button pattern
+  // already used in the Campaigns section (was previously always-visible below).
   const [showFilters, setShowFilters] = useState(false)
+
+  // UI state for column visibility
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
     id: true,
     name: true,
@@ -175,11 +179,18 @@ export const TemplatesList: React.FC = () => {
     .map(c => c.id)
 
   const handleLoadTemplates = async () => {
-    await refreshTemplates()
-    // After sync, reload from Meta dynamically
     const connectedIds = getConnectedIds()
-    await loadTemplates(connectedIds)
-    toast.success('Templates loaded and synchronized from WABA!')
+    if (connectedIds.length === 0) {
+      toast.error('No connected WhatsApp Business connection found. Connect a WABA number first.')
+      return
+    }
+    const syncOk = await refreshTemplates()
+    const loadOk = await loadTemplates(connectedIds)
+    if (syncOk && loadOk) {
+      toast.success('Templates loaded and synchronized from WABA!')
+    } else {
+      toast.error('Failed to sync templates from WhatsApp. Please try again.')
+    }
   }
 
   const handleTemplateManagement = () => {
@@ -189,8 +200,27 @@ export const TemplatesList: React.FC = () => {
 
   const handleRefresh = async () => {
     const connectedIds = getConnectedIds()
-    await loadTemplates(connectedIds)
-    toast.success('Templates list refreshed successfully!')
+    if (connectedIds.length === 0) {
+      toast.error('No connected WhatsApp Business connection found.')
+      return
+    }
+    const ok = await loadTemplates(connectedIds)
+    if (ok) {
+      toast.success('Templates list refreshed successfully!')
+    } else {
+      toast.error('Failed to refresh templates. Please try again.')
+    }
+  }
+
+  const areFiltersActive = nameQuery !== '' || languageFilter !== 'All' || categoryFilter !== 'All' ||
+    typeFilter !== 'All' || statusFilter !== 'All'
+
+  const handleClearFilters = () => {
+    setNameQuery('')
+    setLanguageFilter('All')
+    setCategoryFilter('All')
+    setTypeFilter('All')
+    setStatusFilter('All')
   }
 
   const columnHeaders = [
@@ -214,39 +244,68 @@ export const TemplatesList: React.FC = () => {
 
   return (
     <motion.div {...pageTransitionProps}>
-      {/* Top action buttons */}
-      <div className="templates-toolbar">
-        <button 
-          type="button" 
-          className="btn-toolbar"
-          onClick={handleLoadTemplates}
-          disabled={isLoadingOrRefreshing}
-        >
-          <Download size={16} />
-          <span>Load Templates</span>
-        </button>
-        <button 
-          type="button" 
-          className="btn-toolbar"
-          onClick={handleTemplateManagement}
-        >
-          <Settings size={16} />
-          <span>Template Management</span>
-        </button>
-        <button 
-          type="button" 
-          className="btn-toolbar btn-toolbar-refresh"
-          onClick={handleRefresh}
-          disabled={isLoadingOrRefreshing}
-        >
-          <RefreshCw size={16} />
-          <span>Refresh</span>
-        </button>
-      </div>
+      {/* Page header */}
+      <motion.div
+        className="templates-page-header"
+        variants={fadeSlideUp}
+        initial="hidden"
+        animate="visible"
+        transition={transitions.normal}
+      >
+        <h1>Templates</h1>
+        <p>Create, manage and organize your message templates.</p>
+      </motion.div>
+
+      {/* Top action bar: sync/management/refresh actions + search */}
+      <motion.div
+        className="templates-toolbar"
+        variants={fadeSlideUp}
+        initial="hidden"
+        animate="visible"
+        transition={{ ...transitions.normal, delay: 0.05 }}
+      >
+        <div className="templates-toolbar-actions">
+          <motion.button
+            type="button"
+            className="btn-toolbar btn-toolbar-primary"
+            onClick={handleLoadTemplates}
+            disabled={isLoadingOrRefreshing}
+            {...buttonHoverProps}
+          >
+            <Download size={16} />
+            <span>Load Templates</span>
+          </motion.button>
+          <motion.button
+            type="button"
+            className="btn-toolbar"
+            onClick={handleTemplateManagement}
+            {...buttonHoverProps}
+          >
+            <Settings size={16} />
+            <span>Template Management</span>
+          </motion.button>
+          <motion.button
+            type="button"
+            className="btn-toolbar"
+            onClick={handleRefresh}
+            disabled={isLoadingOrRefreshing}
+            {...buttonHoverProps}
+          >
+            <RefreshCw size={16} />
+            <span>Refresh</span>
+          </motion.button>
+        </div>
+
+        <SearchBar
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search templates"
+        />
+      </motion.div>
 
       {/* Main card covering filters, table headers & rows */}
       <div className="templates-card">
-        {/* Table controls bar */}
+        {/* Table controls bar — column visibility + filter toggle */}
         <div className="contacts-controls-row">
           <div className="contacts-controls-left">
             <ColumnSelector
@@ -255,8 +314,8 @@ export const TemplatesList: React.FC = () => {
               onToggle={toggleColumnVisibility}
             />
 
-            <button 
-              type="button" 
+            <button
+              type="button"
               className={`btn-control-icon ${showFilters ? 'active' : ''}`}
               onClick={() => setShowFilters(!showFilters)}
               title="Toggle Filters"
@@ -265,19 +324,18 @@ export const TemplatesList: React.FC = () => {
               <Filter size={16} />
             </button>
           </div>
-
-          <div className="contacts-controls-right">
-            <SearchBar
-              value={searchQuery}
-              onChange={setSearchQuery}
-              placeholder="Search..."
-            />
-          </div>
         </div>
 
-        {/* 5 Column filter section grid */}
+        {/* Filter row — toggled by the Filter button above */}
+        <AnimatePresence initial={false}>
         {showFilters && (
-          <div className="templates-filter-grid fade-in">
+        <motion.div
+          className="templates-filter-grid"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={transitions.normal}
+        >
             {/* Filter 1: Template Name Select Dropdown */}
             <div className="filter-group">
               <span className="filter-label">Template Name</span>
@@ -352,8 +410,23 @@ export const TemplatesList: React.FC = () => {
                 ))}
               </select>
             </div>
-          </div>
+
+            <div className="filter-group filter-group-clear">
+              <motion.button
+                type="button"
+                className="btn-clear-filters"
+                onClick={handleClearFilters}
+                disabled={!areFiltersActive}
+                whileHover={areFiltersActive ? { scale: 1.03 } : undefined}
+                whileTap={areFiltersActive ? { scale: 0.97 } : undefined}
+              >
+                <FilterX size={14} />
+                <span>Clear Filters</span>
+              </motion.button>
+            </div>
+        </motion.div>
         )}
+        </AnimatePresence>
 
         {/* Dynamic Responsiveness Table */}
         <div className="data-table-wrapper">
@@ -395,7 +468,12 @@ export const TemplatesList: React.FC = () => {
                   </tr>
                 ) : (
                   paginatedTemplates.map((template, index) => (
-                    <tr key={template.id}>
+                    <motion.tr
+                      key={template.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.03, duration: 0.2, ease: 'easeOut' }}
+                    >
                       {/* ID column - sequential numbering */}
                       {visibleColumns.id !== false && (
                         <td>{startIndex + index + 1}</td>
@@ -462,7 +540,7 @@ export const TemplatesList: React.FC = () => {
                           </div>
                         </td>
                       )}
-                    </tr>
+                    </motion.tr>
                   ))
                 )}
               </tbody>

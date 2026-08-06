@@ -40,8 +40,8 @@ interface TemplateStoreState {
   setPageSize: (size: number) => void
   setSort: (column: string, order: 'asc' | 'desc') => void
   
-  loadTemplates: (connectedConnectionIds?: number[]) => Promise<void>
-  refreshTemplates: () => Promise<void>
+  loadTemplates: (connectedConnectionIds?: number[]) => Promise<boolean>
+  refreshTemplates: () => Promise<boolean>
   loadFilterOptions: () => Promise<void>
 }
 
@@ -87,7 +87,7 @@ export const useTemplateStore = create<TemplateStoreState>((set, get) => ({
     }
     try {
       let fetched: Template[] = []
-      
+
       if (connectedConnectionIds && connectedConnectionIds.length > 0) {
         // Fetch templates dynamically from Meta for each connected connection
         const results = await Promise.all(
@@ -103,25 +103,31 @@ export const useTemplateStore = create<TemplateStoreState>((set, get) => ({
             }
           }
         }
+        set({ templates: fetched, isLoading: false })
+        return true
       }
-      // If no connected connections, fetched stays empty — no templates to show
-      
-      set({ templates: fetched, isLoading: false })
+
+      // No connected connections passed in — nothing to query, distinct from "0 templates returned".
+      set({ templates: [], isLoading: false })
+      return false
     } catch (err) {
       console.error('Error loading templates:', err)
       set({ isLoading: false })
+      return false
     }
   },
-  
+
   refreshTemplates: async () => {
     set({ isRefreshing: true })
     try {
       const fetched = await templateService.refreshTemplates()
       set({ templates: fetched, currentPage: 1, isRefreshing: false })
       useDashboardStore.getState().loadDashboardData(false)
+      return true
     } catch (err) {
       console.error('Error refreshing templates:', err)
       set({ isRefreshing: false })
+      return false
     }
   },
 

@@ -9,6 +9,7 @@ const CampaignsList = lazy(() => import('./pages/Campaigns/CampaignsList').then(
 const CampaignWizard = lazy(() => import('./pages/Campaigns/CampaignWizard').then(m => ({ default: m.CampaignWizard })))
 const CampaignDetails = lazy(() => import('./pages/Campaigns/CampaignDetails').then(m => ({ default: m.CampaignDetails })))
 const Placeholder = lazy(() => import('./pages/Placeholder').then(m => ({ default: m.Placeholder })))
+const NotFound = lazy(() => import('./pages/NotFound').then(m => ({ default: m.NotFound })))
 const Reporting = lazy(() => import('./pages/Reporting').then(m => ({ default: m.Reporting })))
 const ActivityLogs = lazy(() => import('./pages/ActivityLogs').then(m => ({ default: m.ActivityLogs })))
 const ConnectWABA = lazy(() => import('./pages/ConnectWABA/ConnectWABA').then(m => ({ default: m.ConnectWABA })))
@@ -91,8 +92,11 @@ const App: React.FC = () => {
             <Route path="/omniconnect-settings" element={<Placeholder />} />
             <Route path="/setup" element={<Placeholder />} />
             
-            {/* Fallback route */}
-            <Route path="*" element={<Placeholder />} />
+            {/* Fallback route — a real 404, distinct from Placeholder (which is
+                reserved for pages that exist in the roadmap but aren't built
+                yet, above). This is for URLs that don't correspond to
+                anything at all. */}
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
       </PageLayout>

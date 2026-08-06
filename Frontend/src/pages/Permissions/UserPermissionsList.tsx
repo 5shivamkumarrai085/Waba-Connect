@@ -111,9 +111,9 @@ export const UserPermissionsList: React.FC = () => {
         <button
           type="button"
           onClick={() => toast.success('Permission history coming soon')}
-          className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+          className="btn-permission-history"
         >
-          <History className="w-4 h-4 text-slate-500" />
+          <History size={16} />
           <span>Permission History</span>
         </button>
       </div>
@@ -126,7 +126,7 @@ export const UserPermissionsList: React.FC = () => {
           </div>
           <div>
             <div className="permission-kpi-label">Total Users</div>
-            <div className="permission-kpi-value">{dashboard?.totalUsers || 56}</div>
+            <div className="permission-kpi-value">{dashboard?.totalUsers ?? 0}</div>
             <div className="permission-kpi-desc">All registered users</div>
           </div>
         </div>
@@ -137,7 +137,7 @@ export const UserPermissionsList: React.FC = () => {
           </div>
           <div>
             <div className="permission-kpi-label">Users with Access</div>
-            <div className="permission-kpi-value">{dashboard?.usersWithAccess || 34}</div>
+            <div className="permission-kpi-value">{dashboard?.usersWithAccess ?? 0}</div>
             <div className="permission-kpi-desc">Users with at least one connection</div>
           </div>
         </div>
@@ -148,7 +148,7 @@ export const UserPermissionsList: React.FC = () => {
           </div>
           <div>
             <div className="permission-kpi-label">Total Connections</div>
-            <div className="permission-kpi-value">{dashboard?.totalConnections || 18}</div>
+            <div className="permission-kpi-value">{dashboard?.totalConnections ?? 0}</div>
             <div className="permission-kpi-desc">All WABA connections</div>
           </div>
         </div>
@@ -159,7 +159,7 @@ export const UserPermissionsList: React.FC = () => {
           </div>
           <div>
             <div className="permission-kpi-label">Active Permissions</div>
-            <div className="permission-kpi-value">{dashboard?.activePermissions || 72}</div>
+            <div className="permission-kpi-value">{dashboard?.activePermissions ?? 0}</div>
             <div className="permission-kpi-desc">Total active user-connection mappings</div>
           </div>
         </div>
@@ -314,14 +314,13 @@ export const UserPermissionsList: React.FC = () => {
         )}
       </div>
 
-      {showAssignModal && (
-        <AssignPermissionModal
-          type="user"
-          connections={connections}
-          onClose={() => setShowAssignModal(false)}
-          onAssignUser={handleAssignUser}
-        />
-      )}
+      <AssignPermissionModal
+        isOpen={showAssignModal}
+        type="user"
+        connections={connections}
+        onClose={() => setShowAssignModal(false)}
+        onAssignUser={handleAssignUser}
+      />
     </motion.div>
   )
 }

@@ -13,7 +13,6 @@ import type { LoginSuccessModel, AuditLogModel } from '../types/reporting'
 import { Shield } from 'lucide-react'
 import { Skeleton } from '../components/Skeleton'
 import { pageTransitionProps } from '../utils/motion'
-import { getRandomLoadingQuote } from '../utils/quotes'
 import './ActivityLogs.css'
 
 export const ActivityLogs: React.FC = () => {
@@ -91,9 +90,6 @@ export const ActivityLogs: React.FC = () => {
             <Skeleton variant="title" width={300} height={32} />
             <Skeleton variant="text" width={500} style={{ marginTop: 8 }} />
           </div>
-        </div>
-        <div className="loading-quote-banner">
-          <p className="loading-quote-text">{getRandomLoadingQuote()}</p>
         </div>
         <div className="stat-cards-grid margin-bottom-24" style={{ marginBottom: 24 }}>
           <Skeleton variant="stat-card" count={4} />

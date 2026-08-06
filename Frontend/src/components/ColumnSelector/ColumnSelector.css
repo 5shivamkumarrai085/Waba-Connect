@@ -1,10 +1,5 @@
 /* ColumnSelector.css */
 
-.column-selector-wrapper {
-  position: relative;
-  display: inline-block;
-}
-
 .column-selector-toggle-btn {
   display: inline-flex;
   align-items: center;
@@ -26,34 +21,16 @@
   border-color: var(--primary-light);
 }
 
+/* Positioning, z-index and the entry animation now come from <Menu>; only the
+   visual identity of this particular surface lives here. */
 .column-selector-dropdown {
-  position: absolute;
-  top: 40px;
-  left: 0;
-  z-index: 100;
-  width: 180px;
-  background-color: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lg);
-  padding: 8px 0;
-  animation: fadeIn 0.15s ease-out forwards;
+  width: 200px;
+  padding: 6px;
 }
 
 .column-selector-item {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
-  padding: 8px 16px;
-  font-size: 13px;
-  color: var(--text-main);
-  cursor: pointer;
-  transition: var(--transition-fast);
-}
-
-.column-selector-item:hover {
-  background-color: var(--bg-hover);
-  color: var(--primary);
+  padding: 8px 12px;
 }
 
 .column-selector-name {

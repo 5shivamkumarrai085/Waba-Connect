@@ -1,41 +1,118 @@
 /* ContactsList.css */
 
+.contacts-page-header {
+  margin-bottom: 1.5rem;
+}
+
+.contacts-page-header h1 {
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: var(--text-main, #0f172a);
+  margin: 0 0 0.25rem 0;
+  letter-spacing: -0.02em;
+}
+
+.contacts-page-header p {
+  font-size: 0.875rem;
+  color: var(--text-muted, #64748b);
+  margin: 0;
+}
+
 .contacts-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 20px;
 }
 
-.btn-toolbar {
+/* Button hierarchy: one solid primary action, a quieter secondary, and a
+   tertiary that reads almost as a link. Previously all three toolbar buttons
+   were identical solid purple and competed equally for attention. */
+.btn-toolbar-primary,
+.btn-toolbar-secondary,
+.btn-toolbar-tertiary {
   font-family: var(--font-family);
   font-size: 13px;
   font-weight: 500;
-  color: #ffffff;
-  background-color: var(--primary); /* purple/indigo */
-  border: none;
+  border: 1px solid transparent;
   padding: 0 16px;
-  height: 35px;
-  border-radius: 4px; /* sharp radius */
+  height: 36px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.16s var(--ease-out);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
 }
 
-.btn-toolbar:hover {
-  background-color: #4338ca;
+.btn-toolbar-primary:active,
+.btn-toolbar-secondary:active,
+.btn-toolbar-tertiary:active {
+  transform: scale(0.97);
+}
+
+.btn-toolbar-primary:focus-visible,
+.btn-toolbar-secondary:focus-visible,
+.btn-toolbar-tertiary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.btn-toolbar-primary {
+  color: #ffffff;
+  background-color: var(--primary);
+}
+
+.btn-toolbar-primary:hover {
+  background-color: var(--primary-hover);
+}
+
+.btn-toolbar-secondary {
+  color: var(--primary);
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+.btn-toolbar-secondary:hover {
+  background-color: var(--primary-light);
+  border-color: var(--primary);
+}
+
+.btn-toolbar-tertiary {
+  color: var(--text-muted);
+  background-color: transparent;
+}
+
+.btn-toolbar-tertiary:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-toolbar-primary,
+  .btn-toolbar-secondary,
+  .btn-toolbar-tertiary {
+    transition: none;
+  }
+  .btn-toolbar-primary:active,
+  .btn-toolbar-secondary:active,
+  .btn-toolbar-tertiary:active {
+    transform: none;
+  }
 }
 
 /* Table Controls container card wrapper */
 .contacts-card {
   background-color: var(--bg-secondary);
-  border-radius: var(--radius-sm); /* 6px */
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  padding: 16px 20px;
+  box-shadow: var(--shadow-card);
+  padding: 24px;
 }
 
 .contacts-controls-row {
@@ -59,13 +136,17 @@
   align-items: center;
   justify-content: center;
   width: 36px;
-  height: 35px;
-  border-radius: 4px;
+  height: 36px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
   color: var(--text-muted);
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.16s var(--ease-out);
 }
 
 .btn-control-icon:hover {
@@ -74,62 +155,158 @@
   border-color: var(--text-muted);
 }
 
-.btn-bulk-delete {
+.btn-control-icon:active {
+  transform: scale(0.95);
+}
+
+.btn-control-icon:focus-visible,
+.btn-toolbar-labeled:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Labeled Filters / Sort toolbar buttons */
+.btn-toolbar-labeled {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
   font-family: var(--font-family);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
-  color: #ffffff;
-  background-color: #ef4444; /* red background */
-  border: none;
-  padding: 0 16px;
-  height: 35px;
-  border-radius: 4px;
   cursor: pointer;
-  transition: var(--transition-fast);
-  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.16s var(--ease-out);
+  position: relative;
+}
+
+.btn-toolbar-labeled:hover,
+.btn-toolbar-labeled.active {
+  background-color: var(--bg-hover);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.btn-toolbar-labeled:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-control-icon,
+  .btn-toolbar-labeled {
+    transition: none;
+  }
+  .btn-control-icon:active,
+  .btn-toolbar-labeled:active {
+    transform: none;
+  }
+}
+
+.btn-toolbar-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full, 9999px);
+  background-color: var(--primary);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
 }
 
-.btn-bulk-delete:hover {
-  background-color: #dc2626;
+/* Positioning, z-index and dismissal come from <Menu>. */
+.sort-menu-popover {
+  min-width: 200px;
 }
 
-.btn-bulk-delete:disabled {
-  background-color: #f1f5f9;
-  color: #94a3b8;
-  border: 1px solid #e2e8f0;
-  cursor: not-allowed;
+.sort-menu-item {
+  justify-content: space-between;
+  gap: 12px;
 }
 
+.sort-menu-item-direction {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.btn-bulk-delete,
 .btn-bulk-chat {
   font-family: var(--font-family);
   font-size: 12px;
   font-weight: 500;
   color: #ffffff;
-  background-color: var(--primary); /* same theme purple */
   border: none;
   padding: 0 16px;
-  height: 35px;
-  border-radius: 4px;
+  height: 36px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition:
+    background-color 0.15s ease,
+    transform 0.16s var(--ease-out);
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
-.btn-bulk-chat:hover {
-  background-color: #4338ca;
+.btn-bulk-delete:active:not(:disabled),
+.btn-bulk-chat:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
+.btn-bulk-delete:focus-visible,
+.btn-bulk-chat:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.btn-bulk-delete {
+  background-color: #ef4444;
+}
+
+.btn-bulk-delete:hover:not(:disabled) {
+  background-color: #dc2626;
+}
+
+.btn-bulk-chat {
+  background-color: var(--primary);
+}
+
+.btn-bulk-chat:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+}
+
+.btn-bulk-delete:disabled,
 .btn-bulk-chat:disabled {
-  background-color: #f1f5f9;
-  color: #94a3b8;
-  border: 1px solid #e2e8f0;
+  background-color: var(--bg-hover);
+  color: var(--text-light);
+  border: 1px solid var(--border-color);
   cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-bulk-delete,
+  .btn-bulk-chat {
+    transition: none;
+  }
+  .btn-bulk-delete:active:not(:disabled),
+  .btn-bulk-chat:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 .contacts-controls-right {
@@ -149,21 +326,44 @@
   text-decoration: underline;
 }
 
-.contact-whatsapp-icon {
-  color: #25d366; /* Official WhatsApp green */
+.contact-whatsapp-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background-color: #ffffff;
+  border: 1.5px solid #25d366; /* Official WhatsApp green */
+  color: #25d366;
   cursor: pointer;
+  transition: var(--transition-fast);
 }
 
-.contact-whatsapp-icon:hover {
-  color: #128c7e;
+.contact-whatsapp-badge:hover {
+  background-color: #25d366;
+  color: #ffffff;
 }
 
-.contact-group-orange {
-  color: #f97316; /* orange Group not found */
-  font-weight: 500;
+.group-badges-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Neutral pill for "no group assigned" — deliberately desaturated against the
+   saturated .group-badge-* palette below, so absence reads as a real state
+   rather than a blank or broken cell. */
+.contact-group-unassigned {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-light);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Footer pager styling */
@@ -177,10 +377,10 @@
 }
 
 .contacts-pager-size-select {
-  height: 35px;
+  height: 36px;
   padding: 0 32px 0 12px;
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background-color: var(--bg-secondary);
   font-family: var(--font-family);
   font-size: 13px;
@@ -205,9 +405,12 @@
   font-weight: 500;
 }
 
-.checkbox-cell {
+/* Scoped with the same specificity as .contacts-card .data-table td below
+   (which this must override) so no !important is needed. */
+.contacts-card .data-table td.checkbox-cell,
+.contacts-card .data-table th.checkbox-cell {
   width: 40px;
-  padding: 8px 12px !important;
+  padding: 8px 12px;
 }
 
 .checkbox-cell input[type="checkbox"] {
@@ -225,22 +428,22 @@
 
 /* Specific column min-widths to prevent text collision */
 .col-width-id { min-width: 50px; }
-.col-width-name { min-width: 140px; }
+.col-width-name { min-width: 190px; }
 .col-width-type { min-width: 80px; }
-.col-width-phone { min-width: 145px; }
-.col-width-assigned { min-width: 100px; text-align: center; }
-.col-width-initiateChat { min-width: 120px; text-align: center; }
+.col-width-assigned { min-width: 120px; }
+.col-width-initiateChat { min-width: 100px; text-align: center; }
 .col-width-status { min-width: 100px; text-align: center; }
 .col-width-source { min-width: 100px; }
 .col-width-group { min-width: 150px; }
 .col-width-active { min-width: 90px; text-align: center; }
-.col-width-createdAt { min-width: 120px; }
+.col-width-createdAt { min-width: 150px; }
+.col-width-actions { min-width: 60px; text-align: center; }
 
 /* Flex header content centering for centered columns */
-.col-width-assigned .header-cell-content,
 .col-width-initiateChat .header-cell-content,
 .col-width-status .header-cell-content,
-.col-width-active .header-cell-content {
+.col-width-active .header-cell-content,
+.col-width-actions .header-cell-content {
   justify-content: center;
 }
 
@@ -253,64 +456,57 @@
   margin: 0 auto;
 }
 
-/* Contact Name hover actions styling */
+/* Combined Contact column (name + phone stacked) */
 .contact-name-cell {
   display: flex;
   flex-direction: column;
   min-height: 42px;
   justify-content: center;
+  gap: 2px;
 }
 
-.contact-hover-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
+.contact-phone-subtext {
+  font-size: 12px;
   color: var(--text-muted);
-  margin-top: 4px;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
 }
 
-.contact-name-cell:hover .contact-hover-actions {
-  opacity: 1;
-  visibility: visible;
-}
-
-.contact-action-btn {
-  cursor: pointer;
-  color: var(--text-muted);
-  font-weight: 500;
-  transition: var(--transition-fast);
-}
-
-.contact-action-btn:hover {
-  color: var(--primary);
-  text-decoration: underline;
-}
-
-/* Export popup wrapper */
-.export-popover-anchor {
+/* Row Actions dropdown (three-dot menu) */
+.contact-actions-menu-wrapper {
   position: relative;
   display: inline-block;
 }
 
+.contact-actions-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm, 4px);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.contact-actions-trigger:hover {
+  background-color: var(--bg-hover, #f1f5f9);
+  color: var(--primary);
+}
+
+/* Row actions surface — portaled by <Menu>, so no positioning or z-index here.
+   That is what stops it being clipped by .data-table-wrapper's overflow-x:auto
+   and out-stacked by the transformed :hover row. */
+.contact-actions-dropdown {
+  min-width: 150px;
+}
+
+/* Export popover — positioning and dismissal come from <Menu>. */
 .export-menu-popover {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 8px;
-  background-color: var(--bg-secondary, #ffffff);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md, 6px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  padding: 8px 12px;
-  z-index: 100;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 240px;
+  gap: 4px;
+  padding: 8px;
+  min-width: 250px;
 }
 
 .export-row {
@@ -350,43 +546,112 @@
   opacity: 0.5;
 }
 
-/* Custom filters dynamic grids */
+/* Filters panel — a height-animated wrapper (see the AnimatePresence in
+   ContactsList.tsx) containing a header row and the field grid. Moving
+   "Clear Filters" out of the grid into this header is what actually fixes
+   the overflow bug: it can no longer be pushed off-canvas as a grid track
+   when the viewport narrows. */
+.contacts-filters-panel {
+  margin-top: 16px;
+  overflow: hidden;
+}
+
+.contacts-filters-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-bottom: none;
+}
+
+.contacts-filters-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
 .contacts-filters-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr) 1.2fr 1.8fr;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: end;
   gap: 16px;
-  margin-top: 16px;
-  margin-bottom: 8px;
   padding: 16px;
-  border-radius: var(--radius-md);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
   background: rgba(255, 255, 255, 0.4);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.3);
+  border-top: 1px solid var(--border-color);
   box-shadow: 0 4px 24px -4px rgba(90, 82, 229, 0.05);
-  animation: slideDownFilters 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+.filter-field-dates {
+  grid-column: span 2;
+}
+
+@media (max-width: 640px) {
+  .filter-field-dates {
+    grid-column: span 1;
+  }
+}
+
+.btn-clear-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.btn-clear-filters:hover:not(:disabled) {
+  background-color: #fef2f2;
+  color: #ef4444;
+  border-color: #fca5a5;
+}
+
+.btn-clear-filters:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.btn-clear-filters:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dark-theme .contacts-filters-header,
 .dark-theme .contacts-filters-grid {
   background: rgba(30, 41, 59, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-@keyframes slideDownFilters {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  border-color: rgba(255, 255, 255, 0.05);
 }
 
 .filter-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .filter-field label {
@@ -411,21 +676,26 @@
   width: 100%;
 }
 
+/* Combined with .contacts-pager-size-select on the same element; wins on
+   source order (declared after it here) so !important isn't needed. */
 .padding-date {
-  padding-left: 8px !important;
-  padding-right: 8px !important;
-  font-size: 12px !important;
+  padding-left: 8px;
+  padding-right: 8px;
+  font-size: 12px;
 }
 
-/* Alignment fixes for table headers and rows */
 .btn-control-icon.active {
-  background-color: var(--bg-hover, #f1f5f9);
-  color: var(--primary, #6366f1);
-  border-color: var(--primary, #6366f1);
+  background-color: var(--bg-hover);
+  color: var(--primary);
+  border-color: var(--primary);
 }
 
-/* Table header sort glyph alignment */
-.header-cell-content {
+/* Table header sort glyph alignment.
+   Scoped under .contacts-card: DataTable.css defines bare, unscoped
+   .header-cell-content / .sort-icon selectors too (with different values),
+   and at equal specificity the winner was purely a matter of CSS import
+   order. Scoping here removes that ambiguity outright. */
+.contacts-card .header-cell-content {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -433,52 +703,52 @@
   user-select: none;
 }
 
-.sort-icon {
-  font-size: 11px;
-  color: var(--text-muted);
-  opacity: 0.5;
-  transition: opacity 0.15s;
+.contacts-card .sort-icon {
+  display: inline-flex;
+  color: var(--text-light);
+  opacity: 0.6;
+  transition: opacity 0.15s ease, color 0.15s ease;
 }
 
-.sort-icon.active {
+.contacts-card .sort-icon.active {
   opacity: 1;
   color: var(--primary);
 }
 
-/* Align switch switchers layout spacing to SupportValley mockup */
+/* Simple fade-in on load; never blocks interaction. */
 .contacts-card .data-table tbody tr {
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  animation: fadeIn 0.4s ease-out forwards;
+  animation: fadeIn 0.3s ease-out forwards;
   opacity: 0;
 }
 
-.contacts-card 
-.contacts-card 
-.contacts-card 
-.contacts-card 
-.contacts-card 
-
+/* Background-only hover, deliberately.
+   A previous translateY(-1px) + shadow created a stacking context on the
+   hovered row (letting a later row paint over an earlier row's open menu)
+   and shifted the row-menu's anchor by 1px the moment the pointer left the
+   row. A table row is also a high-frequency target — those get less motion,
+   not more. */
 .contacts-card .data-table tbody tr:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(90, 82, 229, 0.08);
   background-color: var(--bg-hover);
-  z-index: 1;
-  position: relative;
 }
 
-.contacts-card .data-table th, .contacts-card .data-table td {
-  padding: 12px 16px;
+.contacts-card .data-table th,
+.contacts-card .data-table td {
+  padding: 14px 20px;
   font-size: 13px;
+}
+
+.contacts-card .data-table tbody td {
+  height: 56px;
 }
 
 .contacts-card .data-table thead th {
   font-weight: 700;
-  color: #475569;
-  background-color: #f1f5f9;
+  color: var(--text-muted);
+  background-color: var(--bg-primary);
   text-transform: uppercase;
   font-size: 11px;
   letter-spacing: 0.05em;
-  transition: background-color 0.15s;
+  transition: background-color 0.15s ease;
 }
 
 .contacts-card .data-table thead th.sortable-header {
@@ -486,58 +756,35 @@
 }
 
 .contacts-card .data-table thead th.sortable-header:hover {
-  background-color: #cbd5e1;
+  background-color: var(--bg-hover);
 }
 
-/* Fallback row when list is empty */
+/* Fallback row when list is empty — hosts the richer <EmptyState/>
+   (icon, headline, message, action), so this cell just centers it without
+   fighting EmptyState's own padding. */
 .no-records-row {
-  text-align: center !important;
-  padding: 32px 16px !important;
-  color: var(--text-muted, #64748b) !important;
-  font-weight: 500;
-  font-size: 14px;
+  padding: 0;
 }
 
-/* Custom group badges styling */
-.group-badge-vip-lead {
-  background-color: #fef3c7;
-  color: #d97706;
-  border: 1px solid #fde68a;
+/* Group badges — deterministic color-by-name-hash palette (see getGroupColorClass), not tied to specific names */
+.group-badge-purple,
+.group-badge-green,
+.group-badge-orange,
+.group-badge-pink,
+.group-badge-blue,
+.group-badge-teal {
   padding: 2px 8px;
   border-radius: 9999px;
   font-size: 11px;
   font-weight: 600;
   display: inline-block;
   white-space: nowrap;
+  border: 1px solid transparent;
 }
 
-.group-badge-vip-customer {
-  background-color: #dbeafe;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  font-size: 11px;
-  font-weight: 600;
-  display: inline-block;
-  white-space: nowrap;
-}
-
-.group-badge-default {
-  background-color: #f1f5f9;
-  color: #475569;
-  border: 1px solid #e2e8f0;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  font-size: 11px;
-  font-weight: 500;
-  display: inline-block;
-  white-space: nowrap;
-}
-
-
-
-/* === Gen-Z Animations === */
-.page-header { animation: slideUp 0.4s ease-out forwards; }
-.data-table tbody tr { animation: fadeIn 0.3s ease-out forwards; }
-.data-table tbody tr:hover { background: rgba(99, 102, 241, 0.04) !important; transition: background 0.2s ease; }
+.group-badge-purple { background-color: #f3e8ff; color: #7e22ce; border-color: #e9d5ff; }
+.group-badge-green { background-color: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+.group-badge-orange { background-color: #fef3c7; color: #d97706; border-color: #fde68a; }
+.group-badge-pink { background-color: #fce7f3; color: #be185d; border-color: #fbcfe8; }
+.group-badge-blue { background-color: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+.group-badge-teal { background-color: #ccfbf1; color: #0f766e; border-color: #99f6e4; }

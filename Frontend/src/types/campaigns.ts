@@ -44,7 +44,9 @@ export interface CampaignRecipient {
 
 export interface CampaignWizardForm {
   name: string
-  relationType: string
+  /** One or more ContactType names (e.g. ['Lead', 'Customer']) — joined with ','
+   *  only at the API-call boundary (see campaignService.buildCampaignPayload). */
+  relationType: string[]
   templateName: string
   templateId: number
   recipientsCount: number

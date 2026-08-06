@@ -42,3 +42,27 @@ export const formatRelativeTime = (dateString: string): string => {
   }
   return diffYears === 1 ? '1 year ago' : `${diffYears} years ago`
 }
+
+/**
+ * Format a date string into an absolute date + time (e.g. '04 Aug 2026, 02:30 PM').
+ * Uses the native Intl API — no extra date library dependency.
+ */
+export const formatAbsoluteDateTime = (dateString: string): string => {
+  if (!dateString) return 'N/A'
+  const date = new Date(dateString)
+  if (Number.isNaN(date.getTime())) return dateString
+
+  const datePart = new Intl.DateTimeFormat('en-US', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).format(date)
+
+  const timePart = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  }).format(date)
+
+  return `${datePart}, ${timePart}`
+}

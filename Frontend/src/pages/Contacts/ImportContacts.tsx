@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
-import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useContactStore } from '../../store/contactStore'
 import { UploadArea } from '../../components/UploadArea/UploadArea'
+import { Modal } from '../../components/Modal/Modal'
 import { apiClient } from '../../services/apiClient'
-import { Download, X } from 'lucide-react'
+import { Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import './ImportContacts.css'
 import { getErrorMessage } from '../../utils/errorHelper'
@@ -87,20 +87,21 @@ export const ImportContacts: React.FC = () => {
       </div>
 
       {/* Download Sample modal popup dialog */}
-      {isSampleModalOpen && createPortal(
-        <div className="modal-overlay-custom" onClick={() => setIsSampleModalOpen(false)}>
-          <div className="modal-content-custom" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header-custom">
-              <h4 className="modal-title-custom">Download Sample</h4>
-              <button 
-                type="button" 
-                className="btn-modal-close-custom"
-                onClick={() => setIsSampleModalOpen(false)}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
+      <Modal
+        isOpen={isSampleModalOpen}
+        onClose={() => setIsSampleModalOpen(false)}
+        title="Download Sample"
+        size="lg"
+        footer={
+          <button
+            type="button"
+            className="oc-dialog-btn oc-dialog-btn-secondary"
+            onClick={() => setIsSampleModalOpen(false)}
+          >
+            Cancel
+          </button>
+        }
+      >
             <div className="modal-body-custom">
               {/* Alert Instructions Box */}
               <div className="sample-rules-alert margin-bottom-20">
@@ -157,20 +158,7 @@ export const ImportContacts: React.FC = () => {
                 </table>
               </div>
             </div>
-
-            <div className="modal-footer-custom justify-end">
-              <button 
-                type="button" 
-                className="btn-cancel"
-                onClick={() => setIsSampleModalOpen(false)}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      </Modal>
     </motion.div>
   )
 }

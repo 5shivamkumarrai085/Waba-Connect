@@ -164,3 +164,71 @@
   color: #ffffff;
   transform: translateY(-1px);
 }
+
+/* ─── Daily message limit dialog ────────────────────────────────────
+   Replaces ~100 lines of inline styles that hardcoded light-mode hex
+   values (#1e293b, #f1f5f9, #4f46e5) and a z-index of 99999. */
+
+.phone-limit-intro {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.phone-limit-input {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.phone-limit-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.phone-limit-preset {
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.16s var(--ease-out);
+}
+
+.phone-limit-preset:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.phone-limit-preset:active {
+  transform: scale(0.96);
+}
+
+.phone-limit-preset:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.phone-limit-preset.is-selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phone-limit-preset {
+    transition: none;
+  }
+  .phone-limit-preset:active {
+    transform: none;
+  }
+}

@@ -1,97 +1,53 @@
-/* InitiateChatModal.css */
-
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(15, 23, 42, 0.6);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 9999;
-  backdrop-filter: blur(8px);
-  animation: overlayFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes overlayFadeIn {
-  from { opacity: 0; backdrop-filter: blur(0px); }
-  to { opacity: 1; backdrop-filter: blur(8px); }
-}
+/* InitiateChatModal.css
+   The dialog chrome (overlay, panel, header, footer) now comes from the
+   shared <Modal> shell (components/Modal/Modal.tsx). What remains here is
+   this dialog's own body content: the two wizard steps, the connection
+   picker, the template select, and the variables/preview split view. */
 
 .initiate-chat-container {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  padding: 24px;
-  border-radius: 20px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   width: 95%;
-  max-width: 500px;
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  color: var(--text-main, #0f172a);
-  transform: translateY(0) scale(1);
-  animation: modalPopIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes modalPopIn {
-  from { opacity: 0; transform: translateY(20px) scale(0.95); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  max-width: 520px;
+  transition: max-width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .initiate-chat-container.expanded {
   max-width: 850px;
 }
 
-.initiate-chat-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
-  padding-bottom: 14px;
+.initiate-chat-steps-viewport {
+  position: relative;
+  /* Permanent, not toggled by animation state — see the comment above
+     setStepBodyRef in InitiateChatModal.tsx for why toggling this caused a
+     visible shake. The wrapper's height always animates to match its content
+     exactly, so this only ever clips the brief in-flight mismatch during a
+     step transition, never real content. */
+  overflow: hidden;
 }
 
-.initiate-chat-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.initiate-chat-header-icon {
-  color: var(--primary, #6366f1);
-}
-
-.initiate-chat-title-row h3 {
-  margin: 0;
-  font-family: var(--font-title, inherit);
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.initiate-chat-close-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted, #64748b);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-}
-
-.initiate-chat-close-btn:hover {
-  background: var(--border-light, #f1f5f9);
-  color: var(--text-main, #0f172a);
-}
-
-.initiate-chat-form {
+.initiate-chat-step-slide {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  width: 100%;
+}
+
+.initiate-chat-empty-connections {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.initiate-chat-empty-connections svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--text-light);
 }
 
 .initiate-chat-label {
@@ -134,6 +90,7 @@
   border-bottom: 1px solid var(--border-color, #e2e8f0);
   padding: 20px 0;
   min-height: 280px;
+  overflow: hidden;
 }
 
 @media (max-width: 768px) {
@@ -249,60 +206,122 @@
   color: #8696a0;
 }
 
-.initiate-chat-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 10px;
-}
-
-/* Connection Picker Chips */
+/* Connection Picker — radio rows.
+   .initiate-chat-actions and .initiate-chat-step-number were removed: the
+   footer buttons now come from the shared <Modal> shell's footer prop, and
+   the numbered step chips are redundant now that the wizard has a real
+   <Stepper> in the dialog subtitle. Colours are tokenized (was hardcoded
+   #e2e8f0/#f8fafc/#475569/#1e293b/#64748b, which read wrong in dark theme). */
 .connection-picker-group {
   margin-bottom: 4px;
 }
 
-.connection-chips-container {
+.connection-rows-container {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
-.connection-chip {
-  display: inline-flex;
+.connection-row {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 24px;
-  border: 1.5px solid #e2e8f0;
-  background: #f8fafc;
-  color: #475569;
-  font-size: 13px;
-  font-weight: 500;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition:
+    border-color 0.2s var(--ease-out),
+    background-color 0.2s var(--ease-out),
+    box-shadow 0.2s var(--ease-out),
+    transform 0.16s var(--ease-out);
   font-family: inherit;
+  width: 100%;
+  text-align: left;
 }
 
-.connection-chip:hover {
-  border-color: #818cf8;
-  background: #eef2ff;
-  color: #4338ca;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
+.connection-row:hover {
+  border-color: var(--primary);
+  background: var(--primary-light);
 }
 
-.connection-chip.selected {
-  border-color: #6366f1;
-  background: linear-gradient(135deg, #eef2ff, #e0e7ff);
-  color: #4338ca;
-  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.2);
+.connection-row:active {
+  transform: scale(0.99);
 }
 
-.chip-phone {
+.connection-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.connection-row.selected {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  box-shadow: 0 2px 12px rgba(90, 82, 229, 0.15);
+}
+
+.connection-row-radio {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.connection-row-radio.checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.connection-row-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  flex: 1;
+}
+
+.connection-row-phone {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-row {
+    transition: none;
+  }
+  .connection-row:active {
+    transform: none;
+  }
+}
+
+.initiate-chat-info-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--primary-light, #eef2ff);
+  color: var(--primary, #4338ca);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.initiate-chat-hint {
   font-size: 11px;
-  opacity: 0.7;
-  font-weight: 400;
+  color: var(--text-muted, #64748b);
+  margin: 6px 0 0 0;
 }
 
 .sending-from-badge {

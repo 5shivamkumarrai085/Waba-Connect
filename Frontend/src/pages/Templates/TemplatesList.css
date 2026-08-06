@@ -1,11 +1,39 @@
 /* TemplatesList.css */
 
+/* Page header */
+.templates-page-header {
+  margin-bottom: 1.5rem;
+}
+
+.templates-page-header h1 {
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: var(--text-main, #0f172a);
+  margin: 0 0 0.25rem 0;
+  letter-spacing: -0.02em;
+}
+
+.templates-page-header p {
+  font-size: 0.875rem;
+  color: var(--text-muted, #64748b);
+  margin: 0;
+}
+
 /* Top Action Buttons (Toolbar) */
 .templates-toolbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
   margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.templates-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .templates-toolbar .btn-toolbar {
@@ -40,19 +68,19 @@
   border-color: #e2e8f0;
 }
 
-/* Make primary load button stand out */
-.templates-toolbar .btn-toolbar:first-child {
+/* Primary load button stands out — explicit class instead of :first-child so button order can change freely */
+.templates-toolbar .btn-toolbar-primary {
   background-color: #4f46e5;
   color: #ffffff;
   border: none;
 }
 
-.templates-toolbar .btn-toolbar:first-child:hover {
+.templates-toolbar .btn-toolbar-primary:hover {
   background-color: #3730a3;
   box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
 }
 
-.templates-toolbar .btn-toolbar:first-child:disabled {
+.templates-toolbar .btn-toolbar-primary:disabled {
   background-color: #818cf8;
   opacity: 0.7;
 }
@@ -123,7 +151,7 @@
 /* Filter bar grid styling */
 .templates-filter-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, 1fr) auto;
   gap: 20px;
   margin-bottom: 24px;
   background-color: var(--bg-primary);
@@ -131,11 +159,17 @@
   border-radius: 12px;
   border: 1px solid var(--border-color);
   align-items: end;
+  /* Now toggled via AnimatePresence height animation — clip mid-transition
+     content rather than letting it spill out of the animated box. */
+  overflow: hidden;
 }
 
 @media (max-width: 992px) {
   .templates-filter-grid {
     grid-template-columns: 1fr 1fr;
+  }
+  .filter-group-clear {
+    grid-column: 1 / -1;
   }
 }
 
@@ -143,6 +177,39 @@
   .templates-filter-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.filter-group-clear {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-clear-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-clear-filters:hover:not(:disabled) {
+  background-color: #fef2f2;
+  color: #ef4444;
+  border-color: #fca5a5;
+}
+
+.btn-clear-filters:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .filter-group {
@@ -245,27 +312,20 @@
   white-space: normal; /* override nowrap */
 }
 
+/* Row entrance is handled by framer-motion (motion.tr) — no CSS entrance animation here to avoid conflicts. */
 .templates-card .data-table tbody tr {
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  opacity: 0;
 }
-
-.templates-card 
-.templates-card 
-.templates-card 
-.templates-card 
-.templates-card 
 
 .templates-card .data-table tbody tr:nth-child(even) {
   background-color: var(--table-stripe, transparent);
 }
 
 .templates-card .data-table tbody tr:hover {
-  background-color: var(--bg-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
-  z-index: 1;
+  background: rgba(99, 102, 241, 0.04);
+  transform: translateY(-2px) scale(1.005);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.08);
+  z-index: 2;
   position: relative;
 }
 
@@ -377,25 +437,6 @@
   height: 32px;
   border-radius: 6px;
 }
-
-/* === Gen-Z Animations === */
-.page-header { animation: slideUp 0.4s ease-out forwards; }
-.data-table tbody tr { animation: fadeIn 0.3s ease-out forwards; }
-
-
-
-
-
-
-.data-table tbody tr:hover {
-  background: rgba(99, 102, 241, 0.04) !important;
-  transform: translateY(-2px) scale(1.005);
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.08);
-  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
-  z-index: 2;
-  position: relative;
-}
-
 /* Status & Reason layout */
 .template-status-cell {
   display: flex;

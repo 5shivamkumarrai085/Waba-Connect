@@ -31,6 +31,7 @@ export interface Contact {
   description?: string
   assignedTo?: string
   isActive?: boolean
+  tags?: string
 }
 
 export interface ContactStatus {

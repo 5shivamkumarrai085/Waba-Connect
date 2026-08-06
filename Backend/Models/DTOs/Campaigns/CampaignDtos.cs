@@ -51,6 +51,24 @@ public class CampaignDetailResponse : CampaignResponse
     public List<CampaignVariableResponse>? Variables { get; set; } = [];
 }
 
+/// <summary>
+/// One rejected row from a bulk-campaign CSV upload, identifying exactly which row/column
+/// failed and why — shared between the csv-validate preview response and the csv-create
+/// actual-creation response so both report errors the same way.
+/// </summary>
+public class CsvRowError
+{
+    public int RowNumber { get; set; }
+    public string? Column { get; set; }
+    public string Value { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+}
+
+public class CsvCampaignCreateResponse : CampaignResponse
+{
+    public List<CsvRowError> SkippedRows { get; set; } = new();
+}
+
 public class CampaignVariableResponse
 {
     public string VariableName { get; set; } = string.Empty;

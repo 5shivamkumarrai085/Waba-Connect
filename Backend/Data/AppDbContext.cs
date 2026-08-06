@@ -112,7 +112,10 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.CreatedAt);
             entity.HasQueryFilter(e => !e.IsDeleted);
-            entity.Property(e => e.RelationType).HasConversion<string>().HasMaxLength(50);
+            // RelationType is now a plain string (comma-joined ContactType names), not an
+            // enum, so no HasConversion<string>() is needed here anymore — the column
+            // stays VARCHAR(50), unchanged.
+            entity.Property(e => e.RelationType).HasMaxLength(50);
             entity.Property(e => e.ScheduleType).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasMany(e => e.Variables).WithOne(v => v.Campaign).HasForeignKey(v => v.CampaignId).OnDelete(DeleteBehavior.Cascade);

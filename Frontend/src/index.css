@@ -356,8 +356,9 @@
   
   --primary: #5a52e5; /* Main Purple accent */
   --primary-hover: #473fc7;
+  --primary-dark: #473fc7; /* alias of --primary-hover, used by hover states in Chat/InfoCard/ConfirmationModal/ImportContacts */
   --primary-light: #eef2ff;
-  
+
   --text-main: #1f2937;
   --text-muted: #6b7280;
   --text-light: #9ca3af;
@@ -400,6 +401,25 @@
   /* Transitions */
   --transition-normal: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-fast: all 0.15s ease;
+
+  /* Easing curves — stronger than the CSS built-ins, which lack punch.
+     Never use ease-in on UI: it delays the first frame, the exact moment
+     the user is watching, and reads as sluggish. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* ─── Z-index scale ───────────────────────────────────────────────
+     Replaces the ad-hoc 50 / 1050 / 9999 / 99999 / 999999 values that
+     accumulated across modals. Existing in-page chrome (popovers at 100,
+     sidebar at 1000/1010) keeps its numbers; these are the new layers.
+     --z-menu sits ABOVE --z-modal on purpose: a Menu opened inside a
+     dialog must not be clipped by it. Everything stays under the toast. */
+  --z-popover: 100;
+  --z-app-chrome: 1000;
+  --z-modal-backdrop: 1300;
+  --z-modal: 1310;
+  --z-menu: 1400;
+  --z-toast: 999999;
 }
 
 * {
@@ -544,8 +564,9 @@ a {
   
   --primary: #818cf8;          /* Brighter purple/indigo accent for dark visibility */
   --primary-hover: #6366f1;
+  --primary-dark: #6366f1;     /* alias of --primary-hover, used by hover states in Chat/InfoCard/ConfirmationModal/ImportContacts */
   --primary-light: rgba(129, 140, 248, 0.15);
-  
+
   --text-main: #f8fafc;        /* White text */
   --text-muted: #94a3b8;       /* Slate text */
   --text-light: #64748b;       /* Muted grey text */

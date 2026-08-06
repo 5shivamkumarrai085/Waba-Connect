@@ -69,6 +69,10 @@ export const CampaignWizard: React.FC = () => {
   const [cooldownActive, setCooldownActive] = useState(false)
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
 
+  // Live duplicate-name check — mirrors BulkCampaign.tsx's debounced pattern so the
+  // warning appears while the user is typing/pausing, not only after clicking Next.
+  const [isNameDuplicate, setIsNameDuplicate] = useState(false)
+
   useEffect(() => {
     if (activeStep === 3) {
       setCooldownActive(true)
@@ -143,7 +147,9 @@ export const CampaignWizard: React.FC = () => {
 
           setWizardForm({
             name: details.campaign.name,
-            relationType: details.campaign.relationType,
+            relationType: details.campaign.relationType
+              ? details.campaign.relationType.split(',').map(s => s.trim()).filter(Boolean)
+              : [],
             templateName: details.campaign.templateName,
             templateId: template?.id || 0,
             selectedContactIds: details.recipients.map(recipient => recipient.contactId),
@@ -167,6 +173,25 @@ export const CampaignWizard: React.FC = () => {
     }
   }, [isEditMode, campaignId])
 
+  // Live duplicate-name check, debounced 400ms after the user stops typing.
+  // checkNameExists(name, campaignId) excludes the campaign's own current name in
+  // edit mode, so renaming back to what it already was doesn't false-positive.
+  useEffect(() => {
+    if (!wizardForm.name.trim()) {
+      setIsNameDuplicate(false)
+      return
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const exists = await campaignService.checkNameExists(wizardForm.name, campaignId || undefined)
+        setIsNameDuplicate(exists)
+      } catch (err) {
+      }
+    }, 400)
+
+    return () => clearTimeout(timer)
+  }, [wizardForm.name, campaignId])
+
   // Get active template body for live preview
   const selectedTemplate = templatesList.find(t => t.name === wizardForm.templateName)
   
@@ -185,10 +210,10 @@ export const CampaignWizard: React.FC = () => {
 
   // Step 2 Filtered contacts logic
   const filteredContacts = contactsList.filter((c) => {
-    if (wizardForm.relationType && wizardForm.relationType !== 'All') {
-      const selectedRel = wizardForm.relationType.toLowerCase().trim()
+    if (wizardForm.relationType && wizardForm.relationType.length > 0) {
+      const selectedTypesLower = wizardForm.relationType.map(rt => rt.toLowerCase().trim())
       const contactType = (c.type || (c as any).relationType || '').toLowerCase().trim()
-      if (contactType !== selectedRel) return false
+      if (!selectedTypesLower.includes(contactType)) return false
     }
     if (wizardForm.contactsFilterStatus !== 'All') {
       if (c.status !== wizardForm.contactsFilterStatus) return false
@@ -238,13 +263,12 @@ export const CampaignWizard: React.FC = () => {
   // Handlers
   const handleNext = async () => {
     if (activeStep === 0) {
-      if (!wizardForm.name || !wizardForm.relationType || !wizardForm.templateName) {
+      if (!wizardForm.name || wizardForm.relationType.length === 0 || !wizardForm.templateName) {
         toast.error('Please complete all required fields (*).')
         return
       }
 
-      const exists = await campaignService.checkNameExists(wizardForm.name, campaignId || undefined)
-      if (exists) {
+      if (isNameDuplicate) {
         toast.error('same name campaign already executed')
         return
       }
@@ -285,7 +309,7 @@ export const CampaignWizard: React.FC = () => {
       return
     }
 
-    if (!wizardForm.name || !wizardForm.relationType || !wizardForm.templateId) {
+    if (!wizardForm.name || wizardForm.relationType.length === 0 || !wizardForm.templateId) {
       toast.error('Please complete campaign name, relation type, and template.')
       return
     }
@@ -387,12 +411,15 @@ export const CampaignWizard: React.FC = () => {
                     <label className="form-label">Campaign Name</label>
                     <input
                       type="text"
-                      className="form-control"
+                      className={`form-control ${isNameDuplicate ? 'is-invalid' : ''}`}
                       placeholder="Enter campaign name"
                       value={wizardForm.name}
                       onChange={(e) => setWizardForm({ name: e.target.value })}
                       required
                     />
+                    {isNameDuplicate && (
+                      <span className="error-text-warning">* same name campaign already executed</span>
+                    )}
                   </div>
 
                   <div className="form-group margin-top-20">
@@ -432,6 +459,16 @@ export const CampaignWizard: React.FC = () => {
                           >
                             {isSelected && <span style={{ fontWeight: 700 }}>✓</span>}
                             <span>{conn.name}</span>
+                            {conn.nickname && (
+                              <span style={{
+                                fontSize: '10px', fontWeight: 700, letterSpacing: '0.03em',
+                                padding: '2px 6px', borderRadius: '4px',
+                                backgroundColor: 'rgba(255,255,255,0.6)', border: '1px solid rgba(99,102,241,0.25)',
+                                color: isSelected ? '#4338ca' : '#475569'
+                              }}>
+                                {conn.nickname}
+                              </span>
+                            )}
                             <span style={{ fontSize: '11px', opacity: 0.7 }}>{conn.phoneNumber}</span>
                           </button>
                         )
@@ -445,17 +482,36 @@ export const CampaignWizard: React.FC = () => {
                   <div className="contacts-filter-row">
                     <div className="form-group form-group-required">
                       <label className="form-label">Relation Type</label>
-                      <select
-                        className="form-control"
-                        value={wizardForm.relationType}
-                        onChange={(e) => setWizardForm({ relationType: e.target.value })}
-                        required
-                      >
-                        <option value="">Select Relation Type</option>
-                        <option value="Lead">Lead</option>
-                        <option value="Customer">Customer</option>
-                        <option value="Vendor">Vendor</option>
-                      </select>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
+                        {(['Lead', 'Customer', 'Vendor'] as const).map((rel) => {
+                          const isSelected = wizardForm.relationType.includes(rel)
+                          return (
+                            <button
+                              key={rel}
+                              type="button"
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                padding: '8px 14px', borderRadius: '24px',
+                                border: isSelected ? '1.5px solid #6366f1' : '1.5px solid #e2e8f0',
+                                background: isSelected ? 'linear-gradient(135deg, #eef2ff, #e0e7ff)' : '#f8fafc',
+                                color: isSelected ? '#4338ca' : '#475569',
+                                fontSize: '13px', fontWeight: 500, cursor: 'pointer',
+                                transition: 'all 0.2s', fontFamily: 'inherit'
+                              }}
+                              onClick={() => {
+                                const current = wizardForm.relationType
+                                const next = current.includes(rel)
+                                  ? current.filter(r => r !== rel)
+                                  : [...current, rel]
+                                setWizardForm({ relationType: next })
+                              }}
+                            >
+                              {isSelected && <span style={{ fontWeight: 700 }}>✓</span>}
+                              <span>{rel}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
 
                     {((wizardForm as any).connectionIds?.length > 0) ? (

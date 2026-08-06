@@ -1,8 +1,6 @@
-import React, { useEffect, useCallback } from 'react'
-import { createPortal } from 'react-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import React, { useRef } from 'react'
 import { AlertTriangle } from 'lucide-react'
-import { fadeScale, transitions, buttonHoverProps } from '../../utils/motion'
+import { Modal } from './Modal'
 import './ConfirmationModal.css'
 
 interface ConfirmationModalProps {
@@ -28,68 +26,45 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   isDestructive = false,
   showWarningIcon = false
 }) => {
-  const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onCancel()
-    }
-  }, [onCancel])
+  // Most call sites build the message from a nullable target, e.g.
+  //   `Are you sure you want to delete "${deleteTarget?.name}"?`
+  // The moment onCancel nulls that target the string re-renders as "undefined".
+  // That was invisible while the modal unmounted instantly; now that there is a
+  // real exit animation it would flash for ~150ms. Latch the last open values.
+  const latched = useRef({ title, message })
+  if (isOpen) latched.current = { title, message }
 
-  useEffect(() => {
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape)
-      return () => document.removeEventListener('keydown', handleEscape)
-    }
-  }, [isOpen, handleEscape])
-
-  return createPortal(
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          className="modal-overlay"
-          onClick={onCancel}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
-        >
-          <motion.div
-            className="modal-container"
-            onClick={(e) => e.stopPropagation()}
-            variants={fadeScale}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            transition={transitions.snappy}
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onCancel}
+      size="sm"
+      tone={isDestructive ? 'destructive' : 'default'}
+      icon={showWarningIcon ? <AlertTriangle size={20} /> : undefined}
+      title={latched.current.title}
+      showCloseButton={false}
+      footer={
+        <>
+          <button
+            type="button"
+            className="oc-dialog-btn oc-dialog-btn-secondary"
+            onClick={onCancel}
           >
-            <div className="modal-header-row">
-              {showWarningIcon && (
-                <div className="modal-icon-wrapper destructive">
-                  <AlertTriangle size={20} />
-                </div>
-              )}
-              <h3 className="modal-title">{title}</h3>
-            </div>
-            <p className="modal-message">{message}</p>
-            <div className="modal-actions">
-              <motion.button
-                className="btn-modal-cancel"
-                onClick={onCancel}
-                {...buttonHoverProps}
-              >
-                {cancelText}
-              </motion.button>
-              <motion.button
-                className={isDestructive ? 'btn-modal-destructive' : 'btn-modal-confirm'}
-                onClick={onConfirm}
-                {...buttonHoverProps}
-              >
-                {confirmText}
-              </motion.button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>,
-    document.body
+            {cancelText}
+          </button>
+          <button
+            type="button"
+            className={`oc-dialog-btn ${
+              isDestructive ? 'oc-dialog-btn-destructive' : 'oc-dialog-btn-primary'
+            }`}
+            onClick={onConfirm}
+          >
+            {confirmText}
+          </button>
+        </>
+      }
+    >
+      <p className="oc-dialog-message">{latched.current.message}</p>
+    </Modal>
   )
 }

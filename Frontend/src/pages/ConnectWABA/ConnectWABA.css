@@ -389,41 +389,14 @@
 }
 
 /* QR Code Modal custom container & internal styles */
-.qr-modal-container {
-  background-color: #ffffff;
-  border-radius: 12px;
+/* Panel chrome (background, radius, shadow) now comes from the shared
+   <Modal> shell; this only supplies the QR dialog's own max-width. */
+.qr-modal-panel {
   max-width: 580px;
-  width: 100%;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-sizing: border-box;
 }
 
-.qr-modal-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 20px 24px;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.qr-modal-header-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background-color: #4f46e5;
-}
-
-.qr-modal-header h3 {
-  font-family: var(--font-title);
-  font-size: 18px;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 0;
-}
-
+/* .qr-modal-header / .qr-modal-header-dot removed — the dialog header
+   (icon, title, close button) now comes from the shared <Modal> shell. */
 .qr-modal-alert {
   background-color: #2563eb;
   color: #ffffff;
@@ -542,26 +515,5 @@
   background-color: #059669;
 }
 
-.qr-modal-footer {
-  border-top: 1px solid #e2e8f0;
-  padding: 16px 24px;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.btn-qr-modal-close {
-  padding: 8px 20px;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
-  color: #475569;
-  font-weight: 600;
-  font-size: 13px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-qr-modal-close:hover {
-  background-color: #f1f5f9;
-  border-color: #94a3b8;
-}
+/* .qr-modal-footer / .btn-qr-modal-close removed — the Close button now
+   comes from the shared <Modal> shell's footer prop (.oc-dialog-btn). */

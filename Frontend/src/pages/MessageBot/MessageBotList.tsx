@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
-import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight, MoreVertical } from 'lucide-react'
+import { Menu, MenuItem } from '../../components/Menu/Menu'
 import { useMessageBotStore } from '../../store/messageBotStore'
 import { Toggle } from '../../components/Toggle/Toggle'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
@@ -37,6 +38,7 @@ export const MessageBotList: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [botToDelete, setBotToDelete] = useState<{ id: number; name: string } | null>(null)
+  const [openActionsMenuId, setOpenActionsMenuId] = useState<number | null>(null)
 
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
     id: true,
@@ -228,13 +230,14 @@ export const MessageBotList: React.FC = () => {
                     if (!isVisible) return null
                     return <th key={col.key}>{col.label}</th>
                   })}
+                  <th className="col-width-actions" style={{ textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {bots.length === 0 ? (
                   <tr>
-                    <td 
-                      colSpan={columnHeaders.filter(c => visibleColumns[c.key] !== false).length}
+                    <td
+                      colSpan={columnHeaders.filter(c => visibleColumns[c.key] !== false).length + 1}
                       className="no-records-row"
                     >
                       No records found
@@ -248,40 +251,17 @@ export const MessageBotList: React.FC = () => {
                       <td>{bot.id}</td>
                     )}
 
-                    {/* Name Column with hover actions */}
+                    {/* Name Column */}
                     {visibleColumns.name !== false && (
                       <td>
                         <div className="message-bot-name-cell">
-                          <span className="message-bot-title-text">{bot.name}</span>
-                          <div className="message-bot-hover-actions">
-                            <span 
-                              className="message-bot-action-btn"
-                              onClick={() => navigate(`/message-bot/bot/${bot.id}?view=true`)}
-                            >
-                              View
-                            </span>
-                            <span className="action-divider">|</span>
-                            <span 
-                              className="message-bot-action-btn"
-                              onClick={() => navigate(`/message-bot/bot/${bot.id}`)}
-                            >
-                              Edit
-                            </span>
-                            <span className="action-divider">|</span>
-                            <span 
-                              className="message-bot-action-btn destructive"
-                              onClick={() => handleDeleteClick(bot.id, bot.name)}
-                            >
-                              Delete
-                            </span>
-                            <span className="action-divider">|</span>
-                            <span 
-                              className="message-bot-action-btn"
-                              onClick={() => handleCloneClick(bot.id)}
-                            >
-                              Clone
-                            </span>
-                          </div>
+                          <span
+                            className="message-bot-title-text"
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => navigate(`/message-bot/bot/${bot.id}?view=true`)}
+                          >
+                            {bot.name}
+                          </span>
                         </div>
                       </td>
                     )}
@@ -321,6 +301,58 @@ export const MessageBotList: React.FC = () => {
                     {visibleColumns.createdAt !== false && (
                       <td>{formatRelativeTime(bot.createdAt)}</td>
                     )}
+
+                    {/* Actions column — three-dot dropdown, matching ContactsList's pattern */}
+                    <td className="text-center">
+                      <div className="contact-actions-menu-wrapper">
+                        <Menu
+                          open={openActionsMenuId === bot.id}
+                          onOpenChange={(isOpen) =>
+                            setOpenActionsMenuId(isOpen ? bot.id : null)
+                          }
+                          align="end"
+                          offset={4}
+                          className="contact-actions-dropdown"
+                          ariaLabel="Row actions"
+                          trigger={(props) => (
+                            <button
+                              {...props}
+                              type="button"
+                              className="contact-actions-trigger"
+                              aria-label="Row actions"
+                            >
+                              <MoreVertical size={16} />
+                            </button>
+                          )}
+                        >
+                          <MenuItem
+                            className="contact-actions-item"
+                            onSelect={() => navigate(`/message-bot/bot/${bot.id}?view=true`)}
+                          >
+                            View
+                          </MenuItem>
+                          <MenuItem
+                            className="contact-actions-item"
+                            onSelect={() => navigate(`/message-bot/bot/${bot.id}`)}
+                          >
+                            Edit
+                          </MenuItem>
+                          <MenuItem
+                            className="contact-actions-item"
+                            onSelect={() => handleCloneClick(bot.id)}
+                          >
+                            Clone
+                          </MenuItem>
+                          <MenuItem
+                            destructive
+                            className="contact-actions-item"
+                            onSelect={() => handleDeleteClick(bot.id, bot.name)}
+                          >
+                            Delete
+                          </MenuItem>
+                        </Menu>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { createPortal } from 'react-dom'
-import { Phone, ExternalLink, Edit2, X, Check } from 'lucide-react'
+import { Phone, ExternalLink, Edit2, Check } from 'lucide-react'
+import { Modal } from '../Modal/Modal'
 import type { PhoneInfoModel } from '../../types/waba'
 import toast from 'react-hot-toast'
 import './PhoneCard.css'
@@ -11,11 +11,12 @@ interface PhoneCardProps {
 }
 
 export const PhoneCard: React.FC<PhoneCardProps> = ({ phoneInfo, onUpdateLimit }) => {
-  if (!phoneInfo) return null
-
-  const { displayPhoneNumber, verifiedName, numberId, quality, messagesSent, messageLimit } = phoneInfo
-  const limitValue = messageLimit || 1000
-  const progressPercent = Math.min(100, Math.round((messagesSent / limitValue) * 100))
+  // Hooks must run unconditionally on every render — this pre-existing early
+  // return used to sit above the useState calls below, violating the Rules
+  // of Hooks (React would throw if phoneInfo ever toggled null <-> non-null
+  // across renders of the same mounted instance). Derive a safe default and
+  // move the guard below the hooks instead.
+  const limitValue = phoneInfo?.messageLimit || 1000
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [customLimitInput, setCustomLimitInput] = useState<string>(String(limitValue))
@@ -46,6 +47,11 @@ export const PhoneCard: React.FC<PhoneCardProps> = ({ phoneInfo, onUpdateLimit }
       toast.error(res.message || 'Failed to update message limit.')
     }
   }
+
+  if (!phoneInfo) return null
+
+  const { displayPhoneNumber, verifiedName, numberId, quality, messagesSent } = phoneInfo
+  const progressPercent = Math.min(100, Math.round((messagesSent / limitValue) * 100))
 
   return (
     <div className="phone-card">
@@ -125,112 +131,70 @@ export const PhoneCard: React.FC<PhoneCardProps> = ({ phoneInfo, onUpdateLimit }
       </div>
 
       {/* Customize Message Limit Modal */}
-      {isModalOpen && createPortal(
-        <div
-          className="modal-backdrop fade-in"
-          onClick={() => setIsModalOpen(false)}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            width: '100vw',
-            height: '100vh',
-            backgroundColor: 'rgba(15, 23, 42, 0.5)',
-            backdropFilter: 'blur(8px)',
-            WebkitBackdropFilter: 'blur(8px)',
-            zIndex: 99999,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-        >
-          <div className="modal-container scale-in" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px', width: '90%', borderRadius: '16px', position: 'relative', overflow: 'hidden' }}>
-            <div className="modal-header" style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9', position: 'relative' }}>
-              <h3 className="modal-title" style={{ fontSize: '1.15rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Set Daily Message Limit</h3>
-              <button
-                type="button"
-                className="modal-close-btn"
-                onClick={() => setIsModalOpen(false)}
-                style={{ position: 'absolute', top: '18px', right: '20px', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
-              >
-                <X size={18} />
-              </button>
-            </div>
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title="Set Daily Message Limit"
+        size="sm"
+        footer={
+          <>
+            <button
+              type="button"
+              className="oc-dialog-btn oc-dialog-btn-secondary"
+              onClick={() => setIsModalOpen(false)}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="phone-limit-form"
+              className="oc-dialog-btn oc-dialog-btn-primary"
+              disabled={isSubmitting}
+            >
+              <Check size={16} />
+              <span>{isSubmitting ? 'Saving...' : 'Save Limit'}</span>
+            </button>
+          </>
+        }
+      >
+        <form id="phone-limit-form" onSubmit={handleSaveLimit}>
+          <p className="phone-limit-intro">
+            Customize the maximum number of outbound messages this connection can send per day.
+          </p>
 
-            <form onSubmit={handleSaveLimit}>
-              <div className="modal-body">
-                <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
-                  Customize the maximum number of outbound messages this connection can send per day.
-                </p>
-
-                <div className="form-group">
-                  <label className="waba-input-label" style={{ fontWeight: 600 }}>Daily Message Limit</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="1000000"
-                    className="form-control"
-                    value={customLimitInput}
-                    onChange={(e) => setCustomLimitInput(e.target.value)}
-                    required
-                    autoFocus
-                    placeholder="Enter limit (e.g. 1000, 2500, 5000)"
-                    style={{ fontSize: '1rem', fontWeight: 600 }}
-                  />
-                </div>
-
-                {/* Preset Limit Pills */}
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
-                  {[1000, 2500, 5000, 10000, 50000].map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setCustomLimitInput(String(preset))}
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: '16px',
-                        border: '1px solid #cbd5e1',
-                        background: customLimitInput === String(preset) ? '#4f46e5' : '#ffffff',
-                        color: customLimitInput === String(preset) ? '#ffffff' : '#475569',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      {preset.toLocaleString()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="modal-footer" style={{ borderTop: '1px solid #f1f5f9', padding: '16px 20px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                <button
-                  type="button"
-                  className="btn-modal-cancel"
-                  onClick={() => setIsModalOpen(false)}
-                  disabled={isSubmitting}
-                  style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-modal-confirm"
-                  disabled={isSubmitting}
-                  style={{ padding: '8px 20px', borderRadius: '6px', border: 'none', background: '#4f46e5', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <Check size={16} />
-                  <span>{isSubmitting ? 'Saving...' : 'Save Limit'}</span>
-                </button>
-              </div>
-            </form>
+          <div className="form-group">
+            <label className="waba-input-label">Daily Message Limit</label>
+            <input
+              type="number"
+              min="1"
+              max="1000000"
+              className="form-control phone-limit-input"
+              value={customLimitInput}
+              onChange={(e) => setCustomLimitInput(e.target.value)}
+              required
+              data-autofocus
+              placeholder="Enter limit (e.g. 1000, 2500, 5000)"
+            />
           </div>
-        </div>,
-        document.body
-      )}
+
+          {/* Preset Limit Pills */}
+          <div className="phone-limit-presets">
+            {[1000, 2500, 5000, 10000, 50000].map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => setCustomLimitInput(String(preset))}
+                className={`phone-limit-preset${
+                  customLimitInput === String(preset) ? ' is-selected' : ''
+                }`}
+              >
+                {preset.toLocaleString()}
+              </button>
+            ))}
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
-import { createPortal } from 'react-dom'
+import { Modal } from '../../components/Modal/Modal'
 import { useNavigate } from 'react-router-dom'
-import { Plus, RefreshCw, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { Plus, RefreshCw, ChevronLeft, ChevronRight, MoreVertical } from 'lucide-react'
+import { Menu, MenuItem } from '../../components/Menu/Menu'
 import { useBotFlowStore } from '../../store/botFlowStore'
 import { useConnectionStore } from '../../store/connectionStore'
 import { Toggle } from '../../components/Toggle/Toggle'
@@ -47,6 +48,7 @@ export const BotFlowList: React.FC = () => {
   // Delete modal state
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [flowToDelete, setFlowToDelete] = useState<{ id: number; name: string } | null>(null)
+  const [openActionsMenuId, setOpenActionsMenuId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchFlows()
@@ -170,7 +172,7 @@ export const BotFlowList: React.FC = () => {
                 <th>NAME</th>
                 <th>DESCRIPTION</th>
                 <th>IS ACTIVE</th>
-                <th>ACTION</th>
+                <th style={{ textAlign: 'center' }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
@@ -193,31 +195,53 @@ export const BotFlowList: React.FC = () => {
                     <td className="flow-name-cell">{flow.name}</td>
                     <td className="flow-desc-cell">{flow.description || ''}</td>
                     <td>
-                      <Toggle 
-                        checked={flow.isActive} 
-                        onChange={() => toggleFlowActive(flow.id)} 
+                      <Toggle
+                        checked={flow.isActive}
+                        onChange={() => toggleFlowActive(flow.id)}
                       />
                     </td>
-                    <td>
-                      <div className="flow-actions-cell">
-                        <button 
-                          className="action-flow-btn btn-flow"
-                          onClick={() => navigate(`/bot-flow/designer/${flow.id}`)}
+                    <td className="text-center">
+                      <div className="contact-actions-menu-wrapper">
+                        <Menu
+                          open={openActionsMenuId === flow.id}
+                          onOpenChange={(isOpen) =>
+                            setOpenActionsMenuId(isOpen ? flow.id : null)
+                          }
+                          align="end"
+                          offset={4}
+                          className="contact-actions-dropdown"
+                          ariaLabel="Row actions"
+                          trigger={(props) => (
+                            <button
+                              {...props}
+                              type="button"
+                              className="contact-actions-trigger"
+                              aria-label="Row actions"
+                            >
+                              <MoreVertical size={16} />
+                            </button>
+                          )}
                         >
-                          Flow
-                        </button>
-                        <button 
-                          className="action-flow-btn btn-edit"
-                          onClick={() => handleOpenEditModal(flow.id, flow.name, flow.description, flow.connectionId)}
-                        >
-                          Edit
-                        </button>
-                        <button 
-                          className="action-flow-btn btn-delete"
-                          onClick={() => handleDeleteClick(flow.id, flow.name)}
-                        >
-                          Delete
-                        </button>
+                          <MenuItem
+                            className="contact-actions-item"
+                            onSelect={() => navigate(`/bot-flow/designer/${flow.id}`)}
+                          >
+                            Flow
+                          </MenuItem>
+                          <MenuItem
+                            className="contact-actions-item"
+                            onSelect={() => handleOpenEditModal(flow.id, flow.name, flow.description, flow.connectionId)}
+                          >
+                            Edit
+                          </MenuItem>
+                          <MenuItem
+                            destructive
+                            className="contact-actions-item"
+                            onSelect={() => handleDeleteClick(flow.id, flow.name)}
+                          >
+                            Delete
+                          </MenuItem>
+                        </Menu>
                       </div>
                     </td>
                   </tr>
@@ -263,16 +287,31 @@ export const BotFlowList: React.FC = () => {
       </div>
 
       {/* Creation and editing modal popup */}
-      {isModalOpen && createPortal(
-        <div className="modal-backdrop">
-          <div className="bot-flow-popup-card">
-            <div className="popup-header">
-              <span>Bot Flow</span>
-              <button className="popup-close-btn" onClick={() => setIsModalOpen(false)}>
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleModalSubmit}>
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title="Bot Flow"
+        size="md"
+        footer={
+          <>
+            <button
+              type="button"
+              className="oc-dialog-btn oc-dialog-btn-secondary"
+              onClick={() => setIsModalOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="bot-flow-form"
+              className="oc-dialog-btn oc-dialog-btn-primary"
+            >
+              Submit
+            </button>
+          </>
+        }
+      >
+            <form id="bot-flow-form" onSubmit={handleModalSubmit}>
               <div className="popup-body">
                 <div className="form-group">
                   <label className="required-label">Name</label>
@@ -306,23 +345,8 @@ export const BotFlowList: React.FC = () => {
                   </select>
                 </div>
               </div>
-              <div className="popup-footer">
-                <button 
-                  type="button" 
-                  className="bot-flow-btn btn-secondary" 
-                  onClick={() => setIsModalOpen(false)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="bot-flow-btn btn-primary">
-                  Submit
-                </button>
-              </div>
             </form>
-          </div>
-        </div>,
-        document.body
-      )}
+      </Modal>
 
       {/* Delete confirmation modal */}
       <ConfirmationModal
@@ -331,6 +355,8 @@ export const BotFlowList: React.FC = () => {
         message={`Are you sure you want to delete "${flowToDelete?.name}" bot flow? This action cannot be undone.`}
         confirmText="Delete"
         cancelText="Cancel"
+        isDestructive
+        showWarningIcon
         onConfirm={confirmDelete}
         onCancel={() => {
           setDeleteModalOpen(false)

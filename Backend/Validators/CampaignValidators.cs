@@ -17,7 +17,8 @@ public class CreateCampaignValidator : AbstractValidator<CreateCampaignRequest>
 
         RuleFor(x => x.RelationType)
             .NotEmpty().WithMessage("RelationType is required.")
-            .IsEnumName(typeof(ContactType), false).WithMessage("Invalid RelationType.");
+            .Must(BeValidRelationTypeList)
+            .WithMessage("Invalid RelationType. Must be a comma-separated list of: Lead, Customer, Vendor.");
 
         RuleFor(x => x.ScheduleType)
             .NotEmpty().WithMessage("ScheduleType is required.")
@@ -34,6 +35,16 @@ public class CreateCampaignValidator : AbstractValidator<CreateCampaignRequest>
             .WithMessage("At least one Contact or Group must be selected.");
 
         RuleForEach(x => x.Variables).SetValidator(new CampaignVariableValidator());
+    }
+
+    // A campaign can now target multiple relation types at once — RelationType arrives
+    // as a comma-separated string (e.g. "Lead,Customer"); every token must be a valid
+    // ContactType name.
+    private static bool BeValidRelationTypeList(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var tokens = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return tokens.Length > 0 && tokens.All(t => Enum.TryParse<ContactType>(t, true, out _));
     }
 }
 

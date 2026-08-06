@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { pageTransitionProps } from '../../utils/motion'
+import { pageTransitionProps, cardHoverProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -186,7 +186,7 @@ export const ConnectionsList: React.FC = () => {
 
       {/* 4 KPI Cards Grid */}
       <div className="conn-kpi-grid">
-        <div className="conn-kpi-card">
+        <motion.div className="conn-kpi-card" {...cardHoverProps}>
           <div className="conn-kpi-icon-wrapper blue">
             <MessageSquare className="w-6 h-6" />
           </div>
@@ -195,9 +195,9 @@ export const ConnectionsList: React.FC = () => {
             <span className="conn-kpi-value">{dashboard?.totalConnections ?? connections.length}</span>
             <span className="conn-kpi-desc">All connections</span>
           </div>
-        </div>
+        </motion.div>
 
-        <div className="conn-kpi-card">
+        <motion.div className="conn-kpi-card" {...cardHoverProps}>
           <div className="conn-kpi-icon-wrapper green">
             <CheckCircle2 className="w-6 h-6" />
           </div>
@@ -208,9 +208,9 @@ export const ConnectionsList: React.FC = () => {
             </span>
             <span className="conn-kpi-desc green">Active and ready</span>
           </div>
-        </div>
+        </motion.div>
 
-        <div className="conn-kpi-card">
+        <motion.div className="conn-kpi-card" {...cardHoverProps}>
           <div className="conn-kpi-icon-wrapper amber">
             <Clock className="w-6 h-6" />
           </div>
@@ -221,9 +221,9 @@ export const ConnectionsList: React.FC = () => {
             </span>
             <span className="conn-kpi-desc amber">Need attention</span>
           </div>
-        </div>
+        </motion.div>
 
-        <div className="conn-kpi-card">
+        <motion.div className="conn-kpi-card" {...cardHoverProps}>
           <div className="conn-kpi-icon-wrapper purple">
             <Share2 className="w-6 h-6" />
           </div>
@@ -234,7 +234,7 @@ export const ConnectionsList: React.FC = () => {
             </span>
             <span className="conn-kpi-desc">Phone numbers</span>
           </div>
-        </div>
+        </motion.div>
       </div>
 
       {/* Filter and Actions Card */}
@@ -306,7 +306,9 @@ export const ConnectionsList: React.FC = () => {
                         <div>
                           <div>
                             <span className="conn-name-title">{conn.name}</span>
-                            {idx === 0 && <span className="conn-primary-badge">Primary</span>}
+                            {conn.nickname && (
+                              <span className="conn-nickname-badge">{conn.nickname}</span>
+                            )}
                           </div>
                           <span className="conn-phone-subtext">{conn.phoneNumber || 'Unassigned'}</span>
                         </div>
@@ -430,22 +432,22 @@ export const ConnectionsList: React.FC = () => {
         </div>
       </div>
 
-      {/* Edit Connection Modal */}
-      {editingConn && (
-        <EditConnectionModal
-          connection={editingConn}
-          onClose={() => setEditingConn(null)}
-          onSave={handleEditSave}
-        />
-      )}
+      {/* Edit Connection Modal — always rendered so it can play its exit
+          animation; visibility is driven by isOpen, and the component
+          latches the last non-null connection itself. */}
+      <EditConnectionModal
+        isOpen={!!editingConn}
+        connection={editingConn}
+        onClose={() => setEditingConn(null)}
+        onSave={handleEditSave}
+      />
 
       {/* Connection Detail Modal */}
-      {selectedConn && (
-        <ConnectionDetail
-          connection={selectedConn}
-          onClose={() => setSelectedConn(null)}
-        />
-      )}
+      <ConnectionDetail
+        isOpen={!!selectedConn}
+        connection={selectedConn}
+        onClose={() => setSelectedConn(null)}
+      />
 
       {/* Soft Disconnect Confirmation Modal */}
       <ConfirmationModal

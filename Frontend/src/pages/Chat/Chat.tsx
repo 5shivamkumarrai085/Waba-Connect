@@ -64,7 +64,7 @@ const getFullMediaUrl = (url: string | null | undefined) => {
 };
 
 export const Chat: React.FC = () => {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const { connections, fetchDashboard: fetchConnectionDashboard } = useConnectionStore()
   const {
@@ -200,14 +200,35 @@ export const Chat: React.FC = () => {
     return () => window.clearInterval(interval)
   }, [activeConversationId, refreshActiveMessages, loadConversations, connections, selectedConnectionId, conversations.length])
 
+  // "Latest requested contact wins, exactly once" guard. Without this, since the
+  // ?contactId= param was never cleared, ANY change to activeConversationId (including
+  // the user manually clicking a different conversation, which itself changes
+  // activeConversationId) re-ran this effect and snapped the UI straight back to the
+  // originally-requested contact — the URL param, not the user, always won.
+  // Storing the *consumed id itself* (not a plain boolean) means a fresh, different
+  // ?contactId= naturally re-arms the guard with no separate reset effect needed.
+  const consumedContactIdRef = useRef<number>(0)
+
   useEffect(() => {
     if (!requestedContactId || conversations.length === 0) return
+    if (consumedContactIdRef.current === requestedContactId) return
 
     const requestedConversation = conversations.find((conversation) => conversation.contactId === requestedContactId)
-    if (requestedConversation && requestedConversation.id !== activeConversationId) {
+    if (!requestedConversation) return
+
+    consumedContactIdRef.current = requestedContactId
+    if (requestedConversation.id !== activeConversationId) {
       void selectConversation(requestedConversation.id)
     }
-  }, [activeConversationId, conversations, requestedContactId, selectConversation])
+
+    // Strip the param immediately so no later activeConversationId change (nor a
+    // remount/refresh) can re-trigger the auto-select.
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('contactId')
+      return next
+    }, { replace: true })
+  }, [activeConversationId, conversations, requestedContactId, selectConversation, setSearchParams])
 
   useEffect(() => {
     const hasConvChanged = activeConversationId !== prevActiveConvIdRef.current
@@ -536,7 +557,7 @@ export const Chat: React.FC = () => {
     const textarea = textareaRef.current
     if (textarea) {
       textarea.style.height = 'auto'
-      textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px'
+      textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px'
     }
   }, [messageText])
 
@@ -596,12 +617,12 @@ export const Chat: React.FC = () => {
       <div className="chat-sidebar">
         <div className="chat-sidebar-header">
           {/* Connection Filter Dropdown (matching Image 2) */}
-          <div className="chat-connection-select-wrapper mb-2">
-            <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+          <div className="chat-connection-select-wrapper">
+            <label className="chat-sidebar-field-label">
               Active Connection
             </label>
             <select
-              className="form-control text-xs font-medium bg-slate-50 border-slate-200"
+              className="form-control chat-connection-select"
               value={selectedConnectionId ?? ''}
               onChange={(e) => setSelectedConnectionId(e.target.value ? Number(e.target.value) : null)}
             >
@@ -693,7 +714,7 @@ export const Chat: React.FC = () => {
                   <Avatar name={conversation.name} size="medium" />
                   <div className="conversation-info-row">
                     <div className="conversation-name-badge-row">
-                      <div className="flex flex-col text-left">
+                      <div className="conversation-name-wrap">
                         <span className="conversation-contact-name">{conversation.name}</span>
                       </div>
                       <span className={`conversation-status-badge ${normalizeBadge(conversation.status)}`}>
@@ -740,10 +761,10 @@ export const Chat: React.FC = () => {
         ) : activeConversation ? (
           <div className="chat-window-inner-layout">
             <div className="chat-window-header">
-              <div className="chat-header-user-info flex-1">
+              <div className="chat-header-user-info">
                 <Avatar name={activeConversation.name} size="medium" />
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="chat-header-name-row">
                     <span className="conversation-contact-name">{activeConversation.name}</span>
                     <span className={`conversation-status-badge ${normalizeBadge(activeConversation.status)}`}>
                       {activeConversation.status || 'contact'}
@@ -751,48 +772,70 @@ export const Chat: React.FC = () => {
                   </div>
                   <p className="upload-sub-text margin-zero">{activeConversation.phone}</p>
                 </div>
-
-
               </div>
 
               <div className="chat-header-actions">
-                <span title="Search Messages">
-                  <Search size={18} className="chat-header-action-icon" onClick={() => setShowMsgSearch(!showMsgSearch)} />
-                </span>
-                
+                <button
+                  type="button"
+                  className="chat-icon-btn"
+                  title="Search Messages"
+                  aria-label="Search messages"
+                  onClick={() => setShowMsgSearch(!showMsgSearch)}
+                >
+                  <Search size={18} />
+                </button>
+
                 {windowStatus.active && (
-                  <div 
-                    className="chat-header-window-dot active" 
+                  <button
+                    type="button"
+                    className="chat-header-window-dot active"
                     title="Click to view time remaining"
+                    aria-label="Messaging window active — click to view time remaining"
                     onClick={() => setShowTimeBanner(true)}
                   />
                 )}
                 {!windowStatus.active && (
-                  <div 
-                    className="chat-header-window-dot expired" 
+                  <div
+                    className="chat-header-window-dot expired"
                     title={windowStatus.text}
                   />
                 )}
 
                 {activeConversation.assignedTo && (
                   <div className="chat-header-assigned-user" title={`Assigned Member: ${activeConversation.assignedTo}`}>
-                    <User size={18} className="chat-header-action-icon assigned-user-icon" />
+                    <User size={18} className="assigned-user-icon" />
                   </div>
                 )}
 
-                <span title="User Information">
-                  <Info size={18} className={`chat-header-action-icon ${showInfoDrawer ? 'active' : ''}`} onClick={() => setShowInfoDrawer(!showInfoDrawer)} />
-                </span>
-                <span title="Initiate Chat">
-                  <MessageSquare 
-                    size={18} 
-                    className="chat-header-action-icon whatsapp-green" 
-                    onClick={handleOpenTemplateModal} 
-                  />
-                </span>
-                
+                <button
+                  type="button"
+                  className={`chat-icon-btn ${showInfoDrawer ? 'active' : ''}`}
+                  title="User Information"
+                  aria-label="Toggle contact information"
+                  onClick={() => setShowInfoDrawer(!showInfoDrawer)}
+                >
+                  <Info size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="chat-icon-btn whatsapp-green"
+                  title="Initiate Chat"
+                  aria-label="Initiate chat with a template"
+                  onClick={handleOpenTemplateModal}
+                >
+                  <MessageSquare size={18} />
+                </button>
+
                 <div className="chat-header-more-menu-wrapper">
-                  <MoreVertical size={18} className="chat-header-action-icon" onClick={() => setShowDeleteMenu(!showDeleteMenu)} />
+                  <button
+                    type="button"
+                    className="chat-icon-btn"
+                    title="More options"
+                    aria-label="More options"
+                    onClick={() => setShowDeleteMenu(!showDeleteMenu)}
+                  >
+                    <MoreVertical size={18} />
+                  </button>
                   {showDeleteMenu && (
                     <div className="chat-header-delete-menu">
                       <button type="button" className="chat-header-delete-btn" onClick={handleDeleteChat}>
@@ -982,7 +1025,15 @@ export const Chat: React.FC = () => {
 
                       <div className="chat-composer-left-actions">
                         <div className="chat-composer-popover-anchor">
-                          <Smile size={18} className="chat-composer-icon" onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowAttachmentMenu(false); }} />
+                          <button
+                            type="button"
+                            className="chat-icon-btn"
+                            title="Emoji"
+                            aria-label="Insert emoji"
+                            onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowAttachmentMenu(false); }}
+                          >
+                            <Smile size={18} />
+                          </button>
                           {showEmojiPicker && (
                             <div className="emoji-picker-popover">
                               {EMOJIS.map(emoji => (
@@ -995,7 +1046,15 @@ export const Chat: React.FC = () => {
                         </div>
 
                         <div className="chat-composer-popover-anchor">
-                          <Paperclip size={18} className="chat-composer-icon" onClick={() => { setShowAttachmentMenu(!showAttachmentMenu); setShowEmojiPicker(false); }} />
+                          <button
+                            type="button"
+                            className="chat-icon-btn"
+                            title="Attach"
+                            aria-label="Attach a file"
+                            onClick={() => { setShowAttachmentMenu(!showAttachmentMenu); setShowEmojiPicker(false); }}
+                          >
+                            <Paperclip size={18} />
+                          </button>
                           {showAttachmentMenu && (
                             <div className="attachment-menu-popover">
                               <button type="button" className="attachment-menu-item" onClick={() => triggerMediaUpload('image')}>
@@ -1011,9 +1070,25 @@ export const Chat: React.FC = () => {
                           )}
                         </div>
 
-                        <FileText size={18} className="chat-composer-icon" onClick={() => toast.success('Template picker coming soon')} />
-                        <MessageCircle size={18} className="chat-composer-icon" onClick={() => toast.success('Bot flows coming soon')} />
-                        
+                        <button
+                          type="button"
+                          className="chat-icon-btn"
+                          title="Templates"
+                          aria-label="Template picker"
+                          onClick={() => toast.success('Template picker coming soon')}
+                        >
+                          <FileText size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-icon-btn"
+                          title="Bot Flows"
+                          aria-label="Bot flows"
+                          onClick={() => toast.success('Bot flows coming soon')}
+                        >
+                          <MessageCircle size={18} />
+                        </button>
+
                         {uploadingMedia && (
                           <span className="upload-loading-indicator">Uploading media...</span>
                         )}

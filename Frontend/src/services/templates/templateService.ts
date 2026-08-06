@@ -65,16 +65,14 @@ export const templateService = {
   },
 
   refreshTemplates: async (): Promise<Template[]> => {
-    try {
-      await apiClient.post('/Templates/sync')
-      // After sync, get latest templates
-      const response = await apiClient.get('/Templates', {
-        params: { pageSize: 10000 }
-      })
-      return response.data?.data?.items || []
-    } catch (error) {
-      return []
-    }
+    // Unlike the other read-only methods above, a failure here must be surfaced (not swallowed to []) —
+    // this is the one call site (templateStore.refreshTemplates) that needs to tell a real sync
+    // failure apart from "zero templates" so the UI doesn't show a false success toast.
+    await apiClient.post('/Templates/sync')
+    const response = await apiClient.get('/Templates', {
+      params: { pageSize: 10000 }
+    })
+    return response.data?.data?.items || []
   }
 }
 export default templateService

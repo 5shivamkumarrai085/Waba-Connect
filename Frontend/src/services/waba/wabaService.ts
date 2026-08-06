@@ -34,8 +34,16 @@ export const wabaService = {
   },
 
   getCachedLimit: (connectionId?: number) => {
+    // Only ever return the cache entry for the EXACT connection asked about.
+    // The previous `|| Object.values(cachedLimitData)[0]` fallback returned
+    // ANY other connection's cached data when this one had no entry yet —
+    // a cross-connection false positive ("limit reached" for a connection
+    // that was never actually checked) that also blocked the entire send
+    // loop in InitiateChatModal, not just the falsely-flagged connection.
+    // Returning null here correctly falls through to a fresh, connection-
+    // scoped fetch in checkLimitFast's step 2.
     const key = connectionId ? String(connectionId) : 'default'
-    return cachedLimitData[key] || Object.values(cachedLimitData)[0] || null
+    return cachedLimitData[key] || null
   },
 
   checkLimitFast: async (connectionId?: number): Promise<{ limitReached: boolean; message?: string }> => {

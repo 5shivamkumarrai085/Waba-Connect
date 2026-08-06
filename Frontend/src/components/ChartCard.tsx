@@ -229,11 +229,12 @@ export const ChartCard: React.FC<ChartCardProps> = React.memo(({ data: propData 
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={COLOR_BORDER} />
-              <XAxis 
-                dataKey="name" 
-                tickLine={false} 
+              <XAxis
+                dataKey="name"
+                tickLine={false}
                 axisLine={{ stroke: COLOR_BORDER }}
                 tick={{ fontSize: 11, fill: COLOR_TEXT_MUTED }}
+                interval={2}
               />
               <YAxis
                 domain={[0, yAxisMax]}
@@ -251,25 +252,25 @@ export const ChartCard: React.FC<ChartCardProps> = React.memo(({ data: propData 
                   fontSize: '12px'
                 }}
               />
-              <Area 
-                type="monotone" 
-                dataKey="sent" 
-                stroke={COLOR_PRIMARY} 
+              <Area
+                type="monotone"
+                dataKey="sent"
+                stroke={COLOR_PRIMARY}
                 strokeWidth={2.5}
-                fillOpacity={1} 
-                fill="url(#colorSent)" 
-                dot={{ stroke: COLOR_PRIMARY, strokeWidth: 2, r: 4, fill: '#fff' }}
-                activeDot={{ r: 6 }}
+                fillOpacity={1}
+                fill="url(#colorSent)"
+                dot={false}
+                activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }}
               />
-              <Area 
-                type="monotone" 
-                dataKey="errors" 
-                stroke={COLOR_ERROR} 
+              <Area
+                type="monotone"
+                dataKey="errors"
+                stroke={COLOR_ERROR}
                 strokeWidth={1.5}
-                fillOpacity={1} 
-                fill="url(#colorErrors)" 
-                dot={{ stroke: COLOR_ERROR, strokeWidth: 1.5, r: 3, fill: '#fff' }}
-                activeDot={{ r: 5 }}
+                fillOpacity={1}
+                fill="url(#colorErrors)"
+                dot={false}
+                activeDot={{ r: 4, stroke: '#fff', strokeWidth: 2 }}
               />
             </AreaChart>
           </ResponsiveContainer>

@@ -25,6 +25,10 @@ public class DashboardCacheService : IDashboardCacheService
         "Dashboard_Summary_all"
     };
 
+    // Fixed UTC+5:30 offset for India — no DST to account for, so a constant offset is exact
+    // and avoids any TimeZoneInfo lookup / cross-platform timezone-database dependency.
+    private static readonly TimeSpan IstOffset = TimeSpan.FromHours(5.5);
+
     public DashboardCacheService(IDbContextFactory<AppDbContext> dbContextFactory, IMemoryCache cache, IConfiguration configuration)
     {
         _dbContextFactory = dbContextFactory;
@@ -61,9 +65,15 @@ public class DashboardCacheService : IDashboardCacheService
 
             if (normalizedFilter == "today")
             {
-                currentCutoff = now.Date;
-                previousStart = now.Date.AddDays(-1);
-                previousEnd = now.Date;
+                // "Today" means the user's calendar day, not UTC's. The app targets IST users
+                // (see the greeting logic in Frontend/src/pages/Dashboard.tsx, which already
+                // hardcodes Asia/Kolkata) — bucketing by raw UTC midnight misclassifies anything
+                // sent between IST midnight and 5:30 AM IST as "yesterday". India has no DST, so
+                // a fixed offset is exact (no TimeZoneInfo lookup / no timezone-database risk).
+                var todayIstDate = now.Add(IstOffset).Date;
+                currentCutoff = todayIstDate.Subtract(IstOffset); // UTC instant of IST midnight today
+                previousStart = currentCutoff.Value.AddDays(-1);
+                previousEnd = currentCutoff.Value;
             }
             else if (normalizedFilter == "week")
             {
@@ -343,7 +353,12 @@ public class DashboardCacheService : IDashboardCacheService
 
     // Hourly line-chart data needs each message's own SentAt timestamp for hour-of-day bucketing
     // (campaign CreatedAt can't tell us what hour a specific message went out), scoped to this period.
-    // Aggregated in SQL (GROUP BY hour, with conditional counts) instead of pulling every row into memory.
+    //
+    // SentAt is stored in UTC (Postgres timestamptz), but the chart's hour labels ("00:00".."23:00")
+    // are displayed as IST wall-clock hours (the app targets IST users — see Dashboard.tsx's greeting
+    // logic). Bucketing by raw UTC hour put "now" ~5.5 hours behind where a user expects to see it.
+    // The IST-shifted day is small (one day's messages), so it's cheap to pull into memory and bucket
+    // there — this sidesteps any risk of DateTime-arithmetic-inside-GroupBy failing to translate to SQL.
     private async Task<HourlyChartResult> GetHourlyChartAsync(DateTime? currentCutoff)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
@@ -354,27 +369,36 @@ public class DashboardCacheService : IDashboardCacheService
             hourlyBaseQuery = hourlyBaseQuery.Where(cc => cc.SentAt >= currentCutoff.Value);
         }
 
-        var latestDate = await hourlyBaseQuery
+        // Cheap, fully SQL-translatable lookup — no arithmetic in the query.
+        var latestSentAtUtc = await hourlyBaseQuery
             .OrderByDescending(cc => cc.SentAt)
-            .Select(cc => cc.SentAt!.Value.Date)
+            .Select(cc => cc.SentAt!.Value)
             .FirstOrDefaultAsync();
-        if (latestDate == default)
-        {
-            latestDate = DateTime.UtcNow.Date;
-        }
 
-        var hourlyAggregates = await hourlyBaseQuery
-            .Where(cc => cc.SentAt!.Value.Date == latestDate)
-            .GroupBy(cc => cc.SentAt!.Value.Hour)
-            .Select(g => new
+        var latestIst = latestSentAtUtc == default
+            ? DateTime.UtcNow.Add(IstOffset)
+            : latestSentAtUtc.Add(IstOffset);
+        var latestDateIst = latestIst.Date;
+
+        // UTC instant range covering that IST calendar day — plain comparisons, translates trivially.
+        var dayStartUtc = latestDateIst.Subtract(IstOffset);
+        var dayEndUtc = dayStartUtc.AddDays(1);
+
+        var dayRows = await hourlyBaseQuery
+            .Where(cc => cc.SentAt >= dayStartUtc && cc.SentAt < dayEndUtc)
+            .Select(cc => new { cc.SentAt, cc.Status })
+            .ToListAsync();
+
+        // Bucket by IST hour in memory — trivial LINQ-to-Objects, zero SQL-translation risk.
+        var hourlyAggregates = dayRows
+            .GroupBy(cc => cc.SentAt!.Value.Add(IstOffset).Hour)
+            .ToDictionary(g => g.Key, g => new
             {
-                Hour = g.Key,
                 Sent = g.Count(),
                 Errors = g.Count(cc => cc.Status == MessageStatus.Failed),
                 Delivered = g.Count(cc => cc.Status == MessageStatus.Delivered || cc.Status == MessageStatus.Read),
                 Read = g.Count(cc => cc.Status == MessageStatus.Read)
-            })
-            .ToDictionaryAsync(g => g.Hour);
+            });
 
         var hourlyChartData = new List<object>();
         var deliveryTrend = new List<object>();

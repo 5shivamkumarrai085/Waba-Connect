@@ -8,8 +8,14 @@ import './styles/Skeleton.css'
 import './styles/responsive.css'
 
 /* Eager page-level stylesheet imports to resolve lazy-load race conditions & HMR CSS loss */
+/* Menu & Modal render into document.body from lazy page chunks — without eager
+   imports their first open paints unstyled. */
+import './components/Menu/Menu.css'
+import './components/Modal/Modal.css'
+import './components/Stepper/Stepper.css'
 import './components/DataTable/DataTable.css'
 import './pages/ActivityLogs.css'
+import './pages/NotFound.css'
 import './pages/Reporting.css'
 import './pages/Templates/TemplatesList.css'
 import './pages/Campaigns/CampaignsList.css'
@@ -27,6 +33,8 @@ import './pages/TemplateBot/TemplateBotList.css'
 import './pages/TemplateBot/TemplateBotWizard.css'
 import './pages/BotFlow/BotFlowList.css'
 import './pages/BotFlow/BotFlowDesigner.css'
+import './pages/Connections/ConnectionModals.css'
+import './pages/Permissions/AssignPermissionModal.css'
 import '@xyflow/react/dist/style.css'
 
 import './index.css'

@@ -106,9 +106,29 @@ export const chatService = {
     }
   },
 
+  /**
+   * Clears a conversation's unread count. Called once when the user opens it — reading the
+   * messages deliberately no longer does this, so polling for new messages stays a pure read.
+   */
+  markConversationRead: async (id: number): Promise<void> => {
+    await apiClient.post(`/Chat/conversations/${id}/read`)
+  },
+
   deleteConversation: async (id: number): Promise<void> => {
     try {
       await apiClient.delete(`/Chat/conversations/${id}`)
+    } catch (error) {
+      throw new Error(getApiErrorMessage(error))
+    }
+  },
+
+  /**
+   * Soft-deletes messages. POST rather than DELETE because the ids travel in a body — one
+   * endpoint serves both the single right-click delete and the multi-select delete.
+   */
+  deleteMessages: async (conversationId: number, messageIds: number[]): Promise<void> => {
+    try {
+      await apiClient.post(`/Chat/conversations/${conversationId}/messages/delete`, { messageIds })
     } catch (error) {
       throw new Error(getApiErrorMessage(error))
     }

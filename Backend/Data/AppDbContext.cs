@@ -40,14 +40,186 @@ public class AppDbContext : DbContext
     public DbSet<ClientAiSetting> ClientAiSettings { get; set; } = null!;
     public DbSet<AiSession> AiSessions { get; set; } = null!;
 
+    // Authentication & RBAC
+    public DbSet<AppUser> AppUsers { get; set; } = null!;
+    public DbSet<Role> Roles { get; set; } = null!;
+    public DbSet<Permission> Permissions { get; set; } = null!;
+    public DbSet<RolePermission> RolePermissions { get; set; } = null!;
+    public DbSet<UserPermission> UserPermissions { get; set; } = null!;
+
+    // Audit trail
+    public DbSet<LoginAttempt> LoginAttempts { get; set; } = null!;
+    public DbSet<AuditLog> AuditLogs { get; set; } = null!;
+
+    // Setup lookups
+    public DbSet<ContactStatusLookup> ContactStatuses { get; set; } = null!;
+    public DbSet<ContactSourceLookup> ContactSources { get; set; } = null!;
+    public DbSet<ContactTypeLookup> ContactTypes { get; set; } = null!;
+    public DbSet<Language> Languages { get; set; } = null!;
+    public DbSet<Translation> Translations { get; set; } = null!;
+    public DbSet<AiPrompt> AiPrompts { get; set; } = null!;
+    public DbSet<CannedReply> CannedReplies { get; set; } = null!;
+    public DbSet<EmailTemplate> EmailTemplates { get; set; } = null!;
+    public DbSet<MessageActivityLog> MessageActivityLogs { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // ---- Authentication & RBAC ------------------------------------------------
+        modelBuilder.Entity<AppUser>(entity =>
+        {
+            entity.ToTable("AppUsers");
+            entity.HasIndex(e => e.Email).IsUnique();
+            entity.HasIndex(e => e.ExternalUserId);
+
+            // SetNull rather than Cascade: deleting a role must not delete the people holding
+            // it. They fall back to no permissions until reassigned, which is safe.
+            entity.HasOne(e => e.Role)
+                  .WithMany(r => r.Users)
+                  .HasForeignKey(e => e.RoleId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<Role>(entity =>
+        {
+            entity.ToTable("Roles");
+            entity.HasIndex(e => e.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<Permission>(entity =>
+        {
+            entity.ToTable("Permissions");
+            entity.HasIndex(e => e.Key).IsUnique();
+            entity.HasIndex(e => e.Feature);
+        });
+
+        modelBuilder.Entity<RolePermission>(entity =>
+        {
+            entity.ToTable("RolePermissions");
+            entity.HasIndex(e => new { e.RoleId, e.PermissionId }).IsUnique();
+
+            entity.HasOne(e => e.Role)
+                  .WithMany(r => r.RolePermissions)
+                  .HasForeignKey(e => e.RoleId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Permission)
+                  .WithMany()
+                  .HasForeignKey(e => e.PermissionId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserPermission>(entity =>
+        {
+            entity.ToTable("UserPermissions");
+            entity.HasIndex(e => new { e.UserId, e.PermissionId }).IsUnique();
+
+            entity.HasOne(e => e.User)
+                  .WithMany(u => u.UserPermissions)
+                  .HasForeignKey(e => e.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Permission)
+                  .WithMany()
+                  .HasForeignKey(e => e.PermissionId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ---- Audit trail ----------------------------------------------------------
+        // No FK to AppUser on either table: the trail must outlive the accounts it describes,
+        // and login attempts routinely reference an email that matches no account at all.
+        modelBuilder.Entity<LoginAttempt>(entity =>
+        {
+            entity.ToTable("LoginAttempts");
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.Success);
+        });
+
+        modelBuilder.Entity<AuditLog>(entity =>
+        {
+            entity.ToTable("AuditLogs");
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.Category);
+        });
+
+        // ---- Setup lookups --------------------------------------------------------
+        // Deliberately no foreign key from Contact to these tables. Contact.Status/Source keep
+        // storing the lookup's immutable Value string, which means this migration adds tables
+        // without touching a single existing contact row.
+        modelBuilder.Entity<ContactStatusLookup>(entity =>
+        {
+            entity.ToTable("ContactStatuses");
+            entity.HasIndex(e => e.Value).IsUnique();
+        });
+
+        modelBuilder.Entity<ContactSourceLookup>(entity =>
+        {
+            entity.ToTable("ContactSources");
+            entity.HasIndex(e => e.Value).IsUnique();
+        });
+
+        modelBuilder.Entity<ContactTypeLookup>(entity =>
+        {
+            entity.ToTable("ContactTypes");
+            entity.HasIndex(e => e.Value).IsUnique();
+        });
+
+        modelBuilder.Entity<Language>(entity =>
+        {
+            entity.ToTable("Languages");
+            entity.HasIndex(e => e.Code).IsUnique();
+        });
+
+        modelBuilder.Entity<Translation>(entity =>
+        {
+            entity.ToTable("Translations");
+            entity.HasIndex(e => new { e.LanguageId, e.Key }).IsUnique();
+
+            entity.HasOne(e => e.Language)
+                  .WithMany(l => l.Translations)
+                  .HasForeignKey(e => e.LanguageId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AiPrompt>(entity =>
+        {
+            entity.ToTable("AiPrompts");
+            entity.HasIndex(e => e.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<CannedReply>(entity =>
+        {
+            entity.ToTable("CannedReplies");
+            entity.HasIndex(e => e.IsPublic);
+        });
+
+        modelBuilder.Entity<EmailTemplate>(entity =>
+        {
+            entity.ToTable("EmailTemplates");
+            entity.HasIndex(e => e.Key).IsUnique();
+        });
+
+        modelBuilder.Entity<MessageActivityLog>(entity =>
+        {
+            entity.ToTable("MessageActivityLogs");
+            // The list is always newest-first and usually filtered by category.
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.Category);
+            entity.HasIndex(e => e.ContactId);
+        });
 
         // Connection entity configuration
         modelBuilder.Entity<Connection>(entity =>
         {
             entity.HasIndex(e => e.Name).IsUnique();
+
+            // Nickname carries [Required] for request validation but the column is, and stays,
+            // nullable: connections created before nicknames existed have NULL, and the agreed
+            // approach was to enforce it on new input only rather than rewrite that history.
+            // Without this explicit mapping EF treats [Required] as NOT NULL and scaffolds a
+            // destructive AlterColumn into every subsequent migration.
+            entity.Property(e => e.Nickname).IsRequired(false);
         });
 
         // DepartmentConnection configuration (future permissions)
@@ -82,9 +254,13 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Phone).IsUnique();
             entity.HasIndex(e => e.CreatedAt);
             entity.HasQueryFilter(e => !e.IsDeleted);
-            entity.Property(e => e.Type).HasConversion<string>().HasMaxLength(50);
-            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
-            entity.Property(e => e.Source).HasConversion<string>().HasMaxLength(50);
+            // No HasConversion: Contact.Type is a plain string now, matching Status and Source.
+            entity.Property(e => e.Type).HasMaxLength(50);
+            // Status and Source are now plain strings holding a lookup's Value. The column
+            // definition is identical to what HasConversion<string>() produced, so this is a
+            // CLR-side change only — verified by the generated migration being empty.
+            entity.Property(e => e.Status).HasMaxLength(50);
+            entity.Property(e => e.Source).HasMaxLength(50);
         });
 
         // ContactGroupMember
@@ -122,6 +298,29 @@ public class AppDbContext : DbContext
             entity.HasOne(e => e.Connection).WithMany(c => c.Campaigns).HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
         });
 
+        // Dependents of the two soft-deleted entities carry matching filters — see the note on
+        // CampaignContact below for why.
+        modelBuilder.Entity<CampaignVariable>()
+            .HasQueryFilter(e => !e.Campaign.IsDeleted);
+
+        modelBuilder.Entity<ContactNote>()
+            .HasQueryFilter(e => !e.Contact.IsDeleted);
+
+        modelBuilder.Entity<ContactGroupMember>()
+            .HasQueryFilter(e => !e.Contact.IsDeleted);
+
+        modelBuilder.Entity<ChatConversation>()
+            .HasQueryFilter(e => !e.Contact.IsDeleted);
+
+        // Filtering ChatConversation makes it a filtered principal in turn, so its own required
+        // dependent needs the matching filter or the same advisory just moves down a level.
+        //
+        // Deliberately mirrors the conversation only. ChatMessage.IsDeleted (per-message soft
+        // delete) stays an explicit .Where in ChatService, because DeleteMessagesAsync has to be
+        // able to see already-deleted rows to report "already deleted" rather than "not found".
+        modelBuilder.Entity<ChatMessage>()
+            .HasQueryFilter(e => !e.Conversation.Contact.IsDeleted);
+
         // CampaignContact
         modelBuilder.Entity<CampaignContact>(entity =>
         {
@@ -131,6 +330,14 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasOne(e => e.Campaign).WithMany(c => c.CampaignContacts).HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Contact).WithMany(c => c.CampaignContacts).HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Restrict);
+
+            // Mirrors the filters on both required principals. Without these EF emits a
+            // PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning on every
+            // model build — 90 of the 90 warnings in the log file were this one advisory —
+            // and, more importantly, it was a real defect: reporting and dashboard queries read
+            // CampaignContacts directly, so recipients of deleted campaigns were still being
+            // counted in delivery totals.
+            entity.HasQueryFilter(e => !e.Campaign.IsDeleted && !e.Contact.IsDeleted);
         });
 
         // Chat conversations: UNIQUE ON {ContactId, ConnectionId} so one contact can have conversations across multiple connections!

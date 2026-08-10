@@ -1,15 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.TemplateBot;
 using WhatsAppCampaignApi.Services.Interfaces;
 
+using WhatsAppCampaignApi.Helpers;
+
 namespace WhatsAppCampaignApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class TemplateBotsController : ControllerBase
 {
     private readonly ITemplateBotService _botService;
@@ -20,6 +24,7 @@ public class TemplateBotsController : ControllerBase
     }
 
     [HttpGet]
+    [RequiresPermission("TemplateBot.View")]
     public async Task<ActionResult<ApiResponse<PagedResponse<TemplateBotResponse>>>> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
@@ -44,6 +49,7 @@ public class TemplateBotsController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [RequiresPermission("TemplateBot.View")]
     public async Task<ActionResult<ApiResponse<TemplateBotResponse>>> GetById(int id)
     {
         try
@@ -58,6 +64,7 @@ public class TemplateBotsController : ControllerBase
     }
 
     [HttpPost]
+    [RequiresPermission("TemplateBot.Create")]
     public async Task<ActionResult<ApiResponse<TemplateBotResponse>>> Create([FromBody] CreateTemplateBotRequest request)
     {
         if (!ModelState.IsValid)
@@ -77,6 +84,7 @@ public class TemplateBotsController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequiresPermission("TemplateBot.Edit")]
     public async Task<ActionResult<ApiResponse<TemplateBotResponse>>> Update(int id, [FromBody] UpdateTemplateBotRequest request)
     {
         if (!ModelState.IsValid)
@@ -100,6 +108,7 @@ public class TemplateBotsController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequiresPermission("TemplateBot.Delete")]
     public async Task<ActionResult<ApiResponse<bool>>> Delete(int id)
     {
         var result = await _botService.DeleteAsync(id);
@@ -111,6 +120,7 @@ public class TemplateBotsController : ControllerBase
     }
 
     [HttpPost("clone/{id}")]
+    [RequiresPermission("TemplateBot.Clone")]
     public async Task<ActionResult<ApiResponse<TemplateBotResponse>>> Clone(int id)
     {
         try
@@ -125,6 +135,7 @@ public class TemplateBotsController : ControllerBase
     }
 
     [HttpPatch("toggle/{id}")]
+    [RequiresPermission("TemplateBot.Edit")]
     public async Task<ActionResult<ApiResponse<TemplateBotResponse>>> ToggleActive(int id)
     {
         try
@@ -139,6 +150,7 @@ public class TemplateBotsController : ControllerBase
     }
 
     [HttpGet("check-keywords")]
+    [RequiresPermission("TemplateBot.View")]
     public async Task<ActionResult<ApiResponse<List<string>>>> CheckKeywords(
         [FromQuery] string keywords,
         [FromQuery] int ignoreTemplateBotId = 0,

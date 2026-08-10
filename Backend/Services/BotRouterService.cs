@@ -387,8 +387,27 @@ public class BotRouterService : IBotRouterService
         
         string? apiKey = _configuration[$"PersonalAssistants:{assistantName}:ApiKey"] ?? _configuration["Groq:ApiKey"];
         string? model = _configuration[$"PersonalAssistants:{assistantName}:Model"] ?? _configuration["Groq:Model"] ?? "llama-3.1-8b-instant";
-        string? systemPrompt = _configuration[$"PersonalAssistants:{assistantName}:Prompt"] 
-            ?? _configuration[$"PersonalAssistants:{assistantName}:SystemPrompt"] 
+        // Prompt resolution, most specific first:
+        //   1. a database prompt matching the assistant's name,
+        //   2. the database prompt flagged as default,
+        //   3. the original appsettings values,
+        //   4. a hardcoded fallback.
+        // The seeder copies the appsettings prompt into the default row, so on an existing
+        // install steps 1-2 return exactly what step 3 used to — behaviour is unchanged.
+        string? systemPrompt = await _dbContext.AiPrompts
+            .AsNoTracking()
+            .Where(p => p.IsActive && p.Name.ToLower() == assistantName.ToLower())
+            .Select(p => p.PromptText)
+            .FirstOrDefaultAsync();
+
+        systemPrompt ??= await _dbContext.AiPrompts
+            .AsNoTracking()
+            .Where(p => p.IsActive && p.IsDefault)
+            .Select(p => p.PromptText)
+            .FirstOrDefaultAsync();
+
+        systemPrompt ??= _configuration[$"PersonalAssistants:{assistantName}:Prompt"]
+            ?? _configuration[$"PersonalAssistants:{assistantName}:SystemPrompt"]
             ?? "You are OmniBot, a highly capable customer assistant for OmniConnect platform. Respond to the customer query in a polite, helpful, and concise manner.";
         string? footer = _configuration[$"PersonalAssistants:{assistantName}:Footer"] ?? "Send 'stop' to stop AI messages";
 

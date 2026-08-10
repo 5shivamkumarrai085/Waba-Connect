@@ -13,9 +13,32 @@ public class Contact
     [Required, MaxLength(20)]
     public string Phone { get; set; } = string.Empty;
     
-    public ContactType Type { get; set; }
-    public ContactStatus Status { get; set; } = ContactStatus.New;
-    public ContactSource Source { get; set; }
+    /// <summary>
+    /// Matches ContactTypeLookup.Value. Stored as a plain string rather than an enum for the
+    /// same reason as Status and Source below — an admin adding a type must not require a code
+    /// change. The column was already varchar(50) via HasConversion&lt;string&gt;(), so this is a
+    /// CLR-side change only and every existing row keeps its value verbatim.
+    /// </summary>
+    [Required, MaxLength(50)]
+    public string Type { get; set; } = "Lead";
+
+    /// <summary>
+    /// Matches ContactStatusLookup.Value. Stored as a plain string rather than an enum so
+    /// administrators can add and rename statuses without a code change.
+    ///
+    /// <para>
+    /// The column is unchanged by this: the enum was already persisted as varchar(50) through
+    /// HasConversion&lt;string&gt;(), so switching the CLR type to string produces an identical
+    /// column and needs no data migration. There is deliberately no foreign key — the lookup's
+    /// Value is immutable, which gives referential stability without the cascade rules.
+    /// </para>
+    /// </summary>
+    [MaxLength(50)]
+    public string Status { get; set; } = "New";
+
+    /// <summary>Matches ContactSourceLookup.Value. Same reasoning as <see cref="Status"/>.</summary>
+    [MaxLength(50)]
+    public string Source { get; set; } = string.Empty;
     
     [MaxLength(100)]
     public string? AssignedTo { get; set; }

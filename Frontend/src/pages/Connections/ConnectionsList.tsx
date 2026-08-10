@@ -28,10 +28,10 @@ import {
 import toast from 'react-hot-toast'
 import { useConnectionStore } from '../../store/connectionStore'
 import { EditConnectionModal } from './EditConnectionModal'
-import { ConnectionDetail } from './ConnectionDetail'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import type { Connection } from '../../types/connection'
 import './ConnectionsList.css'
+import Can from '../../components/Can/Can'
 
 export const ConnectionsList: React.FC = () => {
   const navigate = useNavigate()
@@ -47,7 +47,6 @@ export const ConnectionsList: React.FC = () => {
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All Status')
-  const [selectedConn, setSelectedConn] = useState<Connection | null>(null)
   const [editingConn, setEditingConn] = useState<Connection | null>(null)
   const [activeMenuId, setActiveMenuId] = useState<number | null>(null)
 
@@ -64,7 +63,6 @@ export const ConnectionsList: React.FC = () => {
       if (e.key === 'Escape') {
         setActiveMenuId(null)
         setEditingConn(null)
-        setSelectedConn(null)
         setDisconnectTarget(null)
         setDeleteTarget(null)
       }
@@ -103,7 +101,13 @@ export const ConnectionsList: React.FC = () => {
     navigate('/connections/new')
   }
 
+  // Opens the full WhatsApp Business Account page for this connection.
+  //
+  // /connect-waba is not the onboarding wizard: it renders the wizard only while the account
+  // is disconnected, and the complete account dashboard — token, permission scopes, webhook
+  // URL, phone, health, QR, disconnect — once it is connected. That is the detail view.
   const handleViewConnection = (conn: Connection) => {
+    setActiveMenuId(null)
     navigate(`/connect-waba?connectionId=${conn.id}`)
   }
 
@@ -117,9 +121,11 @@ export const ConnectionsList: React.FC = () => {
     const conn = disconnectTarget
     setDisconnectTarget(null)
     try {
+      // disconnectConnection does not resolve until the dashboard has been refetched, so the
+      // list is already current here. The extra fetchDashboard() that used to follow was both
+      // redundant and — now that the fetch is deduped — a no-op.
       await disconnectConnection(conn.id)
       toast.success('Connection status set to disconnected.')
-      fetchDashboard()
     } catch {
       toast.error('Failed to disconnect connection.')
     }
@@ -151,7 +157,6 @@ export const ConnectionsList: React.FC = () => {
     try {
       await deleteConnection(conn.id)
       toast.success(`Connection "${conn.name}" deleted (marked inactive).`)
-      fetchDashboard()
     } catch {
       toast.error('Failed to delete connection.')
     }
@@ -178,10 +183,12 @@ export const ConnectionsList: React.FC = () => {
           <h1>WABA Connections</h1>
           <p className="conn-page-subtitle">Connect and manage multiple WhatsApp Business Accounts.</p>
         </div>
-        <button type="button" onClick={handleConnectNew} className="btn-connect-waba">
-          <Plus className="w-4 h-4" />
-          <span>Connect New WABA</span>
-        </button>
+        <Can permission="ConnectAccount.Connect">
+          <button type="button" onClick={handleConnectNew} className="btn-connect-waba">
+            <Plus className="w-4 h-4" />
+            <span>Connect New WABA</span>
+          </button>
+        </Can>
       </div>
 
       {/* 4 KPI Cards Grid */}
@@ -348,32 +355,38 @@ export const ConnectionsList: React.FC = () => {
                       <div className="conn-actions-cell" style={{ position: 'relative' }}>
                         {conn.isConnected ? (
                           <>
-                            <button
-                              type="button"
-                              onClick={() => handleViewConnection(conn)}
-                              className="btn-action-view"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              View
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDisconnectClick(conn)}
-                              className="btn-action-disconnect"
-                            >
-                              <Unlink className="w-3.5 h-3.5" />
-                              Disconnect
-                            </button>
+                            <Can permission="ConnectAccount.View">
+                              <button
+                                type="button"
+                                onClick={() => handleViewConnection(conn)}
+                                className="btn-action-view"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                View
+                              </button>
+                            </Can>
+                            <Can permission="ConnectAccount.Disconnect">
+                              <button
+                                type="button"
+                                onClick={() => handleDisconnectClick(conn)}
+                                className="btn-action-disconnect"
+                              >
+                                <Unlink className="w-3.5 h-3.5" />
+                                Disconnect
+                              </button>
+                            </Can>
                           </>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleReconnect(conn.id)}
-                            className="btn-action-connect"
-                          >
-                            <LinkIcon className="w-3.5 h-3.5" />
-                            Connect
-                          </button>
+                          <Can permission="ConnectAccount.Connect">
+                            <button
+                              type="button"
+                              onClick={() => handleReconnect(conn.id)}
+                              className="btn-action-connect"
+                            >
+                              <LinkIcon className="w-3.5 h-3.5" />
+                              Connect
+                            </button>
+                          </Can>
                         )}
 
 
@@ -388,24 +401,30 @@ export const ConnectionsList: React.FC = () => {
                         {/* Three-Dot Options Dropdown */}
                         {activeMenuId === conn.id && (
                           <div className="conn-dropdown-menu">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActiveMenuId(null)
-                                setEditingConn(conn)
-                              }}
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                              Edit Name
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteConnectionClick(conn)}
-                              className="delete-btn"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              Delete
-                            </button>
+                            {/* Hidden, not disabled: this is a plain div, not the Menu
+                                primitive, so there is no fixed row height to preserve. */}
+                            <Can permission="ConnectAccount.Edit">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveMenuId(null)
+                                  setEditingConn(conn)
+                                }}
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                Edit Name
+                              </button>
+                            </Can>
+                            <Can permission="ConnectAccount.Delete">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteConnectionClick(conn)}
+                                className="delete-btn"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Delete
+                              </button>
+                            </Can>
                           </div>
                         )}
                       </div>
@@ -440,13 +459,6 @@ export const ConnectionsList: React.FC = () => {
         connection={editingConn}
         onClose={() => setEditingConn(null)}
         onSave={handleEditSave}
-      />
-
-      {/* Connection Detail Modal */}
-      <ConnectionDetail
-        isOpen={!!selectedConn}
-        connection={selectedConn}
-        onClose={() => setSelectedConn(null)}
       />
 
       {/* Soft Disconnect Confirmation Modal */}

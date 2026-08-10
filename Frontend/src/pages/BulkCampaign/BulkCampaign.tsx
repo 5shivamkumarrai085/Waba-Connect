@@ -25,6 +25,7 @@ import {
 import toast from 'react-hot-toast'
 import { useConnectionStore } from '../../store/connectionStore'
 import './BulkCampaign.css'
+import Can from '../../components/Can/Can'
 
 export const BulkCampaign: React.FC = () => {
   const navigate = useNavigate()
@@ -735,20 +736,24 @@ export const BulkCampaign: React.FC = () => {
                     Sending To <strong>{validationData?.validCount || 0}</strong> Recipients
                   </span>
                   
-                  <button
-                    type="submit"
-                    className="btn-wizard-nav btn-wizard-save"
-                    disabled={isSubmitting || !validationData || !selectedTemplateId}
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 className="animate-spin" size={16} />
-                        <span>Sending...</span>
-                      </>
-                    ) : (
-                      'Send Campaign'
-                    )}
-                  </button>
+                  {/* Disabled rather than hidden: the wizard is walkable without the grant, and
+                      a footer with a recipient count but no button reads as a broken page. */}
+                  <Can permission="BulkCampaign.Create" mode="disable">
+                    <button
+                      type="submit"
+                      className="btn-wizard-nav btn-wizard-save"
+                      disabled={isSubmitting || !validationData || !selectedTemplateId}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="animate-spin" size={16} />
+                          <span>Sending...</span>
+                        </>
+                      ) : (
+                        'Send Campaign'
+                      )}
+                    </button>
+                  </Can>
                 </div>
               </form>
             </div>

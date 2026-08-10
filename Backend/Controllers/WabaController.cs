@@ -1,17 +1,22 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.DTOs;
 using WhatsAppCampaignApi.Services.Interfaces;
 using WhatsAppCampaignApi.Models.Entities;
 
+using WhatsAppCampaignApi.Helpers;
+
 namespace WhatsAppCampaignApi.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class WabaController : ControllerBase
     {
         private readonly IWabaRepository _wabaRepository;
@@ -26,6 +31,7 @@ namespace WhatsAppCampaignApi.Controllers
         private readonly IConnectionService _connectionService;
 
         private readonly AppDbContext _dbContext;
+        private readonly IMemoryCache _cache;
 
         public WabaController(
             IWabaRepository wabaRepository,
@@ -38,8 +44,10 @@ namespace WhatsAppCampaignApi.Controllers
             IDashboardService dashboardService,
             IHealthService healthService,
             IConnectionService connectionService,
-            AppDbContext dbContext)
+            AppDbContext dbContext,
+            IMemoryCache cache)
         {
+            _cache = cache;
             _wabaRepository = wabaRepository;
             _businessRepository = businessRepository;
             _phoneRepository = phoneRepository;
@@ -54,6 +62,7 @@ namespace WhatsAppCampaignApi.Controllers
         }
 
         [HttpPost("connect-app")]
+        [RequiresPermission("ConnectAccount.Connect")]
         public async Task<IActionResult> ConnectApp([FromBody] ConnectAppRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -142,6 +151,7 @@ namespace WhatsAppCampaignApi.Controllers
         }
 
         [HttpPost("configure")]
+        [RequiresPermission("ConnectAccount.Connect")]
         public async Task<IActionResult> Configure([FromBody] ConfigureWabaRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -238,6 +248,7 @@ namespace WhatsAppCampaignApi.Controllers
         }
 
         [HttpGet("dashboard")]
+        [RequiresPermission("ConnectAccount.View")]
         public async Task<IActionResult> GetDashboard([FromQuery] int? connectionId = null)
         {
             if (connectionId.HasValue)
@@ -245,8 +256,10 @@ namespace WhatsAppCampaignApi.Controllers
                 var conn = await _connectionService.GetByIdAsync(connectionId.Value);
                 if (conn != null)
                 {
-                    var allConfigs = await _dbContext.WabaConfigurations.ToListAsync();
-                    var config = allConfigs.FirstOrDefault(c => c.ConnectionId == connectionId.Value);
+                    // Filtered in the database, not in memory. These used to load every
+                    // configuration and every phone number in the system to pick one of each.
+                    var config = await _dbContext.WabaConfigurations
+                        .FirstOrDefaultAsync(c => c.ConnectionId == connectionId.Value);
 
                     var allPhones = await _phoneRepository.GetAllAsync();
                     var connPhones = allPhones.Where(p => p.ConnectionId == connectionId.Value).ToList();
@@ -277,18 +290,37 @@ namespace WhatsAppCampaignApi.Controllers
                     int sentToday = await _dbContext.ChatMessages
                         .CountAsync(m => m.ConnectionId == connectionId.Value && m.Direction == Models.Enums.ChatMessageDirection.Outgoing && (m.IsTemplate || m.CampaignContactId != null) && m.CreatedAt >= todayUtc);
 
+                    // The webhook URL is read back from Meta, which costs up to two sequential
+                    // Graph calls — on a GET that three separate pages hit on mount. It changes
+                    // only when someone reconfigures the app, so it is cached and the stored
+                    // value serves every request in between. On a cache hit this also skips the
+                    // database write that used to happen on a read.
                     string finalWebhookUrl = config?.WebhookUrl ?? string.Empty;
                     if (config != null && !string.IsNullOrEmpty(config.FacebookAppId) && !string.IsNullOrEmpty(config.FacebookAppSecret))
                     {
-                        var metaWebhookUrl = await _metaGraphService.FetchWebhookUrlFromMetaAsync(config.FacebookAppId, config.FacebookAppSecret, config.WabaId, config.AccessToken);
-                        if (!string.IsNullOrWhiteSpace(metaWebhookUrl))
+                        var cacheKey = $"Waba_WebhookUrl_{connectionId.Value}";
+                        if (!_cache.TryGetValue(cacheKey, out string? metaWebhookUrl))
                         {
-                            finalWebhookUrl = metaWebhookUrl;
-                            if (config.WebhookUrl != metaWebhookUrl)
+                            metaWebhookUrl = await _metaGraphService.FetchWebhookUrlFromMetaAsync(
+                                config.FacebookAppId, config.FacebookAppSecret, config.WabaId, config.AccessToken);
+
+                            // Negative results are cached too, for less time: a misconfigured app
+                            // would otherwise re-pay both Graph calls on every single request.
+                            _cache.Set(cacheKey, metaWebhookUrl,
+                                string.IsNullOrWhiteSpace(metaWebhookUrl)
+                                    ? TimeSpan.FromMinutes(2)
+                                    : TimeSpan.FromMinutes(10));
+
+                            if (!string.IsNullOrWhiteSpace(metaWebhookUrl) && config.WebhookUrl != metaWebhookUrl)
                             {
                                 config.WebhookUrl = metaWebhookUrl;
                                 await _wabaRepository.AddOrUpdateAsync(config);
                             }
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(metaWebhookUrl))
+                        {
+                            finalWebhookUrl = metaWebhookUrl;
                         }
                     }
 
@@ -335,6 +367,7 @@ namespace WhatsAppCampaignApi.Controllers
         }
 
         [HttpPost("send-message")]
+        [RequiresPermission("Chat.Send")]
         public async Task<IActionResult> SendMessage([FromBody] SendTestMessageRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -382,6 +415,7 @@ namespace WhatsAppCampaignApi.Controllers
         }
 
         [HttpPost("verify-webhook")]
+        [RequiresPermission("ConnectAccount.Connect")]
         public async Task<IActionResult> VerifyWebhook([FromBody] VerifyWebhookRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -396,6 +430,7 @@ namespace WhatsAppCampaignApi.Controllers
         }
 
         [HttpPost("disconnect")]
+        [RequiresPermission("ConnectAccount.Disconnect")]
         public async Task<IActionResult> Disconnect([FromQuery] int? connectionId = null)
         {
             if (connectionId.HasValue)
@@ -409,6 +444,7 @@ namespace WhatsAppCampaignApi.Controllers
         }
 
         [HttpPost("disconnect-webhook")]
+        [RequiresPermission("ConnectAccount.Disconnect")]
         public async Task<IActionResult> DisconnectWebhook([FromQuery] int? connectionId = null)
         {
             if (!connectionId.HasValue)
@@ -434,6 +470,7 @@ namespace WhatsAppCampaignApi.Controllers
         }
 
         [HttpPost("refresh")]
+        [RequiresPermission("ConnectAccount.Connect")]
         public async Task<IActionResult> Refresh([FromQuery] int? connectionId = null)
         {
             // Find the correct config for the given connectionId
@@ -487,6 +524,7 @@ namespace WhatsAppCampaignApi.Controllers
         /// This is safe to call multiple times — Meta treats it as idempotent.
         /// </summary>
         [HttpPost("subscribe-webhooks")]
+        [RequiresPermission("ConnectAccount.Connect")]
         public async Task<IActionResult> SubscribeWebhooks([FromQuery] int? connectionId = null)
         {
             var query = _dbContext.WabaConfigurations
@@ -540,6 +578,7 @@ namespace WhatsAppCampaignApi.Controllers
         /// Checks the webhook subscription status for all connected WABAs.
         /// </summary>
         [HttpGet("webhook-status")]
+        [RequiresPermission("ConnectAccount.View")]
         public async Task<IActionResult> GetWebhookStatus()
         {
             var configs = await _dbContext.WabaConfigurations
@@ -566,6 +605,7 @@ namespace WhatsAppCampaignApi.Controllers
         }
 
         [HttpPost("message-limit")]
+        [RequiresPermission("ConnectAccount.Connect")]
         public async Task<IActionResult> UpdateMessageLimit([FromBody] SetMessageLimitRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);

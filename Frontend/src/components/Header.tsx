@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Settings, 
-  Plus, 
+import {
+  Settings,
+  Plus,
   ArrowLeft,
   User,
   Megaphone,
@@ -13,16 +13,34 @@ import {
   Users,
   ShieldCheck,
   Sliders,
-  Layers
+  Layers,
+  KeyRound,
+  LogOut
 } from 'lucide-react'
 import { fadeScale, transitions } from '../utils/motion'
+import { Menu, MenuItem, MenuSeparator, MenuLabel } from './Menu/Menu'
+import useAuthStore from '../store/authStore'
+import { resolveMediaUrl } from '../utils/mediaUrl'
 
 export const Header: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
-  
+
+  const user = useAuthStore((state) => state.user)
+  const logout = useAuthStore((state) => state.logout)
+
   const [showQuickCreate, setShowQuickCreate] = useState(false)
+  const [showAccountMenu, setShowAccountMenu] = useState(false)
   const quickCreateRef = useRef<HTMLDivElement>(null)
+
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login', { replace: true })
+  }
+
+  const initials = user
+    ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || user.email[0].toUpperCase()
+    : ''
 
   // Close dropdown on outside click or Escape key
   useEffect(() => {
@@ -82,9 +100,11 @@ export const Header: React.FC = () => {
       <div className="header-right">
         {/* Header Action Buttons */}
         <div className="header-actions">
-          <motion.button 
-            className="header-icon-btn" 
-            aria-label="Settings"
+          <motion.button
+            className="header-icon-btn"
+            aria-label="OmniConnect settings"
+            title="OmniConnect Settings"
+            onClick={() => navigate('/omniconnect-settings')}
             whileHover={{ scale: 1.05, rotate: 15 }}
             whileTap={{ scale: 0.95 }}
             transition={{ duration: 0.15 }}
@@ -135,6 +155,43 @@ export const Header: React.FC = () => {
               )}
             </AnimatePresence>
           </div>
+
+          {user && (
+            <Menu
+              open={showAccountMenu}
+              onOpenChange={setShowAccountMenu}
+              align="end"
+              offset={8}
+              ariaLabel="Account menu"
+              trigger={(props) => (
+                <button
+                  {...props}
+                  type="button"
+                  className="header-avatar-btn"
+                  aria-label={`Account menu for ${user.fullName}`}
+                >
+                  {user.profileImageUrl
+                    ? <img src={resolveMediaUrl(user.profileImageUrl)} alt="" className="header-avatar-img" />
+                    : <span className="header-avatar-initials">{initials}</span>}
+                </button>
+              )}
+            >
+              <MenuLabel>
+                <span className="header-account-name">{user.fullName}</span>
+                <span className="header-account-email">{user.email}</span>
+                {user.roleName && <span className="header-account-role">{user.roleName}</span>}
+              </MenuLabel>
+              <MenuSeparator />
+              <MenuItem onSelect={() => navigate('/change-password')}>
+                <KeyRound size={15} />
+                <span>Change password</span>
+              </MenuItem>
+              <MenuItem destructive onSelect={handleLogout}>
+                <LogOut size={15} />
+                <span>Sign out</span>
+              </MenuItem>
+            </Menu>
+          )}
         </div>
       </div>
     </header>

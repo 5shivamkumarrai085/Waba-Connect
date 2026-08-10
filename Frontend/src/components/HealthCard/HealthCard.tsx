@@ -7,7 +7,8 @@ import './HealthCard.css'
 
 interface HealthCardProps {
   healthInfo: WabaHealthModel | null
-  onRefresh: () => Promise<void>
+  /** Omit to render the health status read-only — the refresh button disappears with it. */
+  onRefresh?: () => Promise<void>
 }
 
 export const HealthCard: React.FC<HealthCardProps> = ({ healthInfo, onRefresh }) => {
@@ -16,6 +17,7 @@ export const HealthCard: React.FC<HealthCardProps> = ({ healthInfo, onRefresh })
   if (!healthInfo) return null
 
   const handleRefresh = async () => {
+    if (!onRefresh) return
     setRefreshing(true)
     await onRefresh()
     // Simulate short loader delay for UI feel
@@ -116,17 +118,19 @@ export const HealthCard: React.FC<HealthCardProps> = ({ healthInfo, onRefresh })
         </div>
       </div>
 
-      <div className="health-card-footer">
-        <button 
-          type="button" 
-          className="health-refresh-btn"
-          onClick={handleRefresh}
-          disabled={refreshing}
-        >
-          <RefreshCw size={14} className={refreshing ? 'spin-anim' : ''} />
-          <span>Refresh health status</span>
-        </button>
-      </div>
+      {onRefresh && (
+        <div className="health-card-footer">
+          <button
+            type="button"
+            className="health-refresh-btn"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            <RefreshCw size={14} className={refreshing ? 'spin-anim' : ''} />
+            <span>Refresh health status</span>
+          </button>
+        </div>
+      )}
     </motion.div>
   )
 }

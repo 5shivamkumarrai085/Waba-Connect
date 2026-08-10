@@ -767,6 +767,7 @@
 }
 
 /* Group badges — deterministic color-by-name-hash palette (see getGroupColorClass), not tied to specific names */
+.group-badge-custom,
 .group-badge-purple,
 .group-badge-green,
 .group-badge-orange,

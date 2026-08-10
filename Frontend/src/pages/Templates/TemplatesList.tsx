@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import './TemplatesList.css'
 import { useConnectionStore } from '../../store/connectionStore'
+import Can from '../../components/Can/Can'
 
 export const TemplatesList: React.FC = () => {
   const {
@@ -265,16 +266,20 @@ export const TemplatesList: React.FC = () => {
         transition={{ ...transitions.normal, delay: 0.05 }}
       >
         <div className="templates-toolbar-actions">
-          <motion.button
-            type="button"
-            className="btn-toolbar btn-toolbar-primary"
-            onClick={handleLoadTemplates}
-            disabled={isLoadingOrRefreshing}
-            {...buttonHoverProps}
-          >
-            <Download size={16} />
-            <span>Load Templates</span>
-          </motion.button>
+          {/* Load Templates triggers a WhatsApp-side sync, so it sits behind its own
+              capability rather than behind Template.View. */}
+          <Can permission="Template.LoadTemplate">
+            <motion.button
+              type="button"
+              className="btn-toolbar btn-toolbar-primary"
+              onClick={handleLoadTemplates}
+              disabled={isLoadingOrRefreshing}
+              {...buttonHoverProps}
+            >
+              <Download size={16} />
+              <span>Load Templates</span>
+            </motion.button>
+          </Can>
           <motion.button
             type="button"
             className="btn-toolbar"

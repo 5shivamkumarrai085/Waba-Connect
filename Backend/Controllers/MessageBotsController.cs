@@ -1,15 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.MessageBot;
 using WhatsAppCampaignApi.Services.Interfaces;
 
+using WhatsAppCampaignApi.Helpers;
+
 namespace WhatsAppCampaignApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class MessageBotsController : ControllerBase
 {
     private readonly IMessageBotService _botService;
@@ -20,6 +24,7 @@ public class MessageBotsController : ControllerBase
     }
 
     [HttpGet]
+    [RequiresPermission("MessageBot.View")]
     public async Task<ActionResult<ApiResponse<PagedResponse<MessageBotResponse>>>> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
@@ -44,6 +49,7 @@ public class MessageBotsController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [RequiresPermission("MessageBot.View")]
     public async Task<ActionResult<ApiResponse<MessageBotResponse>>> GetById(int id)
     {
         try
@@ -58,6 +64,7 @@ public class MessageBotsController : ControllerBase
     }
 
     [HttpPost]
+    [RequiresPermission("MessageBot.Create")]
     public async Task<ActionResult<ApiResponse<MessageBotResponse>>> Create([FromBody] CreateMessageBotRequest request)
     {
         if (!ModelState.IsValid)
@@ -70,6 +77,7 @@ public class MessageBotsController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequiresPermission("MessageBot.Edit")]
     public async Task<ActionResult<ApiResponse<MessageBotResponse>>> Update(int id, [FromBody] UpdateMessageBotRequest request)
     {
         if (!ModelState.IsValid)
@@ -89,6 +97,7 @@ public class MessageBotsController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequiresPermission("MessageBot.Delete")]
     public async Task<ActionResult<ApiResponse<bool>>> Delete(int id)
     {
         var result = await _botService.DeleteAsync(id);
@@ -100,6 +109,7 @@ public class MessageBotsController : ControllerBase
     }
 
     [HttpPost("clone/{id}")]
+    [RequiresPermission("MessageBot.Clone")]
     public async Task<ActionResult<ApiResponse<MessageBotResponse>>> Clone(int id)
     {
         try
@@ -114,6 +124,7 @@ public class MessageBotsController : ControllerBase
     }
 
     [HttpPatch("toggle/{id}")]
+    [RequiresPermission("MessageBot.Edit")]
     public async Task<ActionResult<ApiResponse<MessageBotResponse>>> ToggleActive(int id)
     {
         try

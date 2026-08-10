@@ -1,13 +1,17 @@
 using System;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WhatsAppCampaignApi.Models.DTOs;
 using WhatsAppCampaignApi.Services.Interfaces;
+
+using WhatsAppCampaignApi.Helpers;
 
 namespace WhatsAppCampaignApi.Controllers;
 
 [ApiController]
 [Route("api/connections")]
+[Authorize]
 public class ConnectionController : ControllerBase
 {
     private readonly IConnectionService _connectionService;
@@ -18,6 +22,7 @@ public class ConnectionController : ControllerBase
     }
 
     [HttpGet]
+    [RequiresPermission("ConnectAccount.View")]
     public async Task<IActionResult> GetAll([FromQuery] string? userId, [FromQuery] string? departmentId)
     {
         var connections = await _connectionService.GetAllAsync(userId, departmentId);
@@ -25,6 +30,7 @@ public class ConnectionController : ControllerBase
     }
 
     [HttpGet("dashboard")]
+    [RequiresPermission("ConnectAccount.View")]
     public async Task<IActionResult> GetDashboard([FromQuery] string? userId, [FromQuery] string? departmentId)
     {
         var dashboard = await _connectionService.GetDashboardAsync(userId, departmentId);
@@ -32,6 +38,7 @@ public class ConnectionController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [RequiresPermission("ConnectAccount.View")]
     public async Task<IActionResult> GetById(int id)
     {
         var connection = await _connectionService.GetByIdAsync(id);
@@ -40,6 +47,7 @@ public class ConnectionController : ControllerBase
     }
 
     [HttpPost]
+    [RequiresPermission("ConnectAccount.Connect")]
     public async Task<IActionResult> Create([FromBody] CreateConnectionRequest request)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -48,6 +56,7 @@ public class ConnectionController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequiresPermission("ConnectAccount.Edit")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateConnectionRequest request)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -63,6 +72,7 @@ public class ConnectionController : ControllerBase
     }
 
     [HttpPost("{id}/disconnect")]
+    [RequiresPermission("ConnectAccount.Disconnect")]
     public async Task<IActionResult> Disconnect(int id)
     {
         var success = await _connectionService.SoftDisconnectAsync(id);
@@ -70,6 +80,7 @@ public class ConnectionController : ControllerBase
     }
 
     [HttpPost("{id}/reconnect")]
+    [RequiresPermission("ConnectAccount.Connect")]
     public async Task<IActionResult> Reconnect(int id)
     {
         var success = await _connectionService.ReconnectAsync(id);
@@ -77,6 +88,7 @@ public class ConnectionController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequiresPermission("ConnectAccount.Delete")]
     public async Task<IActionResult> Delete(int id)
     {
         var success = await _connectionService.SoftDeleteAsync(id);

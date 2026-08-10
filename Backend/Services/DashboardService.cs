@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Caching.Memory;
 using WhatsAppCampaignApi.Models.DTOs;
 using WhatsAppCampaignApi.Services.Interfaces;
 
@@ -15,6 +17,7 @@ namespace WhatsAppCampaignApi.Services
         private readonly IHealthLogRepository _healthLogRepository;
         private readonly IMetaGraphService _metaGraphService;
         private readonly WhatsAppCampaignApi.Data.AppDbContext _dbContext;
+        private readonly IMemoryCache _cache;
 
         public DashboardService(
             IWabaRepository wabaRepository,
@@ -22,8 +25,10 @@ namespace WhatsAppCampaignApi.Services
             IPhoneRepository phoneRepository,
             IHealthLogRepository healthLogRepository,
             IMetaGraphService metaGraphService,
-            WhatsAppCampaignApi.Data.AppDbContext dbContext)
+            WhatsAppCampaignApi.Data.AppDbContext dbContext,
+            IMemoryCache cache)
         {
+            _cache = cache;
             _wabaRepository = wabaRepository;
             _businessRepository = businessRepository;
             _phoneRepository = phoneRepository;
@@ -60,8 +65,21 @@ namespace WhatsAppCampaignApi.Services
 
             var tokenInfo = new TokenInfoDto { IsValid = false };
 
-            // Call Meta Graph debug token to fetch scopes, type, application name, expiration, etc.
-            string debugJson = await _metaGraphService.DebugTokenAsync(config.AccessToken, config.FacebookAppId, config.FacebookAppSecret);
+            // Meta Graph debug-token call, for scopes / app name / expiry. Cached because this
+            // sits on a GET that several pages hit on mount, and the answer only changes when
+            // the token itself does.
+            //
+            // The cache key is a hash prefix of the token, never the token: a secret must not
+            // end up as a key in an in-memory store, and hashing also means a rotated token
+            // naturally misses instead of serving the old token's scopes.
+            var tokenFingerprint = Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(config.AccessToken)))[..16];
+
+            string debugJson = await _cache.GetOrCreateAsync($"Meta_DebugToken_{tokenFingerprint}", async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15);
+                return await _metaGraphService.DebugTokenAsync(config.AccessToken, config.FacebookAppId, config.FacebookAppSecret);
+            }) ?? string.Empty;
             try
             {
                 using var doc = JsonDocument.Parse(debugJson);

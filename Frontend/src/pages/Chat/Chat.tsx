@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
 import toast from 'react-hot-toast'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import { aiReplyService, type CannedReply } from '../../services/setup/aiReplyService'
 import {
   AlertCircle,
   AlertTriangle,
@@ -11,6 +12,7 @@ import {
   Clock,
   Clock3,
   FileText,
+  MessageSquareReply,
   Info,
   Link2,
   MessageCircle,
@@ -26,7 +28,8 @@ import {
   Trash2,
   Calendar,
   Users,
-  Phone
+  Phone,
+  Lock
 } from 'lucide-react'
 import { Avatar } from '../../components/Avatar/Avatar'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
@@ -34,11 +37,16 @@ import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { useChatStore } from '../../store/chatStore'
 import { useConnectionStore } from '../../store/connectionStore'
 import { campaignService } from '../../services/campaigns/campaignService'
-import { wabaService } from '../../services/waba/wabaService'
 import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
 import { apiClient } from '../../services/apiClient'
 import type { Message } from '../../types/chat'
 import './Chat.css'
+import Can from '../../components/Can/Can'
+import usePermission from '../../hooks/usePermission'
+import { resolveMediaUrl } from '../../utils/mediaUrl'
+import { buildLookupMap, resolveLookup, badgeStyleFor, type ResolvedLookup } from '../../utils/lookupColors'
+import { contactService } from '../../services/contacts/contactService'
+import type { ContactType } from '../../types/contacts'
 
 const EMOJIS = [
   '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇',
@@ -53,19 +61,39 @@ const EMOJIS = [
   '🔥', '✨', '🎉', '🚀', '💡', '💯', '💬', '📞', '🔔', '🔒'
 ]
 
-const getFullMediaUrl = (url: string | null | undefined) => {
-  if (!url) return '';
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
-    return url;
-  }
-  const base = apiClient.defaults.baseURL || 'http://localhost:5155/api';
-  const cleanBase = base.endsWith('/api') ? base.slice(0, -4) : base;
-  return `${cleanBase}${url.startsWith('/') ? '' : '/'}${url}`;
-};
+// Chat had the only working copy of this logic. It now lives in utils/mediaUrl so avatars and
+// any future backend-served media resolve the same way instead of each site re-deriving it.
+const getFullMediaUrl = resolveMediaUrl
 
 export const Chat: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
+  const { has } = usePermission()
+  const canSend = has('Chat.Send')
+  const canDelete = has('Chat.Delete')
+
+  // WhatsApp-style message selection. `msgMenu` holds the right-click target and where to
+  // anchor the menu; `selectionMode` switches the thread into multi-select.
+  // Contact types, fetched once. Resolving the badge client-side keeps the join off the
+  // conversation query, which is the hottest read in the app.
+  const [contactTypes, setContactTypes] = useState<ContactType[]>([])
+  const typeMap = useMemo(() => buildLookupMap(contactTypes), [contactTypes])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setContactTypes(await contactService.getContactTypes())
+      } catch {
+        // A failed lookup only costs the badge its colour; the conversation list still renders.
+      }
+    })()
+  }, [])
+
+  const [msgMenu, setMsgMenu] = useState<{ id: number; x: number; y: number } | null>(null)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedMessageIds, setSelectedMessageIds] = useState<number[]>([])
+  const [confirmDeleteMessages, setConfirmDeleteMessages] = useState(false)
+  const longPressTimer = useRef<number | null>(null)
   const { connections, fetchDashboard: fetchConnectionDashboard } = useConnectionStore()
   const {
     accounts,
@@ -86,6 +114,7 @@ export const Chat: React.FC = () => {
     selectConversation,
     sendMessage,
     deleteActiveConversation,
+    deleteMessages,
     setFromNumber,
     setConversationsFilter,
     setSidebarSearchQuery
@@ -104,6 +133,8 @@ export const Chat: React.FC = () => {
 
   // Popover & Upload States
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [showCannedReplies, setShowCannedReplies] = useState(false)
+  const [cannedReplies, setCannedReplies] = useState<CannedReply[]>([])
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false)
   const [uploadingMedia, setUploadingMedia] = useState(false)
   const mediaFileInputRef = useRef<HTMLInputElement>(null)
@@ -165,12 +196,21 @@ export const Chat: React.FC = () => {
     setSelectedConnectionId(firstConnected ? firstConnected.id : connections[0].id)
   }, [connections, selectedConnectionId, setSelectedConnectionId])
 
+  // Accounts change only when someone connects or disconnects a WABA, which the connection
+  // store already triggers a reload for. Retry a few times on a cold start, then stop —
+  // this used to poll indefinitely whenever the list came back empty.
   useEffect(() => {
     if (accounts.length > 0) return
 
+    let attempts = 0
     const interval = window.setInterval(() => {
+      if (attempts >= ACCOUNT_RETRY_LIMIT) {
+        window.clearInterval(interval)
+        return
+      }
+      attempts += 1
       loadAccounts()
-    }, 5000)
+    }, ACCOUNT_RETRY_MS)
 
     return () => window.clearInterval(interval)
   }, [accounts.length, loadAccounts])
@@ -183,22 +223,46 @@ export const Chat: React.FC = () => {
     return () => window.clearTimeout(timeout)
   }, [sidebarSearchQuery, conversationsFilter, loadConversations])
 
+  // Two independent streams at different cadences, replacing a single 2-second timer that
+  // refreshed whichever was in front. The open conversation is small and cheap, so it stays
+  // near-live; the conversation list is the expensive one, so it ticks slowly.
+  //
+  // Both pause when the tab is hidden — a background tab polling every 2 seconds was a large
+  // share of the load for no one's benefit — and catch up immediately on return.
   useEffect(() => {
     const selectedConn = connections.find(c => c.id === selectedConnectionId)
-    if (selectedConn && !selectedConn.phoneNumber) {
-      return
+    if (selectedConn && !selectedConn.phoneNumber) return
+    if (!activeConversationId) return
+
+    const tick = () => {
+      if (document.visibilityState === 'visible') refreshActiveMessages()
     }
 
-    const interval = window.setInterval(() => {
-      if (activeConversationId) {
-        refreshActiveMessages()
-      } else if (conversations.length > 0) {
-        loadConversations()
-      }
-    }, 2000)
+    const interval = window.setInterval(tick, ACTIVE_THREAD_POLL_MS)
+    document.addEventListener('visibilitychange', tick)
 
-    return () => window.clearInterval(interval)
-  }, [activeConversationId, refreshActiveMessages, loadConversations, connections, selectedConnectionId, conversations.length])
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [activeConversationId, refreshActiveMessages, connections, selectedConnectionId])
+
+  useEffect(() => {
+    const selectedConn = connections.find(c => c.id === selectedConnectionId)
+    if (selectedConn && !selectedConn.phoneNumber) return
+
+    const tick = () => {
+      if (document.visibilityState === 'visible') loadConversations()
+    }
+
+    const interval = window.setInterval(tick, INBOX_POLL_MS)
+    document.addEventListener('visibilitychange', tick)
+
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [loadConversations, connections, selectedConnectionId])
 
   // "Latest requested contact wins, exactly once" guard. Without this, since the
   // ?contactId= param was never cleared, ANY change to activeConversationId (including
@@ -266,13 +330,9 @@ export const Chat: React.FC = () => {
     })
   }, [conversations, conversationsFilter, sidebarSearchQuery])
 
-  useEffect(() => {
-    if (selectedConnectionId) {
-      wabaService.getDashboard(selectedConnectionId).catch(() => {})
-    } else {
-      wabaService.getDashboard().catch(() => {})
-    }
-  }, [selectedConnectionId])
+  // The daily message-limit cache is no longer warmed here. This effect fired on every
+  // connection change and made blocking Meta Graph calls that nothing on this page consumed;
+  // the limit is checked at send time via checkLimitFast, which fetches on a cache miss.
 
   // 1. Template Modal
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
@@ -540,6 +600,79 @@ export const Chat: React.FC = () => {
     await sendMessage(text)
   }
 
+  // --- Message selection & deletion (WhatsApp-style) -------------------------------------
+
+  const exitSelection = () => {
+    setSelectionMode(false)
+    setSelectedMessageIds([])
+    setMsgMenu(null)
+  }
+
+  // Leaving a conversation must drop the selection: keeping ids across a switch would let a
+  // confirmed delete hit messages the user is no longer looking at.
+  useEffect(() => {
+    exitSelection()
+  }, [activeConversationId])
+
+  const toggleMessageSelected = (id: number) => {
+    setSelectedMessageIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
+  const openMessageMenu = (event: React.MouseEvent, id: number) => {
+    if (!canDelete) return
+    event.preventDefault()
+    setMsgMenu({ id, x: event.clientX, y: event.clientY })
+  }
+
+  // Touch has no right-click, so a ~500ms press opens the same menu. The timer is cleared on
+  // move as well as release, or scrolling the thread would trigger it.
+  const startLongPress = (event: React.TouchEvent, id: number) => {
+    if (!canDelete) return
+    const touch = event.touches[0]
+    longPressTimer.current = window.setTimeout(() => {
+      setMsgMenu({ id, x: touch.clientX, y: touch.clientY })
+    }, 500)
+  }
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current !== null) {
+      window.clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }
+
+  useEffect(() => cancelLongPress, [])
+
+  // Any click outside the menu dismisses it, matching every other popover in the app.
+  useEffect(() => {
+    if (!msgMenu) return
+    const dismiss = () => setMsgMenu(null)
+    document.addEventListener('click', dismiss)
+    document.addEventListener('scroll', dismiss, true)
+    return () => {
+      document.removeEventListener('click', dismiss)
+      document.removeEventListener('scroll', dismiss, true)
+    }
+  }, [msgMenu])
+
+  const handleConfirmDeleteMessages = async () => {
+    try {
+      await deleteMessages(selectedMessageIds)
+      toast.success(
+        selectedMessageIds.length === 1
+          ? 'Message deleted.'
+          : `${selectedMessageIds.length} messages deleted.`
+      )
+      exitSelection()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not delete the messages.')
+    } finally {
+      setConfirmDeleteMessages(false)
+    }
+  }
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
     await sendCurrentMessage()
@@ -580,6 +713,9 @@ export const Chat: React.FC = () => {
       if (showEmojiPicker && !target.closest('.chat-composer-popover-anchor')) {
         setShowEmojiPicker(false)
       }
+      if (showCannedReplies && !target.closest('.chat-composer-popover-anchor')) {
+        setShowCannedReplies(false)
+      }
       if (showAttachmentMenu && !target.closest('.chat-composer-popover-anchor')) {
         setShowAttachmentMenu(false)
       }
@@ -594,7 +730,34 @@ export const Chat: React.FC = () => {
       document.removeEventListener('keydown', handleEscape)
       document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [showEmojiPicker, showAttachmentMenu, showDeleteMenu])
+  }, [showEmojiPicker, showAttachmentMenu, showDeleteMenu, showCannedReplies])
+
+  // Loaded once. activeOnly=true so the composer only offers replies that are switched on —
+  // the management list is where inactive ones remain visible.
+  useEffect(() => {
+    void aiReplyService.getCannedReplies(true).then(setCannedReplies)
+  }, [])
+
+  /**
+   * Inserts a canned reply at the caret rather than replacing the box, so an agent can type a
+   * greeting, drop in a saved paragraph, and keep going.
+   */
+  const insertCannedReply = (text: string) => {
+    const textarea = textareaRef.current
+    const start = textarea?.selectionStart ?? messageText.length
+    const end = textarea?.selectionEnd ?? messageText.length
+
+    const next = messageText.slice(0, start) + text + messageText.slice(end)
+    setMessageText(next)
+    setShowCannedReplies(false)
+
+    // Restore focus and put the caret after the inserted text, once React has committed.
+    requestAnimationFrame(() => {
+      textarea?.focus()
+      const caret = start + text.length
+      textarea?.setSelectionRange(caret, caret)
+    })
+  }
 
   const EmptyStateIllustration = () => (
     <svg className="chat-empty-state-illustration" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -717,9 +880,7 @@ export const Chat: React.FC = () => {
                       <div className="conversation-name-wrap">
                         <span className="conversation-contact-name">{conversation.name}</span>
                       </div>
-                      <span className={`conversation-status-badge ${normalizeBadge(conversation.status)}`}>
-                        {conversation.status || 'contact'}
-                      </span>
+                      <ContactTypeBadge value={conversation.status} typeMap={typeMap} />
                     </div>
                     <div className="conversation-msg-preview-row">
                       <span className="conversation-preview-text">{conversation.lastMessage || 'No messages yet'}</span>
@@ -766,9 +927,7 @@ export const Chat: React.FC = () => {
                 <div>
                   <div className="chat-header-name-row">
                     <span className="conversation-contact-name">{activeConversation.name}</span>
-                    <span className={`conversation-status-badge ${normalizeBadge(activeConversation.status)}`}>
-                      {activeConversation.status || 'contact'}
-                    </span>
+                    <ContactTypeBadge value={activeConversation.status} typeMap={typeMap} />
                   </div>
                   <p className="upload-sub-text margin-zero">{activeConversation.phone}</p>
                 </div>
@@ -816,15 +975,17 @@ export const Chat: React.FC = () => {
                 >
                   <Info size={18} />
                 </button>
-                <button
-                  type="button"
-                  className="chat-icon-btn whatsapp-green"
-                  title="Initiate Chat"
-                  aria-label="Initiate chat with a template"
-                  onClick={handleOpenTemplateModal}
-                >
-                  <MessageSquare size={18} />
-                </button>
+                <Can permission="Chat.InitiateChat">
+                  <button
+                    type="button"
+                    className="chat-icon-btn whatsapp-green"
+                    title="Initiate Chat"
+                    aria-label="Initiate chat with a template"
+                    onClick={handleOpenTemplateModal}
+                  >
+                    <MessageSquare size={18} />
+                  </button>
+                </Can>
 
                 <div className="chat-header-more-menu-wrapper">
                   <button
@@ -903,10 +1064,26 @@ export const Chat: React.FC = () => {
                       const previous = searchedMessages[index - 1]
                       const showDateDivider = shouldShowDateDivider(message, previous)
 
+                      const isSelected = selectedMessageIds.includes(message.id)
+
                       return (
-                        <div key={message.id} className="chat-bubble-row">
+                        <div
+                          key={message.id}
+                          className={`chat-bubble-row${selectionMode ? ' selectable' : ''}${isSelected ? ' selected' : ''}`}
+                          onContextMenu={(e) => openMessageMenu(e, message.id)}
+                          onTouchStart={(e) => startLongPress(e, message.id)}
+                          onTouchEnd={cancelLongPress}
+                          onTouchMove={cancelLongPress}
+                          onClick={selectionMode ? () => toggleMessageSelected(message.id) : undefined}
+                        >
                           {showDateDivider && (
                             <div className="chat-date-divider">{formatDateDivider(message.createdAt)}</div>
+                          )}
+
+                          {selectionMode && (
+                            <span className={`chat-bubble-check${isSelected ? ' checked' : ''}`} aria-hidden="true">
+                              {isSelected && <Check size={12} />}
+                            </span>
                           )}
 
                           <div className={getBubbleClass(message)}>
@@ -990,14 +1167,22 @@ export const Chat: React.FC = () => {
                         </span>
                       </div>
                     </div>
-                    <button 
-                      type="button" 
-                      className="chat-window-limit-btn"
-                      onClick={handleOpenTemplateModal}
-                    >
-                      <MessageSquare size={16} />
-                      <span>Initiate Chat</span>
-                    </button>
+                    <Can permission="Chat.InitiateChat">
+                      <button
+                        type="button"
+                        className="chat-window-limit-btn"
+                        onClick={handleOpenTemplateModal}
+                      >
+                        <MessageSquare size={16} />
+                        <span>Initiate Chat</span>
+                      </button>
+                    </Can>
+                  </div>
+                ) : !canSend ? (
+                  // Read-only viewer: say so rather than showing a composer that 403s on send.
+                  <div className="chat-composer-readonly">
+                    <Lock size={15} />
+                    <span>You have read-only access to this conversation.</span>
                   </div>
                 ) : (
                   <form onSubmit={handleSend} className="chat-composer-container">
@@ -1070,6 +1255,49 @@ export const Chat: React.FC = () => {
                           )}
                         </div>
 
+                        <div className="chat-composer-popover-anchor">
+                          <button
+                            type="button"
+                            className="chat-icon-btn"
+                            title="Canned replies"
+                            aria-label="Canned replies"
+                            onClick={() => {
+                              setShowCannedReplies(!showCannedReplies)
+                              setShowEmojiPicker(false)
+                              setShowAttachmentMenu(false)
+                            }}
+                          >
+                            <MessageSquareReply size={18} />
+                          </button>
+                          {showCannedReplies && (
+                            <div className="canned-replies-popover">
+                              <div className="canned-replies-head">Canned Replies</div>
+                              {cannedReplies.length === 0 ? (
+                                <div className="canned-replies-empty">
+                                  No canned replies yet. Add them under Setup → Canned Reply.
+                                </div>
+                              ) : (
+                                <div className="canned-replies-list">
+                                  {cannedReplies.map((reply) => (
+                                    <button
+                                      key={reply.id}
+                                      type="button"
+                                      className="canned-reply-item"
+                                      onClick={() => insertCannedReply(reply.description)}
+                                    >
+                                      <div className="canned-reply-item-head">
+                                        <span className="canned-reply-title">{reply.title}</span>
+                                        {reply.isPublic && <span className="canned-reply-badge">Public</span>}
+                                      </div>
+                                      <span className="canned-reply-desc">{reply.description}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
                         <button
                           type="button"
                           className="chat-icon-btn"
@@ -1120,9 +1348,7 @@ export const Chat: React.FC = () => {
                     <div className="info-drawer-user-card">
                       <Avatar name={activeConversation.name} size="large" />
                       <span className="info-drawer-name">{activeConversation.name}</span>
-                      <span className={`conversation-status-badge ${normalizeBadge(activeConversation.status)}`}>
-                        {activeConversation.status || 'contact'}
-                      </span>
+                      <ContactTypeBadge value={activeConversation.status} typeMap={typeMap} />
                     </div>
 
                     <div className="info-drawer-section">
@@ -1265,6 +1491,63 @@ export const Chat: React.FC = () => {
         )}
       </div>
 
+      {/* Right-click / long-press menu on a message bubble. Fixed-positioned at the pointer,
+          the way a native context menu behaves. */}
+      {msgMenu && (
+        <div
+          className="chat-message-context-menu"
+          style={{ top: msgMenu.y, left: msgMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+          role="menu"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setSelectedMessageIds([msgMenu.id])
+              setMsgMenu(null)
+              setConfirmDeleteMessages(true)
+            }}
+          >
+            <Trash2 size={14} />
+            <span>Delete message</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setSelectionMode(true)
+              setSelectedMessageIds([msgMenu.id])
+              setMsgMenu(null)
+            }}
+          >
+            <Check size={14} />
+            <span>Select messages</span>
+          </button>
+        </div>
+      )}
+
+      {/* Selection header, shown only while multi-select is active. */}
+      {selectionMode && (
+        <div className="chat-selection-bar">
+          <button type="button" className="chat-selection-close" onClick={exitSelection} aria-label="Cancel selection">
+            <X size={16} />
+          </button>
+          <span className="chat-selection-count">
+            {selectedMessageIds.length} selected
+          </span>
+          <button
+            type="button"
+            className="chat-selection-delete"
+            disabled={selectedMessageIds.length === 0}
+            onClick={() => setConfirmDeleteMessages(true)}
+          >
+            <Trash2 size={15} />
+            <span>Delete</span>
+          </button>
+        </div>
+      )}
+
       {/* Delete Chat Confirmation Modal */}
       <ConfirmationModal
         isOpen={showDeleteChatModal}
@@ -1277,15 +1560,61 @@ export const Chat: React.FC = () => {
         isDestructive={true}
         showWarningIcon={true}
       />
+
+      {/* Says plainly what deletion does and does not do. WhatsApp gives us no way to unsend
+          from the recipient's device, and implying otherwise would be worse than useless. */}
+      <ConfirmationModal
+        isOpen={confirmDeleteMessages}
+        title={selectedMessageIds.length === 1 ? 'Delete message' : `Delete ${selectedMessageIds.length} messages`}
+        message={
+          `This removes ${selectedMessageIds.length === 1 ? 'the message' : 'these messages'} from OmniConnect only. ` +
+          'The recipient still has their copy on WhatsApp — this cannot unsend it.'
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={handleConfirmDeleteMessages}
+        onCancel={() => setConfirmDeleteMessages(false)}
+        isDestructive={true}
+        showWarningIcon={true}
+      />
     </motion.div>
   )
 }
 
-const normalizeBadge = (status: string) => {
-  const lower = status?.toLowerCase()
-  if (lower === 'lead') return 'lead'
-  if (lower === 'customer') return 'customer'
-  return 'guest'
+/**
+ * Polling cadences, named rather than sprinkled as literals.
+ *
+ * The open conversation is a small indexed read, so it can stay near-live. The conversation
+ * list is the expensive one — it joins contacts, groups and connections for every row — so it
+ * ticks far more slowly. Both were previously a single 2000ms timer, which meant the expensive
+ * query ran thirty times a minute per open tab.
+ *
+ * These are the seam for real-time push: replacing the timers with a subscription is a change
+ * to this file only.
+ */
+const ACTIVE_THREAD_POLL_MS = 3000
+const INBOX_POLL_MS = 15000
+const ACCOUNT_RETRY_MS = 5000
+const ACCOUNT_RETRY_LIMIT = 6
+
+/**
+ * Renders a contact's type using the label and colour configured in Setup → Type.
+ *
+ * This replaces a `normalizeBadge` helper that hardcoded `lead`/`customer`/`guest`, so every
+ * type an administrator added rendered as "guest" in a grey pill. The value arriving from the
+ * API is the type's stored Value, which is exactly the key the lookup map is built on.
+ */
+const ContactTypeBadge: React.FC<{
+  value?: string | null
+  typeMap: Map<string, ResolvedLookup>
+}> = ({ value, typeMap }) => {
+  if (!value) return null
+  const resolved = resolveLookup(typeMap, value)
+  return (
+    <span className="conversation-status-badge" style={badgeStyleFor(resolved.color)}>
+      {resolved.name}
+    </span>
+  )
 }
 
 const getBubbleClass = (message: Message) => {

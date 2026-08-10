@@ -14,10 +14,12 @@ namespace WhatsAppCampaignApi.Services;
 public class BotFlowService : IBotFlowService
 {
     private readonly AppDbContext _dbContext;
+    private readonly IAuditService _auditService;
 
-    public BotFlowService(AppDbContext dbContext)
+    public BotFlowService(AppDbContext dbContext, IAuditService auditService)
     {
         _dbContext = dbContext;
+        _auditService = auditService;
     }
 
     public async Task<PagedResponse<BotFlowResponse>> GetPagedAsync(
@@ -98,6 +100,13 @@ public class BotFlowService : IBotFlowService
 
         await SyncNodesAndEdgesAsync(flow);
 
+        // Audited after the node/edge sync so the entry means "the flow exists and is complete",
+        // not "a row was inserted".
+        await _auditService.LogAsync(
+            "BotFlow.Created", "Data",
+            $"Created bot flow \"{flow.Name}\".",
+            "BotFlow", flow.Id.ToString());
+
         return MapToResponse(flow);
     }
 
@@ -129,6 +138,11 @@ public class BotFlowService : IBotFlowService
         await _dbContext.SaveChangesAsync();
 
         await SyncNodesAndEdgesAsync(flow);
+
+        await _auditService.LogAsync(
+            "BotFlow.Updated", "Data",
+            $"Updated bot flow \"{flow.Name}\".",
+            "BotFlow", flow.Id.ToString());
 
         return MapToResponse(flow);
     }
@@ -261,8 +275,18 @@ public class BotFlowService : IBotFlowService
             return false;
         }
 
+        // Captured before Remove: after SaveChanges the entity is detached and Id reads 0.
+        var flowName = flow.Name;
+        var flowId = flow.Id;
+
         _dbContext.BotFlows.Remove(flow);
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "BotFlow.Deleted", "Data",
+            $"Deleted bot flow \"{flowName}\".",
+            "BotFlow", flowId.ToString());
+
         return true;
     }
 
@@ -279,6 +303,11 @@ public class BotFlowService : IBotFlowService
 
         _dbContext.BotFlows.Entry(flow).State = EntityState.Modified;
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "BotFlow.StatusChanged", "Data",
+            $"Set bot flow \"{flow.Name}\" to {(flow.IsActive ? "active" : "inactive")}.",
+            "BotFlow", flow.Id.ToString());
 
         return MapToResponse(flow);
     }

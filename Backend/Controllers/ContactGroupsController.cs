@@ -1,12 +1,16 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Groups;
 using WhatsAppCampaignApi.Services.Interfaces;
 
+using WhatsAppCampaignApi.Helpers;
+
 namespace WhatsAppCampaignApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class ContactGroupsController : ControllerBase
 {
     private readonly IContactGroupService _groupService;
@@ -17,6 +21,7 @@ public class ContactGroupsController : ControllerBase
     }
 
     [HttpGet]
+    [RequiresPermission("ContactGroup.View")]
     public async Task<ActionResult<ApiResponse<PagedResponse<GroupResponse>>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? search = null)
     {
         var request = new PagedRequest { Page = page, PageSize = pageSize, Search = search };
@@ -25,6 +30,7 @@ public class ContactGroupsController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [RequiresPermission("ContactGroup.View")]
     public async Task<ActionResult<ApiResponse<GroupResponse>>> GetById(int id)
     {
         var data = await _groupService.GetByIdAsync(id);
@@ -32,6 +38,7 @@ public class ContactGroupsController : ControllerBase
     }
 
     [HttpPost]
+    [RequiresPermission("ContactGroup.Create")]
     public async Task<ActionResult<ApiResponse<GroupResponse>>> Create([FromBody] CreateGroupRequest request)
     {
         var data = await _groupService.CreateAsync(request);
@@ -39,6 +46,7 @@ public class ContactGroupsController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequiresPermission("ContactGroup.Edit")]
     public async Task<ActionResult<ApiResponse<GroupResponse>>> Update(int id, [FromBody] UpdateGroupRequest request)
     {
         var data = await _groupService.UpdateAsync(id, request);
@@ -46,6 +54,7 @@ public class ContactGroupsController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequiresPermission("ContactGroup.Delete")]
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {
         await _groupService.DeleteAsync(id);
@@ -53,6 +62,7 @@ public class ContactGroupsController : ControllerBase
     }
 
     [HttpPost("{id}/members")]
+    [RequiresPermission("ContactGroup.Edit")]
     public async Task<ActionResult<ApiResponse>> AddMembers(int id, [FromBody] GroupMembersRequest request)
     {
         await _groupService.AddMembersAsync(id, request);
@@ -60,6 +70,7 @@ public class ContactGroupsController : ControllerBase
     }
 
     [HttpDelete("{id}/members")]
+    [RequiresPermission("ContactGroup.Edit")]
     public async Task<ActionResult<ApiResponse>> RemoveMembers(int id, [FromBody] GroupMembersRequest request)
     {
         await _groupService.RemoveMembersAsync(id, request);

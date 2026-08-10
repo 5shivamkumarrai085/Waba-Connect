@@ -48,6 +48,18 @@ public class ChatMessage
     public DateTime? SentAt { get; set; }
     public DateTime? DeliveredAt { get; set; }
     public DateTime? ReadAt { get; set; }
+    /// <summary>
+    /// Soft delete. Deleting a message here removes it from OmniConnect only — WhatsApp gives us
+    /// no way to unsend from the recipient's phone — so the row is kept both to make the action
+    /// recoverable and so the audit trail can still point at something real.
+    /// </summary>
+    public bool IsDeleted { get; set; }
+
+    public DateTime? DeletedAt { get; set; }
+
+    /// <summary>Null when a message is removed by something other than a signed-in user.</summary>
+    public int? DeletedByUserId { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

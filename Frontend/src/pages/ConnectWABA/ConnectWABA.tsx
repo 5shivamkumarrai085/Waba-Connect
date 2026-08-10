@@ -14,6 +14,8 @@ import toast from 'react-hot-toast'
 import { QrCode, HelpCircle, Key, Send, Globe, Link2, Unlink, RefreshCw, XCircle, Eye, EyeOff, Camera } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import './ConnectWABA.css'
+import Can from '../../components/Can/Can'
+import usePermission from '../../hooks/usePermission'
 
 const formatIssuedAt = (dateStr?: string) => {
   if (!dateStr) return ''
@@ -42,6 +44,12 @@ export const ConnectWABA: React.FC = () => {
   const [searchParams] = useSearchParams()
   const connectionIdParam = searchParams.get('connectionId')
   const connectionId = connectionIdParam ? Number(connectionIdParam) : undefined
+
+  // The page is reachable on ConnectAccount.View, so each control is gated to the permission
+  // its own endpoint enforces rather than assuming everyone here can manage the connection.
+  const { has, hasAny } = usePermission()
+  const canManageConnection = hasAny(['ConnectAccount.Edit', 'ConnectAccount.Connect'])
+  const canConfigure = has('ConnectAccount.Connect')
 
   const [isQrModalOpen, setIsQrModalOpen] = useState(false)
 
@@ -175,7 +183,9 @@ export const ConnectWABA: React.FC = () => {
   }
 
   const handleRefreshHealth = async () => {
-    await refreshHealth()
+    // connectionId is required: without it the store falls back to the active connection and
+    // silently refreshes a different account than the one on screen.
+    await refreshHealth(connectionId)
     toast.success('Health status refreshed!')
   }
 
@@ -220,20 +230,32 @@ export const ConnectWABA: React.FC = () => {
               <QrCode size={16} />
               <span>Click to get QR Code</span>
             </button>
-            <button
-              type="button"
-              className="btn-top-action btn-disconnect"
-              onClick={handleDisconnectClick}
-            >
-              <XCircle size={16} />
-              <span>Disconnect Account</span>
-            </button>
+            <Can permission="ConnectAccount.Disconnect">
+              <button
+                type="button"
+                className="btn-top-action btn-disconnect"
+                onClick={handleDisconnectClick}
+              >
+                <XCircle size={16} />
+                <span>Disconnect Account</span>
+              </button>
+            </Can>
           </div>
         )}
       </div>
 
-      {/* Disconnected Form Setup view */}
-      {!isConnected ? (
+      {/* Disconnected: the setup wizard, but only for someone who can actually connect. A
+          view-only role landing on a disconnected account gets an explanation rather than a
+          form whose every submit would 403. */}
+      {!isConnected && !canConfigure ? (
+        <div className="waba-setup-card">
+          <h3 className="waba-setup-title">This account is not connected</h3>
+          <p className="waba-hint-text">
+            Connecting a WhatsApp Business Account requires the Connect Account permission.
+            Ask an administrator to set this connection up.
+          </p>
+        </div>
+      ) : !isConnected ? (
         <div className="waba-layout-grid">
           {/* Setup steps */}
           <div>
@@ -474,7 +496,13 @@ export const ConnectWABA: React.FC = () => {
 
               <div className="form-group">
                 <label className="waba-input-label">Access token</label>
-                <CopyField value={tokenInfo?.token || ''} isSensitive={true} />
+                {/* Read-only roles see that a token exists and nothing more — no reveal, no
+                    copy. It can send messages as the business. */}
+                <CopyField
+                  value={tokenInfo?.token || ''}
+                  isSensitive={true}
+                  allowReveal={canManageConnection}
+                />
               </div>
 
               <div className="form-group">
@@ -504,7 +532,8 @@ export const ConnectWABA: React.FC = () => {
               </div>
             </div>
 
-            {/* Send Test Message */}
+            {/* Send Test Message — the endpoint is POST /api/waba/send-message, gated Chat.Send */}
+            <Can permission="Chat.Send">
             <div className="waba-setup-card">
               <div className="waba-card-icon-header">
                 <div className="waba-card-icon-box green-theme">
@@ -541,38 +570,48 @@ export const ConnectWABA: React.FC = () => {
                 </div>
               </form>
             </div>
+            </Can>
 
-            {/* Verify Webhook */}
-            <div className="waba-setup-card">
-              <div className="waba-card-icon-header">
-                <div className="waba-card-icon-box purple-theme">
-                  <Globe size={18} />
+            {/* Verify Webhook — POST /api/waba/verify-webhook, gated ConnectAccount.Connect */}
+            <Can permission="ConnectAccount.Connect">
+              <div className="waba-setup-card">
+                <div className="waba-card-icon-header">
+                  <div className="waba-card-icon-box purple-theme">
+                    <Globe size={18} />
+                  </div>
+                  <h3 className="waba-card-title">Verify Webhook</h3>
                 </div>
-                <h3 className="waba-card-title">Verify Webhook</h3>
-              </div>
 
-              <button
-                type="button"
-                className="purple-btn-webhook-verify"
-                onClick={handleVerifyWebhook}
-                disabled={isVerifyingWebhook}
-              >
-                <span>{isVerifyingWebhook ? 'Verifying...' : 'Verify Webhook'}</span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  className="purple-btn-webhook-verify"
+                  onClick={handleVerifyWebhook}
+                  disabled={isVerifyingWebhook}
+                >
+                  <span>{isVerifyingWebhook ? 'Verifying...' : 'Verify Webhook'}</span>
+                </button>
+              </div>
+            </Can>
           </div>
 
           {/* Connected Phone & Health Cards details */}
           <div>
+            {/* Both cards stay readable for everyone; omitting the callbacks is what removes
+                the editable message limit and the refresh button. Both endpoints behind them
+                are ConnectAccount.Connect. */}
             <PhoneCard
               phoneInfo={phoneInfo}
-              onUpdateLimit={async (newLimit: number) => {
-                const res = await updateMessageLimit(newLimit, connectionId)
-                return res
-              }}
+              onUpdateLimit={
+                canConfigure
+                  ? async (newLimit: number) => updateMessageLimit(newLimit, connectionId)
+                  : undefined
+              }
             />
             <div className="waba-cards-grid margin-top-20">
-              <HealthCard healthInfo={healthInfo} onRefresh={handleRefreshHealth} />
+              <HealthCard
+                healthInfo={healthInfo}
+                onRefresh={canConfigure ? handleRefreshHealth : undefined}
+              />
             </div>
           </div>
         </div>

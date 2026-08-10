@@ -34,24 +34,31 @@ export interface Contact {
   tags?: string
 }
 
+// Across all four: `id` carries the lookup's immutable Value — what the contact row actually
+// stores — `name` the editable label, and `color` the hex chosen in Setup. A null colour falls
+// back to the CSS-class treatment in StatusBadge.
 export interface ContactStatus {
   id: string
   name: string
+  color?: string | null
 }
 
 export interface ContactType {
   id: string
   name: string
+  color?: string | null
 }
 
 export interface ContactSource {
   id: string
   name: string
+  color?: string | null
 }
 
 export interface ContactGroup {
   id: string
   name: string
+  color?: string | null
 }
 
 export interface ContactLanguage {

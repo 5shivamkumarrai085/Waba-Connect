@@ -14,10 +14,12 @@ namespace WhatsAppCampaignApi.Services;
 public class MessageBotService : IMessageBotService
 {
     private readonly AppDbContext _dbContext;
+    private readonly IAuditService _auditService;
 
-    public MessageBotService(AppDbContext dbContext)
+    public MessageBotService(AppDbContext dbContext, IAuditService auditService)
     {
         _dbContext = dbContext;
+        _auditService = auditService;
     }
 
     public async Task<PagedResponse<MessageBotResponse>> GetPagedAsync(
@@ -165,6 +167,13 @@ public class MessageBotService : IMessageBotService
         _dbContext.MessageBots.Add(bot);
         await _dbContext.SaveChangesAsync();
 
+        // Audited after the save: AuditService shares this scoped DbContext, so logging first
+        // would commit the half-built bot along with the audit row.
+        await _auditService.LogAsync(
+            "MessageBot.Created", "Data",
+            $"Created message bot \"{bot.Name}\".",
+            "MessageBot", bot.Id.ToString());
+
         return MapToResponse(bot);
     }
 
@@ -220,6 +229,11 @@ public class MessageBotService : IMessageBotService
         _dbContext.MessageBots.Entry(bot).State = EntityState.Modified;
         await _dbContext.SaveChangesAsync();
 
+        await _auditService.LogAsync(
+            "MessageBot.Updated", "Data",
+            $"Updated message bot \"{bot.Name}\".",
+            "MessageBot", bot.Id.ToString());
+
         return MapToResponse(bot);
     }
 
@@ -231,8 +245,18 @@ public class MessageBotService : IMessageBotService
             return false;
         }
 
+        // Captured before Remove: after SaveChanges the entity is detached and Id reads 0.
+        var botName = bot.Name;
+        var botId = bot.Id;
+
         _dbContext.MessageBots.Remove(bot);
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "MessageBot.Deleted", "Data",
+            $"Deleted message bot \"{botName}\".",
+            "MessageBot", botId.ToString());
+
         return true;
     }
 
@@ -291,6 +315,11 @@ public class MessageBotService : IMessageBotService
         _dbContext.MessageBots.Add(clonedBot);
         await _dbContext.SaveChangesAsync();
 
+        await _auditService.LogAsync(
+            "MessageBot.Cloned", "Data",
+            $"Cloned message bot \"{bot.Name}\" as \"{clonedBot.Name}\".",
+            "MessageBot", clonedBot.Id.ToString());
+
         return MapToResponse(clonedBot);
     }
 
@@ -307,6 +336,11 @@ public class MessageBotService : IMessageBotService
 
         _dbContext.MessageBots.Entry(bot).State = EntityState.Modified;
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "MessageBot.StatusChanged", "Data",
+            $"Set message bot \"{bot.Name}\" to {(bot.IsActive ? "active" : "inactive")}.",
+            "MessageBot", bot.Id.ToString());
 
         return MapToResponse(bot);
     }

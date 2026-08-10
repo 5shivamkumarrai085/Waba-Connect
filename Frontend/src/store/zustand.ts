@@ -105,6 +105,14 @@ interface ReportingStoreState {
   isBackgroundSyncing: boolean
   setIsLoading: (loading: boolean) => void
   loadReportingData: (forceShowSkeleton?: boolean) => Promise<void>
+  /**
+   * Drops the per-time-filter metric cache and refetches if the page is mounted.
+   *
+   * Reporting metrics are derived from campaigns, so a campaign created or deleted elsewhere
+   * makes every cached filter wrong. Without this, `metricsCache` is kept for the life of the
+   * session and the Reporting page would keep showing pre-change numbers.
+   */
+  invalidate: () => void
 }
 
 export const useReportingStore = create<ReportingStoreState>((set, get) => ({
@@ -162,6 +170,14 @@ export const useReportingStore = create<ReportingStoreState>((set, get) => ({
       console.error('Error fetching reporting logs data:', err)
       set({ isLoading: false, isBackgroundSyncing: false })
     }
+  },
+
+  invalidate: () => {
+    const hadData = Object.keys(get().metricsCache).length > 0
+    set({ metricsCache: {}, accuracyRecords: null, freshnessRecords: null })
+    // Only refetch for a session that has actually opened Reporting; otherwise clearing the
+    // cache is enough and the next visit loads fresh.
+    if (hadData) void get().loadReportingData()
   }
 }))
 
@@ -175,11 +191,13 @@ interface ActivityLogStoreState {
   setSearchQuery: (query: string) => void
   setActivityTimeFilter: (filter: 'today' | 'yesterday' | 'week' | 'month' | 'all') => void
   
-  // Cache fields
+  // Cache fields. Keyed by `${filter}|${search}` — keying the tables by search alone meant
+  // switching the time filter returned a stale hit from the other period.
   metricsCache: Record<string, any[]>
   successesCache: Record<string, any[]>
+  errorsCache: Record<string, any[]>
   auditsCache: Record<string, any[]>
-  
+
   isLoading: boolean
   isBackgroundSyncing: boolean
   setIsLoading: (loading: boolean) => void
@@ -201,18 +219,29 @@ export const useActivityLogStore = create<ActivityLogStoreState>((set, get) => (
   },
   metricsCache: {},
   successesCache: {},
+  errorsCache: {},
   auditsCache: {},
   isLoading: false,
   isBackgroundSyncing: false,
   setIsLoading: (isLoading) => set({ isLoading }),
   loadActivityData: async (forceShowSkeleton = false) => {
-    const { activityTimeFilter, searchQuery, metricsCache, successesCache, auditsCache } = get()
-    
+    const {
+      activityTimeFilter,
+      searchQuery,
+      metricsCache,
+      successesCache,
+      errorsCache,
+      auditsCache
+    } = get()
+
+    const key = `${activityTimeFilter}|${searchQuery}`
+
     // We check if we have cache for the current parameters
-    const hasCache = metricsCache[activityTimeFilter] && 
-                     successesCache[searchQuery] && 
-                     auditsCache[searchQuery]
-                     
+    const hasCache = metricsCache[activityTimeFilter] &&
+                     successesCache[key] &&
+                     errorsCache[key] &&
+                     auditsCache[key]
+
     if (!hasCache || forceShowSkeleton) {
       set({ isLoading: true })
     } else {
@@ -223,19 +252,20 @@ export const useActivityLogStore = create<ActivityLogStoreState>((set, get) => (
       const [
         fetchedMetrics,
         fetchedSuccesses,
-        , // skipped unused fetchedErrors
+        fetchedErrors,
         fetchedAudits
       ] = await Promise.all([
         activityLogService.getActivityMetrics(activityTimeFilter),
-        activityLogService.getLoginSuccesses(searchQuery),
-        activityLogService.getLoginErrors(searchQuery),
-        activityLogService.getAuditLogs(searchQuery)
+        activityLogService.getLoginSuccesses(searchQuery, activityTimeFilter),
+        activityLogService.getLoginErrors(searchQuery, activityTimeFilter),
+        activityLogService.getAuditLogs(searchQuery, activityTimeFilter)
       ])
 
       set((state) => ({
         metricsCache: { ...state.metricsCache, [activityTimeFilter]: fetchedMetrics },
-        successesCache: { ...state.successesCache, [searchQuery]: fetchedSuccesses },
-        auditsCache: { ...state.auditsCache, [searchQuery]: fetchedAudits },
+        successesCache: { ...state.successesCache, [key]: fetchedSuccesses },
+        errorsCache: { ...state.errorsCache, [key]: fetchedErrors },
+        auditsCache: { ...state.auditsCache, [key]: fetchedAudits },
         isLoading: false,
         isBackgroundSyncing: false
       }))

@@ -15,21 +15,21 @@ import {
   Bot,
   GitFork,
   MessageCircle,
-  Settings,
   Sliders,
   Cpu,
-  Shield,
-  ShieldCheck,
   ChevronLeft,
   ChevronRight,
   Menu,
   X
 } from 'lucide-react'
+import usePermission from '../hooks/usePermission'
 
 interface MenuItem {
   name: string
   path: string
   icon: React.ComponentType<any>
+  /** Hide this item unless the signed-in user holds the key. Omit to always show. */
+  permission?: string
 }
 
 interface MenuSection {
@@ -40,6 +40,7 @@ interface MenuSection {
 export const Sidebar: React.FC = () => {
   const { isCollapsed, toggleSidebar, setCollapsed } = useSidebarStore()
   const location = useLocation()
+  const { has } = usePermission()
 
   // Auto-close sidebar on route change on mobile/tablet
   useEffect(() => {
@@ -78,7 +79,10 @@ export const Sidebar: React.FC = () => {
       '/bulk-campaigns': () => import('../pages/BulkCampaign/BulkCampaign'),
       '/chat': () => import('../pages/Chat/Chat'),
       '/template-bot': () => import('../pages/TemplateBot/TemplateBotList'),
-      '/bot-flow': () => import('../pages/BotFlow/BotFlowList')
+      '/bot-flow': () => import('../pages/BotFlow/BotFlowList'),
+      '/message-bot': () => import('../pages/MessageBot/MessageBotList'),
+      '/connections': () => import('../pages/Connections/ConnectionsList'),
+      '/setup': () => import('../pages/Setup/SetupLayout')
     }
     if (loadFns[path]) {
       loadFns[path]().catch(() => {})
@@ -88,56 +92,61 @@ export const Sidebar: React.FC = () => {
   const menuSections: MenuSection[] = [
     {
       items: [
-        { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-        { name: 'Reporting', path: '/reporting', icon: BarChart3 },
-        { name: 'Activity Logs', path: '/activity-logs', icon: History },
+        { name: 'Dashboard', path: '/', icon: LayoutDashboard, permission: 'Dashboard.View' },
+        { name: 'Reporting', path: '/reporting', icon: BarChart3, permission: 'Reporting.View' },
+        { name: 'Activity Logs', path: '/activity-logs', icon: History, permission: 'ActivityLog.View' },
       ]
     },
     {
       title: 'Contact',
       items: [
-        { name: 'Contact', path: '/contacts', icon: Users },
+        { name: 'Contact', path: '/contacts', icon: Users, permission: 'Contact.View' },
       ]
     },
     {
       title: 'Templates',
       items: [
-        { name: 'Templates', path: '/templates', icon: FileText },
+        { name: 'Templates', path: '/templates', icon: FileText, permission: 'Template.View' },
       ]
     },
     {
       title: 'Marketing',
       items: [
-        { name: 'Campaign', path: '/campaigns/campaign', icon: Megaphone },
-        { name: 'Bulk Campaign', path: '/bulk-campaigns', icon: Layers },
-        { name: 'Message Bot', path: '/message-bot', icon: MessageSquare },
-        { name: 'Template Bot', path: '/template-bot', icon: Bot },
-        { name: 'Bot Flow', path: '/bot-flow', icon: GitFork },
+        { name: 'Campaign', path: '/campaigns/campaign', icon: Megaphone, permission: 'Campaign.View' },
+        { name: 'Bulk Campaign', path: '/bulk-campaigns', icon: Layers, permission: 'BulkCampaign.View' },
+        { name: 'Message Bot', path: '/message-bot', icon: MessageSquare, permission: 'MessageBot.View' },
+        { name: 'Template Bot', path: '/template-bot', icon: Bot, permission: 'TemplateBot.View' },
+        { name: 'Bot Flow', path: '/bot-flow', icon: GitFork, permission: 'BotFlow.View' },
       ]
     },
     {
       title: 'Support',
       items: [
-        { name: 'Chat', path: '/chat', icon: MessageCircle },
+        { name: 'Chat', path: '/chat', icon: MessageCircle, permission: 'Chat.View' },
       ]
     },
-    {
-      title: 'Admin',
-      items: [
-        { name: 'User Permissions', path: '/admin/permissions/user', icon: Shield },
-        { name: 'Dept Permissions', path: '/admin/permissions/department', icon: ShieldCheck },
-      ]
-    },
+    // The former Admin section (User Permissions / Dept Permissions) now lives inside Setup as
+    // "Connection Access" — all administrative configuration has one home rather than two.
     {
       title: 'Settings',
       items: [
-        { name: 'Connections', path: '/connections', icon: Link2 },
-        { name: 'System Settings', path: '/system-settings', icon: Settings },
+        { name: 'Connections', path: '/connections', icon: Link2, permission: 'ConnectAccount.View' },
+        // "System Settings" is gone: it belongs to the host application, not to OmniConnect.
+        // The /system-settings route now redirects to /omniconnect-settings so bookmarks survive.
         { name: 'OmniConnect Settings', path: '/omniconnect-settings', icon: Sliders },
-        { name: 'Setup', path: '/setup', icon: Cpu },
+        { name: 'Setup', path: '/setup', icon: Cpu, permission: 'Setup.View' },
       ]
     }
   ]
+
+  // Filter first, then drop sections that ended up empty — otherwise a restricted user sees a
+  // bare "Marketing" heading with nothing under it.
+  const visibleSections = menuSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => !item.permission || has(item.permission))
+    }))
+    .filter((section) => section.items.length > 0)
 
   return (
     <>
@@ -194,7 +203,7 @@ export const Sidebar: React.FC = () => {
         </div>
 
         <div className="sidebar-content">
-          {menuSections.map((section, idx) => (
+          {visibleSections.map((section, idx) => (
             <div key={idx} className="sidebar-section">
               <AnimatePresence>
                 {section.title && !isCollapsed && (

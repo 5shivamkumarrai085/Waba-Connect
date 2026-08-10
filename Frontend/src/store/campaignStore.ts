@@ -4,6 +4,18 @@ import { campaignService } from '../services/campaigns/campaignService'
 import { contactService } from '../services/contacts/contactService'
 import type { Campaign, CampaignStatistics, CampaignRecipient, CampaignWizardForm } from '../types/campaigns'
 import { useDashboardStore } from './dashboardStore'
+import { useReportingStore } from './zustand'
+
+/**
+ * Cross-module edges for campaign writes, declared here so every consequence of a campaign
+ * change is greppable from the action that causes it. Both the dashboard counters and the
+ * Reporting metrics are derived from campaigns, and Reporting caches per time filter — without
+ * the invalidate it would keep serving pre-change numbers for the rest of the session.
+ */
+const propagateCampaignChange = () => {
+  useDashboardStore.getState().loadDashboardData(false)
+  useReportingStore.getState().invalidate()
+}
 
 interface CampaignStoreState {
   campaigns: Campaign[]
@@ -187,7 +199,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
         }
         const fetched = await campaignService.getCampaigns()
         set({ campaigns: fetched })
-        useDashboardStore.getState().loadDashboardData(false)
+        propagateCampaignChange()
         return lastRes
       }
 
@@ -199,7 +211,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
       const res = await campaignService.createCampaign(singleForm)
       const fetched = await campaignService.getCampaigns()
       set({ campaigns: fetched })
-      useDashboardStore.getState().loadDashboardData(false)
+      propagateCampaignChange()
       return res
     } finally {
       set({ isLoading: false })
@@ -214,7 +226,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
       // Reload campaigns
       const fetched = await campaignService.getCampaigns()
       set({ campaigns: fetched })
-      useDashboardStore.getState().loadDashboardData(false)
+      propagateCampaignChange()
       return res
     } finally {
       set({ isLoading: false })
@@ -227,7 +239,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
       await campaignService.deleteCampaign(id)
       const fetched = await campaignService.getCampaigns()
       set({ campaigns: fetched })
-      useDashboardStore.getState().loadDashboardData(false)
+      propagateCampaignChange()
     } finally {
       set({ isLoading: false })
     }
@@ -258,7 +270,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
       
       const fetched = await campaignService.getCampaigns()
       set({ campaigns: fetched })
-      useDashboardStore.getState().loadDashboardData(false)
+      propagateCampaignChange()
     } finally {
       set({ isLoading: false })
     }

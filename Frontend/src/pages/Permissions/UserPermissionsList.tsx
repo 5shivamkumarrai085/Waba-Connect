@@ -20,6 +20,7 @@ import { AssignPermissionModal } from './AssignPermissionModal'
 import type { UserPermissionDashboard } from '../../types/permission'
 import type { Connection } from '../../types/connection'
 import './UserPermissionsList.css'
+import Can from '../../components/Can/Can'
 
 export const UserPermissionsList: React.FC = () => {
   const [dashboard, setDashboard] = useState<UserPermissionDashboard | null>(null)
@@ -216,14 +217,16 @@ export const UserPermissionsList: React.FC = () => {
           </select>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowAssignModal(true)}
-          className="btn-assign-permission"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Assign Permission</span>
-        </button>
+        <Can permission="ConnectionAccess.Assign">
+          <button
+            type="button"
+            onClick={() => setShowAssignModal(true)}
+            className="btn-assign-permission"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Assign Permission</span>
+          </button>
+        </Can>
       </div>
 
       {/* Table Card */}
@@ -297,14 +300,16 @@ export const UserPermissionsList: React.FC = () => {
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowAssignModal(true)}
-                        className="icon-btn"
-                        title="Edit Permission"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
+                      <Can permission="ConnectionAccess.Assign">
+                        <button
+                          type="button"
+                          onClick={() => setShowAssignModal(true)}
+                          className="icon-btn"
+                          title="Edit Permission"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      </Can>
                     </div>
                   </td>
                 </tr>

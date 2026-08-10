@@ -12,9 +12,12 @@ import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { toast } from 'react-hot-toast'
 import './BotFlowList.css'
+import Can from '../../components/Can/Can'
+import usePermission from '../../hooks/usePermission'
 
 export const BotFlowList: React.FC = () => {
   const navigate = useNavigate()
+  const { has } = usePermission()
   
   const {
     flows,
@@ -137,13 +140,15 @@ export const BotFlowList: React.FC = () => {
     <motion.div {...pageTransitionProps}>
       {/* Action buttons bar */}
       <div className="bot-flow-header-actions">
-        <button 
-          className="bot-flow-btn btn-primary" 
-          onClick={handleOpenCreateModal}
-        >
-          <Plus size={16} />
-          Bot Flow
-        </button>
+        <Can permission="BotFlow.Create">
+          <button
+            className="bot-flow-btn btn-primary"
+            onClick={handleOpenCreateModal}
+          >
+            <Plus size={16} />
+            Bot Flow
+          </button>
+        </Can>
       </div>
 
       {/* Toolbar card */}
@@ -197,6 +202,7 @@ export const BotFlowList: React.FC = () => {
                     <td>
                       <Toggle
                         checked={flow.isActive}
+                        disabled={!has('BotFlow.Edit')}
                         onChange={() => toggleFlowActive(flow.id)}
                       />
                     </td>
@@ -222,25 +228,34 @@ export const BotFlowList: React.FC = () => {
                             </button>
                           )}
                         >
-                          <MenuItem
-                            className="contact-actions-item"
-                            onSelect={() => navigate(`/bot-flow/designer/${flow.id}`)}
-                          >
-                            Flow
-                          </MenuItem>
-                          <MenuItem
-                            className="contact-actions-item"
-                            onSelect={() => handleOpenEditModal(flow.id, flow.name, flow.description, flow.connectionId)}
-                          >
-                            Edit
-                          </MenuItem>
-                          <MenuItem
-                            destructive
-                            className="contact-actions-item"
-                            onSelect={() => handleDeleteClick(flow.id, flow.name)}
-                          >
-                            Delete
-                          </MenuItem>
+                          {/* Disabled rather than hidden — see the note in ContactsList.
+                              "Flow" opens the designer, which saves as well as reads, so it
+                              takes the edit grant rather than view. */}
+                          <Can permission="BotFlow.Edit" mode="disable">
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => navigate(`/bot-flow/designer/${flow.id}`)}
+                            >
+                              Flow
+                            </MenuItem>
+                          </Can>
+                          <Can permission="BotFlow.Edit" mode="disable">
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => handleOpenEditModal(flow.id, flow.name, flow.description, flow.connectionId)}
+                            >
+                              Edit
+                            </MenuItem>
+                          </Can>
+                          <Can permission="BotFlow.Delete" mode="disable">
+                            <MenuItem
+                              destructive
+                              className="contact-actions-item"
+                              onSelect={() => handleDeleteClick(flow.id, flow.name)}
+                            >
+                              Delete
+                            </MenuItem>
+                          </Can>
                         </Menu>
                       </div>
                     </td>

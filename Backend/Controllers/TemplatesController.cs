@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WhatsAppCampaignApi.Data;
@@ -5,10 +6,13 @@ using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Templates;
 using WhatsAppCampaignApi.Services.Interfaces;
 
+using WhatsAppCampaignApi.Helpers;
+
 namespace WhatsAppCampaignApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class TemplatesController : ControllerBase
 {
     private readonly ITemplateService _templateService;
@@ -25,6 +29,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpGet("by-connection/{connectionId}")]
+    [RequiresPermission("Template.View")]
     public async Task<ActionResult<ApiResponse<List<TemplateResponse>>>> GetByConnection(int connectionId)
     {
         var metaTemplates = await _whatsAppService.GetTemplatesForConnectionAsync(connectionId);
@@ -64,6 +69,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpGet]
+    [RequiresPermission("Template.View")]
     public async Task<ActionResult<ApiResponse<PagedResponse<TemplateResponse>>>> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -77,6 +83,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [RequiresPermission("Template.View")]
     public async Task<ActionResult<ApiResponse<TemplateResponse>>> GetById(int id)
     {
         var data = await _templateService.GetByIdAsync(id);
@@ -84,6 +91,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpPost]
+    [RequiresPermission("Template.Create")]
     public async Task<ActionResult<ApiResponse<TemplateResponse>>> Create([FromBody] CreateTemplateRequest request)
     {
         var data = await _templateService.CreateAsync(request);
@@ -92,6 +100,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequiresPermission("Template.Edit")]
     public async Task<ActionResult<ApiResponse<TemplateResponse>>> Update(int id, [FromBody] UpdateTemplateRequest request)
     {
         var data = await _templateService.UpdateAsync(id, request);
@@ -100,6 +109,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequiresPermission("Template.Delete")]
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {
         await _templateService.DeleteAsync(id);
@@ -108,6 +118,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpGet("languages")]
+    [RequiresPermission("Template.View")]
     public ActionResult<ApiResponse<IEnumerable<object>>> GetLanguages()
     {
         var data = new[]
@@ -120,6 +131,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpGet("categories")]
+    [RequiresPermission("Template.View")]
     public ActionResult<ApiResponse<IEnumerable<object>>> GetCategories()
     {
         var data = new[]
@@ -132,6 +144,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpGet("statuses")]
+    [RequiresPermission("Template.View")]
     public ActionResult<ApiResponse<IEnumerable<object>>> GetStatuses()
     {
         var data = new[]
@@ -146,6 +159,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpGet("types")]
+    [RequiresPermission("Template.View")]
     public ActionResult<ApiResponse<IEnumerable<object>>> GetTypes()
     {
         var data = new[]
@@ -158,6 +172,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpPost("sync")]
+    [RequiresPermission("Template.LoadTemplate")]
     public async Task<ActionResult<ApiResponse>> SyncFromWhatsApp()
     {
         var count = await _templateService.SyncFromWhatsAppAsync();
@@ -166,6 +181,7 @@ public class TemplatesController : ControllerBase
     }
 
     [HttpPost("{id}/preview")]
+    [RequiresPermission("Template.View")]
     public async Task<ActionResult<ApiResponse<TemplatePreviewResponse>>> GetPreview(int id, [FromBody] Dictionary<string, string>? variables)
     {
         var data = await _templateService.GetPreviewAsync(id, variables);

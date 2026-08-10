@@ -60,4 +60,7 @@ public class ContactGroupBriefResponse
 {
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>Badge colour chosen in Setup → Groups. Null falls back to the name-hash palette.</summary>
+    public string? Color { get; set; }
 }

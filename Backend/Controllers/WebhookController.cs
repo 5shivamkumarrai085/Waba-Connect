@@ -1,11 +1,24 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WhatsAppCampaignApi.Data;
+using WhatsAppCampaignApi.Helpers;
 using WhatsAppCampaignApi.Models.DTOs.Webhook;
 using WhatsAppCampaignApi.Services.Interfaces;
 
 namespace WhatsAppCampaignApi.Controllers;
 
+/// <remarks>
+/// The two Meta-facing actions MUST remain [AllowAnonymous]. Meta's servers call them and will
+/// never present a bearer token — gating them would silently stop every inbound WhatsApp message
+/// and every delivery-status update, with no error surfaced anywhere in the app.
+///
+/// <para>
+/// [AllowAnonymous] sits on those two actions rather than on the class, because AllowAnonymous
+/// anywhere on an endpoint beats an action-level [Authorize]: with it at class level the /debug
+/// action stayed anonymous no matter what it was decorated with.
+/// </para>
+/// </remarks>
 [ApiController]
 [Route("api/webhook/whatsapp")]
 public class WebhookController : ControllerBase
@@ -31,6 +44,7 @@ public class WebhookController : ControllerBase
     /// Verification challenge from Meta
     /// </summary>
     [HttpGet]
+    [AllowAnonymous]
     public IActionResult VerifyWebhook(
         [FromQuery(Name = "hub.mode")] string mode,
         [FromQuery(Name = "hub.challenge")] string challenge,
@@ -54,6 +68,7 @@ public class WebhookController : ControllerBase
     /// Event notifications (message status updates / inbound messages) from Meta
     /// </summary>
     [HttpPost]
+    [AllowAnonymous]
     public async Task<IActionResult> ReceiveWebhook([FromBody] WhatsAppWebhookPayload payload)
     {
         // Log detailed info about incoming webhook for debugging
@@ -89,7 +104,15 @@ public class WebhookController : ControllerBase
     /// Debug endpoint: shows all registered connections, phone numbers, and verify tokens
     /// so you can verify your webhook configuration on Meta's developer portal.
     /// </summary>
+    /// <remarks>
+    /// The controller is [AllowAnonymous] because Meta calls it without a token, which meant
+    /// this action was anonymously disclosing verify tokens and connection config. It now
+    /// requires a signed-in user holding ConnectAccount.View — Meta never calls this route,
+    /// only the verify and receive routes.
+    /// </remarks>
     [HttpGet("debug")]
+    [Authorize]
+    [RequiresPermission("ConnectAccount.View")]
     public async Task<IActionResult> DebugWebhookConfig()
     {
         var configs = await _dbContext.WabaConfigurations

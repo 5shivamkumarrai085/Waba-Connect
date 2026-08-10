@@ -15,12 +15,20 @@ public class CampaignService : ICampaignService
     private readonly ILogger<CampaignService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
 
-    public CampaignService(AppDbContext dbContext, IWhatsAppService whatsAppService, ILogger<CampaignService> logger, IServiceScopeFactory scopeFactory)
+    private readonly IAuditService _auditService;
+
+    public CampaignService(
+        AppDbContext dbContext,
+        IWhatsAppService whatsAppService,
+        ILogger<CampaignService> logger,
+        IServiceScopeFactory scopeFactory,
+        IAuditService auditService)
     {
         _dbContext = dbContext;
         _whatsAppService = whatsAppService;
         _logger = logger;
         _scopeFactory = scopeFactory;
+        _auditService = auditService;
     }
 
     public async Task<PagedResponse<CampaignResponse>> GetAllAsync(PagedRequest request, string? status = null)
@@ -63,6 +71,9 @@ public class CampaignService : ICampaignService
             .Include(c => c.Variables)
             .Include(c => c.CampaignContacts)
                 .ThenInclude(cc => cc.Contact)
+            // Two collections at the same level: every variable would be repeated once per
+            // recipient. One of the few places where the extra round trip is worth it.
+            .AsSplitQuery()
             .FirstOrDefaultAsync(c => c.Id == id);
 
         if (campaign == null)
@@ -219,6 +230,14 @@ public class CampaignService : ICampaignService
         _dbContext.Campaigns.Add(campaign);
         await _dbContext.SaveChangesAsync();
 
+        // Logged before the send is kicked off: SendCampaignMessagesAsync runs on a background
+        // task with its own scope, and this scoped DbContext may be disposed by the time it
+        // finishes.
+        await _auditService.LogAsync(
+            "Campaign.Created", "Data",
+            $"Created campaign \"{campaign.Name}\" ({campaign.ScheduleType}) with {campaign.CampaignContacts.Count} recipient(s).",
+            "Campaign", campaign.Id.ToString());
+
         // If Immediate, trigger sending asynchronously (in real app, use message queue)
         if (campaign.ScheduleType == ScheduleType.Immediate)
         {
@@ -316,6 +335,11 @@ public class CampaignService : ICampaignService
 
         await _dbContext.SaveChangesAsync();
 
+        await _auditService.LogAsync(
+            "Campaign.Updated", "Data",
+            $"Updated campaign \"{campaign.Name}\".",
+            "Campaign", campaign.Id.ToString());
+
         if (scheduleType == ScheduleType.Immediate)
         {
             _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
@@ -343,6 +367,7 @@ public class CampaignService : ICampaignService
         campaign.Status = CampaignStatus.Cancelled;
 
         // Cancel any remaining pending recipients
+        var cancelledCount = campaign.CampaignContacts.Count(cc => cc.Status == MessageStatus.Pending);
         foreach (var cc in campaign.CampaignContacts.Where(cc => cc.Status == MessageStatus.Pending))
         {
             cc.Status = MessageStatus.Failed;
@@ -350,6 +375,13 @@ public class CampaignService : ICampaignService
         }
 
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "Campaign.Deleted", "Data",
+            cancelledCount > 0
+                ? $"Deleted campaign \"{campaign.Name}\"; {cancelledCount} pending recipient(s) cancelled."
+                : $"Deleted campaign \"{campaign.Name}\".",
+            "Campaign", campaign.Id.ToString());
     }
 
     public async Task<CampaignResponse> CancelAsync(int id)
@@ -366,6 +398,11 @@ public class CampaignService : ICampaignService
 
         campaign.Status = CampaignStatus.Cancelled;
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "Campaign.Cancelled", "Data",
+            $"Cancelled scheduled campaign \"{campaign.Name}\".",
+            "Campaign", campaign.Id.ToString());
 
         return MapToResponse(campaign);
     }
@@ -388,6 +425,11 @@ public class CampaignService : ICampaignService
         campaign.Status = CampaignStatus.Paused;
         await _dbContext.SaveChangesAsync();
 
+        await _auditService.LogAsync(
+            "Campaign.Paused", "Data",
+            $"Paused campaign \"{campaign.Name}\".",
+            "Campaign", campaign.Id.ToString());
+
         return MapToResponse(campaign);
     }
 
@@ -407,11 +449,24 @@ public class CampaignService : ICampaignService
         {
             campaign.Status = CampaignStatus.Scheduled;
             await _dbContext.SaveChangesAsync();
+
+            await _auditService.LogAsync(
+                "Campaign.Resumed", "Data",
+                $"Resumed campaign \"{campaign.Name}\"; still scheduled for {campaign.ScheduledAt:u}.",
+                "Campaign", campaign.Id.ToString());
         }
         else
         {
             campaign.Status = CampaignStatus.Sending;
             await _dbContext.SaveChangesAsync();
+
+            // Logged before the background send starts, for the same scope-lifetime reason as
+            // CreateAsync.
+            await _auditService.LogAsync(
+                "Campaign.Resumed", "Data",
+                $"Resumed campaign \"{campaign.Name}\"; sending started.",
+                "Campaign", campaign.Id.ToString());
+
             _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
         }
 
@@ -502,6 +557,9 @@ public class CampaignService : ICampaignService
                 .Include(c => c.Variables)
                 .Include(c => c.CampaignContacts)
                     .ThenInclude(cc => cc.Contact)
+                // Same two-collection shape as GetByIdAsync, and this runs in the background
+                // where an extra round trip costs nothing.
+                .AsSplitQuery()
                 .FirstOrDefaultAsync(c => c.Id == campaignId);
 
             if (campaign == null || campaign.Status != CampaignStatus.Sending) return;
@@ -596,11 +654,22 @@ public class CampaignService : ICampaignService
 
                 // Send via WhatsApp API
                 var sendResult = await whatsAppService.SendTemplateMessageWithResultAsync(
-                    cc.Contact.Phone, 
-                    campaign.Template.Name, 
-                    campaign.Template.Language, 
+                    cc.Contact.Phone,
+                    campaign.Template.Name,
+                    campaign.Template.Language,
                     messageVars,
-                    campaign.ConnectionId);
+                    campaign.ConnectionId,
+                    // Campaign sends run under CampaignSchedulerService, a hosted service with
+                    // no HttpContext — so TriggeredBy is stated explicitly rather than inferred.
+                    new MessageSendContext
+                    {
+                        Category = "Campaign",
+                        SourceName = campaign.Name,
+                        SourceId = campaign.Id,
+                        ContactId = cc.ContactId,
+                        RelationType = cc.Contact.Type.ToString(),
+                        TriggeredBy = "Scheduler"
+                    });
 
                 if (sendResult.Success && !string.IsNullOrWhiteSpace(sendResult.MessageId))
                 {
@@ -902,9 +971,9 @@ public class CampaignService : ICampaignService
                 {
                     Name = fullName,
                     Phone = cleanedPhone,
-                    Type = Enum.Parse<ContactType>(request.RelationType, true),
-                    Status = ContactStatus.New,
-                    Source = ContactSource.Import,
+                    Type = request.RelationType,
+                    Status = nameof(ContactStatus.New),
+                    Source = nameof(ContactSource.Import),
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
@@ -917,8 +986,8 @@ public class CampaignService : ICampaignService
                 contact.IsDeleted = false;
                 contact.IsActive = true;
                 contact.Name = fullName;
-                contact.Type = Enum.Parse<ContactType>(request.RelationType, true);
-                contact.Source = ContactSource.Import;
+                contact.Type = request.RelationType;
+                contact.Source = nameof(ContactSource.Import);
                 contact.UpdatedAt = DateTime.UtcNow;
                 await _dbContext.SaveChangesAsync();
             }
@@ -981,6 +1050,13 @@ public class CampaignService : ICampaignService
 
         _dbContext.Campaigns.Add(campaign);
         await _dbContext.SaveChangesAsync();
+
+        // Separate event from Campaign.Created: a bulk CSV campaign also creates contacts as a
+        // side effect, which is worth being able to find in the trail on its own.
+        await _auditService.LogAsync(
+            "BulkCampaign.Created", "Data",
+            $"Created bulk campaign \"{campaign.Name}\" from CSV \"{fileName}\" with {contactIds.Count} recipient(s).",
+            "Campaign", campaign.Id.ToString());
 
         if (campaign.Status == CampaignStatus.Sending)
         {

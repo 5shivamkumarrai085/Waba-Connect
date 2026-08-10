@@ -251,6 +251,79 @@
   gap: 12px;
 }
 
+/* ── Account avatar & menu ─────────────────────────────────────────── */
+
+.header-avatar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background-color: var(--primary-light);
+  color: var(--primary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.header-avatar-btn:hover {
+  border-color: var(--primary);
+}
+
+.header-avatar-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.header-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.header-avatar-initials {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Identity block at the top of the account menu. Stacked rather than inline so a long email
+   wraps instead of stretching the menu surface. */
+.header-account-name,
+.header-account-email,
+.header-account-role {
+  display: block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-account-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.header-account-email {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.header-account-role {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--primary);
+}
+
 .header-icon-btn {
   width: 36px;
   height: 36px;

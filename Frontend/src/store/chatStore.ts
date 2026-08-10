@@ -52,6 +52,7 @@ interface ChatStoreState {
   selectConversation: (id: number | null) => Promise<void>
   sendMessage: (text: string, mediaUrl?: string, mediaType?: string, mediaFileName?: string) => Promise<void>
   deleteActiveConversation: () => Promise<void>
+  deleteMessages: (messageIds: number[]) => Promise<void>
   setFromNumber: (fromNumber: string) => void
   setConversationsFilter: (filter: string) => void
   setSidebarSearchQuery: (query: string) => void
@@ -175,6 +176,11 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
             c.id === id ? { ...c, unreadCount: 0 } : c
           )
         }))
+
+        // Tell the server once, here. Fetching messages no longer clears the unread count as a
+        // side effect, which is what let the message poll become a pure read. Fire-and-forget:
+        // the badge is already cleared locally and a failure only means it reappears later.
+        void chatService.markConversationRead(id).catch(() => {})
       }
     } catch (err: any) {
       if (err.name === 'AbortError' || err.message === 'canceled') {
@@ -303,6 +309,18 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       messages: [],
       conversations: state.conversations.filter(c => c.id !== activeConversationId)
     }))
+  },
+
+  deleteMessages: async (messageIds) => {
+    const { activeConversationId } = get()
+    if (!activeConversationId || messageIds.length === 0) return
+
+    await chatService.deleteMessages(activeConversationId, messageIds)
+
+    // Dropped locally rather than refetched: the server has already soft-deleted them, and a
+    // refetch would make the bubbles linger for a round-trip after the user confirmed.
+    const removed = new Set(messageIds)
+    set((state) => ({ messages: state.messages.filter((m) => !removed.has(m.id)) }))
   }
 }))
 

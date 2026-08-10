@@ -12,12 +12,21 @@ public class ChatService : IChatService
     private readonly AppDbContext _dbContext;
     private readonly IWhatsAppService _whatsAppService;
     private readonly ITemplateService _templateService;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IAuditService _auditService;
 
-    public ChatService(AppDbContext dbContext, IWhatsAppService whatsAppService, ITemplateService templateService)
+    public ChatService(
+        AppDbContext dbContext,
+        IWhatsAppService whatsAppService,
+        ITemplateService templateService,
+        ICurrentUserService currentUser,
+        IAuditService auditService)
     {
         _dbContext = dbContext;
         _whatsAppService = whatsAppService;
         _templateService = templateService;
+        _currentUser = currentUser;
+        _auditService = auditService;
     }
 
     public async Task<List<ChatAccountResponse>> GetAccountsAsync(int? connectionId = null)
@@ -41,8 +50,10 @@ public class ChatService : IChatService
 
     public async Task<List<ChatConversationResponse>> GetConversationsAsync(string? search = null, string? filter = null, int? connectionId = null)
     {
-        await EnsureConversationsForActiveContactsAsync();
-
+        // No reconciliation here. This is polled by every open Chat tab, and rebuilding the
+        // contact × connection cross-product (with writes) on each poll was the single largest
+        // source of database load in the application. Rows are created when a contact is
+        // created; ChatConversationReconcilerService repairs anything that slips through.
         var query = _dbContext.ChatConversations
             .AsNoTracking()
             .Include(c => c.Connection)
@@ -94,23 +105,151 @@ public class ChatService : IChatService
         return MapConversation(conversation);
     }
 
+    /// <summary>
+    /// Reads a conversation's messages. Deliberately read-only.
+    ///
+    /// <para>
+    /// This used to load the conversation, zero its UnreadCount and SaveChanges before reading —
+    /// so the client's message poll issued a write transaction every few seconds, against a
+    /// remote database. Marking a conversation read is a separate, explicit action
+    /// (<see cref="MarkConversationReadAsync"/>) that the client calls once when the user opens
+    /// it, which is also the only moment it is actually true.
+    /// </para>
+    /// </summary>
     public async Task<List<ChatMessageResponse>> GetMessagesAsync(int conversationId)
     {
-        var conversation = await _dbContext.ChatConversations
-            .FirstOrDefaultAsync(c => c.Id == conversationId);
-
-        if (conversation == null)
-            throw new KeyNotFoundException($"Chat conversation with ID {conversationId} not found.");
-
-        conversation.UnreadCount = 0;
-        await _dbContext.SaveChangesAsync();
-
         var messages = await _dbContext.ChatMessages
-            .Where(m => m.ConversationId == conversationId)
+            .AsNoTracking()
+            .Where(m => m.ConversationId == conversationId && !m.IsDeleted)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync();
 
         return messages.Select(MapMessage).ToList();
+    }
+
+    /// <summary>
+    /// Clears a conversation's unread count. One statement, no entity materialised, and a no-op
+    /// at the database when the count is already zero — so repeat calls cost nothing.
+    /// </summary>
+    public async Task MarkConversationReadAsync(int conversationId)
+    {
+        await _dbContext.ChatConversations
+            .Where(c => c.Id == conversationId && c.UnreadCount > 0)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.UnreadCount, 0));
+    }
+
+    /// <summary>
+    /// Creates any missing conversation rows for one contact — one per connection that has a
+    /// phone number attached.
+    ///
+    /// <para>
+    /// This work used to run on every conversation-list read as a full contact × connection
+    /// cross-product with a write at the end. It belongs at write time: a contact needs its
+    /// conversation rows exactly once, when it is created.
+    /// </para>
+    /// </summary>
+    public Task EnsureConversationsForContactAsync(int contactId) =>
+        EnsureConversationsForContactsAsync(new[] { contactId });
+
+    /// <summary>
+    /// Batched form, for CSV import. Two queries and one insert regardless of how many contacts
+    /// are passed — never call the single-contact overload in a loop.
+    /// </summary>
+    public async Task EnsureConversationsForContactsAsync(IReadOnlyCollection<int> contactIds)
+    {
+        if (contactIds.Count == 0) return;
+
+        var phonesByConnection = await _dbContext.WabaPhoneNumbers
+            .AsNoTracking()
+            .Where(p => p.ConnectionId.HasValue)
+            .GroupBy(p => p.ConnectionId!.Value)
+            .Select(g => new { ConnectionId = g.Key, PhoneId = g.Min(p => p.Id) })
+            .ToListAsync();
+
+        if (phonesByConnection.Count == 0) return;
+
+        var existing = await _dbContext.ChatConversations
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(c => contactIds.Contains(c.ContactId))
+            .Select(c => new { c.ContactId, c.ConnectionId })
+            .ToListAsync();
+
+        var existingKeys = existing
+            .Select(p => $"{p.ContactId}_{p.ConnectionId ?? 0}")
+            .ToHashSet();
+
+        var toCreate = new List<ChatConversation>();
+        foreach (var phone in phonesByConnection)
+        {
+            foreach (var contactId in contactIds)
+            {
+                if (existingKeys.Add($"{contactId}_{phone.ConnectionId}"))
+                {
+                    toCreate.Add(new ChatConversation
+                    {
+                        ContactId = contactId,
+                        ConnectionId = phone.ConnectionId,
+                        WabaPhoneNumberId = phone.PhoneId
+                    });
+                }
+            }
+        }
+
+        if (toCreate.Count == 0) return;
+
+        _dbContext.ChatConversations.AddRange(toCreate);
+        await _dbContext.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Soft-deletes messages from a conversation, and returns how many were actually removed.
+    ///
+    /// <para>
+    /// Handles the single-message and multi-select cases with one method: the UI's right-click
+    /// "Delete" is just a selection of one, and having two code paths would mean two places to
+    /// keep the audit wording and the already-deleted guard in step.
+    /// </para>
+    /// <para>
+    /// Ids that don't exist, belong to another conversation, or are already deleted are simply
+    /// not counted — a partial selection deletes what it can rather than failing wholesale.
+    /// </para>
+    /// </summary>
+    public async Task<int> DeleteMessagesAsync(int conversationId, IReadOnlyCollection<int> messageIds)
+    {
+        if (messageIds.Count == 0) return 0;
+
+        var messages = await _dbContext.ChatMessages
+            .Where(m => m.ConversationId == conversationId
+                        && messageIds.Contains(m.Id)
+                        && !m.IsDeleted)
+            .ToListAsync();
+
+        if (messages.Count == 0) return 0;
+
+        var now = DateTime.UtcNow;
+        foreach (var message in messages)
+        {
+            message.IsDeleted = true;
+            message.DeletedAt = now;
+            message.DeletedByUserId = _currentUser.UserId;
+            message.UpdatedAt = now;
+        }
+
+        await _dbContext.SaveChangesAsync();
+
+        var contactLabel = await _dbContext.ChatConversations
+            .Where(c => c.Id == conversationId)
+            .Select(c => c.Contact!.Name ?? c.Contact!.Phone)
+            .FirstOrDefaultAsync() ?? $"conversation #{conversationId}";
+
+        await _auditService.LogAsync(
+            "Chat.MessagesDeleted", "Data",
+            $"Deleted {messages.Count} message(s) from the conversation with {contactLabel}. " +
+            "Removed from OmniConnect only — the recipient still has their copy.",
+            "ChatConversation", conversationId.ToString());
+
+        return messages.Count;
     }
 
     public async Task<ChatMessageResponse> SendMessageAsync(int conversationId, SendChatMessageRequest request)
@@ -230,7 +369,18 @@ public class ChatService : IChatService
             template.Name,
             template.Language,
             request.Variables,
-            request.ConnectionId);
+            request.ConnectionId,
+            // The one path with a real signed-in user behind it.
+            new MessageSendContext
+            {
+                Category = "InitiateChat",
+                SourceName = template.Name,
+                ContactId = contact.Id,
+                RelationType = contact.Type.ToString(),
+                TriggeredBy = "User",
+                PerformedByUserId = _currentUser?.UserId,
+                IpAddress = _currentUser?.IpAddress
+            });
 
         var conversation = await GetOrCreateConversationAsync(contact.Id, request.ConnectionId);
 
@@ -324,94 +474,6 @@ public class ChatService : IChatService
         await _dbContext.SaveChangesAsync();
     }
 
-    private async Task EnsureConversationsForActiveContactsAsync()
-    {
-        // Get all contacts (including inactive for viewing history)
-        var allContactIds = await _dbContext.Contacts
-            .IgnoreQueryFilters()
-            .Where(c => !c.IsDeleted)
-            .Select(c => c.Id)
-            .ToListAsync();
-
-        // Get the default account for legacy migration
-        var defaultAccount = await _dbContext.WabaPhoneNumbers.OrderBy(x => x.Id).FirstOrDefaultAsync();
-
-        // MIGRATION: Fix old conversations with null ConnectionId
-        if (defaultAccount?.ConnectionId != null)
-        {
-            var nullConnConversations = await _dbContext.ChatConversations
-                .Where(c => c.ConnectionId == null)
-                .ToListAsync();
-
-            foreach (var conv in nullConnConversations)
-            {
-                conv.ConnectionId = defaultAccount.ConnectionId;
-                if (conv.WabaPhoneNumberId == null)
-                    conv.WabaPhoneNumberId = defaultAccount.Id;
-            }
-
-            if (nullConnConversations.Count > 0)
-                await _dbContext.SaveChangesAsync();
-        }
-
-        // Gather all connectionIds that have phone numbers
-        var phonesByConnection = await _dbContext.WabaPhoneNumbers
-            .Where(p => p.ConnectionId.HasValue)
-            .GroupBy(p => p.ConnectionId!.Value)
-            .Select(g => new { ConnectionId = g.Key, PhoneId = g.Min(p => p.Id) })
-            .ToListAsync();
-
-        // Get existing conversation (contactId, connectionId) pairs
-        var existingPairs = await _dbContext.ChatConversations
-            .Select(c => new { c.ContactId, c.ConnectionId })
-            .ToListAsync();
-
-        var existingSet = new HashSet<string>(
-            existingPairs.Select(p => $"{p.ContactId}_{p.ConnectionId ?? 0}"));
-
-        var newConversations = new List<ChatConversation>();
-
-        // For each phone-connected connection, ensure every contact has a conversation
-        foreach (var pc in phonesByConnection)
-        {
-            foreach (var contactId in allContactIds)
-            {
-                var key = $"{contactId}_{pc.ConnectionId}";
-                if (!existingSet.Contains(key))
-                {
-                    newConversations.Add(new ChatConversation
-                    {
-                        ContactId = contactId,
-                        ConnectionId = pc.ConnectionId,
-                        WabaPhoneNumberId = pc.PhoneId
-                    });
-                    existingSet.Add(key);
-                }
-            }
-        }
-
-        // Also ensure contacts with NO conversation at all get a default one
-        var contactsWithAnyConv = existingPairs.Select(p => p.ContactId).Distinct().ToHashSet();
-        foreach (var contactId in allContactIds)
-        {
-            if (!contactsWithAnyConv.Contains(contactId) && !newConversations.Any(c => c.ContactId == contactId))
-            {
-                newConversations.Add(new ChatConversation
-                {
-                    ContactId = contactId,
-                    ConnectionId = defaultAccount?.ConnectionId,
-                    WabaPhoneNumberId = defaultAccount?.Id
-                });
-            }
-        }
-
-        if (newConversations.Count > 0)
-        {
-            _dbContext.ChatConversations.AddRange(newConversations);
-            await _dbContext.SaveChangesAsync();
-        }
-    }
-
     public async Task<ChatConversation> GetOrCreateConversationAsync(int contactId, int? connectionId = null)
     {
         var conversation = await _dbContext.ChatConversations
@@ -491,7 +553,10 @@ public class ChatService : IChatService
             ConnectionId = conversation.ConnectionId,
             ConnectionName = conversation.Connection?.Name,
             Name = conversation.Contact.Name,
-            Status = conversation.Contact.Type.ToString().ToLowerInvariant(),
+            // The contact's Type, sent verbatim. It used to be lower-cased here, which meant the
+            // client could not match it against the ContactTypes lookup to find its label and
+            // colour — so every admin-created type fell into a hardcoded "guest" bucket.
+            Status = conversation.Contact.Type,
             Phone = conversation.Contact.Phone,
             LastMessage = conversation.LastMessageText ?? string.Empty,
             UnreadCount = conversation.UnreadCount,
@@ -574,13 +639,23 @@ public class ChatService : IChatService
     {
         var conversation = await _dbContext.ChatConversations
             .Include(c => c.Messages)
+            .Include(c => c.Contact)
             .FirstOrDefaultAsync(c => c.Id == conversationId);
 
         if (conversation == null)
             return;
 
+        // Captured before the delete: the entities are detached once SaveChanges runs.
+        var contactLabel = conversation.Contact?.Name ?? conversation.Contact?.Phone ?? $"contact #{conversation.ContactId}";
+        var messageCount = conversation.Messages.Count;
+
         _dbContext.ChatMessages.RemoveRange(conversation.Messages);
         _dbContext.ChatConversations.Remove(conversation);
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "Chat.ConversationDeleted", "Data",
+            $"Deleted the conversation with {contactLabel} ({messageCount} message(s)). Removed from OmniConnect only — the recipient still has their copy.",
+            "ChatConversation", conversationId.ToString());
     }
 }

@@ -1,11 +1,15 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Services.Interfaces;
+
+using WhatsAppCampaignApi.Helpers;
 
 namespace WhatsAppCampaignApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class ReportingController : ControllerBase
 {
     private readonly IReportingService _reportingService;
@@ -16,6 +20,7 @@ public class ReportingController : ControllerBase
     }
 
     [HttpGet("metrics")]
+    [RequiresPermission("Reporting.View")]
     public async Task<IActionResult> GetMetrics([FromQuery] string filter = "all")
     {
         var data = await _reportingService.GetMetricsAsync(filter);
@@ -23,6 +28,7 @@ public class ReportingController : ControllerBase
     }
 
     [HttpGet("accuracy")]
+    [RequiresPermission("Reporting.View")]
     public async Task<IActionResult> GetAccuracy()
     {
         var data = await _reportingService.GetAccuracyAsync();
@@ -30,6 +36,7 @@ public class ReportingController : ControllerBase
     }
 
     [HttpGet("freshness")]
+    [RequiresPermission("Reporting.View")]
     public async Task<IActionResult> GetFreshness()
     {
         var data = await _reportingService.GetFreshnessAsync();
@@ -37,6 +44,7 @@ public class ReportingController : ControllerBase
     }
 
     [HttpGet("exports")]
+    [RequiresPermission("Reporting.View")]
     public async Task<IActionResult> GetExports()
     {
         var data = await _reportingService.GetExportsAsync();
@@ -44,6 +52,7 @@ public class ReportingController : ControllerBase
     }
 
     [HttpGet("customisation")]
+    [RequiresPermission("Reporting.View")]
     public IActionResult GetCustomisation()
     {
         var data = _reportingService.GetCustomisationFeatures();
@@ -51,6 +60,7 @@ public class ReportingController : ControllerBase
     }
 
     [HttpGet("export/metrics")]
+    [RequiresPermission("Reporting.Export")]
     public async Task<IActionResult> ExportMetricsCsv([FromQuery] string filter = "all")
     {
         var bytes = await _reportingService.BuildMetricsCsvAsync(filter);
@@ -58,6 +68,7 @@ public class ReportingController : ControllerBase
     }
 
     [HttpGet("export/contacts")]
+    [RequiresPermission("Reporting.Export")]
     public async Task<IActionResult> ExportContactsCsv()
     {
         var bytes = await _reportingService.BuildContactsCsvAsync();
@@ -65,6 +76,7 @@ public class ReportingController : ControllerBase
     }
 
     [HttpGet("export/chats")]
+    [RequiresPermission("Reporting.Export")]
     public async Task<IActionResult> ExportChatsCsv()
     {
         var bytes = await _reportingService.BuildChatsCsvAsync();

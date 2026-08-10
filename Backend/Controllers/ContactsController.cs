@@ -1,7 +1,9 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Linq;
 using WhatsAppCampaignApi.Data;
+using WhatsAppCampaignApi.Helpers;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Contacts;
 using WhatsAppCampaignApi.Models.Entities;
@@ -12,20 +14,29 @@ namespace WhatsAppCampaignApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class ContactsController : ControllerBase
 {
     private readonly IContactService _contactService;
     private readonly AppDbContext _dbContext;
     private readonly IDashboardCacheService _dashboardCacheService;
 
-    public ContactsController(IContactService contactService, AppDbContext dbContext, IDashboardCacheService dashboardCacheService)
+    private readonly IChatService _chatService;
+
+    public ContactsController(
+        IContactService contactService,
+        AppDbContext dbContext,
+        IDashboardCacheService dashboardCacheService,
+        IChatService chatService)
     {
         _contactService = contactService;
         _dbContext = dbContext;
         _dashboardCacheService = dashboardCacheService;
+        _chatService = chatService;
     }
 
     [HttpGet]
+    [RequiresPermission("Contact.View")]
     public async Task<ActionResult<ApiResponse<PagedResponse<ContactResponse>>>> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -64,6 +75,7 @@ public class ContactsController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [RequiresPermission("Contact.View")]
     public async Task<ActionResult<ApiResponse<ContactResponse>>> GetById(int id)
     {
         var data = await _contactService.GetByIdAsync(id);
@@ -71,6 +83,7 @@ public class ContactsController : ControllerBase
     }
 
     [HttpPost]
+    [RequiresPermission("Contact.Create")]
     public async Task<ActionResult<ApiResponse<ContactResponse>>> Create([FromBody] CreateContactRequest request)
     {
         var data = await _contactService.CreateAsync(request);
@@ -79,6 +92,7 @@ public class ContactsController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequiresPermission("Contact.Edit")]
     public async Task<ActionResult<ApiResponse<ContactResponse>>> Update(int id, [FromBody] UpdateContactRequest request)
     {
         var data = await _contactService.UpdateAsync(id, request);
@@ -87,6 +101,7 @@ public class ContactsController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequiresPermission("Contact.Delete")]
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {
         await _contactService.DeleteAsync(id);
@@ -100,6 +115,7 @@ public class ContactsController : ControllerBase
     }
 
     [HttpPost("bulk-delete")]
+    [RequiresPermission("Contact.Delete")]
     public async Task<ActionResult<ApiResponse>> BulkDelete([FromBody] BulkDeleteRequest request)
     {
         if (request?.Ids == null || !request.Ids.Any())
@@ -119,6 +135,7 @@ public class ContactsController : ControllerBase
     }
 
     [HttpPatch("{id}/toggle-active")]
+    [RequiresPermission("Contact.Edit")]
     public async Task<ActionResult<ApiResponse<ContactResponse>>> ToggleActive(int id)
     {
         var data = await _contactService.ToggleActiveAsync(id);
@@ -126,73 +143,106 @@ public class ContactsController : ControllerBase
         return Ok(new ApiResponse<ContactResponse> { Success = true, Data = data });
     }
 
+    /// <remarks>
+    /// Now served from the editable ContactStatuses lookup rather than a literal array.
+    /// The response shape is unchanged — a bare array of { id, name } where id is the stored
+    /// value — so every existing caller keeps working without a change. `color` is added as an
+    /// extra key, which existing consumers simply ignore.
+    /// </remarks>
     [HttpGet("statuses")]
-    public IActionResult GetStatuses()
+    [RequiresPermission("Contact.View")]
+    public async Task<IActionResult> GetStatuses()
     {
-        var list = new[]
-        {
-            new { id = "New", name = "New" },
-            new { id = "InProgress", name = "In Progress" },
-            new { id = "Contacted", name = "Contacted" },
-            new { id = "Qualified", name = "Qualified" },
-            new { id = "Closed", name = "Closed" }
-        };
+        var list = await _dbContext.ContactStatuses
+            .AsNoTracking()
+            .Where(s => s.IsActive)
+            .OrderBy(s => s.SortOrder)
+            .Select(s => new { id = s.Value, name = s.Name, color = s.Color })
+            .ToListAsync();
+
         return Ok(list);
     }
 
     [HttpGet("sources")]
-    public IActionResult GetSources()
+    [RequiresPermission("Contact.View")]
+    public async Task<IActionResult> GetSources()
     {
-        var list = new[]
-        {
-            new { id = "Facebook", name = "facebook" },
-            new { id = "WhatsApp", name = "WhatsApp" },
-            new { id = "Saas", name = "saas" }
-        };
+        var list = await _dbContext.ContactSources
+            .AsNoTracking()
+            .Where(s => s.IsActive)
+            .OrderBy(s => s.SortOrder)
+            .Select(s => new { id = s.Value, name = s.Name, color = s.Color })
+            .ToListAsync();
+
         return Ok(list);
     }
 
     [HttpGet("settings")]
+    [RequiresPermission("Contact.View")]
     public IActionResult GetSettings()
     {
         var config = new { groupNotAssignedText = "Group not assigned" };
         return Ok(new ApiResponse<object> { Success = true, Data = config });
     }
 
+    /// <remarks>
+    /// Real staff accounts, replacing the three hardcoded names this used to return. `id` stays
+    /// the display name because Contact.AssignedTo stores a name rather than a foreign key —
+    /// changing that is a data migration in its own right and out of scope here.
+    /// </remarks>
     [HttpGet("assigned-users")]
-    public IActionResult GetAssignedUsers()
+    [RequiresPermission("Contact.View")]
+    public async Task<IActionResult> GetAssignedUsers()
     {
-        var list = new[]
-        {
-            new { id = "superAdmin", name = "superAdmin" },
-            new { id = "johnMicheal", name = "John Micheal" },
-            new { id = "gunaratnam", name = "Gunaratnam" }
-        };
+        var list = await _dbContext.AppUsers
+            .AsNoTracking()
+            .Where(u => !u.IsDeleted && u.IsActive)
+            .OrderBy(u => u.FirstName)
+            .Select(u => new
+            {
+                id = u.LastName == null ? u.FirstName : u.FirstName + " " + u.LastName,
+                name = u.LastName == null ? u.FirstName : u.FirstName + " " + u.LastName
+            })
+            .ToListAsync();
+
         return Ok(list);
     }
 
+    /// <remarks>
+    /// Reads the editable lookup table instead of the old enum. The previous version returned
+    /// <c>name.ToLower()</c>, which is why the type dropdown read "lead" rather than "Lead", and
+    /// meant an admin could not add a type without a code change.
+    /// </remarks>
     [HttpGet("types")]
-    public IActionResult GetTypes()
+    [RequiresPermission("Contact.View")]
+    public async Task<IActionResult> GetTypes()
     {
-        var list = System.Enum.GetNames(typeof(ContactType))
-            .Select(name => new { id = name, name = name.ToLower() })
-            .ToArray();
+        var list = await _dbContext.ContactTypes
+            .AsNoTracking()
+            .Where(t => t.IsActive)
+            .OrderBy(t => t.SortOrder)
+            .Select(t => new { id = t.Value, name = t.Name, color = t.Color })
+            .ToArrayAsync();
+
         return Ok(list);
     }
 
     [HttpGet("languages")]
-    public IActionResult GetLanguages()
+    [RequiresPermission("Contact.View")]
+    public async Task<IActionResult> GetLanguages()
     {
-        var list = new[]
-        {
-            new { id = "en", name = "English" },
-            new { id = "ms", name = "Malay" },
-            new { id = "zh", name = "Chinese" }
-        };
+        var list = await _dbContext.Languages
+            .AsNoTracking()
+            .Where(l => l.IsActive)
+            .OrderBy(l => l.SortOrder)
+            .Select(l => new { id = l.Code, name = l.Name })
+            .ToListAsync();
+
         return Ok(list);
     }
 
     [HttpGet("countries")]
+    [RequiresPermission("Contact.View")]
     public IActionResult GetCountries()
     {
         var list = new[]
@@ -207,6 +257,7 @@ public class ContactsController : ControllerBase
     }
 
     [HttpGet("{contactId}/notes")]
+    [RequiresPermission("Contact.View")]
     public async Task<ActionResult<ApiResponse<List<ContactNote>>>> GetNotes(int contactId)
     {
         var notes = await _dbContext.ContactNotes
@@ -222,6 +273,7 @@ public class ContactsController : ControllerBase
     }
 
     [HttpPost("{contactId}/notes")]
+    [RequiresPermission("Contact.Edit")]
     public async Task<ActionResult<ApiResponse<ContactNote>>> CreateNote(int contactId, [FromBody] CreateNoteRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Content))
@@ -241,6 +293,7 @@ public class ContactsController : ControllerBase
     }
 
     [HttpDelete("{contactId}/notes/{noteId}")]
+    [RequiresPermission("Contact.Edit")]
     public async Task<ActionResult<ApiResponse>> DeleteNote(int contactId, int noteId)
     {
         var note = await _dbContext.ContactNotes
@@ -256,6 +309,7 @@ public class ContactsController : ControllerBase
     }
 
     [HttpGet("csv-sample")]
+    [RequiresPermission("Contact.Import")]
     public IActionResult GetCsvSample()
     {
         var csvContent = "status_id,source_id,assigned_id,firstname,lastname,company,type,email,phone\n1,1,1,sample data,sample data,,lead,abc@gmail.com,+1 555 123 4567\n";
@@ -265,6 +319,7 @@ public class ContactsController : ControllerBase
 
     [HttpPost("csv-import")]
     [Consumes("multipart/form-data")]
+    [RequiresPermission("Contact.Import")]
     public async Task<ActionResult<ApiResponse>> ImportCsv(IFormFile file)
     {
         if (file == null || file.Length == 0)
@@ -312,6 +367,33 @@ public class ContactsController : ControllerBase
             var phoneRegex = new System.Text.RegularExpressions.Regex(@"^\+[1-9]\d{6,14}$");
             var contactsToImport = new List<Contact>();
 
+            // Loaded once rather than per row — a large import would otherwise issue three
+            // queries for every line. Unfiltered by IsActive so a CSV referencing a retired
+            // status still resolves rather than failing the whole file.
+            var statusLookup = await _dbContext.ContactStatuses
+                .AsNoTracking()
+                .Select(s => new LookupPair(s.Value, s.Name))
+                .ToListAsync();
+
+            var sourceLookup = await _dbContext.ContactSources
+                .AsNoTracking()
+                .Select(s => new LookupPair(s.Value, s.Name))
+                .ToListAsync();
+
+            var typeLookup = await _dbContext.ContactTypes
+                .AsNoTracking()
+                .Select(t => new LookupPair(t.Value, t.Name))
+                .ToListAsync();
+
+            var assignableUsers = await _dbContext.AppUsers
+                .AsNoTracking()
+                .Where(u => !u.IsDeleted)
+                .Select(u => new AssignableUserRef(
+                    u.Id,
+                    u.LastName == null ? u.FirstName : u.FirstName + " " + u.LastName,
+                    u.Email))
+                .ToListAsync();
+
             for (int i = 1; i < lines.Length; i++)
             {
                 var line = lines[i];
@@ -348,58 +430,59 @@ public class ContactsController : ControllerBase
                     return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
                 }
 
-                if (!Enum.TryParse<ContactType>(typeVal, true, out var contactType))
+                // Type resolves against the lookup table like status and source. Same ordinal
+                // fallback, so a CSV exported when Type was an enum still imports.
+                var contactType = ResolveLookupValue(
+                    typeVal, typeLookup, ordinal => Enum.IsDefined(typeof(ContactType), ordinal)
+                        ? ((ContactType)ordinal).ToString()
+                        : null);
+
+                if (contactType is null)
                 {
                     return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
                 }
 
-                ContactStatus contactStatus = ContactStatus.New;
-                if (int.TryParse(statusVal, out var statusInt))
-                {
-                    if (Enum.IsDefined(typeof(ContactStatus), statusInt))
-                    {
-                        contactStatus = (ContactStatus)statusInt;
-                    }
-                    else
-                    {
-                        return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
-                    }
-                }
-                else if (Enum.TryParse<ContactStatus>(statusVal, true, out var parsedStatus))
-                {
-                    contactStatus = parsedStatus;
-                }
-                else
+                // Status and source now resolve against the editable lookup tables. Numeric
+                // values are still accepted and mapped through the original enum ordinals, so
+                // CSV files exported before this change keep importing unchanged.
+                var contactStatus = ResolveLookupValue(
+                    statusVal, statusLookup, ordinal => Enum.IsDefined(typeof(ContactStatus), ordinal)
+                        ? ((ContactStatus)ordinal).ToString()
+                        : null);
+
+                if (contactStatus is null)
                 {
                     return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
                 }
 
-                ContactSource contactSource = ContactSource.WhatsApp;
-                if (int.TryParse(sourceVal, out var sourceInt))
-                {
-                    if (Enum.IsDefined(typeof(ContactSource), sourceInt))
-                    {
-                        contactSource = (ContactSource)sourceInt;
-                    }
-                    else
-                    {
-                        return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
-                    }
-                }
-                else if (Enum.TryParse<ContactSource>(sourceVal, true, out var parsedSource))
-                {
-                    contactSource = parsedSource;
-                }
-                else
+                var contactSource = ResolveLookupValue(
+                    sourceVal, sourceLookup, ordinal => Enum.IsDefined(typeof(ContactSource), ordinal)
+                        ? ((ContactSource)ordinal).ToString()
+                        : null);
+
+                if (contactSource is null)
                 {
                     return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
                 }
 
+                // Resolves against real user accounts instead of the old three-name ladder.
+                // A numeric value is treated as a user id; anything else is matched on name or
+                // email, and falls through as free text so imports never fail on this column.
                 string? assignedTo = null;
-                if (assignedVal == "1") assignedTo = "superAdmin";
-                else if (assignedVal == "2") assignedTo = "johnMicheal";
-                else if (assignedVal == "3") assignedTo = "gunaratnam";
-                else if (!string.IsNullOrEmpty(assignedVal)) assignedTo = assignedVal;
+                if (!string.IsNullOrWhiteSpace(assignedVal))
+                {
+                    if (int.TryParse(assignedVal, out var assignedUserId))
+                    {
+                        assignedTo = assignableUsers.FirstOrDefault(u => u.Id == assignedUserId)?.Name ?? assignedVal;
+                    }
+                    else
+                    {
+                        var match = assignableUsers.FirstOrDefault(u =>
+                            string.Equals(u.Name, assignedVal, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(u.Email, assignedVal, StringComparison.OrdinalIgnoreCase));
+                        assignedTo = match?.Name ?? assignedVal;
+                    }
+                }
 
                 var fullName = $"{firstName} {lastName}".Trim();
                 if (fullName.Length < 2) fullName = firstName;
@@ -419,17 +502,24 @@ public class ContactsController : ControllerBase
             }
 
             int importCount = 0;
+            var imported = new List<Contact>();
             foreach (var contact in contactsToImport)
             {
                 var exists = await _dbContext.Contacts.AnyAsync(c => c.Phone == contact.Phone);
                 if (!exists)
                 {
                     _dbContext.Contacts.Add(contact);
+                    imported.Add(contact);
                     importCount++;
                 }
             }
 
             await _dbContext.SaveChangesAsync();
+
+            // Batched, and only after the save so the ids exist. One insert for the whole
+            // import — calling the per-contact overload in the loop above would be an N+1.
+            await _chatService.EnsureConversationsForContactsAsync(
+                imported.Select(c => c.Id).ToList());
 
             return Ok(new ApiResponse
             {
@@ -475,5 +565,39 @@ public class ContactsController : ControllerBase
         }
         result.Add(currentField.ToString().Trim(' ', '"'));
         return result;
+    }
+
+    private record LookupPair(string Value, string Name);
+    private record AssignableUserRef(int Id, string Name, string Email);
+
+    /// <summary>
+    /// Resolves a CSV cell to a lookup's stored Value.
+    ///
+    /// Accepts three forms, in order: a numeric legacy enum ordinal (so CSV files produced
+    /// before statuses became database-driven still import), the lookup's Value, or its
+    /// display Name. Returns null when nothing matches, which the caller turns into a
+    /// row-level rejection.
+    /// </summary>
+    private static string? ResolveLookupValue(
+        string? cell,
+        IReadOnlyCollection<LookupPair> lookup,
+        Func<int, string?> legacyOrdinalToValue)
+    {
+        if (string.IsNullOrWhiteSpace(cell)) return null;
+        var trimmed = cell.Trim();
+
+        if (int.TryParse(trimmed, out var ordinal))
+        {
+            var legacyValue = legacyOrdinalToValue(ordinal);
+            // Only accept the ordinal if that value still exists in the lookup — an admin may
+            // have deleted it since.
+            return legacyValue is not null && lookup.Any(l => l.Value == legacyValue)
+                ? legacyValue
+                : null;
+        }
+
+        return lookup.FirstOrDefault(l =>
+            string.Equals(l.Value, trimmed, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(l.Name, trimmed, StringComparison.OrdinalIgnoreCase))?.Value;
     }
 }

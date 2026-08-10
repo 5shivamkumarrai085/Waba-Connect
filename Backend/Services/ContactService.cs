@@ -12,10 +12,14 @@ namespace WhatsAppCampaignApi.Services;
 public class ContactService : IContactService
 {
     private readonly AppDbContext _dbContext;
+    private readonly IAuditService _auditService;
+    private readonly IChatService _chatConversationSeeder;
 
-    public ContactService(AppDbContext dbContext)
+    public ContactService(AppDbContext dbContext, IAuditService auditService, IChatService chatService)
     {
         _dbContext = dbContext;
+        _auditService = auditService;
+        _chatConversationSeeder = chatService;
     }
 
     public async Task<PagedResponse<ContactResponse>> GetAllAsync(
@@ -42,14 +46,18 @@ public class ContactService : IContactService
             query = query.Where(c => c.IsActive == isActive.Value);
         }
 
-        if (!string.IsNullOrEmpty(type) && Enum.TryParse<ContactType>(type, true, out var parsedType))
+        // Type joins status and source as a plain string comparison. The Enum.TryParse guard
+        // that used to wrap this would have silently ignored any type an administrator added.
+        if (!string.IsNullOrEmpty(type))
         {
-            query = query.Where(c => c.Type == parsedType);
+            query = query.Where(c => c.Type == type);
         }
 
-        if (!string.IsNullOrEmpty(status) && Enum.TryParse<ContactStatus>(status, true, out var parsedStatus))
+        // Compared as plain strings now that statuses and sources are database-driven — an
+        // Enum.TryParse here would silently drop any value an administrator added.
+        if (!string.IsNullOrEmpty(status))
         {
-            query = query.Where(c => c.Status == parsedStatus);
+            query = query.Where(c => c.Status == status);
         }
 
         if (!string.IsNullOrEmpty(assignedTo))
@@ -57,9 +65,9 @@ public class ContactService : IContactService
             query = query.Where(c => c.AssignedTo == assignedTo);
         }
 
-        if (!string.IsNullOrEmpty(source) && Enum.TryParse<ContactSource>(source, true, out var parsedSource))
+        if (!string.IsNullOrEmpty(source))
         {
-            query = query.Where(c => c.Source == parsedSource);
+            query = query.Where(c => c.Source == source);
         }
 
         if (groupId.HasValue)
@@ -159,9 +167,9 @@ public class ContactService : IContactService
                 existingContact.IsDeleted = false;
                 existingContact.IsActive = true;
                 existingContact.Name = request.Name;
-                existingContact.Type = Enum.Parse<ContactType>(request.Type, true);
-                existingContact.Status = Enum.Parse<ContactStatus>(request.Status, true);
-                existingContact.Source = Enum.Parse<ContactSource>(request.Source, true);
+                existingContact.Type = request.Type;
+                existingContact.Status = request.Status;
+                existingContact.Source = request.Source;
                 existingContact.AssignedTo = request.AssignedTo;
                 existingContact.Email = request.Email;
                 existingContact.Company = request.Company;
@@ -174,8 +182,15 @@ public class ContactService : IContactService
                 existingContact.Description = request.Description;
                 existingContact.UpdatedAt = DateTime.UtcNow;
 
-                // Clear and update group memberships
+                // Clear and update group memberships.
+                //
+                // IgnoreQueryFilters is required here: ContactGroupMember is now filtered on
+                // !Contact.IsDeleted, and the restore above has only set that flag in memory —
+                // the database row still says deleted until SaveChanges. Without this the query
+                // returns nothing, the old memberships survive, and re-adding the same groups
+                // violates the unique index.
                 var existingMemberships = await _dbContext.ContactGroupMembers
+                    .IgnoreQueryFilters()
                     .Where(gm => gm.ContactId == existingContact.Id)
                     .ToListAsync();
                 _dbContext.ContactGroupMembers.RemoveRange(existingMemberships);
@@ -194,6 +209,11 @@ public class ContactService : IContactService
                 }
 
                 await _dbContext.SaveChangesAsync();
+
+                // A restored contact may have been created before its connections existed, or
+                // had rows removed while deleted — top them up the same way a new one gets them.
+                await _chatConversationSeeder.EnsureConversationsForContactAsync(existingContact.Id);
+
                 return await GetByIdAsync(existingContact.Id);
             }
             else
@@ -206,9 +226,9 @@ public class ContactService : IContactService
         {
             Name = request.Name,
             Phone = normalizedPhone,
-            Type = Enum.Parse<ContactType>(request.Type, true),
-            Status = Enum.Parse<ContactStatus>(request.Status, true),
-            Source = Enum.Parse<ContactSource>(request.Source, true),
+            Type = request.Type,
+            Status = request.Status,
+            Source = request.Source,
             AssignedTo = request.AssignedTo,
             Email = request.Email,
             Company = request.Company,
@@ -238,6 +258,17 @@ public class ContactService : IContactService
         _dbContext.Contacts.Add(contact);
         await _dbContext.SaveChangesAsync();
 
+        // Audited after the save, never before: AuditService shares this scoped DbContext, so
+        // logging first would commit the half-built contact along with the audit row.
+        await _auditService.LogAsync(
+            "Contact.Created", "Data",
+            $"Created contact \"{contact.Name}\" ({contact.Phone}).",
+            "Contact", contact.Id.ToString());
+
+        // Give the contact its conversation rows now, at write time. The chat list used to
+        // build these on every read; doing it once here is what lets that read stay a read.
+        await _chatConversationSeeder.EnsureConversationsForContactAsync(contact.Id);
+
         return await GetByIdAsync(contact.Id);
     }
 
@@ -261,9 +292,9 @@ public class ContactService : IContactService
 
         contact.Name = request.Name;
         contact.Phone = normalizedPhone;
-        contact.Type = Enum.Parse<ContactType>(request.Type, true);
-        contact.Status = Enum.Parse<ContactStatus>(request.Status, true);
-        contact.Source = Enum.Parse<ContactSource>(request.Source, true);
+        contact.Type = request.Type;
+        contact.Status = request.Status;
+        contact.Source = request.Source;
         contact.AssignedTo = request.AssignedTo;
         contact.Email = request.Email;
         contact.Company = request.Company;
@@ -294,6 +325,11 @@ public class ContactService : IContactService
 
         await _dbContext.SaveChangesAsync();
 
+        await _auditService.LogAsync(
+            "Contact.Updated", "Data",
+            $"Updated contact \"{contact.Name}\" ({contact.Phone}).",
+            "Contact", contact.Id.ToString());
+
         return await GetByIdAsync(contact.Id);
     }
 
@@ -307,6 +343,11 @@ public class ContactService : IContactService
         contact.IsActive = false;
         contact.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "Contact.Deleted", "Data",
+            $"Deleted contact \"{contact.Name}\" ({contact.Phone}).",
+            "Contact", contact.Id.ToString());
     }
 
     public async Task<ContactResponse> ToggleActiveAsync(int id)
@@ -317,6 +358,11 @@ public class ContactService : IContactService
 
         contact.IsActive = !contact.IsActive;
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "Contact.StatusChanged", "Data",
+            $"Set contact \"{contact.Name}\" to {(contact.IsActive ? "active" : "inactive")}.",
+            "Contact", contact.Id.ToString());
 
         return await GetByIdAsync(contact.Id);
     }
@@ -348,7 +394,8 @@ public class ContactService : IContactService
             Groups = c.GroupMemberships.Select(gm => new ContactGroupBriefResponse
             {
                 Id = gm.Group.Id,
-                Name = gm.Group.Name
+                Name = gm.Group.Name,
+                Color = gm.Group.Color
             }).ToList()
         };
     }

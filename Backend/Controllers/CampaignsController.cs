@@ -1,12 +1,16 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Campaigns;
 using WhatsAppCampaignApi.Services.Interfaces;
 
+using WhatsAppCampaignApi.Helpers;
+
 namespace WhatsAppCampaignApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class CampaignsController : ControllerBase
 {
     private readonly ICampaignService _campaignService;
@@ -21,6 +25,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpGet]
+    [RequiresPermission("Campaign.View")]
     public async Task<ActionResult<ApiResponse<PagedResponse<CampaignResponse>>>> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -33,6 +38,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [RequiresPermission("Campaign.View")]
     public async Task<ActionResult<ApiResponse<CampaignDetailResponse>>> GetById(int id)
     {
         var data = await _campaignService.GetByIdAsync(id);
@@ -40,6 +46,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpPost]
+    [RequiresPermission("Campaign.Create")]
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Create([FromBody] CreateCampaignRequest request)
     {
         var data = await _campaignService.CreateAsync(request);
@@ -48,6 +55,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequiresPermission("Campaign.Edit")]
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Update(int id, [FromBody] CreateCampaignRequest request)
     {
         var data = await _campaignService.UpdateAsync(id, request);
@@ -56,6 +64,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequiresPermission("Campaign.Delete")]
     public async Task<ActionResult<ApiResponse>> Delete(int id)
     {
         await _campaignService.DeleteAsync(id);
@@ -64,6 +73,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpGet("exists")]
+    [RequiresPermission("Campaign.View")]
     public async Task<ActionResult<ApiResponse<bool>>> CheckNameExists([FromQuery] string name, [FromQuery] int? excludeId = null)
     {
         var exists = await _campaignService.CheckNameExistsAsync(name, excludeId);
@@ -71,6 +81,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpPost("{id}/cancel")]
+    [RequiresPermission("Campaign.Send")]
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Cancel(int id)
     {
         var data = await _campaignService.CancelAsync(id);
@@ -79,6 +90,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpPost("{id}/pause")]
+    [RequiresPermission("Campaign.Send")]
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Pause(int id)
     {
         var data = await _campaignService.PauseAsync(id);
@@ -87,6 +99,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpPost("{id}/resume")]
+    [RequiresPermission("Campaign.Send")]
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Resume(int id)
     {
         var data = await _campaignService.ResumeAsync(id);
@@ -95,6 +108,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpGet("{id}/recipients")]
+    [RequiresPermission("Campaign.View")]
     public async Task<ActionResult<ApiResponse<PagedResponse<CampaignRecipientResponse>>>> GetRecipients(
         int id,
         [FromQuery] int page = 1,
@@ -107,6 +121,7 @@ public class CampaignsController : ControllerBase
 
     [HttpPost("upload")]
     [Consumes("multipart/form-data")]
+    [RequiresPermission("Campaign.Create", "Campaign.Edit", "BulkCampaign.Create")]
     public async Task<ActionResult<ApiResponse<UploadResponse>>> UploadFile(IFormFile file)
     {
         if (file == null || file.Length == 0)
@@ -145,6 +160,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpGet("csv-sample")]
+    [RequiresPermission("BulkCampaign.View")]
     public IActionResult GetCsvSample()
     {
         var csvContent = "firstname,lastname,phone,email,country\nSample Data,Sample Data,+15551234567,66d824de53e6b@example.com,Sample Data\n";
@@ -154,6 +170,7 @@ public class CampaignsController : ControllerBase
 
     [HttpPost("csv-validate")]
     [Consumes("multipart/form-data")]
+    [RequiresPermission("BulkCampaign.Create")]
     public async Task<ActionResult<ApiResponse<CsvValidationResponse>>> ValidateCsv(IFormFile file)
     {
         if (file == null || file.Length == 0)
@@ -295,6 +312,7 @@ public class CampaignsController : ControllerBase
     }
 
     [HttpPost("csv-create")]
+    [RequiresPermission("BulkCampaign.Create")]
     public async Task<ActionResult<ApiResponse<CsvCampaignCreateResponse>>> CreateCsvCampaign([FromBody] CreateCsvCampaignRequest request)
     {
         try

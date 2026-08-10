@@ -43,11 +43,27 @@ export interface LoginSuccessModel {
   status: 'Success'
 }
 
+/**
+ * A failed sign-in. Same shape as a success plus `reason` — which the backend has always
+ * returned; the page just never rendered it.
+ */
+export interface LoginErrorModel {
+  id: string
+  time: string
+  email: string
+  ipAddress: string
+  userAgent: string
+  status: 'Failed'
+  reason: string
+}
+
 export interface AuditLogModel {
   id: string
   time: string
   event: string
   category: string
   user: string
+  /** Null for background callers — the scheduler and webhook have no originating address. */
+  ipAddress?: string | null
   description: string
 }

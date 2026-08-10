@@ -14,6 +14,7 @@ import { formatRelativeTime } from '../../utils/dateHelper'
 import { templateService } from '../../services/templates/templateService'
 import { contactService } from '../../services/contacts/contactService'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
+import Can from '../../components/Can/Can'
 
 export const CampaignsList: React.FC = () => {
   const navigate = useNavigate()
@@ -209,15 +210,17 @@ export const CampaignsList: React.FC = () => {
     <motion.div {...pageTransitionProps}>
       {/* Top Toolbar actions */}
       <div className="campaigns-toolbar">
-        <button 
-          type="button" 
-          className="btn-toolbar"
-          onClick={() => navigate('/campaigns/campaign/create')}
-        >
-          <Plus size={16} />
-          <span>Create Campaign</span>
-        </button>
-        <button 
+        <Can permission="Campaign.Create">
+          <button
+            type="button"
+            className="btn-toolbar"
+            onClick={() => navigate('/campaigns/campaign/create')}
+          >
+            <Plus size={16} />
+            <span>Create Campaign</span>
+          </button>
+        </Can>
+        <button
           type="button" 
           className="btn-toolbar btn-toolbar-refresh"
           onClick={handleRefresh}
@@ -462,19 +465,24 @@ export const CampaignsList: React.FC = () => {
                             >
                               View
                             </MenuItem>
-                            <MenuItem
-                              className="contact-actions-item"
-                              onSelect={() => navigate(`/campaigns/campaign/edit/${camp.id}`)}
-                            >
-                              Edit
-                            </MenuItem>
-                            <MenuItem
-                              destructive
-                              className="contact-actions-item"
-                              onSelect={() => handleDelete(camp.id, camp.name)}
-                            >
-                              Delete
-                            </MenuItem>
+                            {/* Disabled rather than hidden — see the note in ContactsList. */}
+                            <Can permission="Campaign.Edit" mode="disable">
+                              <MenuItem
+                                className="contact-actions-item"
+                                onSelect={() => navigate(`/campaigns/campaign/edit/${camp.id}`)}
+                              >
+                                Edit
+                              </MenuItem>
+                            </Can>
+                            <Can permission="Campaign.Delete" mode="disable">
+                              <MenuItem
+                                destructive
+                                className="contact-actions-item"
+                                onSelect={() => handleDelete(camp.id, camp.name)}
+                              >
+                                Delete
+                              </MenuItem>
+                            </Can>
                           </Menu>
                         </div>
                       </td>

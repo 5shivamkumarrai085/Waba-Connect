@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WhatsAppCampaignApi.Data;
@@ -10,22 +11,41 @@ using WhatsAppCampaignApi.Services.Interfaces;
 
 namespace WhatsAppCampaignApi.Controllers;
 
+/// <remarks>
+/// Local development harness that simulates inbound webhook traffic without Meta.
+///
+/// <para>
+/// Anonymous, and it injects messages straight into the bot router — which is fine on a
+/// developer machine and unacceptable anywhere else, since anyone who can reach the host could
+/// drive the bots. Every action therefore refuses outside Development. It stays
+/// [AllowAnonymous] so it needs no token locally.
+/// </para>
+/// </remarks>
 [ApiController]
 [Route("api/[controller]")]
+[AllowAnonymous]
 public class LocalTestController : ControllerBase
 {
     private readonly IBotRouterService _routerService;
     private readonly AppDbContext _dbContext;
+    private readonly IWebHostEnvironment _environment;
 
-    public LocalTestController(IBotRouterService routerService, AppDbContext dbContext)
+    public LocalTestController(
+        IBotRouterService routerService,
+        AppDbContext dbContext,
+        IWebHostEnvironment environment)
     {
         _routerService = routerService;
         _dbContext = dbContext;
+        _environment = environment;
     }
 
     [HttpPost("simulate-incoming")]
     public async Task<ActionResult<ApiResponse<SimulationResponse>>> SimulateIncoming([FromBody] SimulateIncomingRequest request)
     {
+        // 404 rather than 403 outside Development — the endpoint shouldn't announce itself.
+        if (!_environment.IsDevelopment()) return NotFound();
+
         if (string.IsNullOrWhiteSpace(request.PhoneNumber) || string.IsNullOrWhiteSpace(request.MessageText))
         {
             return BadRequest(new ApiResponse<SimulationResponse>

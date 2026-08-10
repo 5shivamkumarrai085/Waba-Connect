@@ -1,14 +1,24 @@
 // src/services/waba/wabaService.ts
-import axios from 'axios'
+import { apiClient } from '../apiClient'
 
-const API_BASE_URL = 'http://localhost:5155/api/waba'
-
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-})
+/**
+ * Every call goes through the shared apiClient.
+ *
+ * This module used to build its own bare axios instance against a hardcoded
+ * `http://localhost:5155/api/waba`. That instance carried no request interceptor, so it never
+ * attached the bearer token — the moment the WABA endpoints started enforcing permissions,
+ * every call from this page began returning 401 and the account dashboard silently fell back
+ * to rendering the setup wizard. It also ignored VITE_API_BASE_URL, so it could only ever have
+ * worked against a local backend.
+ *
+ * Paths below are relative to the shared client's `/api` base, hence the `/waba` prefix.
+ */
+const api = {
+  get: (path: string, config?: Parameters<typeof apiClient.get>[1]) =>
+    apiClient.get(`/waba${path}`, config),
+  post: (path: string, body?: unknown, config?: Parameters<typeof apiClient.post>[2]) =>
+    apiClient.post(`/waba${path}`, body, config)
+}
 
 // In-memory cache for connection daily message limits (populated dynamically on load / getDashboard)
 const cachedLimitData: Record<string, { messagesSent: number; messageLimit: number; timestamp: number }> = {}

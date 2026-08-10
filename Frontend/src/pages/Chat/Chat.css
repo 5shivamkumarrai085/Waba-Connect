@@ -472,6 +472,113 @@
   gap: 10px;
 }
 
+/* === Message selection (WhatsApp-style right-click / long-press) === */
+
+.chat-bubble-row.selectable {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s ease;
+}
+
+.chat-bubble-row.selectable:hover { background-color: rgba(99, 102, 241, 0.06); }
+.chat-bubble-row.selected { background-color: rgba(99, 102, 241, 0.12); }
+
+.chat-bubble-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-bottom: 4px;
+  border: 1.5px solid var(--border-color);
+  border-radius: 50%;
+  background-color: var(--bg-white, #fff);
+  color: #fff;
+  vertical-align: middle;
+}
+
+.chat-bubble-check.checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+/* Fixed, not absolute: the coordinates come from the pointer event, which is viewport-relative,
+   and the thread is a scrolling container. */
+.chat-message-context-menu {
+  position: fixed;
+  z-index: var(--z-popover, 1000);
+  min-width: 190px;
+  padding: 5px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-white, #fff);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+
+.chat-message-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-main);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-message-context-menu button:hover { background-color: var(--bg-subtle, #f1f5f9); }
+.chat-message-context-menu button:first-child { color: var(--error); }
+.chat-message-context-menu button:first-child:hover { background-color: var(--error-light); }
+
+.chat-selection-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: var(--z-popover, 1000);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  background-color: var(--text-main, #0f172a);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.26);
+  color: #fff;
+}
+
+.chat-selection-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chat-selection-count { font-size: 13px; font-weight: 500; }
+.chat-selection-delete:disabled { opacity: 0.45; cursor: not-allowed; }
+.chat-selection-delete:not(:disabled):hover { color: #fca5a5; }
+
+/* Shown in place of the composer when the user holds Chat.View but not Chat.Send. Matches the
+   composer's own padding and top border so the message rail keeps its height. */
+.chat-composer-readonly {
+  background-color: #f0f2f5;
+  padding: 20px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .chat-composer-input-row {
   display: flex;
   align-items: center;
@@ -657,6 +764,98 @@
 
 .emoji-btn:hover {
   background: var(--border-light, #f1f5f9);
+}
+
+/* Canned replies popover.
+   Positioned like its attachment/emoji siblings so the three read as one family. Wider,
+   because a reply needs its text previewed to be pickable at a glance. */
+.canned-replies-popover {
+  position: absolute;
+  bottom: 36px;
+  left: 0;
+  width: 320px;
+  max-height: 340px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+  z-index: 100;
+  overflow: hidden;
+}
+
+.canned-replies-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-light, #f1f5f9);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.canned-replies-list {
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.canned-replies-empty {
+  padding: 18px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.canned-reply-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out);
+}
+
+.canned-reply-item:hover {
+  background-color: var(--bg-hover, #f1f5f9);
+}
+
+.canned-reply-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.canned-reply-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.canned-reply-badge {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: var(--radius-full, 9999px);
+  background-color: var(--primary-light);
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Two-line clamp: enough to recognise the reply, not enough to make the list unscannable. */
+.canned-reply-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
 }
 
 .attachment-menu-popover {

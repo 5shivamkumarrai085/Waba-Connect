@@ -1,15 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.BotFlow;
 using WhatsAppCampaignApi.Services.Interfaces;
 
+using WhatsAppCampaignApi.Helpers;
+
 namespace WhatsAppCampaignApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class BotFlowsController : ControllerBase
 {
     private readonly IBotFlowService _flowService;
@@ -22,6 +26,7 @@ public class BotFlowsController : ControllerBase
     }
 
     [HttpGet]
+    [RequiresPermission("BotFlow.View")]
     public async Task<ActionResult<ApiResponse<PagedResponse<BotFlowResponse>>>> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
@@ -41,6 +46,7 @@ public class BotFlowsController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [RequiresPermission("BotFlow.View")]
     public async Task<ActionResult<ApiResponse<BotFlowResponse>>> GetById(int id)
     {
         try
@@ -55,6 +61,7 @@ public class BotFlowsController : ControllerBase
     }
 
     [HttpPost]
+    [RequiresPermission("BotFlow.Create")]
     public async Task<ActionResult<ApiResponse<BotFlowResponse>>> Create([FromBody] CreateBotFlowRequest request)
     {
         if (!ModelState.IsValid)
@@ -68,6 +75,7 @@ public class BotFlowsController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequiresPermission("BotFlow.Edit")]
     public async Task<ActionResult<ApiResponse<BotFlowResponse>>> Update(int id, [FromBody] UpdateBotFlowRequest request)
     {
         if (!ModelState.IsValid)
@@ -88,6 +96,7 @@ public class BotFlowsController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequiresPermission("BotFlow.Delete")]
     public async Task<ActionResult<ApiResponse<bool>>> Delete(int id)
     {
         var result = await _flowService.DeleteAsync(id);
@@ -100,6 +109,7 @@ public class BotFlowsController : ControllerBase
     }
 
     [HttpPatch("toggle/{id}")]
+    [RequiresPermission("BotFlow.Edit")]
     public async Task<ActionResult<ApiResponse<BotFlowResponse>>> ToggleActive(int id)
     {
         try

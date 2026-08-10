@@ -15,10 +15,12 @@ namespace WhatsAppCampaignApi.Services;
 public class TemplateBotService : ITemplateBotService
 {
     private readonly AppDbContext _dbContext;
+    private readonly IAuditService _auditService;
 
-    public TemplateBotService(AppDbContext dbContext)
+    public TemplateBotService(AppDbContext dbContext, IAuditService auditService)
     {
         _dbContext = dbContext;
+        _auditService = auditService;
     }
 
     public async Task<PagedResponse<TemplateBotResponse>> GetPagedAsync(
@@ -177,6 +179,13 @@ public class TemplateBotService : ITemplateBotService
         _dbContext.TemplateBots.Add(bot);
         await _dbContext.SaveChangesAsync();
 
+        // Audited after the save: AuditService shares this scoped DbContext, so logging first
+        // would commit the half-built bot along with the audit row.
+        await _auditService.LogAsync(
+            "TemplateBot.Created", "Data",
+            $"Created template bot \"{bot.Name}\".",
+            "TemplateBot", bot.Id.ToString());
+
         // Reload to include navigation properties
         return await GetByIdAsync(bot.Id);
     }
@@ -240,6 +249,11 @@ public class TemplateBotService : ITemplateBotService
         _dbContext.TemplateBots.Entry(bot).State = EntityState.Modified;
         await _dbContext.SaveChangesAsync();
 
+        await _auditService.LogAsync(
+            "TemplateBot.Updated", "Data",
+            $"Updated template bot \"{bot.Name}\".",
+            "TemplateBot", bot.Id.ToString());
+
         return await GetByIdAsync(bot.Id);
     }
 
@@ -251,8 +265,18 @@ public class TemplateBotService : ITemplateBotService
             return false;
         }
 
+        // Captured before Remove: after SaveChanges the entity is detached and Id reads 0.
+        var botName = bot.Name;
+        var botId = bot.Id;
+
         _dbContext.TemplateBots.Remove(bot);
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "TemplateBot.Deleted", "Data",
+            $"Deleted template bot \"{botName}\".",
+            "TemplateBot", botId.ToString());
+
         return true;
     }
 
@@ -301,6 +325,11 @@ public class TemplateBotService : ITemplateBotService
         _dbContext.TemplateBots.Add(clonedBot);
         await _dbContext.SaveChangesAsync();
 
+        await _auditService.LogAsync(
+            "TemplateBot.Cloned", "Data",
+            $"Cloned template bot \"{bot.Name}\" as \"{clonedBot.Name}\".",
+            "TemplateBot", clonedBot.Id.ToString());
+
         return await GetByIdAsync(clonedBot.Id);
     }
 
@@ -317,6 +346,11 @@ public class TemplateBotService : ITemplateBotService
 
         _dbContext.TemplateBots.Entry(bot).State = EntityState.Modified;
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "TemplateBot.StatusChanged", "Data",
+            $"Set template bot \"{bot.Name}\" to {(bot.IsActive ? "active" : "inactive")}.",
+            "TemplateBot", bot.Id.ToString());
 
         return await GetByIdAsync(bot.Id);
     }

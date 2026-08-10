@@ -7,16 +7,30 @@ interface CopyFieldProps {
   placeholder?: string
   readOnly?: boolean
   isSensitive?: boolean
+  /**
+   * When false, a sensitive value can never be unmasked or copied — the eye and the Copy
+   * button are both removed.
+   *
+   * Revealing and copying are the same capability: a Copy button beside a masked field hands
+   * over the secret just as effectively as unmasking it, so they are gated together rather
+   * than separately.
+   */
+  allowReveal?: boolean
 }
 
 export const CopyField: React.FC<CopyFieldProps> = ({
   value,
   placeholder = '',
   readOnly = true,
-  isSensitive = false
+  isSensitive = false,
+  allowReveal = true
 }) => {
   const [copied, setCopied] = useState<boolean>(false)
   const [isHidden, setIsHidden] = useState<boolean>(isSensitive)
+
+  // A sensitive field the caller has locked down stays masked regardless of local state.
+  const locked = isSensitive && !allowReveal
+  const showValueMasked = locked || isHidden
 
   const handleCopy = async () => {
     if (!value) return
@@ -34,14 +48,14 @@ export const CopyField: React.FC<CopyFieldProps> = ({
     <div className="copy-field-container">
       <div className="copy-field-input-wrapper" style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
         <input
-          type={isHidden ? 'password' : 'text'}
+          type={showValueMasked ? 'password' : 'text'}
           className="copy-field-input"
           value={value}
           placeholder={placeholder}
           readOnly={readOnly}
           style={{ flex: 1 }}
         />
-        {isSensitive && (
+        {isSensitive && !locked && (
           <button
             type="button"
             className="copy-field-visibility-btn"
@@ -61,13 +75,15 @@ export const CopyField: React.FC<CopyFieldProps> = ({
           </button>
         )}
       </div>
-      <button
-        type="button"
-        className={`copy-field-btn ${copied ? 'copied' : ''}`}
-        onClick={handleCopy}
-      >
-        {copied ? 'Copied!' : 'Copy'}
-      </button>
+      {!locked && (
+        <button
+          type="button"
+          className={`copy-field-btn ${copied ? 'copied' : ''}`}
+          onClick={handleCopy}
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      )}
     </div>
   )
 }

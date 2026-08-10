@@ -13,22 +13,30 @@ public class TemplateService : ITemplateService
     private readonly AppDbContext _dbContext;
     private readonly IWhatsAppService _whatsAppService;
 
-    public TemplateService(AppDbContext dbContext, IWhatsAppService whatsAppService)
+    private readonly IAuditService _auditService;
+    private readonly ILogger<TemplateService> _logger;
+
+    public TemplateService(
+        AppDbContext dbContext,
+        IWhatsAppService whatsAppService,
+        IAuditService auditService,
+        ILogger<TemplateService> logger)
     {
         _dbContext = dbContext;
         _whatsAppService = whatsAppService;
+        _auditService = auditService;
+        _logger = logger;
     }
 
     public async Task<PagedResponse<TemplateResponse>> GetAllAsync(PagedRequest request, string? status = null, string? category = null)
     {
-        try
-        {
-            await SyncFromWhatsAppAsync();
-        }
-        catch
-        {
-            // Ignore sync errors during page load
-        }
+        // No Meta sync here. This used to await SyncFromWhatsAppAsync() on every list request,
+        // which made one outbound HTTPS call per connected WABA before returning a single row —
+        // the page took 7-15 seconds and wrote to the database on a GET.
+        //
+        // TemplateSyncBackgroundService now refreshes on a schedule, and the existing
+        // "Load Templates" button (POST /api/Templates/sync, Template.LoadTemplate) forces an
+        // immediate refresh when someone needs Meta's latest state right now.
 
         var query = _dbContext.Templates.AsNoTracking().Include(t => t.Variables).AsQueryable();
 
@@ -111,6 +119,13 @@ public class TemplateService : ITemplateService
         _dbContext.Templates.Add(template);
         await _dbContext.SaveChangesAsync();
 
+        // SyncFromWhatsAppAsync is deliberately not audited: GetAllAsync calls it on every list
+        // load, so auditing it would bury real changes under one entry per page view.
+        await _auditService.LogAsync(
+            "Template.Created", "Data",
+            $"Created template \"{template.Name}\" ({template.Language}).",
+            "Template", template.Id.ToString());
+
         return await GetByIdAsync(template.Id);
     }
 
@@ -157,6 +172,11 @@ public class TemplateService : ITemplateService
 
         await _dbContext.SaveChangesAsync();
 
+        await _auditService.LogAsync(
+            "Template.Updated", "Data",
+            $"Updated template \"{template.Name}\" ({template.Language}).",
+            "Template", template.Id.ToString());
+
         return await GetByIdAsync(template.Id);
     }
 
@@ -170,8 +190,17 @@ public class TemplateService : ITemplateService
         if (isInUse)
             throw new InvalidOperationException("Cannot delete a template that is used in campaigns.");
 
+        // Captured before Remove: after SaveChanges the entity is detached and Id reads 0.
+        var templateName = template.Name;
+        var templateId = template.Id;
+
         _dbContext.Templates.Remove(template);
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "Template.Deleted", "Data",
+            $"Deleted template \"{templateName}\".",
+            "Template", templateId.ToString());
     }
 
     public async Task<int> SyncFromWhatsAppAsync()
@@ -179,18 +208,31 @@ public class TemplateService : ITemplateService
         var allConfigs = await _dbContext.WabaConfigurations.AsNoTracking().Where(c => c.ConnectionId != null && c.Connected).ToListAsync();
         var allWaTemplates = new List<WhatsAppTemplateInfo>();
 
+        // Tracked so the delete pass below can tell "Meta says this template is gone" apart
+        // from "we could not reach Meta". Without that distinction a total outage deletes the
+        // entire local table.
+        var connectionsAttempted = 0;
+        var connectionsSucceeded = 0;
+
         foreach (var cfg in allConfigs)
         {
             if (cfg.ConnectionId.HasValue)
             {
+                connectionsAttempted++;
                 try
                 {
                     var connTpls = await _whatsAppService.GetTemplatesForConnectionAsync(cfg.ConnectionId.Value);
                     allWaTemplates.AddRange(connTpls);
+                    connectionsSucceeded++;
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Skip connections that fail to fetch templates
+                    // Skip connections that fail to fetch templates, but say so — this used to
+                    // be swallowed silently, which is how a total outage could look like an
+                    // empty template list.
+                    _logger.LogWarning(ex,
+                        "Template sync could not reach Meta for connection {ConnectionId}.",
+                        cfg.ConnectionId.Value);
                 }
             }
         }
@@ -201,10 +243,15 @@ public class TemplateService : ITemplateService
         // Track which template names came from Meta
         var metaTemplateNames = new HashSet<string>(waTemplates.Select(t => t.Name), StringComparer.OrdinalIgnoreCase);
 
+        // One query instead of one per Meta template. With 100 templates against a remote
+        // database the per-template lookup alone cost tens of seconds.
+        var localByName = await _dbContext.Templates
+            .ToDictionaryAsync(t => t.Name, StringComparer.OrdinalIgnoreCase);
+
         foreach (var waTemplate in waTemplates)
         {
-            var localTemplate = await _dbContext.Templates.FirstOrDefaultAsync(t => t.Name == waTemplate.Name);
-            
+            localByName.TryGetValue(waTemplate.Name, out var localTemplate);
+
             var mappedStatus = waTemplate.Status.ToUpper() switch
             {
                 "APPROVED" => TemplateStatus.Approved,
@@ -251,21 +298,44 @@ public class TemplateService : ITemplateService
             }
         }
 
-        // Delete DB templates NOT in the Meta response (only connected connections' templates should exist)
-        var allLocalTemplates = await _dbContext.Templates.ToListAsync();
-        var templatesToDelete = allLocalTemplates.Where(t => !metaTemplateNames.Contains(t.Name)).ToList();
-        
-        foreach (var toDelete in templatesToDelete)
+        // Remove local templates Meta no longer lists — but ONLY when every connection answered.
+        //
+        // This pass treats "absent from the Meta response" as "deleted at Meta". If a call
+        // failed, absent instead means "we don't know", and deleting on that basis would wipe
+        // the table on any outage. Previously the failure was swallowed and this ran anyway;
+        // once the sync moved to an unattended background job that became a matter of time.
+        var everyConnectionAnswered = connectionsAttempted > 0 && connectionsSucceeded == connectionsAttempted;
+
+        if (everyConnectionAnswered)
         {
-            // Don't delete templates that are referenced by existing campaigns
-            var isInUse = await _dbContext.Campaigns.AnyAsync(c => c.TemplateId == toDelete.Id);
-            if (!isInUse)
+            var templatesToDelete = localByName.Values
+                .Where(t => !metaTemplateNames.Contains(t.Name))
+                .ToList();
+
+            if (templatesToDelete.Count > 0)
             {
-                // Also remove any associated variables
-                var vars = await _dbContext.TemplateVariables.Where(v => v.TemplateId == toDelete.Id).ToListAsync();
-                _dbContext.TemplateVariables.RemoveRange(vars);
-                _dbContext.Templates.Remove(toDelete);
+                // One query for every referenced template id rather than one per candidate.
+                // IgnoreQueryFilters is load-bearing: a soft-deleted campaign still points at
+                // its template, and CampaignService.GetByIdAsync dereferences Template.Name —
+                // deleting it would turn that campaign's detail page into a null reference.
+                var inUseTemplateIds = await _dbContext.Campaigns
+                    .IgnoreQueryFilters()
+                    .Select(c => c.TemplateId)
+                    .Distinct()
+                    .ToHashSetAsync();
+
+                var removable = templatesToDelete.Where(t => !inUseTemplateIds.Contains(t.Id)).ToList();
+
+                // No explicit TemplateVariables cleanup: the relationship is configured
+                // OnDelete(Cascade), so the database removes them.
+                _dbContext.Templates.RemoveRange(removable);
             }
+        }
+        else if (connectionsAttempted > 0)
+        {
+            _logger.LogWarning(
+                "Template sync reached {Succeeded} of {Attempted} connection(s); skipping the removal pass so a transient failure cannot delete local templates.",
+                connectionsSucceeded, connectionsAttempted);
         }
 
         await _dbContext.SaveChangesAsync();

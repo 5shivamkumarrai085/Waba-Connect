@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WhatsAppCampaignApi")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0f8bcf4d205efc5d348ebdc1895d74fa77306d17")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+53bac26fd79f72fab7648e4562f76dfddc6dc7a4")]
 [assembly: System.Reflection.AssemblyProductAttribute("WhatsAppCampaignApi")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WhatsAppCampaignApi")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

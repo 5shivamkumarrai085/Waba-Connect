@@ -15,12 +15,18 @@ public class ConnectionService : IConnectionService
     private readonly AppDbContext _dbContext;
     private readonly IPermissionService _permissionService;
     private readonly ITemplateService _templateService;
+    private readonly IAuditService _auditService;
 
-    public ConnectionService(AppDbContext dbContext, IPermissionService permissionService, ITemplateService templateService)
+    public ConnectionService(
+        AppDbContext dbContext,
+        IPermissionService permissionService,
+        ITemplateService templateService,
+        IAuditService auditService)
     {
         _dbContext = dbContext;
         _permissionService = permissionService;
         _templateService = templateService;
+        _auditService = auditService;
     }
 
     public async Task<List<ConnectionResponse>> GetAllAsync(string? userId = null, string? departmentId = null)
@@ -82,6 +88,14 @@ public class ConnectionService : IConnectionService
                 existing.Nickname = request.Nickname.Trim();
             existing.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
+
+            // Distinct event from Created: this path revives a previously deactivated
+            // connection rather than adding one, and the trail should say which happened.
+            await _auditService.LogAsync(
+                "Connection.Reactivated", "Data",
+                $"Reactivated existing connection \"{existing.Name}\".",
+                "Connection", existing.Id.ToString());
+
             return (await GetByIdAsync(existing.Id))!;
         }
 
@@ -96,6 +110,11 @@ public class ConnectionService : IConnectionService
 
         _dbContext.Connections.Add(connection);
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "Connection.Created", "Data",
+            $"Created connection \"{connection.Name}\".",
+            "Connection", connection.Id.ToString());
 
         return MapToResponse(connection, new List<WabaConfiguration>(), new List<WabaPhoneNumber>());
     }
@@ -119,6 +138,11 @@ public class ConnectionService : IConnectionService
 
         connection.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "Connection.Updated", "Data",
+            $"Updated connection \"{connection.Name}\".",
+            "Connection", connection.Id.ToString());
 
         return (await GetByIdAsync(id))!;
     }
@@ -161,6 +185,11 @@ public class ConnectionService : IConnectionService
             // Don't fail disconnect if template sync fails
         }
 
+        await _auditService.LogAsync(
+            "Connection.Disconnected", "Data",
+            $"Disconnected connection \"{await GetConnectionNameAsync(id)}\"; credentials cleared and {phones.Count} phone number(s) removed.",
+            "Connection", id.ToString());
+
         return true;
     }
 
@@ -174,6 +203,11 @@ public class ConnectionService : IConnectionService
             config.Connected = true;
             config.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
+
+            await _auditService.LogAsync(
+                "Connection.Reconnected", "Data",
+                $"Reconnected connection \"{await GetConnectionNameAsync(id)}\".",
+                "Connection", id.ToString());
         }
 
         return true;
@@ -187,10 +221,28 @@ public class ConnectionService : IConnectionService
             connection.IsActive = false;
             connection.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
+
+            await _auditService.LogAsync(
+                "Connection.Deleted", "Data",
+                $"Deleted connection \"{connection.Name}\".",
+                "Connection", connection.Id.ToString());
+
             return true;
         }
         return false;
     }
+
+    /// <summary>
+    /// Name for the audit description. Disconnect and reconnect work off WabaConfiguration, so
+    /// the Connection row isn't already loaded, and an audit entry reading "#7" would be useless
+    /// to whoever reads the trail later.
+    /// </summary>
+    private async Task<string> GetConnectionNameAsync(int id) =>
+        await _dbContext.Connections
+            .AsNoTracking()
+            .Where(c => c.Id == id)
+            .Select(c => c.Name)
+            .FirstOrDefaultAsync() ?? $"#{id}";
 
     public async Task<ConnectionDashboardResponse> GetDashboardAsync(string? userId = null, string? departmentId = null)
     {

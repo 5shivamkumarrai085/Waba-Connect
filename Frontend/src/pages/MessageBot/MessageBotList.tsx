@@ -11,9 +11,12 @@ import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { toast } from 'react-hot-toast'
 import './MessageBotList.css'
+import Can from '../../components/Can/Can'
+import usePermission from '../../hooks/usePermission'
 
 export const MessageBotList: React.FC = () => {
   const navigate = useNavigate()
+  const { has } = usePermission()
   
   const {
     bots,
@@ -131,15 +134,17 @@ export const MessageBotList: React.FC = () => {
     <motion.div {...pageTransitionProps}>
       {/* Top Toolbar actions */}
       <div className="message-bots-toolbar">
-        <button 
-          type="button" 
-          className="btn-toolbar"
-          onClick={() => navigate('/message-bot/bot')}
-        >
-          <Plus size={16} />
-          <span>Message Bot</span>
-        </button>
-        <button 
+        <Can permission="MessageBot.Create">
+          <button
+            type="button"
+            className="btn-toolbar"
+            onClick={() => navigate('/message-bot/bot')}
+          >
+            <Plus size={16} />
+            <span>Message Bot</span>
+          </button>
+        </Can>
+        <button
           type="button" 
           className="btn-toolbar btn-toolbar-refresh"
           onClick={handleRefresh}
@@ -290,8 +295,9 @@ export const MessageBotList: React.FC = () => {
                     {/* Active Switch Column */}
                     {visibleColumns.active !== false && (
                       <td>
-                        <Toggle 
-                          checked={bot.isActive} 
+                        <Toggle
+                          checked={bot.isActive}
+                          disabled={!has('MessageBot.Edit')}
                           onChange={() => toggleBotActive(bot.id)}
                         />
                       </td>
@@ -331,25 +337,32 @@ export const MessageBotList: React.FC = () => {
                           >
                             View
                           </MenuItem>
-                          <MenuItem
-                            className="contact-actions-item"
-                            onSelect={() => navigate(`/message-bot/bot/${bot.id}`)}
-                          >
-                            Edit
-                          </MenuItem>
-                          <MenuItem
-                            className="contact-actions-item"
-                            onSelect={() => handleCloneClick(bot.id)}
-                          >
-                            Clone
-                          </MenuItem>
-                          <MenuItem
-                            destructive
-                            className="contact-actions-item"
-                            onSelect={() => handleDeleteClick(bot.id, bot.name)}
-                          >
-                            Delete
-                          </MenuItem>
+                          {/* Disabled rather than hidden — see the note in ContactsList. */}
+                          <Can permission="MessageBot.Edit" mode="disable">
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => navigate(`/message-bot/bot/${bot.id}`)}
+                            >
+                              Edit
+                            </MenuItem>
+                          </Can>
+                          <Can permission="MessageBot.Clone" mode="disable">
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => handleCloneClick(bot.id)}
+                            >
+                              Clone
+                            </MenuItem>
+                          </Can>
+                          <Can permission="MessageBot.Delete" mode="disable">
+                            <MenuItem
+                              destructive
+                              className="contact-actions-item"
+                              onSelect={() => handleDeleteClick(bot.id, bot.name)}
+                            >
+                              Delete
+                            </MenuItem>
+                          </Can>
                         </Menu>
                       </div>
                     </td>

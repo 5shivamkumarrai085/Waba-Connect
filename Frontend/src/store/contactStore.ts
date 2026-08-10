@@ -5,6 +5,23 @@ import type { Contact, ContactFormModel } from '../types/contacts'
 import { getErrorMessage } from '../utils/errorHelper'
 import toast from 'react-hot-toast'
 import { useDashboardStore } from './dashboardStore'
+import { useChatStore } from './chatStore'
+import { isRequestCancelled } from '../services/apiClient'
+
+/**
+ * Cross-module edges for contact writes, declared here rather than through a global event bus so
+ * that every consequence of a contact change is greppable from the action that causes it.
+ *
+ * The chat inbox is only refreshed when it already holds conversations — that means the user has
+ * been to Chat this session and may be looking at a now-stale sidebar. Refreshing it
+ * unconditionally would issue a request on behalf of a screen nobody has opened.
+ */
+const propagateContactChange = () => {
+  useDashboardStore.getState().loadDashboardData(false)
+  if (useChatStore.getState().conversations.length > 0) {
+    void useChatStore.getState().loadConversations()
+  }
+}
 
 interface ContactStoreState {
   contacts: Contact[]
@@ -128,6 +145,8 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
         isLoading: false
       })
     } catch (err) {
+      // Superseded by a newer load — that request owns the data and the loading flag now.
+      if (isRequestCancelled(err)) return
       console.error('Error loading contacts:', err)
       set({ isLoading: false })
     }
@@ -137,7 +156,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
     try {
       const newContact = await contactService.addContact(form)
       set((state) => ({ contacts: [newContact, ...state.contacts] }))
-      useDashboardStore.getState().loadDashboardData(false)
+      propagateContactChange()
       return newContact
     } catch (err) {
       console.error('Error adding contact:', err)
@@ -158,7 +177,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
         selectedIds: [],
         isLoading: false
       })
-      useDashboardStore.getState().loadDashboardData(false)
+      propagateContactChange()
     } catch (err) {
       console.error(err)
       set({ isLoading: false })
@@ -178,7 +197,9 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       set({
         contacts: contacts.map(c => c.id === id ? mappedContact : c)
       })
-      useDashboardStore.getState().loadDashboardData(false)
+      // Deactivating a contact changes what the chat sidebar shows for it, so this propagates
+      // like a create or delete rather than only touching the dashboard counters.
+      propagateContactChange()
 
       if (mappedContact.active) {
         toast.success('user enabled successfully')
@@ -197,7 +218,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       const res = await contactService.importContacts(file)
       const fetched = await contactService.getContacts()
       set({ contacts: fetched })
-      useDashboardStore.getState().loadDashboardData(false)
+      propagateContactChange()
       return res
     } catch (err: any) {
       return { success: false, message: getErrorMessage(err, 'Import failed.') }

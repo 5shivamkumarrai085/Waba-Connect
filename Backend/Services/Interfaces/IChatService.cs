@@ -12,6 +12,18 @@ public interface IChatService
     Task<ChatMessageResponse> SendMessageAsync(int conversationId, SendChatMessageRequest request);
     Task<ChatMessageResponse> SendTemplateToContactAsync(SendTemplateToContactRequest request);
     Task DeleteConversationAsync(int conversationId);
+
+    /// <summary>Clears a conversation's unread count. Called once when the user opens it.</summary>
+    Task MarkConversationReadAsync(int conversationId);
+
+    /// <summary>Creates any missing conversation rows for a newly created contact.</summary>
+    Task EnsureConversationsForContactAsync(int contactId);
+
+    /// <summary>Batched form for imports — one insert regardless of the number of contacts.</summary>
+    Task EnsureConversationsForContactsAsync(IReadOnlyCollection<int> contactIds);
+
+    /// <summary>Soft-deletes the given messages; returns how many were actually removed.</summary>
+    Task<int> DeleteMessagesAsync(int conversationId, IReadOnlyCollection<int> messageIds);
     Task<ChatConversation> GetOrCreateConversationAsync(int contactId, int? connectionId = null);
     Task<ChatMessage> CreateOrUpdateCampaignMessageAsync(
         Campaign campaign, 

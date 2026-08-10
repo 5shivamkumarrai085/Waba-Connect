@@ -25,13 +25,42 @@ public class ExceptionHandlingMiddleware
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "An unhandled exception occurred.");
+            // Logged inside HandleExceptionAsync, once the exception has been classified.
+            // Logging here meant every deliberate business rejection — "campaign name already
+            // taken", "cannot delete a built-in role" — was written at Error with a full stack
+            // trace, so the Errors tab was mostly the app working correctly.
             await HandleExceptionAsync(context, ex);
         }
     }
 
+    /// <summary>
+    /// True for exceptions this middleware deliberately maps to a 4xx. They are the API telling
+    /// a caller no, not the server failing, so they are recorded as warnings without a stack
+    /// trace.
+    /// </summary>
+    private static bool IsExpectedClientError(Exception exception) => exception
+        is ValidationException
+        or KeyNotFoundException
+        or ArgumentException
+        or UnauthorizedAccessException
+        or InvalidOperationException;
+
     private async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
+        if (IsExpectedClientError(exception))
+        {
+            _logger.LogWarning(
+                "{ExceptionType} on {Method} {Path}: {Message}",
+                exception.GetType().Name,
+                context.Request.Method,
+                context.Request.Path,
+                exception.Message);
+        }
+        else
+        {
+            _logger.LogError(exception, "An unhandled exception occurred.");
+        }
+
         context.Response.ContentType = "application/json";
         var response = new ApiResponse { Success = false };
 

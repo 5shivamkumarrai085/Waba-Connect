@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import './CampaignDetails.css'
+import Can from '../../components/Can/Can'
 
 export const CampaignDetails: React.FC = () => {
   const navigate = useNavigate()
@@ -121,13 +122,17 @@ export const CampaignDetails: React.FC = () => {
         </button>
         
         {!selectedCampaign.isDeleted && (
-          <button
-            type="button"
-            className={selectedCampaign.status === 'Paused' ? 'btn-resume-campaign' : 'btn-pause-campaign'}
-            onClick={handlePauseToggle}
-          >
-            {selectedCampaign.status === 'Paused' ? 'Resume Campaign' : 'Pause Campaign'}
-          </button>
+          // Pause/resume changes what actually goes out over WhatsApp, so it sits behind
+          // Campaign.Send rather than Campaign.Edit.
+          <Can permission="Campaign.Send">
+            <button
+              type="button"
+              className={selectedCampaign.status === 'Paused' ? 'btn-resume-campaign' : 'btn-pause-campaign'}
+              onClick={handlePauseToggle}
+            >
+              {selectedCampaign.status === 'Paused' ? 'Resume Campaign' : 'Pause Campaign'}
+            </button>
+          </Can>
         )}
       </div>
 

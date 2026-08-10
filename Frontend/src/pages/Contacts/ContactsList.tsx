@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { pageTransitionProps, transitions } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import { useContactStore } from '../../store/contactStore'
+import { useLookupStore } from '../../store/lookupStore'
 import { contactService } from '../../services/contacts/contactService'
 import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
 import { Menu, MenuItem } from '../../components/Menu/Menu'
@@ -28,13 +29,16 @@ import {
 import toast from 'react-hot-toast'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
-import { wabaService } from '../../services/waba/wabaService'
 import { Skeleton } from '../../components/Skeleton'
 import './ContactsList.css'
 import { formatAbsoluteDateTime } from '../../utils/dateHelper'
+import Can from '../../components/Can/Can'
+import usePermission from '../../hooks/usePermission'
+import { buildLookupMap, resolveLookup, badgeStyleFor } from '../../utils/lookupColors'
 
-// Deterministic color-by-name-hash so ANY group name gets a consistent, distinct pill color —
-// no hardcoded mapping of specific group names.
+// Fallback only. Groups now carry an admin-chosen colour from Setup → Groups; this
+// deterministic name-hash covers groups created before that column existed, so they still get a
+// consistent distinct pill instead of rendering unstyled.
 const GROUP_COLOR_PALETTE = ['purple', 'green', 'orange', 'pink', 'blue', 'teal']
 const getGroupColorClass = (name: string) => {
   let hash = 0
@@ -65,6 +69,7 @@ const getAssignedName = (assignedTo?: string) => {
 
 export const ContactsList: React.FC = () => {
   const navigate = useNavigate()
+  const { has } = usePermission()
   const {
     contacts,
     isLoading,
@@ -121,35 +126,30 @@ export const ContactsList: React.FC = () => {
   const [sortCol, setSortCol] = useState<string>('id')
   const [sortOrd, setSortOrd] = useState<'asc' | 'desc'>('desc')
 
-  // Dynamic dropdown options fetched from backend
-  const [assignedUsers, setAssignedUsers] = useState<any[]>([])
-  const [statuses, setStatuses] = useState<any[]>([])
-  const [sources, setSources] = useState<any[]>([])
-  const [groups, setGroups] = useState<any[]>([])
-  const [contactTypes, setContactTypes] = useState<any[]>([])
+  // Lookups come from the shared store rather than local state. Held locally, a type or group
+  // created in Setup could never reach this page without a full reload — the Setup screens now
+  // invalidate the store and this list re-renders with the new value.
+  const {
+    statuses,
+    sources,
+    groups,
+    types: contactTypes,
+    assignedUsers,
+    loadAll: loadLookups
+  } = useLookupStore()
+
+  // Rows resolve their label and colour through these rather than rendering the stored value
+  // directly, so renaming or recolouring a lookup in Setup shows up here with no code change.
+  const statusMap = useMemo(() => buildLookupMap(statuses), [statuses])
+  const sourceMap = useMemo(() => buildLookupMap(sources), [sources])
+  const typeMap = useMemo(() => buildLookupMap(contactTypes), [contactTypes])
 
   useEffect(() => {
     loadContacts()
-    const fetchMetadata = async () => {
-      try {
-        const [usersData, statusesData, sourcesData, groupsData, typesData] = await Promise.all([
-          contactService.getAssignedUsers(),
-          contactService.getContactStatuses(),
-          contactService.getContactSources(),
-          contactService.getContactGroups(),
-          contactService.getContactTypes(),
-          wabaService.getDashboard()
-        ])
-        setAssignedUsers(usersData || [])
-        setStatuses(statusesData || [])
-        setSources(sourcesData || [])
-        setGroups(groupsData || [])
-        setContactTypes(typesData || [])
-      } catch (err) {
-        console.error('Failed to fetch metadata:', err)
-      }
-    }
-    fetchMetadata()
+    // Deduped and cached in the store, so revisiting this page costs nothing. The five lookup
+    // calls also no longer carry wabaService.getDashboard() alongside them — nothing here read
+    // its result, but it dragged one to two blocking Meta Graph calls onto every page load.
+    void loadLookups()
   }, [])
 
   // Filter contacts locally based on search query and custom filter dropdowns
@@ -450,22 +450,26 @@ export const ContactsList: React.FC = () => {
       {/* Top action buttons — one primary action, everything else secondary/tertiary.
           Previously all three buttons were solid purple and competed equally. */}
       <div className="contacts-toolbar">
-        <button
-          type="button"
-          className="btn-toolbar-primary"
-          onClick={() => navigate('/contacts/contact')}
-        >
-          <Plus size={16} />
-          <span>New Contact</span>
-        </button>
-        <button
-          type="button"
-          className="btn-toolbar-secondary"
-          onClick={() => navigate('/contacts/import')}
-        >
-          <Plus size={16} />
-          <span>Import Contacts</span>
-        </button>
+        <Can permission="Contact.Create">
+          <button
+            type="button"
+            className="btn-toolbar-primary"
+            onClick={() => navigate('/contacts/contact')}
+          >
+            <Plus size={16} />
+            <span>New Contact</span>
+          </button>
+        </Can>
+        <Can permission="Contact.Import">
+          <button
+            type="button"
+            className="btn-toolbar-secondary"
+            onClick={() => navigate('/contacts/import')}
+          >
+            <Plus size={16} />
+            <span>Import Contacts</span>
+          </button>
+        </Can>
         <button
           type="button"
           className="btn-toolbar-tertiary"
@@ -481,6 +485,7 @@ export const ContactsList: React.FC = () => {
         {/* Table controls bar */}
         <div className="contacts-controls-row">
           <div className="contacts-controls-left">
+            <Can permission="Contact.Export">
             <Menu
               open={showExportDropdown}
               onOpenChange={setShowExportDropdown}
@@ -535,6 +540,7 @@ export const ContactsList: React.FC = () => {
                 </button>
               </div>
             </Menu>
+            </Can>
 
             {/* Custom eye visibility selector dropdown */}
             <ColumnSelector
@@ -602,23 +608,27 @@ export const ContactsList: React.FC = () => {
               ))}
             </Menu>
 
-            <button
-              type="button"
-              className="btn-bulk-delete"
-              disabled={selectedIds.length === 0}
-              onClick={handleBulkDeleteClick}
-            >
-              Bulk Delete({selectedIds.length})
-            </button>
+            <Can permission="Contact.Delete">
+              <button
+                type="button"
+                className="btn-bulk-delete"
+                disabled={selectedIds.length === 0}
+                onClick={handleBulkDeleteClick}
+              >
+                Bulk Delete({selectedIds.length})
+              </button>
+            </Can>
 
-            <button
-              type="button"
-              className="btn-bulk-chat"
-              disabled={selectedIds.length === 0}
-              onClick={handleBulkChat}
-            >
-              Initiate Chat({selectedIds.length})
-            </button>
+            <Can permission="Chat.InitiateChat">
+              <button
+                type="button"
+                className="btn-bulk-chat"
+                disabled={selectedIds.length === 0}
+                onClick={handleBulkChat}
+              >
+                Initiate Chat({selectedIds.length})
+              </button>
+            </Can>
           </div>
 
           <div className="contacts-controls-right">
@@ -846,11 +856,15 @@ export const ContactsList: React.FC = () => {
                           iconName="Users"
                           title="No contacts yet"
                           message="Contacts you create, import, or receive from WhatsApp will show up here."
-                          action={{
-                            label: 'New Contact',
-                            icon: <Plus size={15} />,
-                            onClick: () => navigate('/contacts/contact')
-                          }}
+                          action={
+                            has('Contact.Create')
+                              ? {
+                                  label: 'New Contact',
+                                  icon: <Plus size={15} />,
+                                  onClick: () => navigate('/contacts/contact')
+                                }
+                              : undefined
+                          }
                         />
                       ) : (
                         <EmptyState
@@ -907,39 +921,64 @@ export const ContactsList: React.FC = () => {
                           </td>
                         )}
 
-                        {/* Type column */}
-                        {visibleColumns.type !== false && (
-                          <td>{contact.type}</td>
-                        )}
+                        {/* Type column — label and colour resolved from the Setup lookup, so a
+                            renamed or recoloured type is reflected without touching this file. */}
+                        {visibleColumns.type !== false && (() => {
+                          const resolved = resolveLookup(typeMap, contact.type)
+                          return (
+                            <td>
+                              {resolved.name
+                                ? <StatusBadge type={contact.type} text={resolved.name} color={resolved.color} />
+                                : '—'}
+                            </td>
+                          )
+                        })()}
 
                         {/* Assigned column */}
                         {visibleColumns.assigned !== false && (
                           <td>{getAssignedName(contact.assignedTo)}</td>
                         )}
 
-                        {/* Status column */}
-                        {visibleColumns.status !== false && (
-                          <td className="text-center">
-                            <StatusBadge
-                              type={contact.status}
-                              text={contact.status}
-                            />
-                          </td>
-                        )}
+                        {/* Status column. Passing the resolved colour also fixes values whose
+                            CSS class never matched — "InProgress" lowercases to "inprogress"
+                            while the stylesheet defines ".in-progress" — and any status an
+                            administrator added, which has no class at all. */}
+                        {visibleColumns.status !== false && (() => {
+                          const resolved = resolveLookup(statusMap, contact.status)
+                          return (
+                            <td className="text-center">
+                              {resolved.name
+                                ? <StatusBadge type={contact.status} text={resolved.name} color={resolved.color} />
+                                : '—'}
+                            </td>
+                          )
+                        })()}
 
                         {/* Source column */}
-                        {visibleColumns.source !== false && (
-                          <td>{contact.source}</td>
-                        )}
+                        {visibleColumns.source !== false && (() => {
+                          const resolved = resolveLookup(sourceMap, contact.source)
+                          return (
+                            <td>
+                              {resolved.name
+                                ? <StatusBadge type={contact.source} text={resolved.name} color={resolved.color} />
+                                : '—'}
+                            </td>
+                          )
+                        })()}
 
                         {/* Group column — deterministic color-by-name-hash; a neutral
                             "Not Assigned" badge when the contact has no group, so absence
                             reads as a real state rather than a blank/broken cell. */}
                         {visibleColumns.group !== false && (() => {
-                          const groupsArray = Array.isArray(contact.groups)
-                            ? contact.groups.map((g: any) => g?.name || g?.groupName || '').filter(Boolean)
+                          // Carries the colour through when the API returns group objects. The
+                          // string form is a legacy shape with no colour available, so those
+                          // fall back to the name hash.
+                          const groupsArray: { name: string; color?: string | null }[] = Array.isArray(contact.groups)
+                            ? contact.groups
+                                .map((g: any) => ({ name: g?.name || g?.groupName || '', color: g?.color }))
+                                .filter((g: { name: string }) => Boolean(g.name))
                             : typeof contact.groups === 'string' && contact.groups.trim() !== ''
-                              ? contact.groups.split(',').map(s => s.trim())
+                              ? contact.groups.split(',').map(s => ({ name: s.trim() }))
                               : [];
 
                           const hasGroup = groupsArray.length > 0;
@@ -948,9 +987,13 @@ export const ContactsList: React.FC = () => {
                             <td>
                               {hasGroup ? (
                                 <div className="group-badges-row">
-                                  {groupsArray.map((gName, idx) => (
-                                    <span key={idx} className={getGroupColorClass(gName)}>
-                                      {gName}
+                                  {groupsArray.map((g, idx) => (
+                                    <span
+                                      key={idx}
+                                      className={g.color ? 'group-badge-custom' : getGroupColorClass(g.name)}
+                                      style={badgeStyleFor(g.color)}
+                                    >
+                                      {g.name}
                                     </span>
                                   ))}
                                 </div>
@@ -964,6 +1007,7 @@ export const ContactsList: React.FC = () => {
                         {/* Initiate Chat column — circular WhatsApp badge */}
                         {visibleColumns.initiateChat !== false && (
                           <td className="text-center">
+                            <Can permission="Chat.InitiateChat">
                             <span
                               className="contact-whatsapp-badge"
                               onClick={() => {
@@ -983,6 +1027,7 @@ export const ContactsList: React.FC = () => {
                                 <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L32 503l139.7-36.6c32.7 17.8 69.4 27.2 107.1 27.2 122.4 0 222-99.6 222-222 0-59.3-23.2-115-65.1-115.5zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-83.1 21.8 22.2-81-4.4-7c-18.4-29.3-28.1-63.1-28.1-97.9 0-101.9 83-184.8 185-184.8 49.3 0 95.7 19.2 130.6 54.1 34.8 34.9 54 81.2 54 130.6 0 102-83 184.8-185 184.8zm110.2-151c-6-3-35.6-17.6-41.2-19.6-5.5-2-9.6-3-13.6 3-4 6-15.6 19.6-19.1 23.6-3.5 4-7 4.5-13 1.5-6-3-25.3-9.3-48.2-29.8-17.8-15.9-29.8-35.5-33.3-41.5-3.5-6-.4-9.2 2.7-12.2 2.7-2.7 6-7 9-10.5 3-3.5 4-6 6-10 2-4 1-7.5-.5-10.5-1.5-3-13.6-32.8-18.6-45-5-12-10-10.4-13.6-10.6-3.5-.2-7.6-.2-11.6-.2-4 0-10.6 1.5-16.1 7.5-5.5 6-21.1 20.6-21.1 50.2 0 29.7 21.6 58.3 24.6 62.3 3 4 42.5 64.9 103 91 14.4 6.2 25.6 9.9 34.3 12.7 14.5 4.6 27.7 4 38.1 2.5 11.6-1.7 35.6-14.6 40.6-28.7 5-14 5-26.1 3.5-28.7-1.5-2.6-5.5-4.1-11.5-7.1z" />
                               </svg>
                             </span>
+                            </Can>
                           </td>
                         )}
 
@@ -991,11 +1036,14 @@ export const ContactsList: React.FC = () => {
                           <td>{formatAbsoluteDateTime(contact.createdAt)}</td>
                         )}
 
-                        {/* Active toggle column */}
+                        {/* Active toggle column. Without Contact.Edit the toggle stays visible
+                            but inert — the active/inactive state is information, so removing it
+                            would cost a read-only user something they are allowed to see. */}
                         {visibleColumns.active !== false && (
                           <td className="text-center">
                             <Toggle
                               checked={contact.active}
+                              disabled={!has('Contact.Edit')}
                               onChange={() => toggleContactActive(contact.id)}
                             />
                           </td>
@@ -1032,25 +1080,32 @@ export const ContactsList: React.FC = () => {
                               >
                                 View
                               </MenuItem>
-                              <MenuItem
-                                className="contact-actions-item"
-                                onSelect={() => navigate(`/contacts/contact/edit/${contact.id}`)}
-                              >
-                                Edit
-                              </MenuItem>
-                              <MenuItem
-                                destructive
-                                className="contact-actions-item"
-                                onSelect={() =>
-                                  handleDeleteContact(
-                                    contact.id,
-                                    contact.name ||
-                                      `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
-                                  )
-                                }
-                              >
-                                Delete
-                              </MenuItem>
+                              {/* mode="disable" inside the row menu, not hide: dropping items
+                                  would change the menu's height from row to row, which reads as
+                                  a rendering glitch rather than a deliberate restriction. */}
+                              <Can permission="Contact.Edit" mode="disable">
+                                <MenuItem
+                                  className="contact-actions-item"
+                                  onSelect={() => navigate(`/contacts/contact/edit/${contact.id}`)}
+                                >
+                                  Edit
+                                </MenuItem>
+                              </Can>
+                              <Can permission="Contact.Delete" mode="disable">
+                                <MenuItem
+                                  destructive
+                                  className="contact-actions-item"
+                                  onSelect={() =>
+                                    handleDeleteContact(
+                                      contact.id,
+                                      contact.name ||
+                                        `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+                                    )
+                                  }
+                                >
+                                  Delete
+                                </MenuItem>
+                              </Can>
                             </Menu>
                           </div>
                         </td>

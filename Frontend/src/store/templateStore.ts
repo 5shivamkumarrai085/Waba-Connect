@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { templateService } from '../services/templates/templateService'
+import { isRequestCancelled } from '../services/apiClient'
 import type { Template, TemplateLanguage, TemplateCategory, TemplateStatus, TemplateType } from '../types/templates'
 import { useDashboardStore } from './dashboardStore'
 
@@ -80,37 +81,32 @@ export const useTemplateStore = create<TemplateStoreState>((set, get) => ({
   setPageSize: (pageSize) => set({ pageSize, currentPage: 1 }),
   setSort: (sortColumn, sortOrder) => set({ sortColumn, sortOrder }),
   
-  loadTemplates: async (connectedConnectionIds?: number[]) => {
+  /**
+   * Loads templates from the local database in a single request.
+   *
+   * This used to fan out one `/Templates/by-connection/{id}` call per connected connection,
+   * each of which hit Meta's Graph API server-side before returning — so the page waited on N
+   * sequential outbound HTTPS calls and could not render at all while Meta was slow. Templates
+   * are kept current by TemplateSyncBackgroundService, with the "Load Templates" button for an
+   * on-demand refresh.
+   *
+   * The `connectedConnectionIds` parameter is retained so existing callers keep compiling, but
+   * is no longer used to decide what to fetch.
+   */
+  loadTemplates: async () => {
     const hasCache = get().templates.length > 0
     if (!hasCache) {
       set({ isLoading: true })
     }
     try {
-      let fetched: Template[] = []
-
-      if (connectedConnectionIds && connectedConnectionIds.length > 0) {
-        // Fetch templates dynamically from Meta for each connected connection
-        const results = await Promise.all(
-          connectedConnectionIds.map(id => templateService.getTemplatesByConnection(id))
-        )
-        // Merge and deduplicate by template name
-        const seen = new Set<string>()
-        for (const connTemplates of results) {
-          for (const t of connTemplates) {
-            if (!seen.has(t.name)) {
-              seen.add(t.name)
-              fetched.push(t)
-            }
-          }
-        }
-        set({ templates: fetched, isLoading: false })
-        return true
-      }
-
-      // No connected connections passed in — nothing to query, distinct from "0 templates returned".
-      set({ templates: [], isLoading: false })
-      return false
+      const fetched = await templateService.getTemplates()
+      set({ templates: fetched, isLoading: false })
+      return true
     } catch (err) {
+      // A superseded request is not a failure: a newer load is already in flight and owns both
+      // the data and the loading flag. Reporting it would show an error toast for a request the
+      // app itself replaced.
+      if (isRequestCancelled(err)) return true
       console.error('Error loading templates:', err)
       set({ isLoading: false })
       return false

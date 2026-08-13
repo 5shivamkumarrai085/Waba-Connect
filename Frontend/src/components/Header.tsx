@@ -100,7 +100,7 @@ export const Header: React.FC = () => {
       <div className="header-right">
         {/* Header Action Buttons */}
         <div className="header-actions">
-          <motion.button
+          { <motion.button
             className="header-icon-btn"
             aria-label="OmniConnect settings"
             title="OmniConnect Settings"
@@ -110,7 +110,7 @@ export const Header: React.FC = () => {
             transition={{ duration: 0.15 }}
           >
             <Settings size={18} />
-          </motion.button>
+          </motion.button> }
           
           <div className="dropdown-container" ref={quickCreateRef}>
             <motion.button 

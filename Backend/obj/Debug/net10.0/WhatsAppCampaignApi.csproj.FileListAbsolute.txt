@@ -767,3 +767,6 @@ C:\Users\Ashok-windows\Downloads\Waba-Connect\Backend\bin\Debug\net10.0\Microsof
 C:\Users\Ashok-windows\Downloads\Waba-Connect\Backend\bin\Debug\net10.0\Microsoft.IdentityModel.Tokens.dll
 C:\Users\Ashok-windows\Downloads\Waba-Connect\Backend\bin\Debug\net10.0\Serilog.Formatting.Compact.Reader.dll
 C:\Users\Ashok-windows\Downloads\Waba-Connect\Backend\bin\Debug\net10.0\System.IdentityModel.Tokens.Jwt.dll
+C:\Users\Ashok-windows\Downloads\Waba-Connect\Backend\obj\Debug\net10.0\compressed\zp6y2tc7xb-{0}-3ca0xv3066-3ca0xv3066.gz
+C:\Users\Ashok-windows\Downloads\Waba-Connect\Backend\obj\Debug\net10.0\compressed\imc4pqhrtr-{0}-3ca0xv3066-3ca0xv3066.gz
+C:\Users\Ashok-windows\Downloads\Waba-Connect\Backend\obj\Debug\net10.0\compressed\eqoksz06ul-{0}-d1ywm8mlpa-d1ywm8mlpa.gz

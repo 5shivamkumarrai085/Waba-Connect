@@ -70,7 +70,28 @@
   transition: var(--transition-fast);
 }
 
-.export-item-action-btn:hover {
+.export-item-action-btn:hover:not(:disabled) {
   background-color: var(--border-light);
   color: var(--primary);
+}
+
+.export-item-action-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.export-item-spinner {
+  animation: export-item-spin 0.9s linear infinite;
+}
+
+@keyframes export-item-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Respects the OS "reduce motion" setting: the disabled state still communicates that the
+   download is running, so the spin is decoration rather than information. */
+@media (prefers-reduced-motion: reduce) {
+  .export-item-spinner {
+    animation: none;
+  }
 }

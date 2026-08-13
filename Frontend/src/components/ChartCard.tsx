@@ -1,9 +1,10 @@
 import React, { useRef, useState } from 'react'
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LabelList } from 'recharts'
 import { motion } from 'framer-motion'
 import { Image, Info, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { buttonHoverProps } from '../utils/motion'
+import { niceAxisScale } from '../utils/chartScale'
 
 // Hours from 00:00 to 23:00
 const hours = Array.from({ length: 24 }, (_, i) => {
@@ -34,9 +35,36 @@ export const ChartCard: React.FC<ChartCardProps> = React.memo(({ data: propData 
   const [isCapturing, setIsCapturing] = useState(false)
 
   const sentValues = data.map((d) => d.sent || 0)
+  const errorValues = data.map((d) => d.errors || 0)
   const lowestSent = sentValues.length > 0 ? Math.min(...sentValues) : 0
   const highestSent = sentValues.length > 0 ? Math.max(...sentValues) : 0
-  const yAxisMax = Math.max(highestSent, 1)
+
+  // Both series must be inside the domain. This used to be derived from `sent` alone, so any
+  // hour where errors outnumbered messages sent drew the error line off the top of the plot.
+  const highestPlotted = Math.max(highestSent, ...(errorValues.length > 0 ? errorValues : [0]))
+  const { max: yAxisMax, ticks: yAxisTicks } = niceAxisScale(highestPlotted)
+
+  // Point labels are readable at a low peak and turn into a wall of digits at a high one, where
+  // the axis carries the reading anyway. 24 hourly buckets of a few dozen messages is the case
+  // this dashboard actually shows.
+  const showPointLabels = highestPlotted > 0 && highestPlotted <= 20
+
+  /**
+   * Draws a value label only where there is a value.
+   *
+   * Labelling all 24 buckets meant 23 zeros framing the one number that mattered — and on a
+   * quiet day the zeros sat on the axis line, directly on top of the hour labels. A quiet hour
+   * is already legible from the flat line; the label is for the peaks.
+   */
+  const renderPointLabel = (fill: string) => (props: any) => {
+    const { x, y, value } = props
+    if (!value) return null
+    return (
+      <text x={x} y={y - 8} fill={fill} fontSize={10} fontWeight={600} textAnchor="middle">
+        {value}
+      </text>
+    )
+  }
 
   const handleDownloadScreenshot = async () => {
     if (!chartCardRef.current || isCapturing) return
@@ -214,65 +242,76 @@ export const ChartCard: React.FC<ChartCardProps> = React.memo(({ data: propData 
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart
+            <LineChart
               data={data}
-              margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
+              /* bottom margin gives the 24 hour labels a band of their own — with 0 they were
+                 pressed against the plot area and collided with anything drawn near the axis. */
+              margin={{ top: 24, right: 14, left: -18, bottom: 8 }}
             >
-              <defs>
-                <linearGradient id="colorSent" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={COLOR_PRIMARY} stopOpacity={0.4}/>
-                  <stop offset="95%" stopColor={COLOR_PRIMARY} stopOpacity={0.0}/>
-                </linearGradient>
-                <linearGradient id="colorErrors" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={COLOR_ERROR} stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor={COLOR_ERROR} stopOpacity={0.0}/>
-                </linearGradient>
-              </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={COLOR_BORDER} />
               <XAxis
                 dataKey="name"
                 tickLine={false}
                 axisLine={{ stroke: COLOR_BORDER }}
-                tick={{ fontSize: 11, fill: COLOR_TEXT_MUTED }}
-                interval={2}
+                /* dy pushes the labels clear of the axis line so they read as a separate band. */
+                tick={{ fontSize: 10, fill: COLOR_TEXT_MUTED, dy: 4 }}
+                /* interval=0 + minTickGap=0 renders all 24 hours. This was interval={2}, which
+                   thinned the labels to every third hour (00, 03, 06 …) even though the data has
+                   always carried 24 points. */
+                interval={0}
+                minTickGap={0}
+                /* The buckets are "HH:00"; the axis shows just the hour so 24 labels fit, while
+                   the tooltip keeps the full label. The API contract is unchanged. */
+                tickFormatter={(value) => String(value).slice(0, 2)}
+                /* No edge padding, so hour 00 sits on the first gridline and 23 on the last. */
+                padding={{ left: 0, right: 0 }}
               />
               <YAxis
                 domain={[0, yAxisMax]}
+                ticks={yAxisTicks}
                 allowDecimals={false}
                 tickLine={false}
                 axisLine={{ stroke: COLOR_BORDER }}
                 tick={{ fontSize: 11, fill: COLOR_TEXT_MUTED }}
+                width={40}
               />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: '#ffffff', 
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#ffffff',
                   border: `1px solid ${COLOR_BORDER}`,
                   borderRadius: '8px',
                   boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                   fontSize: '12px'
                 }}
               />
-              <Area
+              <Line
                 type="monotone"
                 dataKey="sent"
+                name="Messages Sent"
                 stroke={COLOR_PRIMARY}
                 strokeWidth={2.5}
-                fillOpacity={1}
-                fill="url(#colorSent)"
-                dot={false}
+                dot={{ r: 2.5, fill: COLOR_PRIMARY, strokeWidth: 0 }}
                 activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }}
-              />
-              <Area
+                isAnimationActive={false}
+              >
+                {showPointLabels && (
+                  <LabelList dataKey="sent" content={renderPointLabel(COLOR_PRIMARY)} />
+                )}
+              </Line>
+              <Line
                 type="monotone"
                 dataKey="errors"
+                name="Errors"
                 stroke={COLOR_ERROR}
                 strokeWidth={1.5}
-                fillOpacity={1}
-                fill="url(#colorErrors)"
-                dot={false}
+                dot={{ r: 2, fill: COLOR_ERROR, strokeWidth: 0 }}
                 activeDot={{ r: 4, stroke: '#fff', strokeWidth: 2 }}
+                isAnimationActive={false}
               />
-            </AreaChart>
+              {/* The errors series is deliberately unlabelled. It sits on or near zero for most
+                  of the day, so labels below it landed on the hour labels — that was the
+                  overlapping axis. Error counts are readable from the tooltip and the legend. */}
+            </LineChart>
           </ResponsiveContainer>
         )}
       </div>

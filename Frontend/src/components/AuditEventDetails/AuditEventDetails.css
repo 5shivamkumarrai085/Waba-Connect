@@ -1,0 +1,174 @@
+/* Event Details side panel. Uses the app's existing tokens throughout so the panel reads as
+   part of OmniConnect rather than a bolted-on view. */
+
+.audit-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Status pill ─────────────────────────────────────────────────────────── */
+
+.audit-detail-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 6px 12px;
+  border-radius: var(--radius-full, 999px);
+  background-color: #dcfce7;
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.audit-detail-status.is-failed {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+/* ── Field rows ──────────────────────────────────────────────────────────── */
+
+.audit-detail-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.audit-detail-row {
+  display: grid;
+  /* Fixed label column so every value starts on the same axis — a ragged left edge is what
+     makes a key/value list hard to scan. */
+  grid-template-columns: 132px 1fr;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 13px;
+}
+
+.audit-detail-row:last-child {
+  border-bottom: none;
+}
+
+.audit-detail-label {
+  color: var(--text-light);
+  font-weight: 500;
+}
+
+.audit-detail-value {
+  color: var(--text-main);
+  font-weight: 500;
+  /* Long entity names and user agents must wrap rather than widen the panel. */
+  overflow-wrap: anywhere;
+}
+
+.audit-detail-mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+}
+
+.audit-detail-agent {
+  font-size: 12px;
+  color: var(--text-light);
+  line-height: 1.5;
+}
+
+/* ── Sections ────────────────────────────────────────────────────────────── */
+
+.audit-detail-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-title);
+  color: var(--text-main);
+  margin: 0 0 10px 0;
+}
+
+.audit-detail-description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+}
+
+.audit-detail-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-light);
+  font-style: italic;
+}
+
+/* ── Changes table ───────────────────────────────────────────────────────── */
+
+.audit-changes-group + .audit-changes-group {
+  margin-top: 14px;
+}
+
+.audit-changes-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-light);
+  margin-bottom: 6px;
+}
+
+.audit-changes-group-action {
+  padding: 2px 8px;
+  border-radius: var(--radius-full, 999px);
+  background-color: var(--primary-light);
+  color: var(--primary);
+  font-size: 11px;
+}
+
+/* The panel itself must never scroll sideways; a wide value scrolls inside its own box. */
+.audit-changes-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.audit-changes-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.audit-changes-table th {
+  text-align: left;
+  padding: 8px 10px;
+  background-color: var(--bg-primary);
+  color: var(--text-light);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-light);
+  white-space: nowrap;
+}
+
+.audit-changes-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-light);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.audit-changes-table tr:last-child td {
+  border-bottom: none;
+}
+
+.audit-change-field {
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+/* Old struck through, new in success green: the direction of a change should be readable
+   without comparing the two columns character by character. */
+.audit-change-old {
+  color: var(--text-light);
+  text-decoration: line-through;
+}
+
+.audit-change-new {
+  color: #15803d;
+  font-weight: 500;
+}

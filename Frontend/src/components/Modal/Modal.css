@@ -309,3 +309,40 @@ body.is-modal-open {
     transform: none;
   }
 }
+
+/* ── Right-edge placement ──────────────────────────────────────────────────
+   Turns the same dialog into a side panel. Used by the audit Event Details
+   view, which needs the focus trap, scroll lock and Escape handling the
+   centred dialog already provides — re-implementing those for a drawer is how
+   the accessibility bugs this shell was built to fix get reintroduced. */
+
+.oc-dialog-backdrop--right {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+}
+
+.oc-dialog-panel--place-right {
+  width: min(440px, 100vw);
+  max-width: 100vw;
+  height: 100vh;
+  max-height: 100vh;
+  border-radius: 0;
+  /* The panel scrolls internally so a long change set never pushes the header
+     out of reach. */
+  display: flex;
+  flex-direction: column;
+}
+
+.oc-dialog-panel--place-right .oc-dialog-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Full width on a phone: a 440px drawer on a 375px screen is just a modal with
+   the close button pushed off the edge. */
+@media (max-width: 480px) {
+  .oc-dialog-panel--place-right {
+    width: 100vw;
+  }
+}

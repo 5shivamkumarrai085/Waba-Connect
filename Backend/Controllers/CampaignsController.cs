@@ -204,7 +204,7 @@ public class CampaignsController : ControllerBase
             return BadRequest(new ApiResponse<CsvValidationResponse> { Success = false, Message = "cannot upload wrong format csv file" });
         }
 
-        var headers = SplitCsvRow(lines[0]).Select(h => h.ToLower().Trim()).ToList();
+        var headers = CsvHelper.SplitCsvRow(lines[0]).Select(h => h.ToLower().Trim()).ToList();
 
         int phoneIdx = headers.FindIndex(h => h == "phone" || h == "phoneno" || h == "phone number" || h == "telephone");
         int firstNameIdx = headers.FindIndex(h => h == "firstname" || h == "first name" || h == "name");
@@ -215,7 +215,6 @@ public class CampaignsController : ControllerBase
             return BadRequest(new ApiResponse<CsvValidationResponse> { Success = false, Message = "cannot upload wrong format csv file" });
         }
 
-        var phoneRegex = new System.Text.RegularExpressions.Regex(@"^\+[1-9]\d{6,14}$");
         int totalRecords = 0;
         int validCount = 0;
         int invalidCount = 0;
@@ -228,7 +227,7 @@ public class CampaignsController : ControllerBase
 
             totalRecords++;
             var rowNumber = i + 1; // 1-based, matches what a user sees opening the file in a spreadsheet (row 1 = header)
-            var fields = SplitCsvRow(line);
+            var fields = CsvHelper.SplitCsvRow(line);
             if (fields.Count <= Math.Max(phoneIdx, firstNameIdx))
             {
                 invalidCount++;
@@ -237,14 +236,13 @@ public class CampaignsController : ControllerBase
             }
 
             var phoneVal = fields[phoneIdx].Trim();
-            var cleanedPhone = phoneVal.Replace(" ", "").Replace("-", "").Replace("(", "").Replace(")", "");
-            if (!cleanedPhone.StartsWith("+"))
-            {
-                cleanedPhone = "+" + cleanedPhone;
-            }
+            // PhoneNumberHelper is the single normaliser for the whole app. The inline version
+            // that used to live here stripped only spaces, dashes and brackets, so a phone column
+            // Excel had typed as a number ("919143000000.0") failed every row of an otherwise
+            // good file — and said only that the format was invalid.
+            var phoneValid = PhoneNumberHelper.TryNormalize(phoneVal, out _, out var phoneFailure);
 
             var firstName = fields[firstNameIdx].Trim();
-            var phoneValid = phoneRegex.IsMatch(cleanedPhone);
             var nameValid = firstName.Length >= 2;
 
             if (phoneValid && nameValid)
@@ -256,7 +254,7 @@ public class CampaignsController : ControllerBase
                 invalidCount++;
                 if (!phoneValid)
                 {
-                    errors.Add(new CsvRowError { RowNumber = rowNumber, Column = "phone", Value = phoneVal, Reason = "Phone number is not a valid international format (e.g. +15551234567)." });
+                    errors.Add(new CsvRowError { RowNumber = rowNumber, Column = "phone", Value = phoneVal, Reason = phoneFailure! });
                 }
                 if (!nameValid)
                 {
@@ -335,32 +333,6 @@ public class CampaignsController : ControllerBase
         }
     }
 
-    private static List<string> SplitCsvRow(string line)
-    {
-        var result = new List<string>();
-        var inQuotes = false;
-        var currentField = new System.Text.StringBuilder();
-
-        for (int i = 0; i < line.Length; i++)
-        {
-            char c = line[i];
-            if (c == '"')
-            {
-                inQuotes = !inQuotes;
-            }
-            else if (c == ',' && !inQuotes)
-            {
-                result.Add(currentField.ToString().Trim(' ', '"'));
-                currentField.Clear();
-            }
-            else
-            {
-                currentField.Append(c);
-            }
-        }
-        result.Add(currentField.ToString().Trim(' ', '"'));
-        return result;
-    }
 }
 
 public class UploadResponse

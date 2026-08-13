@@ -22,6 +22,9 @@ namespace WhatsAppCampaignApi.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.HasSequence("AuditLogEventNumberSeq")
+                .StartsAt(10000L);
+
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.AiPrompt", b =>
                 {
                     b.Property<int>("Id")
@@ -206,10 +209,17 @@ namespace WhatsAppCampaignApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("Action")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Category")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ChangesJson")
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -222,6 +232,10 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("EntityName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("EntityType")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -231,9 +245,26 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)");
 
+                    b.Property<long>("EventNumber")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValueSql("nextval('\"AuditLogEventNumberSeq\"')");
+
                     b.Property<string>("IpAddress")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Module")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<int?>("UserId")
                         .HasColumnType("integer");
@@ -244,9 +275,18 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Action");
+
                     b.HasIndex("Category");
 
                     b.HasIndex("CreatedAt");
+
+                    b.HasIndex("EventNumber")
+                        .IsUnique();
+
+                    b.HasIndex("Module");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("AuditLogs", (string)null);
                 });

@@ -39,4 +39,19 @@ public class ExportItemDto
     public string Description { get; set; } = string.Empty;
     public string IconName { get; set; } = string.Empty;
     public string ActionType { get; set; } = "download"; // download | external
+
+    /// <summary>
+    /// API path this item downloads from, relative to the API root (e.g. "/Reporting/export/contacts").
+    /// Empty for "external" items, which navigate inside the app instead.
+    ///
+    /// Server-supplied so the client holds no hardcoded id-to-endpoint map: adding an export
+    /// becomes a backend-only change, and the two can never disagree about the route.
+    /// </summary>
+    public string Endpoint { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the endpoint honours the page's time filter. Only the metrics export does;
+    /// sending `filter` to the others would imply a scoping they do not apply.
+    /// </summary>
+    public bool AcceptsFilter { get; set; }
 }

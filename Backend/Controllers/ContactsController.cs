@@ -22,17 +22,23 @@ public class ContactsController : ControllerBase
     private readonly IDashboardCacheService _dashboardCacheService;
 
     private readonly IChatService _chatService;
+    private readonly ILogger<ContactsController> _logger;
+    private readonly IAuditService _auditService;
 
     public ContactsController(
         IContactService contactService,
         AppDbContext dbContext,
         IDashboardCacheService dashboardCacheService,
-        IChatService chatService)
+        IChatService chatService,
+        ILogger<ContactsController> logger,
+        IAuditService auditService)
     {
         _contactService = contactService;
         _dbContext = dbContext;
         _dashboardCacheService = dashboardCacheService;
         _chatService = chatService;
+        _logger = logger;
+        _auditService = auditService;
     }
 
     [HttpGet]
@@ -312,24 +318,35 @@ public class ContactsController : ControllerBase
     [RequiresPermission("Contact.Import")]
     public IActionResult GetCsvSample()
     {
+        // Kept in step with the required-column set enforced by ImportCsv: status_id, source_id,
+        // firstname, lastname, type and phone are mandatory; assigned_id, company and email are
+        // optional but shipped in the sample so the user can see where they go.
         var csvContent = "status_id,source_id,assigned_id,firstname,lastname,company,type,email,phone\n1,1,1,sample data,sample data,,lead,abc@gmail.com,+1 555 123 4567\n";
         var bytes = System.Text.Encoding.UTF8.GetBytes(csvContent);
         return File(bytes, "text/csv", "contacts_sample.csv");
     }
 
+    /// <summary>
+    /// Imports contacts from a CSV.
+    ///
+    /// Partial by design: valid rows are saved and invalid ones come back as row-level errors.
+    /// This endpoint used to be fail-fast, returning the literal string "wrong format csv file"
+    /// from eight different places in the parse loop — so a rejected file gave the user no way
+    /// to tell a bad phone number from a missing column from a database outage.
+    /// </summary>
     [HttpPost("csv-import")]
     [Consumes("multipart/form-data")]
     [RequiresPermission("Contact.Import")]
-    public async Task<ActionResult<ApiResponse>> ImportCsv(IFormFile file)
+    public async Task<ActionResult<ApiResponse<CsvImportResponse>>> ImportCsv(IFormFile file)
     {
         if (file == null || file.Length == 0)
         {
-            return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
+            return BadRequest(new ApiResponse<CsvImportResponse> { Success = false, Message = "No file was uploaded, or the file is empty." });
         }
 
         if (!Path.GetExtension(file.FileName).Equals(".csv", StringComparison.OrdinalIgnoreCase))
         {
-            return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
+            return BadRequest(new ApiResponse<CsvImportResponse> { Success = false, Message = "Only .csv files can be imported." });
         }
 
         var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.csv");
@@ -343,10 +360,10 @@ public class ContactsController : ControllerBase
             var lines = await System.IO.File.ReadAllLinesAsync(tempPath);
             if (lines.Length < 2)
             {
-                return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
+                return BadRequest(new ApiResponse<CsvImportResponse> { Success = false, Message = "The file needs a header row and at least one data row." });
             }
 
-            var headers = SplitCsvRow(lines[0]).Select(h => h.ToLower().Trim()).ToList();
+            var headers = CsvHelper.SplitCsvRow(lines[0]).Select(h => h.ToLower().Trim()).ToList();
 
             int statusIdIdx = headers.FindIndex(h => h == "status_id");
             int sourceIdIdx = headers.FindIndex(h => h == "source_id");
@@ -358,14 +375,29 @@ public class ContactsController : ControllerBase
             int emailIdx = headers.FindIndex(h => h == "email");
             int phoneIdx = headers.FindIndex(h => h == "phone" || h == "phone number" || h == "phoneno");
 
-            if (statusIdIdx == -1 || sourceIdIdx == -1 || assignedIdIdx == -1 || 
-                firstNameIdx == -1 || lastNameIdx == -1 || typeIdx == -1 || phoneIdx == -1)
+            // assigned_id, company and email are optional — which is what the Download Sample
+            // dialog has always documented (no asterisk on ASSIGNED_ID). The parser used to
+            // demand assigned_id anyway and reject the whole file without saying so.
+            var missingHeaders = new List<string>();
+            if (statusIdIdx == -1) missingHeaders.Add("status_id");
+            if (sourceIdIdx == -1) missingHeaders.Add("source_id");
+            if (firstNameIdx == -1) missingHeaders.Add("firstname");
+            if (lastNameIdx == -1) missingHeaders.Add("lastname");
+            if (typeIdx == -1) missingHeaders.Add("type");
+            if (phoneIdx == -1) missingHeaders.Add("phone");
+
+            if (missingHeaders.Count > 0)
             {
-                return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
+                return BadRequest(new ApiResponse<CsvImportResponse>
+                {
+                    Success = false,
+                    Message = $"The file is missing required column(s): {string.Join(", ", missingHeaders)}."
+                });
             }
 
-            var phoneRegex = new System.Text.RegularExpressions.Regex(@"^\+[1-9]\d{6,14}$");
             var contactsToImport = new List<Contact>();
+            var errors = new List<CsvRowError>();
+            var totalRecords = 0;
 
             // Loaded once rather than per row — a large import would otherwise issue three
             // queries for every line. Unfiltered by IsActive so a CSV referencing a retired
@@ -399,35 +431,59 @@ public class ContactsController : ControllerBase
                 var line = lines[i];
                 if (string.IsNullOrWhiteSpace(line)) continue;
 
-                var fields = SplitCsvRow(line);
+                totalRecords++;
+                // 1-based and counting the header, so it matches the row number the user sees
+                // when they open the file in a spreadsheet.
+                var rowNumber = i + 1;
+
+                var fields = CsvHelper.SplitCsvRow(line);
                 if (fields.Count < headers.Count)
                 {
-                    return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
+                    errors.Add(new CsvRowError
+                    {
+                        RowNumber = rowNumber,
+                        Column = null,
+                        Value = line,
+                        Reason = $"Row has {fields.Count} column(s) but the header row has {headers.Count}."
+                    });
+                    continue;
                 }
 
                 var firstName = fields[firstNameIdx].Trim();
                 var lastName = fields[lastNameIdx].Trim();
                 var phoneVal = fields[phoneIdx].Trim();
-                var emailVal = emailIdx != -1 && emailIdx < fields.Count ? fields[emailIdx].Trim() : string.Empty;
                 var typeVal = fields[typeIdx].Trim();
                 var statusVal = fields[statusIdIdx].Trim();
                 var sourceVal = fields[sourceIdIdx].Trim();
-                var assignedVal = fields[assignedIdIdx].Trim();
+                var assignedVal = assignedIdIdx != -1 && assignedIdIdx < fields.Count
+                    ? fields[assignedIdIdx].Trim()
+                    : string.Empty;
 
                 if (firstName.Length < 2)
                 {
-                    return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
+                    errors.Add(new CsvRowError
+                    {
+                        RowNumber = rowNumber,
+                        Column = "firstname",
+                        Value = firstName,
+                        Reason = "Name must be at least 2 characters long."
+                    });
+                    continue;
                 }
 
-                var cleanedPhone = phoneVal.Replace(" ", "").Replace("-", "").Replace("(", "").Replace(")", "");
-                if (!cleanedPhone.StartsWith("+"))
+                // Same normaliser as the campaign importer, so a phone column Excel typed as a
+                // number ("919143000000.0") imports here too, and a genuinely bad value comes
+                // back with a reason that names the actual problem.
+                if (!PhoneNumberHelper.TryNormalize(phoneVal, out var cleanedPhone, out var phoneFailure))
                 {
-                    cleanedPhone = "+" + cleanedPhone;
-                }
-
-                if (!phoneRegex.IsMatch(cleanedPhone))
-                {
-                    return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
+                    errors.Add(new CsvRowError
+                    {
+                        RowNumber = rowNumber,
+                        Column = "phone",
+                        Value = phoneVal,
+                        Reason = phoneFailure!
+                    });
+                    continue;
                 }
 
                 // Type resolves against the lookup table like status and source. Same ordinal
@@ -439,7 +495,14 @@ public class ContactsController : ControllerBase
 
                 if (contactType is null)
                 {
-                    return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
+                    errors.Add(new CsvRowError
+                    {
+                        RowNumber = rowNumber,
+                        Column = "type",
+                        Value = typeVal,
+                        Reason = "No contact type matches this value. Use a type from Setup → Type."
+                    });
+                    continue;
                 }
 
                 // Status and source now resolve against the editable lookup tables. Numeric
@@ -452,7 +515,14 @@ public class ContactsController : ControllerBase
 
                 if (contactStatus is null)
                 {
-                    return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
+                    errors.Add(new CsvRowError
+                    {
+                        RowNumber = rowNumber,
+                        Column = "status_id",
+                        Value = statusVal,
+                        Reason = "No contact status matches this value. Use a status from Setup → Status."
+                    });
+                    continue;
                 }
 
                 var contactSource = ResolveLookupValue(
@@ -462,7 +532,14 @@ public class ContactsController : ControllerBase
 
                 if (contactSource is null)
                 {
-                    return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
+                    errors.Add(new CsvRowError
+                    {
+                        RowNumber = rowNumber,
+                        Column = "source_id",
+                        Value = sourceVal,
+                        Reason = "No contact source matches this value. Use a source from Setup → Source."
+                    });
+                    continue;
                 }
 
                 // Resolves against real user accounts instead of the old three-name ladder.
@@ -501,16 +578,37 @@ public class ContactsController : ControllerBase
                 });
             }
 
-            int importCount = 0;
+            // One query for every candidate phone instead of an AnyAsync per row — on a remote
+            // database that was one round trip per line of the file.
+            //
+            // IgnoreQueryFilters matters: Phone carries a unique index that a soft-deleted
+            // contact still occupies. The filtered lookup could not see those rows, so importing
+            // a previously-deleted contact threw a duplicate-key DbUpdateException — which the
+            // blanket catch below then reported as "wrong format csv file", sending the user off
+            // to fix a file that was never the problem.
+            var candidatePhones = contactsToImport.Select(c => c.Phone).ToList();
+            var existingPhones = await _dbContext.Contacts
+                .IgnoreQueryFilters()
+                .Where(c => candidatePhones.Contains(c.Phone))
+                .Select(c => c.Phone)
+                .ToListAsync();
+
+            var takenPhones = new HashSet<string>(existingPhones, StringComparer.OrdinalIgnoreCase);
             var imported = new List<Contact>();
+            var skippedDuplicates = 0;
+
             foreach (var contact in contactsToImport)
             {
-                var exists = await _dbContext.Contacts.AnyAsync(c => c.Phone == contact.Phone);
-                if (!exists)
+                // Also guards a file that repeats the same number twice: the first row wins and
+                // the second is counted as a duplicate rather than failing the whole save.
+                if (takenPhones.Add(contact.Phone))
                 {
                     _dbContext.Contacts.Add(contact);
                     imported.Add(contact);
-                    importCount++;
+                }
+                else
+                {
+                    skippedDuplicates++;
                 }
             }
 
@@ -521,15 +619,47 @@ public class ContactsController : ControllerBase
             await _chatService.EnsureConversationsForContactsAsync(
                 imported.Select(c => c.Id).ToList());
 
-            return Ok(new ApiResponse
+            var result = new CsvImportResponse
             {
+                TotalRecords = totalRecords,
+                ImportedCount = imported.Count,
+                SkippedDuplicates = skippedDuplicates,
+                InvalidCount = errors.Count,
+                Errors = errors
+            };
+
+            // One entry for the import, not one per contact: a 500-row file would otherwise bury
+            // every other event in the trail. The counts and the file name are what an auditor
+            // needs — the individual contacts are already in the contacts table.
+            await _auditService.LogAsync(
+                "Contact.Imported",
+                "Data",
+                $"Imported {imported.Count} contact(s) from \"{file.FileName}\" — " +
+                $"{totalRecords} record(s) read, {skippedDuplicates} already existing, {errors.Count} rejected.",
+                entityType: "Contact",
+                entityId: string.Join(",", imported.Take(50).Select(c => c.Id)));
+
+            return Ok(new ApiResponse<CsvImportResponse>
+            {
+                // Success reports "the file was processed", not "every row was perfect" — the
+                // counts and Errors list carry that detail. A file whose rows all failed still
+                // returns 200 so the UI can show which rows and why, rather than an opaque 400.
                 Success = true,
-                Message = $"Successfully imported {importCount} contacts."
+                Data = result,
+                Message = BuildImportSummary(result)
             });
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            return BadRequest(new ApiResponse { Success = false, Message = "wrong format csv file" });
+            // Deliberately not "wrong format csv file". Reaching here means the parse succeeded
+            // and something else went wrong — a database failure, most likely — and telling the
+            // user their file is malformed would be a false diagnosis.
+            _logger.LogError(ex, "Contacts CSV import failed for file {FileName}", file.FileName);
+            return StatusCode(500, new ApiResponse<CsvImportResponse>
+            {
+                Success = false,
+                Message = "The import could not be completed because of a server error. No contacts were imported."
+            });
         }
         finally
         {
@@ -540,31 +670,27 @@ public class ContactsController : ControllerBase
         }
     }
 
-    private static List<string> SplitCsvRow(string line)
+    /// <summary>
+    /// One sentence stating what actually happened, so the toast is useful on its own even
+    /// before the user reads the row-error list.
+    /// </summary>
+    private static string BuildImportSummary(CsvImportResponse result)
     {
-        var result = new List<string>();
-        var inQuotes = false;
-        var currentField = new System.Text.StringBuilder();
+        if (result.ImportedCount == 0 && result.TotalRecords == 0)
+            return "The file contained no data rows.";
 
-        for (int i = 0; i < line.Length; i++)
+        var parts = new List<string>
         {
-            char c = line[i];
-            if (c == '"')
-            {
-                inQuotes = !inQuotes;
-            }
-            else if (c == ',' && !inQuotes)
-            {
-                result.Add(currentField.ToString().Trim(' ', '"'));
-                currentField.Clear();
-            }
-            else
-            {
-                currentField.Append(c);
-            }
-        }
-        result.Add(currentField.ToString().Trim(' ', '"'));
-        return result;
+            result.ImportedCount == 1 ? "1 contact imported" : $"{result.ImportedCount} contacts imported"
+        };
+
+        if (result.SkippedDuplicates > 0)
+            parts.Add($"{result.SkippedDuplicates} skipped as already existing");
+
+        if (result.InvalidCount > 0)
+            parts.Add($"{result.InvalidCount} row(s) could not be imported");
+
+        return $"{string.Join(", ", parts)} out of {result.TotalRecords} record(s).";
     }
 
     private record LookupPair(string Value, string Name);

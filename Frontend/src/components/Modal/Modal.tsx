@@ -5,7 +5,7 @@ import { X } from 'lucide-react'
 import { useEscapeKey } from '../../hooks/useEscapeKey'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
-import { fadeScale, transitions } from '../../utils/motion'
+import { fadeScale, slideInPanel, transitions } from '../../utils/motion'
 import './Modal.css'
 
 /**
@@ -18,6 +18,12 @@ import './Modal.css'
 
 export type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | 'custom'
 export type ModalTone = 'default' | 'destructive' | 'success'
+/**
+ * Where the panel sits. 'right' turns the same dialog into an edge-anchored side panel — used
+ * by the audit Event Details view — so drawers inherit the focus trap, scroll lock, Escape
+ * handling and backdrop-origin guard rather than hand-rolling them again.
+ */
+export type ModalPlacement = 'center' | 'right'
 
 export interface ModalProps {
   isOpen: boolean
@@ -27,6 +33,7 @@ export interface ModalProps {
   icon?: React.ReactNode
   tone?: ModalTone
   size?: ModalSize
+  placement?: ModalPlacement
   footer?: React.ReactNode
   closeOnBackdrop?: boolean
   closeOnEscape?: boolean
@@ -46,6 +53,7 @@ export const Modal: React.FC<ModalProps> = ({
   icon,
   tone = 'default',
   size = 'md',
+  placement = 'center',
   footer,
   closeOnBackdrop = true,
   closeOnEscape = true,
@@ -95,7 +103,7 @@ export const Modal: React.FC<ModalProps> = ({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="oc-dialog-backdrop"
+          className={`oc-dialog-backdrop oc-dialog-backdrop--${placement}`}
           onPointerDown={handleBackdropPointerDown}
           onClick={handleBackdropClick}
           initial={{ opacity: 0 }}
@@ -113,11 +121,12 @@ export const Modal: React.FC<ModalProps> = ({
             className={[
               'oc-dialog-panel',
               `oc-dialog-panel--${size}`,
+              `oc-dialog-panel--place-${placement}`,
               className ?? '',
             ]
               .filter(Boolean)
               .join(' ')}
-            variants={reduceMotion ? undefined : fadeScale}
+            variants={reduceMotion ? undefined : placement === 'right' ? slideInPanel : fadeScale}
             initial={reduceMotion ? { opacity: 0 } : 'hidden'}
             animate={reduceMotion ? { opacity: 1 } : 'visible'}
             exit={reduceMotion ? { opacity: 0 } : 'exit'}

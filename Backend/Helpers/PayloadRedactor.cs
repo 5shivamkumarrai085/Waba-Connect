@@ -51,6 +51,35 @@ public static class PayloadRedactor
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
+    /// Property names that must never have their value stored, on top of the JSON keys above —
+    /// these are the entity-property spellings the audit change capture sees.
+    /// </summary>
+    private static readonly string[] SensitivePropertyNames =
+    {
+        "token", "hash", "salt", "credential", "privatekey"
+    };
+
+    /// <summary>
+    /// True when a field name indicates a credential, so its value must be replaced rather than
+    /// recorded. Used by the audit change capture, which works from entity property names rather
+    /// than a JSON body and so cannot use the regex above.
+    ///
+    /// Substring matching on purpose: it catches "PasswordHash" from "password" and
+    /// "RefreshToken" from "token". Over-redacting an audit value is harmless; under-redacting
+    /// writes a credential to a table built to be read by auditors.
+    /// </summary>
+    public static bool IsSensitiveFieldName(string? fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(fieldName)) return false;
+
+        return SensitiveKeys.Any(key => fieldName.Contains(key.Replace("_", string.Empty), StringComparison.OrdinalIgnoreCase))
+            || SensitivePropertyNames.Any(key => fieldName.Contains(key, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Value written in place of a redacted field.</summary>
+    public const string RedactedValue = "***REDACTED***";
+
+    /// <summary>
     /// Returns a stored-safe version of <paramref name="payload"/>, or null if there was
     /// nothing to store.
     /// </summary>

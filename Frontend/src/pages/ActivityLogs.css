@@ -132,3 +132,268 @@
 .page-header { animation: slideUp 0.4s ease-out forwards; }
 .data-table tbody tr { animation: fadeIn 0.3s ease-out forwards; }
 .data-table tbody tr:hover { background: rgba(99, 102, 241, 0.04) !important; transition: background 0.2s ease; }
+
+/* ── Toolbar: filters, columns, refresh ─────────────────────────────────────
+   Sits alongside the existing search box and tabs. Uses the app's own tokens
+   throughout — the reference mockup's chrome is not this application's. */
+
+.activity-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.activity-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-secondary);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.activity-toolbar-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.activity-toolbar-btn.is-active {
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+  color: var(--primary);
+}
+
+/* A count badge rather than only a colour change: an applied filter is why the
+   table looks empty, and that has to be legible at a glance. */
+.activity-filter-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background-color: var(--primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.activity-refresh-spin {
+  animation: activity-spin 0.9s linear infinite;
+}
+
+@keyframes activity-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-refresh-spin { animation: none; }
+}
+
+/* ── Filter panel ───────────────────────────────────────────────────────── */
+
+.activity-filters-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-primary);
+}
+
+.activity-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.activity-filter-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-light);
+}
+
+/* Spans the full row and right-aligns, so Apply is never stranded mid-grid
+   between two dropdowns at an awkward viewport width. */
+.activity-filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ── Audit table cells ──────────────────────────────────────────────────── */
+
+.audit-id-cell {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.audit-user-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* No min-width. DataTable puts `white-space: nowrap` on every cell, so none of the nine audit
+   columns can wrap to relieve pressure; a hard floor here on top of that pushed the table's
+   min-content past the card and forced a horizontal scrollbar, with the ID column sliding out
+   of view. The cell now shrinks with the table and truncates instead. */
+.audit-entity-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 340px;
+  min-width: 0;
+}
+
+.audit-entity-name {
+  font-weight: 600;
+  color: var(--text-main);
+  /* Truncates like the description below it. Without this a long entity name held the cell at
+     its full width no matter what max-width said. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Clamped to one line: descriptions run to a full sentence and would otherwise
+   set the row height for the whole table. The full text is in the panel. */
+.audit-entity-desc {
+  font-size: 12px;
+  color: var(--text-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-view-btn-icon {
+  padding: 6px;
+  justify-content: center;
+}
+
+/* ── Pagination ─────────────────────────────────────────────────────────── */
+
+.activity-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 16px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-light);
+}
+
+.activity-pagination-summary {
+  font-size: 13px;
+  color: var(--text-light);
+}
+
+.activity-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.activity-page-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-secondary);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.activity-page-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.activity-page-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.activity-page-indicator {
+  font-size: 13px;
+  color: var(--text-main);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.activity-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-light);
+}
+
+.activity-page-size .form-control {
+  width: auto;
+  height: 32px;
+  padding: 0 8px;
+}
+
+@media (max-width: 640px) {
+  .activity-pagination {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ── Wide-table readability ────────────────────────────────────────────────
+   The audit table carries nine columns and DataTable sets `white-space: nowrap`
+   on every cell, so on a laptop it legitimately needs to scroll. What was wrong
+   was that scrolling carried the ID column out of sight, leaving rows with no
+   visible identifier. Pinning the first column keeps the event number anchored
+   while the rest of the row scrolls under it. */
+
+.activity-tab-content-container .data-table th:first-child,
+.activity-tab-content-container .data-table td:first-child {
+  position: sticky;
+  left: 0;
+  /* Opaque, or the scrolling cells show through as they pass beneath. */
+  background-color: var(--bg-secondary);
+  z-index: 1;
+}
+
+.activity-tab-content-container .data-table th:first-child {
+  /* Above the body cells so the header corner stays clean at the intersection
+     of the sticky column and the sticky header. */
+  z-index: 2;
+}
+
+/* A hairline that only appears once the table is actually scrolled sideways
+   would need JS; a permanent one reads as a column divider and costs nothing. */
+.activity-tab-content-container .data-table td:first-child {
+  border-right: 1px solid var(--border-light);
+}
+
+.activity-tab-content-container .data-table th:first-child {
+  border-right: 1px solid var(--border-color);
+}
+
+/* An audit row with no recorded action. Plain and quiet — it used to render as a green tick
+   beside a dash, which read as a status rather than as missing data. */
+.audit-action-empty {
+  color: var(--text-light);
+}

@@ -243,13 +243,48 @@ public class ChatService : IChatService
             .Select(c => c.Contact!.Name ?? c.Contact!.Phone)
             .FirstOrDefaultAsync() ?? $"conversation #{conversationId}";
 
+        // The description names what was removed, not just how many. An auditor asking "which
+        // message did this user delete" was previously told only a count — the answer was sitting
+        // in `messages` and went unrecorded. The change tracker separately captures each row's
+        // IsDeleted false→true, so the details panel shows the messages field by field.
         await _auditService.LogAsync(
             "Chat.MessagesDeleted", "Data",
-            $"Deleted {messages.Count} message(s) from the conversation with {contactLabel}. " +
+            $"Deleted {messages.Count} message(s) from the conversation with {contactLabel}: " +
+            $"{DescribeMessages(messages)}. " +
             "Removed from OmniConnect only — the recipient still has their copy.",
-            "ChatConversation", conversationId.ToString());
+            "ChatMessage", string.Join(",", messages.Select(m => m.Id)));
 
         return messages.Count;
+    }
+
+    /// <summary>
+    /// Renders deleted messages for the audit description — direction, and the text or the media
+    /// filename when there is no text. Capped so a bulk delete cannot overflow the 1000-character
+    /// Description column; the full per-message detail lives in the entry's change set.
+    /// </summary>
+    private static string DescribeMessages(IReadOnlyList<ChatMessage> messages)
+    {
+        const int maxListed = 5;
+        const int maxTextLength = 80;
+
+        string Describe(ChatMessage message)
+        {
+            var body = !string.IsNullOrWhiteSpace(message.Text)
+                ? message.Text.Trim()
+                : !string.IsNullOrWhiteSpace(message.MediaFileName)
+                    ? $"[{message.MediaType ?? "media"}: {message.MediaFileName}]"
+                    : "[no text]";
+
+            if (body.Length > maxTextLength) body = body[..maxTextLength] + "…";
+            return $"{message.Direction} \"{body}\"";
+        }
+
+        var listed = messages.Take(maxListed).Select(Describe);
+        var summary = string.Join("; ", listed);
+
+        return messages.Count > maxListed
+            ? $"{summary}; and {messages.Count - maxListed} more"
+            : summary;
     }
 
     public async Task<ChatMessageResponse> SendMessageAsync(int conversationId, SendChatMessageRequest request)
@@ -648,6 +683,11 @@ public class ChatService : IChatService
         // Captured before the delete: the entities are detached once SaveChanges runs.
         var contactLabel = conversation.Contact?.Name ?? conversation.Contact?.Phone ?? $"contact #{conversation.ContactId}";
         var messageCount = conversation.Messages.Count;
+        // Unlike a message delete, this is a hard delete — after the save the text exists nowhere
+        // else, so the audit entry is the only remaining record of what the conversation held.
+        var messageSummary = messageCount > 0
+            ? $" Messages: {DescribeMessages(conversation.Messages.ToList())}."
+            : string.Empty;
 
         _dbContext.ChatMessages.RemoveRange(conversation.Messages);
         _dbContext.ChatConversations.Remove(conversation);
@@ -655,7 +695,7 @@ public class ChatService : IChatService
 
         await _auditService.LogAsync(
             "Chat.ConversationDeleted", "Data",
-            $"Deleted the conversation with {contactLabel} ({messageCount} message(s)). Removed from OmniConnect only — the recipient still has their copy.",
+            $"Deleted the conversation with {contactLabel} ({messageCount} message(s)).{messageSummary} Removed from OmniConnect only — the recipient still has their copy.",
             "ChatConversation", conversationId.ToString());
     }
 }

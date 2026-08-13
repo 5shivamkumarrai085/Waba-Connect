@@ -1,6 +1,7 @@
 // src/store/contactStore.ts
 import { create } from 'zustand'
 import { contactService } from '../services/contacts/contactService'
+import type { ContactImportResult } from '../services/contacts/contactService'
 import type { Contact, ContactFormModel } from '../types/contacts'
 import { getErrorMessage } from '../utils/errorHelper'
 import toast from 'react-hot-toast'
@@ -48,7 +49,7 @@ interface ContactStoreState {
   addContact: (form: ContactFormModel) => Promise<Contact>
   deleteSelected: () => Promise<void>
   toggleContactActive: (id: number) => Promise<void>
-  importContacts: (file: File) => Promise<{ success: boolean; message: string }>
+  importContacts: (file: File) => Promise<ContactImportResult>
 }
 
 export const useContactStore = create<ContactStoreState>((set, get) => ({
@@ -216,12 +217,13 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
     set({ isLoading: true })
     try {
       const res = await contactService.importContacts(file)
+      // Reload even on a partial import — some rows may have been saved.
       const fetched = await contactService.getContacts()
       set({ contacts: fetched })
       propagateContactChange()
       return res
     } catch (err: any) {
-      return { success: false, message: getErrorMessage(err, 'Import failed.') }
+      return { success: false, message: getErrorMessage(err, 'Import failed.'), result: null }
     } finally {
       set({ isLoading: false })
     }

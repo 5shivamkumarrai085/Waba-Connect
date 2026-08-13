@@ -1,7 +1,19 @@
 import { apiClient } from './apiClient'
+import { downloadFromApi } from '../utils/downloadFile'
 import type { MetricCardModel, AccuracyRecord, FreshnessRecord, ExportItemModel } from '../types/reporting'
 
 export const reportingService = {
+  /**
+   * Downloads one of the report CSVs.
+   *
+   * A thin wrapper so the page keeps talking to its service rather than reaching for the HTTP
+   * client directly. Rejects with a usable message; the caller decides how to surface it.
+   */
+  downloadExport: (
+    endpoint: string,
+    options: { params?: Record<string, string | undefined>; fallbackFilename: string }
+  ): Promise<void> => downloadFromApi(endpoint, options),
+
   getReportingMetrics: async (timeFilter: string): Promise<MetricCardModel[]> => {
     try {
       const response = await apiClient.get(`/Reporting/metrics?filter=${timeFilter}`)

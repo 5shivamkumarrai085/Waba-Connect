@@ -8,6 +8,8 @@ import './ExportList.css'
 interface ExportListProps {
   items: ExportItemModel[]
   onActionClick?: (item: ExportItemModel) => void
+  /** Id of the item currently downloading; its button is disabled so clicks can't stack. */
+  busyItemId?: string | null
 }
 
 const itemVariants = {
@@ -21,13 +23,17 @@ const itemVariants = {
 
 export const ExportList: React.FC<ExportListProps> = ({
   items,
-  onActionClick
+  onActionClick,
+  busyItemId
 }) => {
   return (
     <div className="export-list">
       {items.map((item, index) => {
         const ItemIcon = (Icons as any)[item.iconName] || Icons.FileText
-        const ActionIcon = item.actionType === 'download' ? Icons.Download : Icons.ExternalLink
+        const isBusy = busyItemId === item.id
+        const ActionIcon = isBusy
+          ? Icons.Loader
+          : item.actionType === 'download' ? Icons.Download : Icons.ExternalLink
 
         const handleAction = () => {
           if (onActionClick) {
@@ -56,12 +62,14 @@ export const ExportList: React.FC<ExportListProps> = ({
                 <p className="export-item-desc">{item.description}</p>
               </div>
             </div>
-            <button 
+            <button
               className="export-item-action-btn"
               onClick={handleAction}
+              disabled={isBusy}
+              aria-busy={isBusy}
               aria-label={item.actionType === 'download' ? `Download ${item.title}` : `Open ${item.title}`}
             >
-              <ActionIcon size={16} />
+              <ActionIcon size={16} className={isBusy ? 'export-item-spinner' : undefined} />
             </button>
           </motion.div>
         )

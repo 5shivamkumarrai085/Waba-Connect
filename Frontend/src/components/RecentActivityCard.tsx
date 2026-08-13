@@ -41,7 +41,7 @@ export const RecentActivityCard: React.FC<RecentActivityCardProps> = React.memo(
             <Clock size={18} color="var(--primary)" />
             <span>Recent Activity</span>
           </div>
-          <button className="delivery-rate-view-report" onClick={() => navigate('/activity-logs')}>
+          <button className="delivery-rate-view-report" onClick={() => navigate('/activity-logs?tab=audits')}>
             View All
           </button>
         </div>

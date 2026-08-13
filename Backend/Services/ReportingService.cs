@@ -480,9 +480,10 @@ public class ReportingService : IReportingService
     {
         var items = new List<ExportItemDto>
         {
-            new() { Id = "metrics-report", Title = "Metrics Report", Description = "Report metrics + data accuracy table", IconName = "FileText", ActionType = "download" },
-            new() { Id = "contacts-export", Title = "Contacts Export", Description = "All contacts with details", IconName = "Users", ActionType = "download" },
-            new() { Id = "chats-export", Title = "Chats Export", Description = "Chat conversations with message counts", IconName = "MessageCircle", ActionType = "download" },
+            new() { Id = "metrics-report", Title = "Metrics Report", Description = "Report metrics + data accuracy table", IconName = "FileText", ActionType = "download", Endpoint = "/Reporting/export/metrics", AcceptsFilter = true },
+            new() { Id = "contacts-export", Title = "Contacts Export", Description = "All contacts with details", IconName = "Users", ActionType = "download", Endpoint = "/Reporting/export/contacts" },
+            new() { Id = "chats-export", Title = "Chats Export", Description = "Chat conversations with message counts", IconName = "MessageCircle", ActionType = "download", Endpoint = "/Reporting/export/chats" },
+            // Navigates to the existing campaigns page rather than downloading, so it carries no endpoint.
             new() { Id = "campaign-reports", Title = "Campaign Reports", Description = "View campaign details with delivery status", IconName = "Megaphone", ActionType = "external" },
         };
         return Task.FromResult(items);

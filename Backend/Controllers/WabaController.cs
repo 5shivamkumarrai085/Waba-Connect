@@ -32,6 +32,7 @@ namespace WhatsAppCampaignApi.Controllers
 
         private readonly AppDbContext _dbContext;
         private readonly IMemoryCache _cache;
+        private readonly IAuditService _auditService;
 
         public WabaController(
             IWabaRepository wabaRepository,
@@ -45,8 +46,10 @@ namespace WhatsAppCampaignApi.Controllers
             IHealthService healthService,
             IConnectionService connectionService,
             AppDbContext dbContext,
-            IMemoryCache cache)
+            IMemoryCache cache,
+            IAuditService auditService)
         {
+            _auditService = auditService;
             _cache = cache;
             _wabaRepository = wabaRepository;
             _businessRepository = businessRepository;
@@ -243,6 +246,17 @@ namespace WhatsAppCampaignApi.Controllers
 
             // Run initial health status check
             await _healthService.RunHealthCheckAsync();
+
+            // Connecting a WhatsApp Business Account is a configuration change with real
+            // consequences — it decides which number the product sends from. It was unaudited.
+            // The access token is never named here; the change capture redacts it by field name
+            // regardless.
+            await _auditService.LogAsync(
+                "WabaConfiguration.Configured",
+                "Settings",
+                $"Configured the WhatsApp Business Account for connection #{request.ConnectionId}.",
+                entityType: "WabaConfiguration",
+                entityId: request.ConnectionId.ToString());
 
             return Ok(new { message = "WhatsApp Business Account configured successfully.", webhookSubscribed = true });
         }

@@ -35,11 +35,16 @@ public class RequiresPermissionFilter : IAsyncAuthorizationFilter
 {
     private readonly string[] _permissionKeys;
     private readonly ICurrentUserService _currentUser;
+    private readonly IAuditService _auditService;
 
-    public RequiresPermissionFilter(string[] permissionKeys, ICurrentUserService currentUser)
+    public RequiresPermissionFilter(
+        string[] permissionKeys,
+        ICurrentUserService currentUser,
+        IAuditService auditService)
     {
         _permissionKeys = permissionKeys;
         _currentUser = currentUser;
+        _auditService = auditService;
     }
 
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
@@ -63,12 +68,31 @@ public class RequiresPermissionFilter : IAsyncAuthorizationFilter
 
         // Name the missing permission. An admin reading the response should be able to go and
         // grant exactly the right checkbox without guessing.
+        var required = _permissionKeys.Length == 1
+            ? _permissionKeys[0]
+            : $"one of: {string.Join(", ", _permissionKeys)}";
+
+        // An attempted-but-blocked action is exactly what an auditor asks for, and this is the
+        // only place that knows who tried, what they called, and which permission was missing.
+        // Recorded as Failed so it is reachable from the activity log's Status filter.
+        //
+        // Derives the module from the permission key's own "Module.Verb" shape, so a new
+        // permission needs no change here.
+        var moduleFromKey = _permissionKeys[0].Split('.').FirstOrDefault() ?? "Access";
+        await _auditService.LogAsync(
+            $"{moduleFromKey}.AccessDenied",
+            "Security",
+            $"Access denied — {context.HttpContext.Request.Method} {context.HttpContext.Request.Path} " +
+            $"requires {required}.",
+            entityType: "Permission",
+            entityId: _permissionKeys[0]);
+
         context.Result = new ObjectResult(new ApiResponse
         {
             Success = false,
             Message = _permissionKeys.Length == 1
                 ? $"You do not have permission to perform this action ({_permissionKeys[0]})."
-                : $"You do not have permission to perform this action. Requires one of: {string.Join(", ", _permissionKeys)}."
+                : $"You do not have permission to perform this action. Requires {required}."
         })
         {
             StatusCode = StatusCodes.Status403Forbidden

@@ -1,6 +1,6 @@
 /* dashboard.css — Premium SaaS Design (Motion handles all animations) */
 
-/* Stat card trend line + mini sparkline */
+/* Stat card trend line */
 .stat-card-trend {
   display: flex;
   align-items: center;
@@ -24,18 +24,6 @@
   font-weight: 500;
   margin-left: 2px;
 }
-
-.stat-card-sparkline {
-  width: 56px;
-  height: 36px;
-  flex-shrink: 0;
-  align-self: center;
-}
-
-.stat-card-sparkline-blue { color: #0284c7; }
-.stat-card-sparkline-purple { color: #7e22ce; }
-.stat-card-sparkline-green { color: #15803d; }
-.stat-card-sparkline-orange { color: #ea580c; }
 
 /* Loading Quote Banner — fun witty messages during skeleton loading */
 .dashboard-welcome {
@@ -183,7 +171,7 @@
   background-color: var(--bg-primary);
 }
 
-/* Main content grid: chart (wide) + delivery/quick-actions side column */
+/* Main content grid: chart (wide) + delivery rate side column */
 .dashboard-main-grid {
   display: grid;
   grid-template-columns: 2fr 1fr;
@@ -200,6 +188,24 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+/* Since Quick Actions was removed the donut is this column's only occupant, so it has to
+   stretch to the chart's height — otherwise the row shows a 180px card next to a 300px one
+   with a large gap underneath it. The chain has to be unbroken from the column down to the
+   card, which is why the motion wrapper is a flex item in its own right. */
+.dashboard-side-column-item {
+  flex: 1;
+  display: flex;
+}
+
+.dashboard-side-column-item > .delivery-rate-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  /* Centres the donut and its legend in the now-taller card instead of leaving them pinned to
+     the top with dead space beneath — which is what made the old layout look unbalanced. */
+  justify-content: center;
 }
 
 @media (max-width: 992px) {
@@ -458,80 +464,6 @@
 
 .delivery-rate-empty {
   height: 220px;
-}
-
-/* Quick Actions grid */
-.quick-actions-card {
-  background-color: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-card);
-  padding: 20px;
-  transition: box-shadow 0.22s ease;
-}
-
-.quick-actions-card:hover {
-  box-shadow: var(--shadow-md);
-}
-
-.quick-actions-title {
-  font-size: 15px;
-  font-weight: 700;
-  font-family: var(--font-title);
-  color: var(--text-main);
-  margin-bottom: 14px;
-}
-
-.quick-actions-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-}
-
-@media (max-width: 1200px) {
-  .quick-actions-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-.quick-action-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 6px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  background-color: var(--bg-primary);
-  cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
-}
-
-.quick-action-btn:hover {
-  border-color: var(--primary);
-  background-color: var(--primary-light);
-}
-
-.quick-action-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.quick-action-icon.blue { background-color: #e0f2fe; color: #0284c7; }
-.quick-action-icon.purple { background-color: #f3e8ff; color: #7e22ce; }
-.quick-action-icon.green { background-color: #dcfce7; color: #15803d; }
-.quick-action-icon.orange { background-color: #ffedd5; color: #ea580c; }
-
-.quick-action-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-main);
-  text-align: center;
-  line-height: 1.3;
 }
 
 /* Top Campaigns unified table */

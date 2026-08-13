@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WhatsAppCampaignApi.Data;
+using WhatsAppCampaignApi.Helpers;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Campaigns;
 using WhatsAppCampaignApi.Models.Entities;
@@ -907,7 +908,7 @@ public class CampaignService : ICampaignService
         if (lines.Length < 2)
             throw new ArgumentException("CSV file must contain a header row and at least one data row.");
 
-        var headers = SplitCsvRow(lines[0]).Select(h => h.ToLower().Trim()).ToList();
+        var headers = CsvHelper.SplitCsvRow(lines[0]).Select(h => h.ToLower().Trim()).ToList();
         
         int phoneIdx = headers.FindIndex(h => h == "phone" || h == "phoneno" || h == "phone number" || h == "telephone");
         int firstNameIdx = headers.FindIndex(h => h == "firstname" || h == "first name" || h == "name");
@@ -921,7 +922,6 @@ public class CampaignService : ICampaignService
             throw new ArgumentException("cannot upload wrong format csv file (Missing name/firstname column)");
 
         var contactIds = new HashSet<int>();
-        var phoneRegex = new System.Text.RegularExpressions.Regex(@"^\+[1-9]\d{6,14}$");
         var skippedRows = new List<CsvRowError>();
 
         for (int i = 1; i < lines.Length; i++)
@@ -930,7 +930,7 @@ public class CampaignService : ICampaignService
             if (string.IsNullOrWhiteSpace(line)) continue;
 
             var rowNumber = i + 1;
-            var fields = SplitCsvRow(line);
+            var fields = CsvHelper.SplitCsvRow(line);
             if (fields.Count <= Math.Max(phoneIdx, firstNameIdx))
             {
                 skippedRows.Add(new CsvRowError { RowNumber = rowNumber, Column = null, Value = line, Reason = "Row has fewer columns than the header row." });
@@ -938,15 +938,13 @@ public class CampaignService : ICampaignService
             }
 
             var phoneVal = fields[phoneIdx].Trim();
-            var cleanedPhone = phoneVal.Replace(" ", "").Replace("-", "").Replace("(", "").Replace(")", "");
-            if (!cleanedPhone.StartsWith("+"))
+            // Must stay byte-for-byte equivalent to the validation pass in
+            // CampaignsController.ValidateCsv — if the two disagree, csv-validate reports N valid
+            // rows and csv-create silently builds a campaign with fewer recipients. Both now call
+            // the same helper, which is the only way to keep them honest.
+            if (!PhoneNumberHelper.TryNormalize(phoneVal, out var cleanedPhone, out var phoneFailure))
             {
-                cleanedPhone = "+" + cleanedPhone;
-            }
-
-            if (!phoneRegex.IsMatch(cleanedPhone))
-            {
-                skippedRows.Add(new CsvRowError { RowNumber = rowNumber, Column = "phone", Value = phoneVal, Reason = "Phone number is not a valid international format (e.g. +15551234567)." });
+                skippedRows.Add(new CsvRowError { RowNumber = rowNumber, Column = "phone", Value = phoneVal, Reason = phoneFailure! });
                 continue;
             }
 
@@ -1081,30 +1079,4 @@ public class CampaignService : ICampaignService
         return response;
     }
 
-    private static List<string> SplitCsvRow(string line)
-    {
-        var result = new List<string>();
-        var inQuotes = false;
-        var currentField = new System.Text.StringBuilder();
-
-        for (int i = 0; i < line.Length; i++)
-        {
-            char c = line[i];
-            if (c == '"')
-            {
-                inQuotes = !inQuotes;
-            }
-            else if (c == ',' && !inQuotes)
-            {
-                result.Add(currentField.ToString().Trim(' ', '"'));
-                currentField.Clear();
-            }
-            else
-            {
-                currentField.Append(c);
-            }
-        }
-        result.Add(currentField.ToString().Trim(' ', '"'));
-        return result;
-    }
 }

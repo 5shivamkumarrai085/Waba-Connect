@@ -59,11 +59,23 @@ export const fade: Variants = {
   exit: { opacity: 0 },
 }
 
-/** Slide from right — toasts, drawers */
+/** Slide from right — toasts, small drawers */
 export const slideFromRight: Variants = {
   hidden: { opacity: 0, x: 24 },
   visible: { opacity: 1, x: 0 },
   exit: { opacity: 0, x: 24 },
+}
+
+/**
+ * Full slide from the right edge — for panels that occupy the edge of the viewport.
+ *
+ * Distinct from `slideFromRight`, whose 24px nudge reads as a fade for anything panel-sized:
+ * a side panel needs to travel its own width so it is clearly arriving from off-screen.
+ */
+export const slideInPanel: Variants = {
+  hidden: { x: '100%' },
+  visible: { x: 0 },
+  exit: { x: '100%' },
 }
 
 /** Slide from left — sidebar */

@@ -2,7 +2,6 @@ import React, { useEffect, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { StatCard } from '../components/StatCard'
-import { QuickActions } from '../components/QuickActions'
 import { MessageSquare, Users, Megaphone, FileText, Plus } from 'lucide-react'
 import { useDashboardStore } from '../store/dashboardStore'
 import { Skeleton } from '../components/Skeleton'
@@ -145,7 +144,6 @@ export const Dashboard: React.FC = () => {
             colorClass="blue"
             changePercent={periodLabel ? metrics.messages.changePercent : undefined}
             periodLabel={periodLabel}
-            sparkline={metrics.messages.sparkline}
           />
         </motion.div>
         <motion.div variants={staggerChild}>
@@ -158,7 +156,6 @@ export const Dashboard: React.FC = () => {
             colorClass="purple"
             changePercent={periodLabel ? metrics.contacts.changePercent : undefined}
             periodLabel={periodLabel}
-            sparkline={metrics.contacts.sparkline}
           />
         </motion.div>
         <motion.div variants={staggerChild}>
@@ -171,7 +168,6 @@ export const Dashboard: React.FC = () => {
             colorClass="green"
             changePercent={periodLabel ? metrics.campaigns.changePercent : undefined}
             periodLabel={periodLabel}
-            sparkline={metrics.campaigns.sparkline}
           />
         </motion.div>
         <motion.div variants={staggerChild}>
@@ -184,7 +180,6 @@ export const Dashboard: React.FC = () => {
             colorClass="orange"
             changePercent={periodLabel ? metrics.templates.changePercent : undefined}
             periodLabel={periodLabel}
-            sparkline={metrics.templates.sparkline}
           />
         </motion.div>
       </motion.div>
@@ -203,9 +198,13 @@ export const Dashboard: React.FC = () => {
           </motion.div>
         </Suspense>
 
+        {/* Delivery Rate is now the only occupant of this column — Quick Actions was removed.
+            The column stretches so the donut card matches the chart's height rather than
+            leaving a tall gap beside it. */}
         <div className="dashboard-side-column">
           <Suspense fallback={<Skeleton variant="chart" style={{ height: 260 }} />}>
             <motion.div
+              className="dashboard-side-column-item"
               variants={fadeSlideUp}
               initial="hidden"
               whileInView="visible"
@@ -215,16 +214,6 @@ export const Dashboard: React.FC = () => {
               <DeliveryRateCard deliveryBreakdown={deliveryBreakdown} readBreakdown={readBreakdown} />
             </motion.div>
           </Suspense>
-
-          <motion.div
-            variants={fadeSlideUp}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, margin: '-40px' }}
-            transition={{ ...transitions.normal, delay: 0.15 }}
-          >
-            <QuickActions />
-          </motion.div>
         </div>
       </div>
 

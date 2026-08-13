@@ -5,7 +5,6 @@ interface StatMetric {
   total: number
   bottom: number
   changePercent: number
-  sparkline: { name: string; value: number }[]
 }
 
 interface RateBreakdown {
@@ -62,7 +61,7 @@ interface DashboardState {
   startPolling: () => () => void
 }
 
-const emptyMetric: StatMetric = { total: 0, bottom: 0, changePercent: 0, sparkline: [] }
+const emptyMetric: StatMetric = { total: 0, bottom: 0, changePercent: 0 }
 
 // Poll roughly in step with the backend's own cache TTL per filter, so a refresh always has fresh data waiting.
 // This is only a safety net for changes made outside the current tab (webhook status updates, another admin) —
@@ -115,25 +114,21 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
             total: sum.messagesSent || 0,
             bottom: sum.messagesDelivered || 0,
             changePercent: prev.messagesChangePercent ?? 0,
-            sparkline: sum.messagesSparkline || []
           },
           contacts: {
             total: sum.totalContacts || 0,
             bottom: sum.contactsActive || 0,
             changePercent: prev.contactsChangePercent ?? 0,
-            sparkline: sum.contactsSparkline || []
           },
           campaigns: {
             total: sum.totalCampaigns || 0,
             bottom: sum.campaignsActive || 0,
             changePercent: prev.campaignsChangePercent ?? 0,
-            sparkline: sum.campaignsSparkline || []
           },
           templates: {
             total: sum.templatesTotal || 0,
             bottom: sum.templatesApproved || 0,
             changePercent: prev.templatesChangePercent ?? 0,
-            sparkline: sum.templatesSparkline || []
           }
         },
         deliveryBreakdown: sum.deliveryBreakdown || {},

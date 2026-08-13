@@ -1,3 +1,5 @@
+using WhatsAppCampaignApi.Models.DTOs.Common;
+
 namespace WhatsAppCampaignApi.Models.DTOs.Campaigns;
 
 public class CreateCampaignRequest
@@ -49,19 +51,6 @@ public class CampaignDetailResponse : CampaignResponse
 {
     public List<CampaignRecipientResponse> Recipients { get; set; } = [];
     public List<CampaignVariableResponse>? Variables { get; set; } = [];
-}
-
-/// <summary>
-/// One rejected row from a bulk-campaign CSV upload, identifying exactly which row/column
-/// failed and why — shared between the csv-validate preview response and the csv-create
-/// actual-creation response so both report errors the same way.
-/// </summary>
-public class CsvRowError
-{
-    public int RowNumber { get; set; }
-    public string? Column { get; set; }
-    public string Value { get; set; } = string.Empty;
-    public string Reason { get; set; } = string.Empty;
 }
 
 public class CsvCampaignCreateResponse : CampaignResponse

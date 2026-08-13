@@ -141,7 +141,22 @@ public class AppDbContext : DbContext
             entity.ToTable("AuditLogs");
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => e.Category);
+
+            // The activity log filters and pages on these in SQL, so each needs an index — the
+            // table is append-only and grows without bound.
+            entity.HasIndex(e => e.Module);
+            entity.HasIndex(e => e.Action);
+            entity.HasIndex(e => e.UserId);
+
+            // The user-facing event number: its own sequence rather than the primary key, so the
+            // API never exposes a surrogate id that could be enumerated. Starts well above the
+            // current row count so it is visibly not a row id.
+            entity.Property(e => e.EventNumber)
+                .HasDefaultValueSql("nextval('\"AuditLogEventNumberSeq\"')");
+            entity.HasIndex(e => e.EventNumber).IsUnique();
         });
+
+        modelBuilder.HasSequence<long>("AuditLogEventNumberSeq").StartsAt(10000).IncrementsBy(1);
 
         // ---- Setup lookups --------------------------------------------------------
         // Deliberately no foreign key from Contact to these tables. Contact.Status/Source keep
@@ -435,7 +450,17 @@ public class AppDbContext : DbContext
         optionsBuilder.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
     }
 
-    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Receives field-level changes observed during a save, for the audit trail.
+    ///
+    /// A property rather than a constructor dependency because this context is built by
+    /// <c>AddDbContextFactory</c>, which supplies only <c>DbContextOptions</c>. The scoped
+    /// registration in Program.cs attaches the buffer; short-lived contexts created straight from
+    /// the factory leave it null, which is correct — those exist to run concurrent reads.
+    /// </summary>
+    public Services.Interfaces.IAuditChangeBuffer? AuditChangeSink { get; set; }
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         var entries = ChangeTracker.Entries().Where(e => e.State == EntityState.Added || e.State == EntityState.Modified);
         var now = DateTime.UtcNow;
@@ -456,6 +481,39 @@ public class AppDbContext : DbContext
             }
         }
 
-        return base.SaveChangesAsync(cancellationToken);
+        // Snapshot before the save: this is the only point where OriginalValues still holds the
+        // "before" state and deleted rows are still tracked. Publishing waits until after, so
+        // inserted rows carry the key the database assigned rather than 0.
+        //
+        // Every part of this is best-effort. Auditing must never be the reason a customer
+        // operation fails, which is the same position AuditService takes when it writes.
+        List<(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry Entry, Services.Interfaces.AuditEntityChange Change)>? pendingAudit = null;
+        if (AuditChangeSink is not null)
+        {
+            try
+            {
+                pendingAudit = AuditChangeCapture.Capture(ChangeTracker);
+            }
+            catch
+            {
+                pendingAudit = null;
+            }
+        }
+
+        var result = await base.SaveChangesAsync(cancellationToken);
+
+        if (pendingAudit is not null && AuditChangeSink is not null)
+        {
+            try
+            {
+                AuditChangeCapture.Publish(pendingAudit, AuditChangeSink);
+            }
+            catch
+            {
+                // The write already succeeded; losing its diff must not undo that.
+            }
+        }
+
+        return result;
     }
 }

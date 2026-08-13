@@ -15,7 +15,6 @@ import {
   Bot,
   GitFork,
   MessageCircle,
-  Sliders,
   Cpu,
   ChevronLeft,
   ChevronRight,
@@ -133,7 +132,7 @@ export const Sidebar: React.FC = () => {
         { name: 'Connections', path: '/connections', icon: Link2, permission: 'ConnectAccount.View' },
         // "System Settings" is gone: it belongs to the host application, not to OmniConnect.
         // The /system-settings route now redirects to /omniconnect-settings so bookmarks survive.
-        { name: 'OmniConnect Settings', path: '/omniconnect-settings', icon: Sliders },
+        //{ name: 'OmniConnect Settings', path: '/omniconnect-settings', icon: Sliders },//
         { name: 'Setup', path: '/setup', icon: Cpu, permission: 'Setup.View' },
       ]
     }

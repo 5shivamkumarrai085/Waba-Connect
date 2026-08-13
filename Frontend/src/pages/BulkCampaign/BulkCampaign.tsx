@@ -26,6 +26,7 @@ import toast from 'react-hot-toast'
 import { useConnectionStore } from '../../store/connectionStore'
 import './BulkCampaign.css'
 import Can from '../../components/Can/Can'
+import { CsvRowErrors } from '../../components/CsvRowErrors/CsvRowErrors'
 
 export const BulkCampaign: React.FC = () => {
   const navigate = useNavigate()
@@ -439,34 +440,21 @@ export const BulkCampaign: React.FC = () => {
               </div>
             )}
 
-            {/* Valid / Invalid rows note box */}
-            {validationData && (
-              <div className="bulk-validation-note-box fade-in">
-                <CheckCircle size={16} className="note-box-icon" />
-                <div className="note-box-content">
-                  <span className="note-box-title">Note:</span>
-                  <p className="note-box-text">
+            {/* Summary + row-level errors: exactly which row/column failed and why, instead of
+                a single opaque toast. Valid rows still proceed regardless. Shared with the
+                contacts importer so the two report failures identically. */}
+            {(validationData || csvErrors.length > 0) && (
+              <CsvRowErrors
+                summary={validationData && (
+                  <>
                     Out of the {validationData.totalRecords} records in your CSV file,{' '}
-                    <strong className="text-green">{validationData.validCount}</strong> records are valid. The
+                    <strong className="csv-summary-strong">{validationData.validCount}</strong> records are valid. The
                     campaign can be successfully sent to these {validationData.validCount} User.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Row-level errors — exactly which row/column failed and why, instead of a
-                single opaque toast. Valid rows (above) still proceed regardless. */}
-            {csvErrors.length > 0 && (
-              <div className="bulk-validation-errors-box fade-in">
-                <span className="note-box-title">Row Errors:</span>
-                <ul className="csv-errors-list">
-                  {csvErrors.map((e, idx) => (
-                    <li key={idx}>
-                      Row {e.rowNumber}{e.column ? ` (${e.column})` : ''}: "{e.value}" — {e.reason}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                  </>
+                )}
+                summaryIsWarning={validationData?.validCount === 0}
+                errors={csvErrors}
+              />
             )}
 
             {/* Template selector dropdown */}

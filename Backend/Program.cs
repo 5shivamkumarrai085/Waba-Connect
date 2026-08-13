@@ -67,7 +67,14 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
     }
 });
 builder.Services.AddScoped<AppDbContext>(sp =>
-    sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
+{
+    var dbContext = sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext();
+    // Only the request-scoped context feeds the audit trail. Contexts created directly from the
+    // factory are short-lived read helpers; auditing their change tracker would attribute another
+    // operation's work to whichever audit entry happened to be written next.
+    dbContext.AuditChangeSink = sp.GetRequiredService<IAuditChangeBuffer>();
+    return dbContext;
+});
 
 builder.Services.AddMemoryCache();
 
@@ -123,6 +130,7 @@ builder.Services.AddHostedService<TemplateSyncBackgroundService>();
 builder.Services.AddScoped<IPermissionResolver, PermissionResolver>();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IAuditChangeBuffer, AuditChangeBuffer>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<ISetupSeeder, SetupSeeder>();
 
@@ -155,7 +163,12 @@ builder.Services.AddCors(options =>
         policy => policy
             .AllowAnyOrigin()
             .AllowAnyMethod()
-            .AllowAnyHeader());
+            .AllowAnyHeader()
+            // AllowAnyHeader covers REQUEST headers only. A cross-origin response exposes just
+            // the CORS-safelisted headers to JavaScript unless named here — so without this the
+            // file downloads could read no Content-Disposition and every export saved under a
+            // generic client-side fallback name instead of the server's timestamped one.
+            .WithExposedHeaders("Content-Disposition"));
 });
 
 // 4b. Authentication (JWT bearer)

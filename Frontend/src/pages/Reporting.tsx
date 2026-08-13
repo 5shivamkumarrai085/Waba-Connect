@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
@@ -8,7 +8,9 @@ import { DataTable } from '../components/DataTable/DataTable'
 import { StatusBadge } from '../components/StatusBadge/StatusBadge'
 import { FilterBar } from '../components/FilterBar/FilterBar'
 import { ExportList } from '../components/ExportList/ExportList'
-import { apiClient } from '../services/apiClient'
+import { reportingService } from '../services/reportingService'
+import { getErrorMessage } from '../utils/errorHelper'
+import usePermission from '../hooks/usePermission'
 import type { AccuracyRecord, ExportItemModel, FreshnessRecord } from '../types/reporting'
 import { Check } from 'lucide-react'
 import { Skeleton } from '../components/Skeleton'
@@ -24,16 +26,10 @@ const timeFilterLabels: Record<string, string> = {
   all: 'All Time'
 }
 
-// Same "strip trailing /api, hit the raw endpoint" pattern as ImportContacts' sample-CSV
-// download — the API has no auth header to lose, so a plain browser navigation is enough
-// to trigger the file download served by the backend's File() result.
-const apiOrigin = () => {
-  const base = apiClient.defaults.baseURL
-  return base?.endsWith('/api') ? base.slice(0, -4) : base
-}
-
 export const Reporting: React.FC = () => {
   const navigate = useNavigate()
+  const { has } = usePermission()
+  const [downloadingItemId, setDownloadingItemId] = useState<string | null>(null)
   const {
     reportingTimeFilter,
     setReportingTimeFilter,
@@ -51,6 +47,11 @@ export const Reporting: React.FC = () => {
   }, [])
 
   const metrics = metricsCache[reportingTimeFilter] || []
+
+  const canExport = has('Reporting.Export')
+  const visibleExportItems = (exportItems || []).filter(
+    (item) => item.actionType !== 'download' || canExport
+  )
 
   // Table Headers
   const accuracyHeaders = [
@@ -81,28 +82,38 @@ export const Reporting: React.FC = () => {
     return row[key as keyof FreshnessRecord]
   }
 
-  // Export items: CSV downloads hit the backend directly (real-time query, freshly generated
-  // per click); the campaign report is an existing, already-working page, so we just navigate.
-  const handleExportAction = (item: ExportItemModel) => {
+  // Export items: CSV downloads are generated fresh per click; the campaign report is an
+  // existing, already-working page, so we just navigate.
+  //
+  // The endpoint comes from the item itself rather than an id-to-URL map held here. That map
+  // was a second place for a route to live, and the download went out via window.open — a plain
+  // browser navigation, which carries no Authorization header. Since the token lives in
+  // localStorage rather than a cookie, every one of these answered 401 and downloaded nothing,
+  // while still showing a success toast.
+  const handleExportAction = async (item: ExportItemModel) => {
     if (item.actionType === 'external') {
       navigate('/campaigns/campaign')
       return
     }
 
-    const endpointByItemId: Record<string, string> = {
-      'metrics-report': `/Reporting/export/metrics?filter=${reportingTimeFilter}`,
-      'contacts-export': '/Reporting/export/contacts',
-      'chats-export': '/Reporting/export/chats'
-    }
-
-    const path = endpointByItemId[item.id]
-    if (!path) {
+    if (!item.endpoint) {
       toast.error(`No export endpoint configured for "${item.title}".`)
       return
     }
 
-    window.open(`${apiOrigin()}/api${path}`, '_blank')
-    toast.success(`Downloading ${item.title}...`)
+    setDownloadingItemId(item.id)
+    try {
+      await reportingService.downloadExport(item.endpoint, {
+        params: item.acceptsFilter ? { filter: reportingTimeFilter } : undefined,
+        fallbackFilename: `${item.id}.csv`
+      })
+      // Only after the file has actually arrived.
+      toast.success(`${item.title} downloaded.`)
+    } catch (err) {
+      toast.error(getErrorMessage(err, `Could not download ${item.title}.`))
+    } finally {
+      setDownloadingItemId(null)
+    }
   }
 
   const showSkeleton = isLoading && (!metrics.length || !accuracyRecords || !freshnessRecords || !exportItems || !features)
@@ -200,7 +211,17 @@ export const Reporting: React.FC = () => {
             <h2 className="reporting-section-title">Export Functionality</h2>
             <p className="reporting-section-subtitle">Download report data as CSV files.</p>
           </div>
-          <ExportList items={exportItems || []} onActionClick={handleExportAction} />
+          {/* Every download endpoint enforces Reporting.Export, so a role without it is shown
+              only the items it can actually use. Campaign Reports is in-app navigation, needs
+              no permission, and stays. */}
+          <ExportList
+            items={visibleExportItems}
+            onActionClick={handleExportAction}
+            busyItemId={downloadingItemId}
+          />
+          {visibleExportItems.length === 0 && (
+            <p className="reporting-section-subtitle">No exports are available for your role.</p>
+          )}
         </div>
       </div>
     </motion.div>

@@ -13,10 +13,12 @@ namespace WhatsAppCampaignApi.Services;
 public class PermissionManagementService : IPermissionManagementService
 {
     private readonly AppDbContext _dbContext;
+    private readonly IAuditService _auditService;
 
-    public PermissionManagementService(AppDbContext dbContext)
+    public PermissionManagementService(AppDbContext dbContext, IAuditService auditService)
     {
         _dbContext = dbContext;
+        _auditService = auditService;
     }
 
     public async Task<UserPermissionDashboardResponse> GetUserPermissionsDashboardAsync()
@@ -113,6 +115,16 @@ public class PermissionManagementService : IPermissionManagementService
         _dbContext.UserConnections.AddRange(newEntries);
         await _dbContext.SaveChangesAsync();
 
+        // Who can reach which WhatsApp account is an access-control change, so it belongs in the
+        // trail alongside role edits. This whole area was previously unaudited.
+        await _auditService.LogAsync(
+            "ConnectionAccess.Updated",
+            "Security",
+            $"Set connection access for {request.UserEmail ?? request.UserName ?? $"user #{request.UserId}"} " +
+            $"to {newEntries.Count} connection(s).",
+            entityType: "AppUser",
+            entityId: request.UserId.ToString());
+
         var createdList = await GetUserPermissionsAsync();
         return createdList.First(u => u.UserId == request.UserId);
     }
@@ -129,6 +141,17 @@ public class PermissionManagementService : IPermissionManagementService
         }
 
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            allForUser.FirstOrDefault()?.IsActive == true
+                ? "ConnectionAccess.Enabled"
+                : "ConnectionAccess.Disabled",
+            "Security",
+            $"Connection access for {userConn.UserEmail ?? userConn.UserName ?? $"user #{userConn.UserId}"} " +
+            $"was {(allForUser.FirstOrDefault()?.IsActive == true ? "enabled" : "disabled")}.",
+            entityType: "AppUser",
+            entityId: userConn.UserId.ToString());
+
         return true;
     }
 
@@ -140,6 +163,14 @@ public class PermissionManagementService : IPermissionManagementService
         var allForUser = await _dbContext.UserConnections.Where(u => u.UserId == userConn.UserId).ToListAsync();
         _dbContext.UserConnections.RemoveRange(allForUser);
         await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "ConnectionAccess.Deleted",
+            "Security",
+            $"Removed all connection access for {userConn.UserEmail ?? userConn.UserName ?? $"user #{userConn.UserId}"}.",
+            entityType: "AppUser",
+            entityId: userConn.UserId.ToString());
+
         return true;
     }
 

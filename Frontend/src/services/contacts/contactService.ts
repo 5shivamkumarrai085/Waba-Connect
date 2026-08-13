@@ -1,4 +1,6 @@
 import { apiClient } from '../apiClient'
+import { getErrorMessage } from '../../utils/errorHelper'
+import type { CsvRowErrorItem } from '../../components/CsvRowErrors/CsvRowErrors'
 import type {
   Contact,
   ContactGroup,
@@ -9,6 +11,23 @@ import type {
   ContactType,
   ContactFormModel
 } from '../../types/contacts'
+
+/** Mirrors the backend's CsvImportResponse (Models/DTOs/Common/CsvDtos.cs). */
+export interface ContactImportSummary {
+  totalRecords: number
+  importedCount: number
+  skippedDuplicates: number
+  invalidCount: number
+  errors: CsvRowErrorItem[]
+}
+
+export interface ContactImportResult {
+  /** The file was processed. Rows may still have been rejected — check `result`. */
+  success: boolean
+  message: string
+  /** Null when the upload failed outright (bad file, missing columns, server error). */
+  result: ContactImportSummary | null
+}
 
 export const contactService = {
   getContacts: async (): Promise<Contact[]> => {
@@ -168,7 +187,15 @@ export const contactService = {
     return mapContact(response.data?.data)
   },
 
-  importContacts: async (file: File): Promise<{ success: boolean; message: string }> => {
+  /**
+   * Uploads a contacts CSV.
+   *
+   * The import is partial: `success` means the file was processed, not that every row was
+   * usable. `result` carries the counts and the per-row errors so the page can show which rows
+   * failed and why — this used to return only a message, which is why a rejected file gave the
+   * user nothing to act on.
+   */
+  importContacts: async (file: File): Promise<ContactImportResult> => {
     const formData = new FormData()
     formData.append('file', file)
     try {
@@ -179,13 +206,17 @@ export const contactService = {
       })
       return {
         success: response.data?.success ?? true,
-        message: response.data?.message || 'Contacts imported successfully.'
+        message: response.data?.message || 'Contacts imported successfully.',
+        result: response.data?.data ?? null
       }
     } catch (err: any) {
-      const msg = err.response?.data?.message || 'wrong format csv file'
+      // No invented fallback text. The old default here was the literal string
+      // "wrong format csv file", which fabricated a diagnosis the server never gave — a network
+      // failure and a genuinely malformed file read identically.
       return {
         success: false,
-        message: msg
+        message: getErrorMessage(err, 'The contacts could not be imported.'),
+        result: err.response?.data?.data ?? null
       }
     }
   },

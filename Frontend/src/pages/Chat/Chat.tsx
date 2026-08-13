@@ -1298,25 +1298,6 @@ export const Chat: React.FC = () => {
                           )}
                         </div>
 
-                        <button
-                          type="button"
-                          className="chat-icon-btn"
-                          title="Templates"
-                          aria-label="Template picker"
-                          onClick={() => toast.success('Template picker coming soon')}
-                        >
-                          <FileText size={18} />
-                        </button>
-                        <button
-                          type="button"
-                          className="chat-icon-btn"
-                          title="Bot Flows"
-                          aria-label="Bot flows"
-                          onClick={() => toast.success('Bot flows coming soon')}
-                        >
-                          <MessageCircle size={18} />
-                        </button>
-
                         {uploadingMedia && (
                           <span className="upload-loading-indicator">Uploading media...</span>
                         )}

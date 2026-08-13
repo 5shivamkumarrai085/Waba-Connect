@@ -19,6 +19,15 @@ public class AuditLog
     [Key]
     public int Id { get; set; }
 
+    /// <summary>
+    /// The number shown to users and quoted back in support ("event 12458").
+    ///
+    /// Deliberately separate from <see cref="Id"/>: a surrogate primary key leaks the table's row
+    /// count and invites enumeration of the API by id. Backed by its own database sequence, so it
+    /// is stable for the life of the row and unaffected by filtering, paging or deletions.
+    /// </summary>
+    public long EventNumber { get; set; }
+
     /// <summary>Action performed, e.g. "User.Created", "SystemLog.Cleared".</summary>
     [Required, MaxLength(150)]
     public string Event { get; set; } = string.Empty;
@@ -26,6 +35,41 @@ public class AuditLog
     /// <summary>Broad grouping used by the UI filter: Auth, Settings, User, Role, Data.</summary>
     [Required, MaxLength(50)]
     public string Category { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Derived from <see cref="Event"/>'s prefix ("Contact.Updated" → "Contact"). Stored as its
+    /// own column so the activity log can filter on it in SQL with an index, rather than doing a
+    /// LIKE over the event string.
+    /// </summary>
+    [MaxLength(100)]
+    public string? Module { get; set; }
+
+    /// <summary>Derived from <see cref="Event"/>'s suffix ("Contact.Updated" → "Updated").</summary>
+    [MaxLength(100)]
+    public string? Action { get; set; }
+
+    /// <summary>"Success" or "Failed". Derived from the action verb.</summary>
+    [MaxLength(20)]
+    public string? Status { get; set; }
+
+    /// <summary>
+    /// Human-readable label for the entity at the time of the action, so the trail stays
+    /// meaningful after the row it points at has been renamed or deleted.
+    /// </summary>
+    [MaxLength(200)]
+    public string? EntityName { get; set; }
+
+    [MaxLength(500)]
+    public string? UserAgent { get; set; }
+
+    /// <summary>
+    /// Field-level before/after values as a JSON array of {field, oldValue, newValue}, captured
+    /// automatically from EF's change tracker. Null when the operation changed no tracked fields
+    /// (a pure read, or a create where "before" is meaningless).
+    ///
+    /// Sensitive fields are redacted by name before serialisation — see AuditChangeCapture.
+    /// </summary>
+    public string? ChangesJson { get; set; }
 
     public int? UserId { get; set; }
 

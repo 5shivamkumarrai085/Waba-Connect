@@ -364,31 +364,54 @@
    The audit table carries nine columns and DataTable sets `white-space: nowrap`
    on every cell, so on a laptop it legitimately needs to scroll. What was wrong
    was that scrolling carried the ID column out of sight, leaving rows with no
-   visible identifier. Pinning the first column keeps the event number anchored
-   while the rest of the row scrolls under it. */
+   visible identifier — and now that Details leads, the button that acts on the
+   row would go with it.
 
-.activity-tab-content-container .data-table th:first-child,
-.activity-tab-content-container .data-table td:first-child {
+   Both are pinned, and both by class rather than by position: this rule was
+   written as `:first-child`, so moving the actions column to the front silently
+   transferred the pin from the ID onto the Details button. */
+
+.activity-tab-content-container .data-table .audit-col-actions,
+.activity-tab-content-container .data-table .audit-col-id {
   position: sticky;
-  left: 0;
   /* Opaque, or the scrolling cells show through as they pass beneath. */
   background-color: var(--bg-secondary);
   z-index: 1;
 }
 
-.activity-tab-content-container .data-table th:first-child {
+.activity-tab-content-container .data-table .audit-col-actions {
+  left: 0;
+}
+
+/* Offset by the actions column's width so the two sit side by side rather than
+   stacking on top of each other. Fixed, and the column below is fixed to match —
+   `sticky` needs a resolved offset and cannot read a sibling's measured width. */
+.activity-tab-content-container .data-table .audit-col-id {
+  left: 72px;
+}
+
+.activity-tab-content-container .data-table th.audit-col-actions,
+.activity-tab-content-container .data-table td.audit-col-actions {
+  width: 72px;
+  min-width: 72px;
+  max-width: 72px;
+}
+
+.activity-tab-content-container .data-table th.audit-col-actions,
+.activity-tab-content-container .data-table th.audit-col-id {
   /* Above the body cells so the header corner stays clean at the intersection
-     of the sticky column and the sticky header. */
+     of the sticky columns and the sticky header. */
   z-index: 2;
 }
 
 /* A hairline that only appears once the table is actually scrolled sideways
-   would need JS; a permanent one reads as a column divider and costs nothing. */
-.activity-tab-content-container .data-table td:first-child {
+   would need JS; a permanent one reads as a column divider and costs nothing.
+   It sits on the ID column, which is the right-hand edge of the pinned pair. */
+.activity-tab-content-container .data-table td.audit-col-id {
   border-right: 1px solid var(--border-light);
 }
 
-.activity-tab-content-container .data-table th:first-child {
+.activity-tab-content-container .data-table th.audit-col-id {
   border-right: 1px solid var(--border-color);
 }
 

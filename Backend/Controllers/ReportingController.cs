@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WhatsAppCampaignApi.Models.DTOs.Common;
+using WhatsAppCampaignApi.Models.DTOs.Reporting;
 using WhatsAppCampaignApi.Services.Interfaces;
 
 using WhatsAppCampaignApi.Helpers;
@@ -13,10 +14,17 @@ namespace WhatsAppCampaignApi.Controllers;
 public class ReportingController : ControllerBase
 {
     private readonly IReportingService _reportingService;
+    private readonly IReportQueryService _reportQueryService;
+    private readonly IReportExportService _reportExportService;
 
-    public ReportingController(IReportingService reportingService)
+    public ReportingController(
+        IReportingService reportingService,
+        IReportQueryService reportQueryService,
+        IReportExportService reportExportService)
     {
         _reportingService = reportingService;
+        _reportQueryService = reportQueryService;
+        _reportExportService = reportExportService;
     }
 
     [HttpGet("metrics")]
@@ -82,4 +90,119 @@ public class ReportingController : ControllerBase
         var bytes = await _reportingService.BuildChatsCsvAsync();
         return File(bytes, "text/csv", $"chats_export_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv");
     }
+
+    // ── Report builder ───────────────────────────────────────────────────────
+
+    /// <summary>The columns the builder can offer, so the client holds no parallel list.</summary>
+    [HttpGet("report/columns")]
+    [RequiresPermission("Reporting.View")]
+    public IActionResult GetReportColumns() =>
+        Ok(new ApiResponse<object> { Success = true, Data = _reportQueryService.GetColumns() });
+
+    /// <summary>Filter options built from values actually present in the data.</summary>
+    [HttpGet("report/filter-options")]
+    [RequiresPermission("Reporting.View")]
+    public async Task<IActionResult> GetReportFilterOptions()
+    {
+        var data = await _reportQueryService.GetFilterOptionsAsync();
+        return Ok(new ApiResponse<ReportFilterOptionsDto> { Success = true, Data = data });
+    }
+
+    /// <summary>
+    /// One page of report rows.
+    ///
+    /// POST rather than GET because the filter set is a structured object with several
+    /// multi-select lists; encoding that into a query string would produce URLs long enough to be
+    /// truncated by proxies, and would put contact identifiers in server access logs.
+    /// </summary>
+    [HttpPost("report/query")]
+    [RequiresPermission("Reporting.View")]
+    public async Task<IActionResult> RunReport([FromBody] ReportQueryRequest request)
+    {
+        var data = await _reportQueryService.QueryAsync(request ?? new ReportQueryRequest());
+        return Ok(new ApiResponse<PagedResponse<ReportRowDto>> { Success = true, Data = data });
+    }
+
+    /// <summary>
+    /// Exports the current result set as CSV, Excel or PDF.
+    ///
+    /// The filter set arrives in the body for the same reason as above, and the response is a file
+    /// with a Content-Disposition filename — which CORS exposes explicitly, so the browser can
+    /// read it rather than falling back to a generic name.
+    /// </summary>
+    [HttpPost("report/export")]
+    [RequiresPermission("Reporting.Export")]
+    public async Task<IActionResult> ExportReport(
+        [FromBody] ReportExportRequest request,
+        [FromQuery] string format = "csv")
+    {
+        var result = await _reportExportService.ExportAsync(
+            request?.Filters ?? new ReportQueryRequest(),
+            request?.Columns,
+            format);
+
+        return File(result.Content, result.ContentType, result.FileName);
+    }
+
+    // ── Saved reports ────────────────────────────────────────────────────────
+
+    [HttpGet("report/saved")]
+    [RequiresPermission("Reporting.View")]
+    public async Task<IActionResult> GetSavedReports()
+    {
+        var data = await _reportQueryService.GetSavedReportsAsync();
+        return Ok(new ApiResponse<List<SavedReportDto>> { Success = true, Data = data });
+    }
+
+    [HttpPost("report/saved")]
+    [RequiresPermission("Reporting.Manage")]
+    public async Task<IActionResult> CreateSavedReport([FromBody] SaveReportRequest request)
+    {
+        var data = await _reportQueryService.CreateSavedReportAsync(request);
+        return Ok(new ApiResponse<SavedReportDto>
+        {
+            Success = true,
+            Message = $"Report \"{data.Name}\" saved.",
+            Data = data
+        });
+    }
+
+    [HttpPut("report/saved/{id:int}")]
+    [RequiresPermission("Reporting.Manage")]
+    public async Task<IActionResult> UpdateSavedReport(int id, [FromBody] SaveReportRequest request)
+    {
+        var data = await _reportQueryService.UpdateSavedReportAsync(id, request);
+        return Ok(new ApiResponse<SavedReportDto>
+        {
+            Success = true,
+            Message = $"Report \"{data.Name}\" updated.",
+            Data = data
+        });
+    }
+
+    [HttpDelete("report/saved/{id:int}")]
+    [RequiresPermission("Reporting.Manage")]
+    public async Task<IActionResult> DeleteSavedReport(int id)
+    {
+        await _reportQueryService.DeleteSavedReportAsync(id);
+        return Ok(new ApiResponse { Success = true, Message = "Report deleted." });
+    }
+
+    /// <summary>Records that a saved report was run, for the "Last Run" column.</summary>
+    [HttpPost("report/saved/{id:int}/run")]
+    [RequiresPermission("Reporting.View")]
+    public async Task<IActionResult> TouchSavedReport(int id)
+    {
+        await _reportQueryService.TouchSavedReportAsync(id);
+        return Ok(new ApiResponse { Success = true });
+    }
+}
+
+/// <summary>Export payload: the filters to run, and which columns the file should carry.</summary>
+public class ReportExportRequest
+{
+    public ReportQueryRequest Filters { get; set; } = new();
+
+    /// <summary>Column keys in the author's order. Null falls back to the default set.</summary>
+    public List<string>? Columns { get; set; }
 }

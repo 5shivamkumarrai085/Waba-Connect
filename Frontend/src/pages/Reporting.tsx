@@ -8,6 +8,7 @@ import { DataTable } from '../components/DataTable/DataTable'
 import { StatusBadge } from '../components/StatusBadge/StatusBadge'
 import { FilterBar } from '../components/FilterBar/FilterBar'
 import { ExportList } from '../components/ExportList/ExportList'
+import { ReportBuilder } from '../components/ReportBuilder/ReportBuilder'
 import { reportingService } from '../services/reportingService'
 import { getErrorMessage } from '../utils/errorHelper'
 import usePermission from '../hooks/usePermission'
@@ -224,6 +225,16 @@ export const Reporting: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Custom Reports — build a column/filter combination over live message and campaign
+          data, export it, or save it for next time. Kept as its own section below the
+          overview rather than replacing it: the accuracy and freshness checks above are a
+          working data-integrity tool in their own right, not something this rebuild should
+          cost the page. */}
+      <div className="reporting-divider">
+        <span>Custom Reports</span>
+      </div>
+      <ReportBuilder />
     </motion.div>
   )
 }

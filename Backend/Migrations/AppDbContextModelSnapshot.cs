@@ -254,6 +254,9 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("Module")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -768,9 +771,13 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("ContactId");
 
+                    b.HasIndex("CreatedAt");
+
                     b.HasIndex("WhatsAppMessageId");
 
                     b.HasIndex("ConversationId", "CreatedAt");
+
+                    b.HasIndex("ConversationId", "Direction", "CreatedAt");
 
                     b.ToTable("ChatMessages");
                 });
@@ -1736,6 +1743,59 @@ namespace WhatsAppCampaignApi.Migrations
                     b.ToTable("Permissions", (string)null);
                 });
 
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ReportDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ColumnsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("FiltersJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsShared")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastRunAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("OwnerName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("OwnerUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsShared");
+
+                    b.HasIndex("OwnerUserId");
+
+                    b.ToTable("ReportDefinitions", (string)null);
+                });
+
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Role", b =>
                 {
                     b.Property<int>("Id")
@@ -2425,6 +2485,16 @@ namespace WhatsAppCampaignApi.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ReportDefinition", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.AppUser", "OwnerUser")
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("OwnerUser");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RolePermission", b =>

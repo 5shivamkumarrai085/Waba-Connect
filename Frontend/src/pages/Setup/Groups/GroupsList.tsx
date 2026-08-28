@@ -152,13 +152,13 @@ export const GroupsList: React.FC = () => {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th className="actions-col">ACTIONS</th>
                   <th>ID</th>
                   <th>NAME</th>
                   <th>COLOR</th>
                   <th>DESCRIPTION</th>
                   <th className="text-center">MEMBERS</th>
                   <th>CREATED</th>
-                  <th className="text-center">ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
@@ -184,33 +184,12 @@ export const GroupsList: React.FC = () => {
                 ) : (
                   groups.map((group) => (
                     <tr key={group.id}>
-                      <td>{group.id}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="setup-user-name"
-                          onClick={() => canEdit && openEdit(group)}
-                          disabled={!canEdit}
-                        >
-                          {group.name}
-                        </button>
-                      </td>
-                      <td>
-                        <div className="setup-color-cell">
-                          <span className="setup-color-dot" style={{ backgroundColor: group.color || '#8B5CF6' }} />
-                          <code>{group.color || 'auto'}</code>
-                        </div>
-                      </td>
-                      <td className="setup-muted-cell">{group.description || '—'}</td>
-                      {/* Surfaced so an admin can see what a delete would affect. */}
-                      <td className="text-center">{group.memberCount}</td>
-                      <td>{formatAbsoluteDateTime(group.createdAt)}</td>
-                      <td className="text-center">
+                      <td className="actions-col">
                         <div className="contact-actions-menu-wrapper">
                           <Menu
                             open={openMenuId === group.id}
                             onOpenChange={(isOpen) => setOpenMenuId(isOpen ? group.id : null)}
-                            align="end"
+                            align="start"
                             offset={4}
                             className="contact-actions-dropdown"
                             ariaLabel="Row actions"
@@ -234,6 +213,27 @@ export const GroupsList: React.FC = () => {
                           </Menu>
                         </div>
                       </td>
+                      <td>{group.id}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="setup-user-name"
+                          onClick={() => canEdit && openEdit(group)}
+                          disabled={!canEdit}
+                        >
+                          {group.name}
+                        </button>
+                      </td>
+                      <td>
+                        <div className="setup-color-cell">
+                          <span className="setup-color-dot" style={{ backgroundColor: group.color || '#8B5CF6' }} />
+                          <code>{group.color || 'auto'}</code>
+                        </div>
+                      </td>
+                      <td className="setup-muted-cell">{group.description || '—'}</td>
+                      {/* Surfaced so an admin can see what a delete would affect. */}
+                      <td className="text-center">{group.memberCount}</td>
+                      <td>{formatAbsoluteDateTime(group.createdAt)}</td>
                     </tr>
                   ))
                 )}

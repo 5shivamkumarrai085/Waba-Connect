@@ -228,6 +228,7 @@ export const TemplateBotList: React.FC = () => {
           <table className="template-bot-table">
             <thead>
               <tr>
+                <th className="actions-col">ACTIONS</th>
                 {visibleColumns.id !== false && <th>ID</th>}
                 {visibleColumns.name !== false && <th>NAME</th>}
                 {visibleColumns.replyType !== false && <th>REPLY TYPE</th>}
@@ -235,7 +236,6 @@ export const TemplateBotList: React.FC = () => {
                 {visibleColumns.relationType !== false && <th>RELATION TYPE</th>}
                 {visibleColumns.active !== false && <th>ACTIVE</th>}
                 {visibleColumns.createdAt !== false && <th>CREATED AT</th>}
-                <th style={{ textAlign: 'center' }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
@@ -266,6 +266,63 @@ export const TemplateBotList: React.FC = () => {
               ) : (
                 bots.map((bot) => (
                   <tr key={bot.id}>
+                    <td className="actions-col">
+                      <div className="contact-actions-menu-wrapper">
+                        <Menu
+                          open={openActionsMenuId === bot.id}
+                          onOpenChange={(isOpen) =>
+                            setOpenActionsMenuId(isOpen ? bot.id : null)
+                          }
+                          align="start"
+                          offset={4}
+                          className="contact-actions-dropdown"
+                          ariaLabel="Row actions"
+                          trigger={(props) => (
+                            <button
+                              {...props}
+                              type="button"
+                              className="contact-actions-trigger"
+                              aria-label="Row actions"
+                            >
+                              <MoreVertical size={16} />
+                            </button>
+                          )}
+                        >
+                          <MenuItem
+                            className="contact-actions-item"
+                            onSelect={() => navigate(`/template-bot/bot/${bot.id}?view=true`)}
+                          >
+                            View
+                          </MenuItem>
+                          {/* Disabled rather than hidden — see the note in ContactsList. */}
+                          <Can permission="TemplateBot.Edit" mode="disable">
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => navigate(`/template-bot/bot/${bot.id}`)}
+                            >
+                              Edit
+                            </MenuItem>
+                          </Can>
+                          <Can permission="TemplateBot.Clone" mode="disable">
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => handleCloneClick(bot.id)}
+                            >
+                              Clone
+                            </MenuItem>
+                          </Can>
+                          <Can permission="TemplateBot.Delete" mode="disable">
+                            <MenuItem
+                              destructive
+                              className="contact-actions-item"
+                              onSelect={() => handleDeleteClick(bot.id, bot.name)}
+                            >
+                              Delete
+                            </MenuItem>
+                          </Can>
+                        </Menu>
+                      </div>
+                    </td>
                     {/* ID Column */}
                     {visibleColumns.id !== false && (
                       <td>{bot.id}</td>
@@ -324,63 +381,6 @@ export const TemplateBotList: React.FC = () => {
                     )}
 
                     {/* Actions column — three-dot dropdown, matching ContactsList's pattern */}
-                    <td className="text-center">
-                      <div className="contact-actions-menu-wrapper">
-                        <Menu
-                          open={openActionsMenuId === bot.id}
-                          onOpenChange={(isOpen) =>
-                            setOpenActionsMenuId(isOpen ? bot.id : null)
-                          }
-                          align="end"
-                          offset={4}
-                          className="contact-actions-dropdown"
-                          ariaLabel="Row actions"
-                          trigger={(props) => (
-                            <button
-                              {...props}
-                              type="button"
-                              className="contact-actions-trigger"
-                              aria-label="Row actions"
-                            >
-                              <MoreVertical size={16} />
-                            </button>
-                          )}
-                        >
-                          <MenuItem
-                            className="contact-actions-item"
-                            onSelect={() => navigate(`/template-bot/bot/${bot.id}?view=true`)}
-                          >
-                            View
-                          </MenuItem>
-                          {/* Disabled rather than hidden — see the note in ContactsList. */}
-                          <Can permission="TemplateBot.Edit" mode="disable">
-                            <MenuItem
-                              className="contact-actions-item"
-                              onSelect={() => navigate(`/template-bot/bot/${bot.id}`)}
-                            >
-                              Edit
-                            </MenuItem>
-                          </Can>
-                          <Can permission="TemplateBot.Clone" mode="disable">
-                            <MenuItem
-                              className="contact-actions-item"
-                              onSelect={() => handleCloneClick(bot.id)}
-                            >
-                              Clone
-                            </MenuItem>
-                          </Can>
-                          <Can permission="TemplateBot.Delete" mode="disable">
-                            <MenuItem
-                              destructive
-                              className="contact-actions-item"
-                              onSelect={() => handleDeleteClick(bot.id, bot.name)}
-                            >
-                              Delete
-                            </MenuItem>
-                          </Can>
-                        </Menu>
-                      </div>
-                    </td>
                   </tr>
                 ))
               )}

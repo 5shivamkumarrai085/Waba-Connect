@@ -19,8 +19,6 @@ import {
   Clock,
   Share2,
   MoreVertical,
-  ChevronLeft,
-  ChevronRight,
   MessageSquare,
   Edit3,
   Trash2
@@ -28,6 +26,8 @@ import {
 import toast from 'react-hot-toast'
 import { useConnectionStore } from '../../store/connectionStore'
 import { EditConnectionModal } from './EditConnectionModal'
+import { Menu, MenuItem } from '../../components/Menu/Menu'
+import { Pagination } from '../../components/Pagination/Pagination'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import type { Connection } from '../../types/connection'
 import './ConnectionsList.css'
@@ -49,6 +49,8 @@ export const ConnectionsList: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('All Status')
   const [editingConn, setEditingConn] = useState<Connection | null>(null)
   const [activeMenuId, setActiveMenuId] = useState<number | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(5)
 
   const [disconnectTarget, setDisconnectTarget] = useState<Connection | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Connection | null>(null)
@@ -57,31 +59,21 @@ export const ConnectionsList: React.FC = () => {
     fetchDashboard()
   }, [fetchDashboard])
 
-  // Close dropdown menus on outside click or Escape
+  // Escape closes the two confirmation targets. The row menu handles its own outside-click and
+  // Escape now that it is the shared Menu — and the listener that used to do it here tested
+  // `.closest('.conn-actions-cell')`, which stopped matching the moment the surface was portaled
+  // out of that cell.
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setActiveMenuId(null)
-        setEditingConn(null)
-        setDisconnectTarget(null)
-        setDeleteTarget(null)
-      }
-    }
-
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      if (activeMenuId !== null && !target.closest('.conn-actions-cell')) {
-        setActiveMenuId(null)
-      }
+      if (e.key !== 'Escape') return
+      setEditingConn(null)
+      setDisconnectTarget(null)
+      setDeleteTarget(null)
     }
 
     document.addEventListener('keydown', handleEscape)
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => {
-      document.removeEventListener('keydown', handleEscape)
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [activeMenuId])
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [])
 
   const filteredConnections = connections.filter((conn: Connection) => {
     const matchesSearch =
@@ -96,6 +88,16 @@ export const ConnectionsList: React.FC = () => {
 
     return matchesSearch && matchesStatus
   })
+
+  // Paged on the client. The connections endpoint returns every row in one response — there are
+  // a handful of them, and a WABA account list does not grow the way a contact list does — so
+  // slicing here is honest rather than a stand-in for server paging that ought to exist.
+  const totalPages = Math.max(1, Math.ceil(filteredConnections.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const pagedConnections = filteredConnections.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  )
 
   const handleConnectNew = () => {
     navigate('/connections/new')
@@ -170,13 +172,6 @@ export const ConnectionsList: React.FC = () => {
 
   return (
     <motion.div className="conn-page-wrapper" {...pageTransitionProps}>
-      {/* Breadcrumb */}
-      <div className="conn-page-breadcrumb">
-        <span>Admin</span>
-        <span>&gt;</span>
-        <span className="conn-page-breadcrumb-active">WABA Connections</span>
-      </div>
-
       {/* Page Header */}
       <div className="conn-page-header">
         <div className="conn-page-title-group">
@@ -186,7 +181,7 @@ export const ConnectionsList: React.FC = () => {
         <Can permission="ConnectAccount.Connect">
           <button type="button" onClick={handleConnectNew} className="btn-connect-waba">
             <Plus className="w-4 h-4" />
-            <span>Connect New WABA</span>
+            <span>Add Connection</span>
           </button>
         </Can>
       </div>
@@ -286,24 +281,111 @@ export const ConnectionsList: React.FC = () => {
           <table className="conn-data-table">
             <thead>
               <tr>
+                <th className="actions-col">Actions</th>
                 <th>Connection Name</th>
                 <th>Phone Number</th>
                 <th>WABA ID</th>
                 <th>Status</th>
                 <th>Connected On</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredConnections.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '3rem 1rem', color: '#94a3b8' }}>
-                    No connections found. Click "+ Connect New WABA" to create your first connection.
+                  <td colSpan={6} className="conn-empty-cell">
+                    No connections found. Use "Add Connection" to create your first one.
                   </td>
                 </tr>
               ) : (
-                filteredConnections.map((conn: Connection, idx: number) => (
+                pagedConnections.map((conn: Connection, idx: number) => (
                   <tr key={conn.id}>
+                    {/* Actions lead the row, as on every other list — reaching the delete or
+                        view control should not mean scrolling past five columns first. */}
+                    <td className="actions-col">
+                      <div className="conn-actions-cell">
+                        {conn.isConnected ? (
+                          <>
+                            <Can permission="ConnectAccount.View">
+                              <button
+                                type="button"
+                                onClick={() => handleViewConnection(conn)}
+                                className="btn-action-view"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                View
+                              </button>
+                            </Can>
+                            <Can permission="ConnectAccount.Disconnect">
+                              <button
+                                type="button"
+                                onClick={() => handleDisconnectClick(conn)}
+                                className="btn-action-disconnect"
+                              >
+                                <Unlink className="w-3.5 h-3.5" />
+                                Disconnect
+                              </button>
+                            </Can>
+                          </>
+                        ) : (
+                          <Can permission="ConnectAccount.Connect">
+                            <button
+                              type="button"
+                              onClick={() => handleReconnect(conn.id)}
+                              className="btn-action-connect"
+                            >
+                              <LinkIcon className="w-3.5 h-3.5" />
+                              Connect
+                            </button>
+                          </Can>
+                        )}
+
+                        {/* The shared Menu, as every other list uses. This was a hand-rolled
+                            absolutely-positioned div living inside the table's own
+                            `overflow-x: auto` container, so it was clipped by it; Menu portals
+                            its surface out and flips when it would leave the viewport. */}
+                        <Menu
+                          open={activeMenuId === conn.id}
+                          onOpenChange={(isOpen) => setActiveMenuId(isOpen ? conn.id : null)}
+                          align="start"
+                          offset={4}
+                          className="contact-actions-dropdown"
+                          ariaLabel="Connection actions"
+                          trigger={(props) => (
+                            <button
+                              {...props}
+                              type="button"
+                              className="btn-action-menu"
+                              aria-label="Connection actions"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          )}
+                        >
+                          {/* Hidden, not disabled: unlike the row menus built on fixed-height
+                              lists, there is nothing here whose height must stay stable. */}
+                          <Can permission="ConnectAccount.Edit">
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => setEditingConn(conn)}
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              Edit Name
+                            </MenuItem>
+                          </Can>
+                          <Can permission="ConnectAccount.Delete">
+                            <MenuItem
+                              destructive
+                              className="contact-actions-item"
+                              onSelect={() => handleDeleteConnectionClick(conn)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Delete
+                            </MenuItem>
+                          </Can>
+                        </Menu>
+                      </div>
+                    </td>
+
                     {/* Connection Name */}
                     <td>
                       <div className="conn-name-cell">
@@ -342,93 +424,14 @@ export const ConnectionsList: React.FC = () => {
 
                     {/* Connected On */}
                     <td>
-                      <div style={{ fontSize: '0.8125rem', color: '#334155', fontWeight: 500 }}>
+                      <div className="conn-date-primary">
                         {conn.connectedOn ? new Date(conn.connectedOn).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                      <div className="conn-date-time">
                         {conn.connectedOn ? new Date(conn.connectedOn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                       </div>
                     </td>
 
-                    {/* Actions */}
-                    <td>
-                      <div className="conn-actions-cell" style={{ position: 'relative' }}>
-                        {conn.isConnected ? (
-                          <>
-                            <Can permission="ConnectAccount.View">
-                              <button
-                                type="button"
-                                onClick={() => handleViewConnection(conn)}
-                                className="btn-action-view"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                                View
-                              </button>
-                            </Can>
-                            <Can permission="ConnectAccount.Disconnect">
-                              <button
-                                type="button"
-                                onClick={() => handleDisconnectClick(conn)}
-                                className="btn-action-disconnect"
-                              >
-                                <Unlink className="w-3.5 h-3.5" />
-                                Disconnect
-                              </button>
-                            </Can>
-                          </>
-                        ) : (
-                          <Can permission="ConnectAccount.Connect">
-                            <button
-                              type="button"
-                              onClick={() => handleReconnect(conn.id)}
-                              className="btn-action-connect"
-                            >
-                              <LinkIcon className="w-3.5 h-3.5" />
-                              Connect
-                            </button>
-                          </Can>
-                        )}
-
-
-                        <button
-                          type="button"
-                          onClick={() => setActiveMenuId(activeMenuId === conn.id ? null : conn.id)}
-                          className="btn-action-menu"
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
-
-                        {/* Three-Dot Options Dropdown */}
-                        {activeMenuId === conn.id && (
-                          <div className="conn-dropdown-menu">
-                            {/* Hidden, not disabled: this is a plain div, not the Menu
-                                primitive, so there is no fixed row height to preserve. */}
-                            <Can permission="ConnectAccount.Edit">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActiveMenuId(null)
-                                  setEditingConn(conn)
-                                }}
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                                Edit Name
-                              </button>
-                            </Can>
-                            <Can permission="ConnectAccount.Delete">
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteConnectionClick(conn)}
-                                className="delete-btn"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                Delete
-                              </button>
-                            </Can>
-                          </div>
-                        )}
-                      </div>
-                    </td>
                   </tr>
                 ))
               )}
@@ -436,18 +439,22 @@ export const ConnectionsList: React.FC = () => {
           </table>
         </div>
 
-        {/* Footer Pagination */}
+        {/* The shared pager. What was here reported "Showing 1 to N of N" with a hardcoded page
+            number and both arrows permanently disabled — furniture that looked like pagination
+            without being any. */}
         <div className="conn-footer-bar">
-          <span>Showing 1 to {filteredConnections.length} of {filteredConnections.length} connections</span>
-          <div className="conn-pagination">
-            <button type="button" disabled className="conn-page-btn">
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="conn-page-btn active">1</span>
-            <button type="button" disabled className="conn-page-btn">
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+          <Pagination
+            page={currentPage}
+            pageSize={pageSize}
+            totalCount={filteredConnections.length}
+            totalPages={totalPages}
+            onPage={setPage}
+            onPageSize={(size) => { setPageSize(size); setPage(1) }}
+            // Smaller steps than the default ladder. A WABA account list is short — an
+            // organisation has a handful of connections, not thousands — so starting at 100
+            // would make the control decorative.
+            pageSizeOptions={[5, 10, 25, 50]}
+          />
         </div>
       </div>
 

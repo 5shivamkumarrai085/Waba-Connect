@@ -51,6 +51,9 @@ public class AppDbContext : DbContext
     public DbSet<LoginAttempt> LoginAttempts { get; set; } = null!;
     public DbSet<AuditLog> AuditLogs { get; set; } = null!;
 
+    // Reporting
+    public DbSet<ReportDefinition> ReportDefinitions { get; set; } = null!;
+
     // Setup lookups
     public DbSet<ContactStatusLookup> ContactStatuses { get; set; } = null!;
     public DbSet<ContactSourceLookup> ContactSources { get; set; } = null!;
@@ -157,6 +160,22 @@ public class AppDbContext : DbContext
         });
 
         modelBuilder.HasSequence<long>("AuditLogEventNumberSeq").StartsAt(10000).IncrementsBy(1);
+
+        // ---- Saved reports --------------------------------------------------------
+        modelBuilder.Entity<ReportDefinition>(entity =>
+        {
+            entity.ToTable("ReportDefinitions");
+            // The list query is "mine, or shared", so both sides of that OR need an index.
+            entity.HasIndex(e => e.OwnerUserId);
+            entity.HasIndex(e => e.IsShared);
+
+            // SetNull, not Cascade: deleting a user must not take a report the rest of the team
+            // is using down with them. The denormalised OwnerName keeps the row readable.
+            entity.HasOne(e => e.OwnerUser)
+                .WithMany()
+                .HasForeignKey(e => e.OwnerUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
 
         // ---- Setup lookups --------------------------------------------------------
         // Deliberately no foreign key from Contact to these tables. Contact.Status/Source keep
@@ -371,6 +390,21 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.WhatsAppMessageId);
             entity.HasIndex(e => new { e.ConversationId, e.CreatedAt });
             entity.HasIndex(e => e.CampaignContactId);
+
+            // Reporting reads this table across every conversation at once, which the composite
+            // above cannot serve — its leading column is the conversation. A date-filtered report
+            // without this scans the whole table.
+            entity.HasIndex(e => e.CreatedAt);
+
+            // Campaign-scoped reporting, and the recipient lookups that resolve a message back to
+            // the campaign that sent it.
+            entity.HasIndex(e => e.CampaignId);
+
+            // "The next incoming message in this conversation after time T" — the derivation
+            // behind the report's Response and Response Time columns. Direction sits in the
+            // middle so it is an equality seek before the range scan on CreatedAt.
+            entity.HasIndex(e => new { e.ConversationId, e.Direction, e.CreatedAt });
+
             entity.Property(e => e.Direction).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasOne(e => e.Conversation).WithMany(c => c.Messages).HasForeignKey(e => e.ConversationId).OnDelete(DeleteBehavior.Cascade);

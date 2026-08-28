@@ -71,6 +71,19 @@ public class AuditLog
     /// </summary>
     public string? ChangesJson { get; set; }
 
+    /// <summary>
+    /// Event-specific structured payload, as JSON. Null for the great majority of events.
+    ///
+    /// Separate from <see cref="ChangesJson"/> deliberately: that column is the field-level
+    /// before/after table and the details panel renders it as such. This one carries whatever a
+    /// particular event needs recorded that a field diff cannot express — the list of chat
+    /// messages a delete removed, for instance, where the interesting content is the messages
+    /// themselves rather than the IsDeleted flag flipping on each of them.
+    ///
+    /// Uncapped, like ChangesJson: writers are responsible for bounding what they put here.
+    /// </summary>
+    public string? MetadataJson { get; set; }
+
     public int? UserId { get; set; }
 
     [MaxLength(200)]

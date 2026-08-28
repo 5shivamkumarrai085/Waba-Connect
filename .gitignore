@@ -1,0 +1,9 @@
+# Serilog file-sink output. Written to AppContext.BaseDirectory, which under a normal
+# build resolves inside bin/. Logs are machine-local runtime data, never source.
+Backend/Logs/
+Backend/bin/**/Logs/
+Backend/obj/**/Logs/
+*.log
+
+# Local migration review scratch output
+migration-review.sql

@@ -1,26 +1,14 @@
-/* Premium Enterprise WABA Connections Page CSS */
+/* WABA Connections page.
+
+   This file used to declare its own font stack, its own page background and its own greys, so
+   the page rendered as a visitor from another design system — noticeably so when the app is in
+   dark mode, where a hardcoded #f8fafc stays light. It now takes the app's tokens like every
+   other page. */
 .conn-page-wrapper {
   padding: 1.75rem 2rem;
-  background-color: #f8fafc;
+  background-color: var(--bg-primary);
   min-height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color: #0f172a;
-}
-
-/* Breadcrumb & Header */
-.conn-page-breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: #64748b;
-  margin-bottom: 0.375rem;
-}
-
-.conn-page-breadcrumb-active {
-  color: #0f172a;
-  font-weight: 600;
+  color: var(--text-main);
 }
 
 .conn-page-header {
@@ -33,14 +21,14 @@
 .conn-page-title-group h1 {
   font-size: 1.625rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-main);
   margin: 0 0 0.25rem 0;
   letter-spacing: -0.02em;
 }
 
 .conn-page-subtitle {
   font-size: 0.875rem;
-  color: #64748b;
+  color: var(--text-muted);
   margin: 0;
 }
 
@@ -148,20 +136,20 @@
 .conn-kpi-label {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #64748b;
+  color: var(--text-muted);
   margin-bottom: 0.125rem;
 }
 
 .conn-kpi-value {
   font-size: 1.625rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-main);
   line-height: 1.2;
 }
 
 .conn-kpi-desc {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-light);
   margin-top: 0.125rem;
 }
 
@@ -177,8 +165,8 @@
 
 /* Filter Card Bar */
 .conn-filter-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 0.875rem;
   padding: 1rem 1.25rem;
   margin-bottom: 1.25rem;
@@ -200,7 +188,7 @@
   left: 0.875rem;
   top: 50%;
   transform: translateY(-50%);
-  color: #94a3b8;
+  color: var(--text-light);
   width: 16px;
   height: 16px;
 }
@@ -209,10 +197,10 @@
   width: 100%;
   padding: 0.5625rem 1rem 0.5625rem 2.5rem;
   font-size: 0.8125rem;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-color);
   border-radius: 0.5rem;
-  background-color: #ffffff;
-  color: #0f172a;
+  background-color: var(--bg-secondary);
+  color: var(--text-main);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -232,10 +220,10 @@
   padding: 0.5625rem 2.25rem 0.5625rem 0.875rem;
   font-size: 0.8125rem;
   font-weight: 500;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-color);
   border-radius: 0.5rem;
-  background-color: #ffffff;
-  color: #334155;
+  background-color: var(--bg-secondary);
+  color: var(--text-main);
   cursor: pointer;
 }
 
@@ -249,9 +237,9 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.5625rem 1rem;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
-  color: #334155;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
   font-size: 0.8125rem;
   font-weight: 600;
   border-radius: 0.5rem;
@@ -260,15 +248,15 @@
 }
 
 .btn-refresh-conn:hover {
-  background-color: #f8fafc;
-  color: #0f172a;
-  border-color: #94a3b8;
+  background-color: var(--bg-primary);
+  color: var(--text-main);
+  border-color: var(--text-light);
 }
 
 /* Data Table Card */
 .conn-table-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 0.875rem;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
@@ -285,21 +273,21 @@
 }
 
 .conn-data-table th {
-  background-color: #f8fafc;
+  background-color: var(--bg-primary);
   padding: 0.875rem 1.25rem;
   font-size: 0.75rem;
   font-weight: 700;
-  color: #475569;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .conn-data-table td {
   padding: 1rem 1.25rem;
   font-size: 0.875rem;
-  color: #334155;
-  border-bottom: 1px solid #f1f5f9;
+  color: var(--text-main);
+  border-bottom: 1px solid var(--border-light);
   vertical-align: middle;
 }
 
@@ -308,7 +296,7 @@
 }
 
 .conn-data-table tbody tr:hover {
-  background-color: #f8fafc;
+  background-color: var(--bg-primary);
 }
 
 /* Connection Name Cell */
@@ -337,7 +325,7 @@
 
 .conn-name-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-main);
   font-size: 0.9375rem;
 }
 
@@ -361,7 +349,7 @@
 
 .conn-phone-subtext {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-muted);
   display: block;
   margin-top: 0.125rem;
 }
@@ -369,12 +357,12 @@
 /* Phone Number Cell */
 .conn-phone-number {
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .conn-phone-id {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-light);
   margin-top: 0.125rem;
 }
 
@@ -382,7 +370,7 @@
 .conn-waba-id {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.8125rem;
-  color: #475569;
+  color: var(--text-muted);
 }
 
 /* Status Pill */
@@ -411,11 +399,13 @@
   color: #c2410c;
 }
 
-/* Action Buttons */
+/* Action Buttons.
+   Left-aligned now that the column leads the row; flex-end made sense only against the table's
+   right edge. */
 .conn-actions-cell {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 0.5rem;
 }
 
@@ -485,108 +475,49 @@
   justify-content: center;
   border: 1px solid transparent;
   background-color: transparent;
-  color: #94a3b8;
+  color: var(--text-light);
   cursor: pointer;
 }
 
 .btn-action-menu:hover {
-  background-color: #f1f5f9;
-  color: #334155;
+  background-color: var(--bg-hover);
+  color: var(--text-main);
 }
 
-/* Footer Pagination */
+/* Footer.
+   Holds the shared Pagination component, which brings its own controls — the hand-built page
+   buttons that were here reported a hardcoded page 1 with both arrows permanently disabled. */
 .conn-footer-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0.875rem 1.25rem;
-  background-color: #f8fafc;
-  border-top: 1px solid #e2e8f0;
-  font-size: 0.75rem;
-  color: #64748b;
+  padding: 0.25rem 1.25rem 0.875rem;
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border-light);
 }
 
-.conn-pagination {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
+.conn-footer-bar > * {
+  flex: 1;
 }
 
-.conn-page-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 0.375rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #e2e8f0;
-  background-color: #ffffff;
-  color: #64748b;
-  cursor: pointer;
-}
+/* The bespoke `.conn-dropdown-menu` that used to live here is gone with the markup it styled.
+   It was an absolutely-positioned div inside the table's own `overflow-x: auto` container, so
+   the container clipped it, and it opened upward from the right edge — both wrong once the
+   actions column moved to the front. The row menu is the shared Menu now, which portals its
+   surface out of the scroll container and flips when it would leave the viewport. */
 
-.conn-page-btn.active {
-  background-color: #eff6ff;
-  border-color: #bfdbfe;
-  color: #2563eb;
-  font-weight: 700;
-}
-
-.conn-dropdown-menu {
-  position: absolute;
-  right: 0;
-  bottom: 100%;
-  margin-bottom: 4px;
-  z-index: 100;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  box-shadow: 0 -4px 25px -5px rgba(0, 0, 0, 0.15), 0 -4px 10px -6px rgba(0, 0, 0, 0.1);
-  width: 10rem;
-  padding: 4px;
-  animation: menuSlideIn 0.15s ease-out;
-}
-
-.conn-dropdown-menu button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 12px;
-  font-size: 13px;
-  font-weight: 500;
-  border: none;
-  background: transparent;
-  color: #334155;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.conn-dropdown-menu button:hover {
-  background: #f1f5f9;
-  color: #1e293b;
-}
-
-.conn-dropdown-menu .delete-btn:hover {
-  background: #fef2f2;
-  color: #dc2626;
-}
-
-@keyframes menuSlideIn {
-  from { opacity: 0; transform: translateY(-8px) scale(0.95); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-/* === Gen-Z Animations === */
-.page-header { animation: slideUp 0.4s ease-out forwards; }
-.data-table tbody tr { animation: fadeIn 0.3s ease-out forwards; }
+/* === Animations ===
+   Scoped to this page. These three were written unscoped — `.page-header`, `.data-table tbody
+   tr` and a `!important` row hover — and because every page's CSS is imported eagerly at
+   startup, they applied to every table in the application from the moment the app loaded,
+   whether or not anyone had opened Connections. */
+.conn-page-wrapper .page-header { animation: slideUp 0.4s ease-out forwards; }
+.conn-page-wrapper .data-table tbody tr { animation: fadeIn 0.3s ease-out forwards; }
 
 
 
 
 
-.data-table tbody tr:hover { background: rgba(99, 102, 241, 0.04) !important; transition: background 0.2s ease; }
+.conn-page-wrapper .data-table tbody tr:hover { background: var(--primary-light); transition: background 0.2s ease; }
 
 /* === Gen-Z Connection Cards === */
 .connection-card, .conn-card { 
@@ -596,4 +527,23 @@
 .connection-card:hover, .conn-card:hover { 
   transform: translateY(-3px);
   box-shadow: 0 8px 25px rgba(99, 102, 241, 0.12);
+}
+
+/* Cells that used to carry inline styles, so their colours follow the theme like everything
+   else on the page rather than being frozen light. */
+.conn-date-primary {
+  font-size: 0.8125rem;
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+.conn-date-time {
+  font-size: 0.75rem;
+  color: var(--text-light);
+}
+
+.conn-empty-cell {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-light);
 }

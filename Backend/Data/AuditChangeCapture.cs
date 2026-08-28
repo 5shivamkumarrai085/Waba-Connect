@@ -23,8 +23,15 @@ internal static class AuditChangeCapture
     /// The two log tables would recurse — writing an audit row is itself a tracked insert. The
     /// rest are high-churn runtime state (inbound/outbound message rows, bot conversation
     /// position, health pings) whose inserts would swamp the buffer on every request while
-    /// telling an auditor nothing. Note <see cref="ChatMessage"/> is NOT excluded: its updates
-    /// are how "which message was deleted" gets recorded.
+    /// telling an auditor nothing.
+    ///
+    /// <para>
+    /// <see cref="ChatMessage"/> was deliberately left in for a while, because its IsDeleted
+    /// false→true diffs were the only record of which message a delete removed. It is excluded
+    /// now that both delete paths write a proper snapshot to <c>AuditLog.MetadataJson</c> — the
+    /// diffs said nothing the snapshot does not say better, and every ordinary send was spending
+    /// buffer slots (capped at 50) to record a message nobody audits.
+    /// </para>
     /// </summary>
     private static readonly HashSet<string> ExcludedEntities = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -32,7 +39,8 @@ internal static class AuditChangeCapture
         nameof(LoginAttempt),
         nameof(MessageActivityLog),
         nameof(HealthLog),
-        nameof(ConversationState)
+        nameof(ConversationState),
+        nameof(ChatMessage)
     };
 
     /// <summary>

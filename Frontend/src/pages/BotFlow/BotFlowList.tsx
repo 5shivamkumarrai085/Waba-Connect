@@ -173,11 +173,11 @@ export const BotFlowList: React.FC = () => {
           <table className="bot-flow-table">
             <thead>
               <tr>
+                <th className="actions-col">ACTIONS</th>
                 <th>ID</th>
                 <th>NAME</th>
                 <th>DESCRIPTION</th>
                 <th>IS ACTIVE</th>
-                <th style={{ textAlign: 'center' }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
@@ -196,24 +196,14 @@ export const BotFlowList: React.FC = () => {
               ) : (
                 flows.map((flow) => (
                   <tr key={flow.id}>
-                    <td>{flow.id}</td>
-                    <td className="flow-name-cell">{flow.name}</td>
-                    <td className="flow-desc-cell">{flow.description || ''}</td>
-                    <td>
-                      <Toggle
-                        checked={flow.isActive}
-                        disabled={!has('BotFlow.Edit')}
-                        onChange={() => toggleFlowActive(flow.id)}
-                      />
-                    </td>
-                    <td className="text-center">
+                    <td className="actions-col">
                       <div className="contact-actions-menu-wrapper">
                         <Menu
                           open={openActionsMenuId === flow.id}
                           onOpenChange={(isOpen) =>
                             setOpenActionsMenuId(isOpen ? flow.id : null)
                           }
-                          align="end"
+                          align="start"
                           offset={4}
                           className="contact-actions-dropdown"
                           ariaLabel="Row actions"
@@ -258,6 +248,16 @@ export const BotFlowList: React.FC = () => {
                           </Can>
                         </Menu>
                       </div>
+                    </td>
+                    <td>{flow.id}</td>
+                    <td className="flow-name-cell">{flow.name}</td>
+                    <td className="flow-desc-cell">{flow.description || ''}</td>
+                    <td>
+                      <Toggle
+                        checked={flow.isActive}
+                        disabled={!has('BotFlow.Edit')}
+                        onChange={() => toggleFlowActive(flow.id)}
+                      />
                     </td>
                   </tr>
                 ))

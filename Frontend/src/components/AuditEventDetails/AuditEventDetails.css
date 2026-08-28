@@ -97,6 +97,127 @@
   font-style: italic;
 }
 
+/* ── Deleted messages ─────────────────────────────────────────────────────
+   A transcript, not a table. The record's whole purpose is that a reader can look at it and
+   recognise the conversation that was removed, so it borrows the chat module's own shape:
+   incoming on the left, outgoing on the right. */
+
+.audit-msg-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.audit-msg-count {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: var(--radius-full, 999px);
+  background-color: #fee2e2;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-body);
+}
+
+.audit-msg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  list-style: none;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-primary);
+  /* Long deletions are the interesting case and must not push the panel's own controls off
+     screen, so the transcript scrolls within itself. */
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.audit-msg {
+  display: flex;
+}
+
+.audit-msg.is-incoming { justify-content: flex-start; }
+.audit-msg.is-outgoing { justify-content: flex-end; }
+
+.audit-msg-bubble {
+  /* Not 100%: the gap on the opposite side is what signals the direction when two bubbles of
+     similar length sit next to each other. */
+  max-width: 86%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-secondary);
+}
+
+.audit-msg.is-outgoing .audit-msg-bubble {
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+}
+
+.audit-msg-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-main);
+  /* Deleted text is quoted verbatim, including its line breaks — reflowing it would change what
+     the record says was sent. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.audit-msg-text.is-empty {
+  color: var(--text-light);
+  font-style: italic;
+}
+
+.audit-msg-media {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.audit-msg-media-type {
+  padding: 1px 6px;
+  border-radius: var(--radius-full, 999px);
+  background-color: var(--bg-primary);
+  color: var(--text-light);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.audit-msg-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+.audit-msg-direction {
+  font-weight: 600;
+}
+
+.audit-msg-dot {
+  opacity: 0.6;
+}
+
+.audit-msg-truncated {
+  margin-top: 8px;
+}
+
 /* ── Changes table ───────────────────────────────────────────────────────── */
 
 .audit-changes-group + .audit-changes-group {

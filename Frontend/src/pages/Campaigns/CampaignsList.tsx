@@ -322,6 +322,7 @@ export const CampaignsList: React.FC = () => {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th className="actions-col">Actions</th>
                   {columnHeaders.map((col) => {
                     const isVisible = visibleColumns[col.key] !== false
                     if (!isVisible) return null
@@ -340,7 +341,6 @@ export const CampaignsList: React.FC = () => {
                       </th>
                     )
                   })}
-                  <th className="col-width-actions" style={{ textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -356,6 +356,55 @@ export const CampaignsList: React.FC = () => {
                 ) : (
                   paginatedCampaigns.map((camp, index) => (
                     <tr key={camp.id}>
+                      <td className="actions-col">
+                        <div className="contact-actions-menu-wrapper">
+                          <Menu
+                            open={openActionsMenuId === camp.id}
+                            onOpenChange={(isOpen) =>
+                              setOpenActionsMenuId(isOpen ? camp.id : null)
+                            }
+                            align="start"
+                            offset={4}
+                            className="contact-actions-dropdown"
+                            ariaLabel="Row actions"
+                            trigger={(props) => (
+                              <button
+                                {...props}
+                                type="button"
+                                className="contact-actions-trigger"
+                                aria-label="Row actions"
+                              >
+                                <MoreVertical size={16} />
+                              </button>
+                            )}
+                          >
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => navigate(`/campaigns/campaign/details/${camp.id}`)}
+                            >
+                              View
+                            </MenuItem>
+                            {/* Disabled rather than hidden — see the note in ContactsList. */}
+                            <Can permission="Campaign.Edit" mode="disable">
+                              <MenuItem
+                                className="contact-actions-item"
+                                onSelect={() => navigate(`/campaigns/campaign/edit/${camp.id}`)}
+                              >
+                                Edit
+                              </MenuItem>
+                            </Can>
+                            <Can permission="Campaign.Delete" mode="disable">
+                              <MenuItem
+                                destructive
+                                className="contact-actions-item"
+                                onSelect={() => handleDelete(camp.id, camp.name)}
+                              >
+                                Delete
+                              </MenuItem>
+                            </Can>
+                          </Menu>
+                        </div>
+                      </td>
                       {/* ID Column - sequential numbering */}
                       {visibleColumns.id !== false && (
                         <td>{startIndex + index + 1}</td>
@@ -437,55 +486,6 @@ export const CampaignsList: React.FC = () => {
                       )}
 
                       {/* Actions column — three-dot dropdown, matching ContactsList's pattern */}
-                      <td className="text-center">
-                        <div className="contact-actions-menu-wrapper">
-                          <Menu
-                            open={openActionsMenuId === camp.id}
-                            onOpenChange={(isOpen) =>
-                              setOpenActionsMenuId(isOpen ? camp.id : null)
-                            }
-                            align="end"
-                            offset={4}
-                            className="contact-actions-dropdown"
-                            ariaLabel="Row actions"
-                            trigger={(props) => (
-                              <button
-                                {...props}
-                                type="button"
-                                className="contact-actions-trigger"
-                                aria-label="Row actions"
-                              >
-                                <MoreVertical size={16} />
-                              </button>
-                            )}
-                          >
-                            <MenuItem
-                              className="contact-actions-item"
-                              onSelect={() => navigate(`/campaigns/campaign/details/${camp.id}`)}
-                            >
-                              View
-                            </MenuItem>
-                            {/* Disabled rather than hidden — see the note in ContactsList. */}
-                            <Can permission="Campaign.Edit" mode="disable">
-                              <MenuItem
-                                className="contact-actions-item"
-                                onSelect={() => navigate(`/campaigns/campaign/edit/${camp.id}`)}
-                              >
-                                Edit
-                              </MenuItem>
-                            </Can>
-                            <Can permission="Campaign.Delete" mode="disable">
-                              <MenuItem
-                                destructive
-                                className="contact-actions-item"
-                                onSelect={() => handleDelete(camp.id, camp.name)}
-                              >
-                                Delete
-                              </MenuItem>
-                            </Can>
-                          </Menu>
-                        </div>
-                      </td>
                     </tr>
                   ))
                 )}

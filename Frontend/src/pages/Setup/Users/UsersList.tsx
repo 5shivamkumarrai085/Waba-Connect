@@ -151,6 +151,7 @@ export const UsersList: React.FC = () => {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th className="actions-col">ACTIONS</th>
                   <th>ID</th>
                   <th>NAME</th>
                   <th>PHONE</th>
@@ -158,7 +159,6 @@ export const UsersList: React.FC = () => {
                   <th>ROLE</th>
                   <th className="text-center">STATUS</th>
                   <th>CREATED AT</th>
-                  <th className="text-center">ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
@@ -187,6 +187,41 @@ export const UsersList: React.FC = () => {
                 ) : (
                   filteredUsers.map((user) => (
                     <tr key={user.id}>
+                      <td className="actions-col">
+                        <div className="contact-actions-menu-wrapper">
+                          <Menu
+                            open={openMenuId === user.id}
+                            onOpenChange={(isOpen) => setOpenMenuId(isOpen ? user.id : null)}
+                            align="start"
+                            offset={4}
+                            className="contact-actions-dropdown"
+                            ariaLabel="Row actions"
+                            trigger={(props) => (
+                              <button {...props} type="button" className="contact-actions-trigger" aria-label="Row actions">
+                                <MoreVertical size={16} />
+                              </button>
+                            )}
+                          >
+                            {/* Disabled rather than hidden: items vanishing changes the menu's
+                                height between rows, which reads as a rendering bug. */}
+                            <MenuItem
+                              className="contact-actions-item"
+                              disabled={!canEdit}
+                              onSelect={() => navigate(`/setup/users/${user.id}`)}
+                            >
+                              Edit
+                            </MenuItem>
+                            <MenuItem
+                              destructive
+                              className="contact-actions-item"
+                              disabled={!canDelete}
+                              onSelect={() => setDeleteTarget(user)}
+                            >
+                              Delete
+                            </MenuItem>
+                          </Menu>
+                        </div>
+                      </td>
                       {/* The real record id, not a row number: an admin referencing a user in
                           a support conversation needs the value the API actually uses. */}
                       <td>{user.id}</td>
@@ -234,41 +269,6 @@ export const UsersList: React.FC = () => {
                         </button>
                       </td>
                       <td>{formatAbsoluteDateTime(user.createdAt)}</td>
-                      <td className="text-center">
-                        <div className="contact-actions-menu-wrapper">
-                          <Menu
-                            open={openMenuId === user.id}
-                            onOpenChange={(isOpen) => setOpenMenuId(isOpen ? user.id : null)}
-                            align="end"
-                            offset={4}
-                            className="contact-actions-dropdown"
-                            ariaLabel="Row actions"
-                            trigger={(props) => (
-                              <button {...props} type="button" className="contact-actions-trigger" aria-label="Row actions">
-                                <MoreVertical size={16} />
-                              </button>
-                            )}
-                          >
-                            {/* Disabled rather than hidden: items vanishing changes the menu's
-                                height between rows, which reads as a rendering bug. */}
-                            <MenuItem
-                              className="contact-actions-item"
-                              disabled={!canEdit}
-                              onSelect={() => navigate(`/setup/users/${user.id}`)}
-                            >
-                              Edit
-                            </MenuItem>
-                            <MenuItem
-                              destructive
-                              className="contact-actions-item"
-                              disabled={!canDelete}
-                              onSelect={() => setDeleteTarget(user)}
-                            >
-                              Delete
-                            </MenuItem>
-                          </Menu>
-                        </div>
-                      </td>
                     </tr>
                   ))
                 )}

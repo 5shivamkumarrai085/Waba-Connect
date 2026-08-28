@@ -1,7 +1,14 @@
+using System.Globalization;
+using System.Net;
 using System.Text;
+using System.Text.Json;
+using System.Threading.RateLimiting;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.IdentityModel.Tokens;
@@ -85,6 +92,13 @@ builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddScoped<IDashboardCacheService, DashboardCacheService>();
 builder.Services.AddScoped<IReportingService, ReportingService>();
+builder.Services.AddScoped<IReportQueryService, ReportQueryService>();
+builder.Services.AddScoped<IReportExportService, ReportExportService>();
+
+// QuestPDF's Community licence, set once here rather than per export — the setting is a static
+// process-wide flag, so setting it on every request call would be redundant work repeated on
+// every single PDF export.
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
 // 3. Add Services
 builder.Services.AddScoped<IContactService, ContactService>();
@@ -152,6 +166,159 @@ builder.Services.AddScoped<IMetaGraphService, MetaGraphService>();
 builder.Services.AddScoped<IWebhookService, WebhookService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IHealthService, HealthService>();
+
+// 3b. Forwarded headers — who the client actually is behind a proxy.
+//
+// Without this, everything downstream sees the load balancer's address: the audit trail records
+// the proxy for every user, and the rate limiter partitions the entire internet into one bucket.
+//
+// The trust list comes from configuration and is empty by default. When it is empty the
+// middleware is NOT added at all, and the connection's own address is what gets recorded.
+//
+// That last part is load-bearing and not obvious. ForwardedHeadersMiddleware only validates the
+// peer when at least one proxy or network is configured — with both lists empty it skips the
+// check entirely and believes every X-Forwarded-For it is sent. So "configured nothing" would
+// mean "trust everyone", the exact inversion of what it looks like. Verified by sending a
+// spoofed header: it was accepted and written to the sign-in record. Not registering the
+// middleware is the only way an unconfigured deployment stays safe.
+var forwardedHeaders = builder.Configuration.GetSection("ForwardedHeaders");
+var trustedProxies = new List<IPAddress>();
+var trustedNetworks = new List<(IPAddress Prefix, int Length)>();
+
+foreach (var proxy in forwardedHeaders.GetSection("KnownProxies").Get<string[]>() ?? Array.Empty<string>())
+{
+    if (IPAddress.TryParse(proxy, out var address)) trustedProxies.Add(address);
+    else Log.Warning("Ignoring unparseable ForwardedHeaders:KnownProxies entry {Value}.", proxy);
+}
+
+foreach (var network in forwardedHeaders.GetSection("KnownNetworks").Get<string[]>() ?? Array.Empty<string>())
+{
+    // "10.0.0.0/8" — the CIDR form an operator has to hand from their VPC. Parsed rather than
+    // split by hand so that a network written with host bits set ("10.1.2.3/8") is rejected
+    // loudly instead of silently trusting a range nobody intended.
+    if (System.Net.IPNetwork.TryParse(network, out var parsed)) trustedNetworks.Add((parsed.BaseAddress, parsed.PrefixLength));
+    else Log.Warning("Ignoring unparseable ForwardedHeaders:KnownNetworks entry {Value}.", network);
+}
+
+var trustForwardedHeaders = trustedProxies.Count > 0 || trustedNetworks.Count > 0;
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+    // How many hops in from the right of the chain to walk. One proxy in front of the app is the
+    // normal case; a CDN plus a load balancer is two. Walking further than the number of hops you
+    // actually control is how a spoofed entry gets believed.
+    options.ForwardLimit = forwardedHeaders.GetValue<int?>("ForwardLimit") ?? 1;
+
+    // Defaults trust the loopback proxy. Cleared so the trust list is exactly what was configured
+    // and nothing that merely happens to work on a developer machine.
+    options.KnownProxies.Clear();
+    options.KnownNetworks.Clear();
+
+    foreach (var address in trustedProxies) options.KnownProxies.Add(address);
+
+    // Target-typed `new` because this list's element type differs between ASP.NET Core versions;
+    // both spellings take (address, prefix length).
+    foreach (var (prefix, length) in trustedNetworks) options.KnownNetworks.Add(new(prefix, length));
+});
+
+// 3c. Rate limiting.
+//
+// Partitioned by user id when there is one and by client IP otherwise, so one noisy tenant cannot
+// exhaust everyone else's allowance and an unauthenticated flood is still bounded. Sign-in gets
+// its own tighter bucket: it is the endpoint worth guessing at, and it is cheap to defend because
+// no legitimate person signs in twenty times a minute.
+//
+// QueueLimit is 0 on purpose. Queueing turns a rate limit into latency — requests pile up holding
+// server resources and the client sees a hang instead of an answer. Refusing immediately with a
+// 429 and Retry-After tells the caller what to do.
+var rateLimiting = builder.Configuration.GetSection("RateLimiting");
+var rateLimitingEnabled = rateLimiting.GetValue<bool?>("Enabled") ?? true;
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    var permitLimit = rateLimiting.GetValue<int?>("PermitLimit") ?? 300;
+    var windowSeconds = rateLimiting.GetValue<int?>("WindowSeconds") ?? 60;
+    var queueLimit = rateLimiting.GetValue<int?>("QueueLimit") ?? 0;
+    var authPermitLimit = rateLimiting.GetValue<int?>("AuthPermitLimit") ?? 20;
+    var authWindowSeconds = rateLimiting.GetValue<int?>("AuthWindowSeconds") ?? 60;
+
+    static string PartitionKey(HttpContext context)
+    {
+        var userId = context.User?.FindFirst(AuthClaims.UserId)?.Value;
+        return !string.IsNullOrWhiteSpace(userId)
+            ? $"user:{userId}"
+            : $"ip:{ClientIpResolver.Resolve(context) ?? "unknown"}";
+    }
+
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        // The health endpoint is how a load balancer decides whether this node is alive. Rate
+        // limiting it would make a busy node look dead and take it out of rotation.
+        if (context.Request.Path.StartsWithSegments("/health"))
+        {
+            return RateLimitPartition.GetNoLimiter("health");
+        }
+
+        return RateLimitPartition.GetFixedWindowLimiter(PartitionKey(context), _ =>
+            new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
+                Window = TimeSpan.FromSeconds(windowSeconds),
+                QueueLimit = queueLimit,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            });
+    });
+
+    options.AddPolicy("auth", context =>
+        RateLimitPartition.GetFixedWindowLimiter(PartitionKey(context), _ =>
+            new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = authPermitLimit,
+                Window = TimeSpan.FromSeconds(authWindowSeconds),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            }));
+
+    // Tell the caller when to come back rather than leaving them to guess and retry immediately,
+    // which is what turns a rate limit into a hot loop.
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            context.HttpContext.Response.Headers.RetryAfter =
+                ((int)retryAfter.TotalSeconds).ToString(CultureInfo.InvariantCulture);
+        }
+
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsync(
+            """{"success":false,"message":"Too many requests. Please slow down and try again shortly."}""",
+            cancellationToken);
+    };
+});
+
+// 3d. Response compression.
+//
+// The list endpoints return sizeable JSON and the exports return CSV, both of which compress by
+// roughly an order of magnitude. Left off for HTTPS by default in ASP.NET Core because of the
+// BREACH attack; enabled here because this API returns no secret in a response body that also
+// reflects attacker-controlled input, and the bandwidth on report exports is the larger concern.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[]
+    {
+        "application/json",
+        "text/csv"
+    });
+});
+
+// 3e. Health checks — how a load balancer decides to drain this node.
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "ready" });
 
 // 4. Configure CORS
 // AllowAnyOrigin stays valid because auth uses a bearer header rather than cookies —
@@ -243,6 +410,27 @@ var app = builder.Build();
 // buried the handful of records anyone opens the viewer to find. A healthy request now logs at
 // Debug (below the Information floor, so it never reaches a sink); anything that failed, was
 // refused, or was slow keeps its line.
+// First in the pipeline, and specifically before request logging: this is what replaces the
+// connection's address with the client's, and anything that reads an address before it runs —
+// the request log included — would record the proxy instead.
+//
+// Only registered when a proxy is actually configured. See the options block above: an empty
+// trust list makes this middleware believe every forwarded header, so leaving it out is what
+// makes an unconfigured deployment safe.
+if (trustForwardedHeaders)
+{
+    app.UseForwardedHeaders();
+    Log.Information(
+        "Trusting X-Forwarded-For from {ProxyCount} known prox(ies) and {NetworkCount} known network(s).",
+        trustedProxies.Count, trustedNetworks.Count);
+}
+else
+{
+    Log.Information(
+        "No ForwardedHeaders:KnownProxies/KnownNetworks configured — X-Forwarded-For is ignored " +
+        "and the connection address is recorded. Configure the proxy in each deployment that has one.");
+}
+
 app.UseSerilogRequestLogging(options =>
 {
     options.GetLevel = (httpContext, elapsedMs, exception) =>
@@ -270,11 +458,47 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Before CORS and the rest: nothing further down should spend work on a request that is about to
+// be refused. Compression wraps the response stream, so it has to be in place before anything
+// writes one.
+app.UseResponseCompression();
+
 app.UseCors("AllowFrontend");
 app.UseStaticFiles();
 // Order matters: authentication populates HttpContext.User, which authorization then reads.
 app.UseAuthentication();
 app.UseAuthorization();
+
+// After authentication on purpose: the limiter partitions by user id when there is one, and
+// before UseAuthentication runs HttpContext.User is empty, so every signed-in request would fall
+// back to sharing a bucket by IP — putting a whole office behind one NAT into one allowance.
+if (rateLimitingEnabled)
+{
+    app.UseRateLimiter();
+}
+
+// Unauthenticated by design: a load balancer has no credentials, and a health endpoint that needs
+// a token cannot do its job. The body is deliberately thin — status, per-check state and latency,
+// nothing about why a check failed, since anyone can read it.
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync(JsonSerializer.Serialize(new
+        {
+            status = report.Status.ToString(),
+            totalDurationMs = (int)report.TotalDuration.TotalMilliseconds,
+            checks = report.Entries.Select(entry => new
+            {
+                name = entry.Key,
+                status = entry.Value.Status.ToString(),
+                durationMs = (int)entry.Value.Duration.TotalMilliseconds
+            })
+        }));
+    }
+});
+
 app.MapControllers();
 
 app.Lifetime.ApplicationStarted.Register(() =>

@@ -90,3 +90,26 @@
 .page-header { animation: slideUp 0.4s ease-out forwards; }
 .data-table tbody tr { animation: fadeIn 0.3s ease-out forwards; }
 .data-table tbody tr:hover { background: rgba(99, 102, 241, 0.04) !important; transition: background 0.2s ease; }
+
+/* ── Custom Reports divider ──────────────────────────────────────────────── */
+
+.reporting-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 28px 0 16px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-title);
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.reporting-divider::before,
+.reporting-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background-color: var(--border-color);
+}

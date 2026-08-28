@@ -38,6 +38,101 @@ export interface ExportItemModel {
   acceptsFilter?: boolean
 }
 
+// ── Report builder ───────────────────────────────────────────────────────────
+// Mirrors Backend/Models/DTOs/Reporting/ReportQueryDtos.cs.
+
+/** A column the builder can offer. Served by the server so the two can never disagree. */
+export interface ReportColumn {
+  key: string
+  label: string
+  defaultVisible: boolean
+  /** Set when the value is inferred rather than stored — shown as a tooltip in the UI. */
+  derivedNote?: string | null
+}
+
+/** The filter set the builder sends with every query, export and saved report. */
+export interface ReportFilters {
+  from?: string | null
+  to?: string | null
+  campaignIds?: number[] | null
+  connectionIds?: number[] | null
+  contactIds?: number[] | null
+  messageTypes?: string[] | null
+  directions?: string[] | null
+  statuses?: string[] | null
+  templateNames?: string[] | null
+  search?: string | null
+  failedOnly?: boolean | null
+  page: number
+  pageSize: number
+}
+
+export const emptyReportFilters = (): ReportFilters => ({ page: 1, pageSize: 25 })
+
+/** One row of the report — a chat message, or a campaign recipient that never produced one. */
+export interface ReportRow {
+  id: number
+  timestamp: string
+  contactName?: string | null
+  contactPhone?: string | null
+  campaignName?: string | null
+  templateName?: string | null
+  connectionName?: string | null
+  direction?: string | null
+  messageType?: string | null
+  status?: string | null
+  content?: string | null
+  sentAt?: string | null
+  deliveredAt?: string | null
+  readAt?: string | null
+  failureReason?: string | null
+  responded?: boolean | null
+  responseMinutes?: number | null
+}
+
+interface ReportOption {
+  id: number
+  name: string
+}
+
+/** Filter option lists built from values actually present in the data — never hardcoded. */
+export interface ReportFilterOptions {
+  campaigns: ReportOption[]
+  connections: ReportOption[]
+  templates: string[]
+  messageTypes: string[]
+  directions: string[]
+  statuses: string[]
+  earliestRecord?: string | null
+  latestRecord?: string | null
+}
+
+/** A saved report definition, as the list and the editor see it. */
+export interface SavedReport {
+  id: number
+  name: string
+  description?: string | null
+  columns: string[]
+  filters: ReportFilters
+  isShared: boolean
+  /** True only when the signed-in user owns it — the only case edit/delete are allowed. */
+  isOwner: boolean
+  ownerName?: string | null
+  lastRunAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SaveReportRequest {
+  name: string
+  description?: string | null
+  columns: string[]
+  filters: ReportFilters
+  isShared: boolean
+}
+
+export type ReportExportFormat = 'csv' | 'xlsx' | 'pdf'
+
 export interface LoginSuccessModel {
   id: string
   time: string
@@ -85,6 +180,11 @@ export interface AuditLogModel {
   entityName?: string | null
   /** JSON array of per-entity change sets; parsed by the details panel. */
   changesJson?: string | null
+  /**
+   * JSON envelope of event-specific detail a field diff cannot express — currently the messages a
+   * chat delete removed. Null on almost every event. Parsed by the details panel.
+   */
+  metadataJson?: string | null
 }
 
 /** Filters currently applied to the Audit Events tab. */

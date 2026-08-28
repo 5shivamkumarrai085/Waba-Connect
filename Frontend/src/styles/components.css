@@ -544,3 +544,22 @@ input:checked + .slider:before {
     transform: none;
   }
 }
+
+/* ── Leading actions column ────────────────────────────────────────────────
+   Every list puts its row menu first rather than last. Acting on a row — view,
+   edit, delete — should not require scrolling the full width of a wide table
+   first, and on this app's tables that scroll is real: several carry nine or
+   more columns and none of their cells wrap.
+
+   Shared so the column is the same width everywhere. `width: 1%` is the usual
+   table idiom for "as narrow as the content allows": a percentage that low is
+   unsatisfiable, so the browser gives the cell its minimum and hands the slack
+   to the flexible columns instead. */
+th.actions-col,
+td.actions-col {
+  width: 1%;
+  white-space: nowrap;
+  /* Left, not centred. Centring made sense against a right-hand edge; at the
+     start of the row it just floats the button away from the rows below it. */
+  text-align: left;
+}

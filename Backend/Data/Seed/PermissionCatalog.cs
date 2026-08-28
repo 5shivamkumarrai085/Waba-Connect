@@ -51,7 +51,7 @@ public static class PermissionCatalog
     {
         // ---- Overview -------------------------------------------------------------
         new("Dashboard", "Dashboard", "Overview", ViewOnly),
-        new("Reporting",  "Reporting",  "Overview", new[] { (View, "View"), ("Export", "Export") }),
+        new("Reporting",  "Reporting",  "Overview", new[] { (View, "View"), ("Export", "Export"), ("Manage", "Save/Share Reports") }),
 
         // ---- Contacts -------------------------------------------------------------
         new("Contact", "Contact", "Contacts", new[]

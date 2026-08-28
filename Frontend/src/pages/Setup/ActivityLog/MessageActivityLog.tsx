@@ -210,7 +210,10 @@ export const MessageActivityLog: React.FC = () => {
             <table className="data-table">
               <thead>
                 <tr>
+                  {/* Checkbox stays first, actions second: selection is a property of the row,
+                      and the actions act on what is selected. */}
                   <th className="checkbox-cell" />
+                  <th className="actions-col">ACTION</th>
                   <th>ID</th>
                   <th>CATEGORY</th>
                   <th>NAME</th>
@@ -218,7 +221,6 @@ export const MessageActivityLog: React.FC = () => {
                   <th className="text-center">RESPONSE CODE</th>
                   <th>RELATION TYPE</th>
                   <th>CREATED AT</th>
-                  <th className="text-center">ACTION</th>
                 </tr>
               </thead>
               <tbody>
@@ -244,24 +246,7 @@ export const MessageActivityLog: React.FC = () => {
                           aria-label={`Select entry ${entry.id}`}
                         />
                       </td>
-                      <td>{entry.id}</td>
-                      <td>{entry.category}</td>
-                      <td className="setup-truncate" title={entry.name ?? ''}>{entry.name || '—'}</td>
-                      <td>{entry.templateName || '—'}</td>
-                      <td className="text-center">
-                        {/* Colour follows success, not the raw number: a null code means the
-                            request never reached Meta at all. */}
-                        <span className={`setup-role-badge ${entry.isSuccess ? 'admin' : 'muted'}`}>
-                          {entry.responseCode ?? '—'}
-                        </span>
-                      </td>
-                      <td>
-                        {entry.relationType
-                          ? <span className="setup-role-badge">{entry.relationType}</span>
-                          : '—'}
-                      </td>
-                      <td>{formatAbsoluteDateTime(entry.createdAt)}</td>
-                      <td className="text-center">
+                      <td className="actions-col">
                         <div className="activity-log-actions">
                           <button
                             type="button"
@@ -285,6 +270,23 @@ export const MessageActivityLog: React.FC = () => {
                           )}
                         </div>
                       </td>
+                      <td>{entry.id}</td>
+                      <td>{entry.category}</td>
+                      <td className="setup-truncate" title={entry.name ?? ''}>{entry.name || '—'}</td>
+                      <td>{entry.templateName || '—'}</td>
+                      <td className="text-center">
+                        {/* Colour follows success, not the raw number: a null code means the
+                            request never reached Meta at all. */}
+                        <span className={`setup-role-badge ${entry.isSuccess ? 'admin' : 'muted'}`}>
+                          {entry.responseCode ?? '—'}
+                        </span>
+                      </td>
+                      <td>
+                        {entry.relationType
+                          ? <span className="setup-role-badge">{entry.relationType}</span>
+                          : '—'}
+                      </td>
+                      <td>{formatAbsoluteDateTime(entry.createdAt)}</td>
                     </tr>
                   ))
                 )}

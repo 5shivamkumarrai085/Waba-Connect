@@ -366,7 +366,8 @@ public class ActivityController : ControllerBase
                 EntityType = a.EntityType,
                 EntityId = a.EntityId,
                 EntityName = a.EntityName,
-                ChangesJson = a.ChangesJson
+                ChangesJson = a.ChangesJson,
+                MetadataJson = a.MetadataJson
             })
             .ToListAsync();
 

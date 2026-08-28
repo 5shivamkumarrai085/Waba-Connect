@@ -37,7 +37,11 @@ public class CurrentUserService : ICurrentUserService
         string.Equals(Principal?.FindFirstValue(AuthClaims.IsAdministrator), "true",
             StringComparison.OrdinalIgnoreCase);
 
-    public string? IpAddress => _accessor.HttpContext?.Connection?.RemoteIpAddress?.ToString();
+    /// <summary>
+    /// The client's own address, not the last hop's — see <see cref="ClientIpResolver"/> for how
+    /// that distinction is enforced and why it is gated on configuration.
+    /// </summary>
+    public string? IpAddress => ClientIpResolver.Resolve(_accessor.HttpContext);
 
     public string? UserAgent
     {

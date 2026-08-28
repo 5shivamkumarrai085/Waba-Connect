@@ -1,0 +1,217 @@
+/* ReportBuilder — reuses the app's existing section-card, filter-panel and chip tokens
+   (ActivityLogs.css, MultiSelectChips.css) rather than inventing a parallel set. */
+
+.report-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.reporting-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Column picker ─────────────────────────────────────────────────────── */
+
+.report-builder-columns {
+  margin-bottom: 16px;
+}
+
+.report-builder-columns-head {
+  margin-bottom: 8px;
+}
+
+.report-builder-columns-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-light);
+}
+
+.report-column-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px 14px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-primary);
+}
+
+.report-column-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 2px;
+  font-size: 13px;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.report-column-option input[type='checkbox'] {
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.report-column-derived {
+  display: inline-flex;
+  color: var(--text-light);
+  cursor: help;
+}
+
+.report-selected-columns {
+  margin-top: 10px;
+}
+
+/* ── Toolbar ───────────────────────────────────────────────────────────── */
+
+.report-builder-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 14px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-light);
+}
+
+.report-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-secondary);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.report-toolbar-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.report-toolbar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.report-toolbar-btn.is-active {
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+  color: var(--primary);
+}
+
+.report-run-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  background-color: var(--primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+  margin-left: auto;
+}
+
+.report-run-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.report-run-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Filters panel ─────────────────────────────────────────────────────── */
+
+.report-filters-wrap {
+  overflow: hidden;
+}
+
+.report-filters-panel {
+  margin-top: 14px;
+  margin-bottom: 0;
+}
+
+.report-filters-daterange {
+  grid-column: span 2;
+}
+
+.report-filters-failed label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.report-filters-failed input[type='checkbox'] {
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .report-filters-daterange {
+    grid-column: span 1;
+  }
+}
+
+/* ── Table cells ───────────────────────────────────────────────────────── */
+
+.report-content-cell {
+  display: inline-block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.report-direction {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: var(--radius-full, 999px);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.report-direction-outgoing {
+  background-color: var(--primary-light);
+  color: var(--primary);
+}
+
+.report-direction-incoming {
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.report-direction-system {
+  background-color: var(--bg-hover);
+  color: var(--text-light);
+}
+
+.report-saved-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.report-save-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}

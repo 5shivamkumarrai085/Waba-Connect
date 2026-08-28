@@ -253,10 +253,10 @@ export const SystemLogs: React.FC = () => {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th className="actions-col">ACTIONS</th>
                   <th>LEVEL</th>
                   <th>DATE</th>
                   <th>CONTENT</th>
-                  <th className="text-center">ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
@@ -275,6 +275,11 @@ export const SystemLogs: React.FC = () => {
                 ) : (
                   entries.map((entry, index) => (
                     <tr key={`${entry.timestamp}-${index}`}>
+                      <td className="actions-col">
+                        <button type="button" className="syslog-view" onClick={() => setViewing(entry)}>
+                          View
+                        </button>
+                      </td>
                       <td>
                         <span className={`syslog-badge syslog-badge-${entry.level.toLowerCase()}`}>
                           {LEVELS.find((l) => l.key === entry.level)?.label ?? entry.level.toUpperCase()}
@@ -290,11 +295,6 @@ export const SystemLogs: React.FC = () => {
                             {expanded.has(index) ? 'Show less' : 'Show more'}
                           </button>
                         )}
-                      </td>
-                      <td className="text-center">
-                        <button type="button" className="syslog-view" onClick={() => setViewing(entry)}>
-                          View
-                        </button>
                       </td>
                     </tr>
                   ))

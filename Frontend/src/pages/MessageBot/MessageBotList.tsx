@@ -230,12 +230,12 @@ export const MessageBotList: React.FC = () => {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th className="actions-col">Actions</th>
                   {columnHeaders.map((col) => {
                     const isVisible = visibleColumns[col.key] !== false
                     if (!isVisible) return null
                     return <th key={col.key}>{col.label}</th>
                   })}
-                  <th className="col-width-actions" style={{ textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -251,6 +251,63 @@ export const MessageBotList: React.FC = () => {
                 ) : (
                   bots.map((bot) => (
                   <tr key={bot.id}>
+                    <td className="actions-col">
+                      <div className="contact-actions-menu-wrapper">
+                        <Menu
+                          open={openActionsMenuId === bot.id}
+                          onOpenChange={(isOpen) =>
+                            setOpenActionsMenuId(isOpen ? bot.id : null)
+                          }
+                          align="start"
+                          offset={4}
+                          className="contact-actions-dropdown"
+                          ariaLabel="Row actions"
+                          trigger={(props) => (
+                            <button
+                              {...props}
+                              type="button"
+                              className="contact-actions-trigger"
+                              aria-label="Row actions"
+                            >
+                              <MoreVertical size={16} />
+                            </button>
+                          )}
+                        >
+                          <MenuItem
+                            className="contact-actions-item"
+                            onSelect={() => navigate(`/message-bot/bot/${bot.id}?view=true`)}
+                          >
+                            View
+                          </MenuItem>
+                          {/* Disabled rather than hidden — see the note in ContactsList. */}
+                          <Can permission="MessageBot.Edit" mode="disable">
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => navigate(`/message-bot/bot/${bot.id}`)}
+                            >
+                              Edit
+                            </MenuItem>
+                          </Can>
+                          <Can permission="MessageBot.Clone" mode="disable">
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => handleCloneClick(bot.id)}
+                            >
+                              Clone
+                            </MenuItem>
+                          </Can>
+                          <Can permission="MessageBot.Delete" mode="disable">
+                            <MenuItem
+                              destructive
+                              className="contact-actions-item"
+                              onSelect={() => handleDeleteClick(bot.id, bot.name)}
+                            >
+                              Delete
+                            </MenuItem>
+                          </Can>
+                        </Menu>
+                      </div>
+                    </td>
                     {/* ID Column */}
                     {visibleColumns.id !== false && (
                       <td>{bot.id}</td>
@@ -309,63 +366,6 @@ export const MessageBotList: React.FC = () => {
                     )}
 
                     {/* Actions column — three-dot dropdown, matching ContactsList's pattern */}
-                    <td className="text-center">
-                      <div className="contact-actions-menu-wrapper">
-                        <Menu
-                          open={openActionsMenuId === bot.id}
-                          onOpenChange={(isOpen) =>
-                            setOpenActionsMenuId(isOpen ? bot.id : null)
-                          }
-                          align="end"
-                          offset={4}
-                          className="contact-actions-dropdown"
-                          ariaLabel="Row actions"
-                          trigger={(props) => (
-                            <button
-                              {...props}
-                              type="button"
-                              className="contact-actions-trigger"
-                              aria-label="Row actions"
-                            >
-                              <MoreVertical size={16} />
-                            </button>
-                          )}
-                        >
-                          <MenuItem
-                            className="contact-actions-item"
-                            onSelect={() => navigate(`/message-bot/bot/${bot.id}?view=true`)}
-                          >
-                            View
-                          </MenuItem>
-                          {/* Disabled rather than hidden — see the note in ContactsList. */}
-                          <Can permission="MessageBot.Edit" mode="disable">
-                            <MenuItem
-                              className="contact-actions-item"
-                              onSelect={() => navigate(`/message-bot/bot/${bot.id}`)}
-                            >
-                              Edit
-                            </MenuItem>
-                          </Can>
-                          <Can permission="MessageBot.Clone" mode="disable">
-                            <MenuItem
-                              className="contact-actions-item"
-                              onSelect={() => handleCloneClick(bot.id)}
-                            >
-                              Clone
-                            </MenuItem>
-                          </Can>
-                          <Can permission="MessageBot.Delete" mode="disable">
-                            <MenuItem
-                              destructive
-                              className="contact-actions-item"
-                              onSelect={() => handleDeleteClick(bot.id, bot.name)}
-                            >
-                              Delete
-                            </MenuItem>
-                          </Can>
-                        </Menu>
-                      </div>
-                    </td>
                   </tr>
                 ))
               )}

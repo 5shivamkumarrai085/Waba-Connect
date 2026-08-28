@@ -232,17 +232,39 @@ export const DepartmentPermissionsList: React.FC = () => {
           <table className="permission-table">
             <thead>
               <tr>
+                <th className="actions-col">Actions</th>
                 <th>Department</th>
                 <th>Description</th>
                 <th>Assigned Connections</th>
                 <th>Members</th>
                 <th>Status</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredDepts.map((dept) => (
                 <tr key={dept.id}>
+                  <td className="actions-col">
+                    <div className="action-buttons">
+                      <button
+                        type="button"
+                        onClick={() => toast.success(`Viewing permissions for ${dept.departmentName}`)}
+                        className="icon-btn"
+                        title="View Details"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <Can permission="ConnectionAccess.Assign">
+                        <button
+                          type="button"
+                          onClick={() => setShowAssignModal(true)}
+                          className="icon-btn"
+                          title="Edit Permission"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      </Can>
+                    </div>
+                  </td>
                   <td>
                     <div className="user-cell">
                       <div className="dept-avatar-circle">
@@ -287,28 +309,6 @@ export const DepartmentPermissionsList: React.FC = () => {
                       <span className="status-dot" />
                       {dept.isActive ? 'Active' : 'Inactive'}
                     </span>
-                  </td>
-                  <td>
-                    <div className="action-buttons">
-                      <button
-                        type="button"
-                        onClick={() => toast.success(`Viewing permissions for ${dept.departmentName}`)}
-                        className="icon-btn"
-                        title="View Details"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <Can permission="ConnectionAccess.Assign">
-                        <button
-                          type="button"
-                          onClick={() => setShowAssignModal(true)}
-                          className="icon-btn"
-                          title="Edit Permission"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                      </Can>
-                    </div>
                   </td>
                 </tr>
               ))}

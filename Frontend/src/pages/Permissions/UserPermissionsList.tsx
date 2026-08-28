@@ -239,17 +239,39 @@ export const UserPermissionsList: React.FC = () => {
           <table className="permission-table">
             <thead>
               <tr>
+                <th className="actions-col">Actions</th>
                 <th>User</th>
                 <th>Department</th>
                 <th>Assigned Connections</th>
                 <th>Permission Scope</th>
                 <th>Status</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredUsers.map((user) => (
                 <tr key={user.id}>
+                  <td className="actions-col">
+                    <div className="action-buttons">
+                      <button
+                        type="button"
+                        onClick={() => toast.success(`Viewing permissions for ${user.userName}`)}
+                        className="icon-btn"
+                        title="View Details"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <Can permission="ConnectionAccess.Assign">
+                        <button
+                          type="button"
+                          onClick={() => setShowAssignModal(true)}
+                          className="icon-btn"
+                          title="Edit Permission"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      </Can>
+                    </div>
+                  </td>
                   <td>
                     <div className="user-cell">
                       <div className="user-avatar-circle">
@@ -289,28 +311,6 @@ export const UserPermissionsList: React.FC = () => {
                       <span className="status-dot" />
                       {user.isActive ? 'Active' : 'Inactive'}
                     </span>
-                  </td>
-                  <td>
-                    <div className="action-buttons">
-                      <button
-                        type="button"
-                        onClick={() => toast.success(`Viewing permissions for ${user.userName}`)}
-                        className="icon-btn"
-                        title="View Details"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <Can permission="ConnectionAccess.Assign">
-                        <button
-                          type="button"
-                          onClick={() => setShowAssignModal(true)}
-                          className="icon-btn"
-                          title="Edit Permission"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                      </Can>
-                    </div>
                   </td>
                 </tr>
               ))}

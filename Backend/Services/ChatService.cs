@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WhatsAppCampaignApi.Data;
+using WhatsAppCampaignApi.Models.DTOs.Activity;
 using WhatsAppCampaignApi.Models.DTOs.Chat;
 using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Models.Enums;
@@ -243,18 +244,68 @@ public class ChatService : IChatService
             .Select(c => c.Contact!.Name ?? c.Contact!.Phone)
             .FirstOrDefaultAsync() ?? $"conversation #{conversationId}";
 
-        // The description names what was removed, not just how many. An auditor asking "which
-        // message did this user delete" was previously told only a count — the answer was sitting
-        // in `messages` and went unrecorded. The change tracker separately captures each row's
-        // IsDeleted false→true, so the details panel shows the messages field by field.
+        // The description names what was removed, not just how many; the metadata carries every
+        // message in full so the details panel can show the deletion as a transcript.
+        //
+        // EntityId is the conversation, not the messages. It briefly held a comma-joined list of
+        // message ids, which overflowed the column's 100 characters on any sizeable delete and
+        // silently cost the entry altogether. The conversation is also the thing that still exists
+        // afterwards, and the thing the reader recognises.
         await _auditService.LogAsync(
             "Chat.MessagesDeleted", "Data",
             $"Deleted {messages.Count} message(s) from the conversation with {contactLabel}: " +
             $"{DescribeMessages(messages)}. " +
             "Removed from OmniConnect only — the recipient still has their copy.",
-            "ChatMessage", string.Join(",", messages.Select(m => m.Id)));
+            "ChatConversation", conversationId.ToString(),
+            metadata: BuildDeletedMessageMetadata(messages));
 
         return messages.Count;
+    }
+
+    /// <summary>
+    /// Longest run of messages recorded individually in an audit entry.
+    ///
+    /// A "select all, delete" over a busy conversation is unbounded, and one audit row holding
+    /// thousands of message bodies would be a liability rather than a record. Past this the entry
+    /// keeps the true count and marks itself truncated, so the panel says so instead of quietly
+    /// showing a short list as if it were complete.
+    /// </summary>
+    private const int MaxAuditedDeletedMessages = 200;
+
+    /// <summary>
+    /// Snapshots deleted messages for the audit trail — direction, body, media details and the
+    /// message's own timestamp.
+    ///
+    /// Written at deletion time on purpose: for a conversation delete the rows are gone once the
+    /// save completes, so this is the only surviving record of what they said.
+    /// </summary>
+    private static AuditMetadata BuildDeletedMessageMetadata(IReadOnlyList<ChatMessage> messages)
+    {
+        var recorded = messages
+            .OrderBy(m => m.CreatedAt)
+            .Take(MaxAuditedDeletedMessages)
+            .Select(m => new AuditDeletedMessage
+            {
+                Id = m.Id,
+                // Stringified rather than left as an enum: the audit trail is a historical record
+                // and must stay readable if these enums are ever renumbered.
+                Direction = m.Direction.ToString(),
+                // Whitespace-only text is not a message body; leaving it null lets the client fall
+                // back to the media details rather than rendering a blank line.
+                Text = string.IsNullOrWhiteSpace(m.Text) ? null : m.Text.Trim(),
+                MediaType = m.MediaType,
+                MediaFileName = m.MediaFileName,
+                SentAt = m.CreatedAt,
+                Status = m.Status.ToString()
+            })
+            .ToList();
+
+        return new AuditMetadata
+        {
+            DeletedMessages = recorded,
+            DeletedMessageCount = messages.Count,
+            DeletedMessagesTruncated = messages.Count > recorded.Count
+        };
     }
 
     /// <summary>
@@ -682,12 +733,16 @@ public class ChatService : IChatService
 
         // Captured before the delete: the entities are detached once SaveChanges runs.
         var contactLabel = conversation.Contact?.Name ?? conversation.Contact?.Phone ?? $"contact #{conversation.ContactId}";
-        var messageCount = conversation.Messages.Count;
+        var messages = conversation.Messages.ToList();
+        var messageCount = messages.Count;
         // Unlike a message delete, this is a hard delete — after the save the text exists nowhere
         // else, so the audit entry is the only remaining record of what the conversation held.
+        // Both the one-line summary and the full snapshot are built before the save for that
+        // reason: afterwards these entities are detached and the rows are gone.
         var messageSummary = messageCount > 0
-            ? $" Messages: {DescribeMessages(conversation.Messages.ToList())}."
+            ? $" Messages: {DescribeMessages(messages)}."
             : string.Empty;
+        var metadata = BuildDeletedMessageMetadata(messages);
 
         _dbContext.ChatMessages.RemoveRange(conversation.Messages);
         _dbContext.ChatConversations.Remove(conversation);
@@ -696,6 +751,7 @@ public class ChatService : IChatService
         await _auditService.LogAsync(
             "Chat.ConversationDeleted", "Data",
             $"Deleted the conversation with {contactLabel} ({messageCount} message(s)).{messageSummary} Removed from OmniConnect only — the recipient still has their copy.",
-            "ChatConversation", conversationId.ToString());
+            "ChatConversation", conversationId.ToString(),
+            metadata: metadata);
     }
 }

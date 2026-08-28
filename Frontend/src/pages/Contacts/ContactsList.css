@@ -437,13 +437,14 @@
 .col-width-group { min-width: 150px; }
 .col-width-active { min-width: 90px; text-align: center; }
 .col-width-createdAt { min-width: 150px; }
-.col-width-actions { min-width: 60px; text-align: center; }
+/* Left, not centred, now that the column leads the row rather than closing it — see
+   `.actions-col` in components.css for the same reasoning. */
+.col-width-actions { min-width: 60px; width: 1%; white-space: nowrap; text-align: left; }
 
 /* Flex header content centering for centered columns */
 .col-width-initiateChat .header-cell-content,
 .col-width-status .header-cell-content,
-.col-width-active .header-cell-content,
-.col-width-actions .header-cell-content {
+.col-width-active .header-cell-content {
   justify-content: center;
 }
 

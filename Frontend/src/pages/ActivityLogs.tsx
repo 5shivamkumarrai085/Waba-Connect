@@ -169,11 +169,11 @@ export const ActivityLogs: React.FC = () => {
   // The failure reason is deliberately not a column: it is free text of wildly varying length
   // and was stretching the row. It lives in the View dialog, which is what that button is for.
   const errorHeaders = [
+    { key: 'actions', label: '' },
     { key: 'time', label: 'Time' },
     { key: 'email', label: 'Email' },
     { key: 'ipAddress', label: 'IP Address' },
-    { key: 'status', label: 'Status' },
-    { key: 'actions', label: '' }
+    { key: 'status', label: 'Status' }
   ]
 
   const successHeaders = [
@@ -197,11 +197,14 @@ export const ActivityLogs: React.FC = () => {
     { key: 'status', label: 'Status' }
   ]
 
+  // Details leads, then ID. Acting on a row should not require scrolling nine columns to the
+  // right first, and both of these are pinned in place while the rest of the row scrolls under
+  // them — hence the explicit classes rather than a positional CSS rule.
   const auditHeaders = [
-    { key: 'id', label: 'ID' },
+    { key: 'actions', label: 'Details', className: 'audit-col-actions' },
+    { key: 'id', label: 'ID', className: 'audit-col-id' },
     { key: 'time', label: 'Timestamp' },
-    ...auditColumnCatalogue.filter((column) => auditVisibleColumns[column.key] !== false),
-    { key: 'actions', label: 'Details' }
+    ...auditColumnCatalogue.filter((column) => auditVisibleColumns[column.key] !== false)
   ]
 
   // Cell formatters.

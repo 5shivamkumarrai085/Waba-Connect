@@ -3,6 +3,15 @@ import { apiClient, isRequestCancelled } from '../services/apiClient'
 interface DownloadOptions {
   /** Query parameters. Kept out of the path so the request is deduped on the full key. */
   params?: Record<string, string | number | boolean | undefined>
+  /**
+   * A JSON request body, sent via POST instead of GET when present.
+   *
+   * The report export needs this: its filter set is a structured object with several
+   * multi-select arrays, and encoding that into a query string would risk truncation by a proxy
+   * and would put contact identifiers in server access logs. Every existing caller omits this
+   * and keeps going through GET exactly as before.
+   */
+  data?: unknown
   /** Used when the server sends no Content-Disposition filename. */
   fallbackFilename: string
 }
@@ -62,10 +71,11 @@ const messageFromBlobError = async (error: any): Promise<string | null> => {
 export const downloadFromApi = async (path: string, options: DownloadOptions): Promise<void> => {
   let response
   try {
-    response = await apiClient.get(path, {
-      responseType: 'blob',
-      params: options.params
-    })
+    response = options.data !== undefined
+      // Bypasses the patched `apiClient.get` (dedupe/cancel-by-path) deliberately: a POST export
+      // is a one-off deliberate action, not a list read that gets re-issued as filters change.
+      ? await apiClient.post(path, options.data, { responseType: 'blob', params: options.params })
+      : await apiClient.get(path, { responseType: 'blob', params: options.params })
   } catch (error) {
     if (isRequestCancelled(error)) return
     const serverMessage = await messageFromBlobError(error)

@@ -137,12 +137,12 @@ export const CannedRepliesList: React.FC = () => {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th className="actions-col">ACTIONS</th>
                   <th>ID</th>
                   <th>TITLE</th>
                   <th>DESCRIPTION</th>
                   <th className="text-center">PUBLIC</th>
                   <th className="text-center">ACTIVE</th>
-                  <th className="text-center">ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
@@ -160,6 +160,35 @@ export const CannedRepliesList: React.FC = () => {
                 ) : (
                   replies.map((reply) => (
                     <tr key={reply.id}>
+                      <td className="actions-col">
+                        <div className="contact-actions-menu-wrapper">
+                          <Menu
+                            open={openMenuId === reply.id}
+                            onOpenChange={(isOpen) => setOpenMenuId(isOpen ? reply.id : null)}
+                            align="start"
+                            offset={4}
+                            className="contact-actions-dropdown"
+                            ariaLabel="Row actions"
+                            trigger={(props) => (
+                              <button {...props} type="button" className="contact-actions-trigger" aria-label="Row actions">
+                                <MoreVertical size={16} />
+                              </button>
+                            )}
+                          >
+                            <MenuItem className="contact-actions-item" disabled={!canEdit} onSelect={() => openEdit(reply)}>
+                              Edit
+                            </MenuItem>
+                            <MenuItem
+                              destructive
+                              className="contact-actions-item"
+                              disabled={!canDelete}
+                              onSelect={() => setDeleteTarget(reply)}
+                            >
+                              Delete
+                            </MenuItem>
+                          </Menu>
+                        </div>
+                      </td>
                       <td>{reply.id}</td>
                       <td>
                         <button
@@ -189,35 +218,6 @@ export const CannedRepliesList: React.FC = () => {
                         <span className={`setup-role-badge ${reply.isActive ? 'admin' : 'muted'}`}>
                           {reply.isActive ? 'Active' : 'Inactive'}
                         </span>
-                      </td>
-                      <td className="text-center">
-                        <div className="contact-actions-menu-wrapper">
-                          <Menu
-                            open={openMenuId === reply.id}
-                            onOpenChange={(isOpen) => setOpenMenuId(isOpen ? reply.id : null)}
-                            align="end"
-                            offset={4}
-                            className="contact-actions-dropdown"
-                            ariaLabel="Row actions"
-                            trigger={(props) => (
-                              <button {...props} type="button" className="contact-actions-trigger" aria-label="Row actions">
-                                <MoreVertical size={16} />
-                              </button>
-                            )}
-                          >
-                            <MenuItem className="contact-actions-item" disabled={!canEdit} onSelect={() => openEdit(reply)}>
-                              Edit
-                            </MenuItem>
-                            <MenuItem
-                              destructive
-                              className="contact-actions-item"
-                              disabled={!canDelete}
-                              onSelect={() => setDeleteTarget(reply)}
-                            >
-                              Delete
-                            </MenuItem>
-                          </Menu>
-                        </div>
                       </td>
                     </tr>
                   ))

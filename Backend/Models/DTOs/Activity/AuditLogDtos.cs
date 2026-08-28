@@ -34,6 +34,13 @@ public class AuditLogResponse
     /// about how many entities a single operation touched.
     /// </summary>
     public string? ChangesJson { get; set; }
+
+    /// <summary>
+    /// Raw JSON of the event's structured payload — see <see cref="AuditMetadata"/>. Null for
+    /// almost every event; carried on the list row for the same reason as ChangesJson, so the
+    /// details panel opens without a second request.
+    /// </summary>
+    public string? MetadataJson { get; set; }
 }
 
 /// <summary>

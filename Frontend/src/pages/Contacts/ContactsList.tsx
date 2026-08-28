@@ -798,6 +798,8 @@ export const ContactsList: React.FC = () => {
             <table className="data-table">
               <thead>
                 <tr>
+                  {/* Checkbox stays first, actions second: selection is a property of the row,
+                      and the actions act on what is selected. */}
                   <th className="checkbox-cell">
                     <input
                       type="checkbox"
@@ -805,6 +807,7 @@ export const ContactsList: React.FC = () => {
                       onChange={toggleAllRowSelection}
                     />
                   </th>
+                  <th className="col-width-actions">Actions</th>
                   {columnHeaders.map((col) => {
                     const isVisible = visibleColumns[col.key] !== false
                     if (!isVisible) return null
@@ -841,7 +844,6 @@ export const ContactsList: React.FC = () => {
                       </th>
                     )
                   })}
-                  <th className="col-width-actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -899,6 +901,66 @@ export const ContactsList: React.FC = () => {
                             checked={isRowSelected}
                             onChange={() => toggleRowSelection(contact.id)}
                           />
+                        </td>
+                        {/* Actions column — three-dot dropdown reusing the existing View/Edit/Delete handlers */}
+                        <td className="col-width-actions">
+                          <div className="contact-actions-menu-wrapper">
+                            <Menu
+                              open={openActionsMenuId === contact.id}
+                              onOpenChange={(isOpen) =>
+                                setOpenActionsMenuId(isOpen ? contact.id : null)
+                              }
+                              align="start"
+                              offset={4}
+                              className="contact-actions-dropdown"
+                              ariaLabel="Row actions"
+                              trigger={(props) => (
+                                <button
+                                  {...props}
+                                  type="button"
+                                  className="contact-actions-trigger"
+                                  aria-label="Row actions"
+                                >
+                                  <MoreVertical size={16} />
+                                </button>
+                              )}
+                            >
+                              <MenuItem
+                                className="contact-actions-item"
+                                onSelect={() =>
+                                  navigate(`/contacts/contact/edit/${contact.id}?view=true`)
+                                }
+                              >
+                                View
+                              </MenuItem>
+                              {/* mode="disable" inside the row menu, not hide: dropping items
+                                  would change the menu's height from row to row, which reads as
+                                  a rendering glitch rather than a deliberate restriction. */}
+                              <Can permission="Contact.Edit" mode="disable">
+                                <MenuItem
+                                  className="contact-actions-item"
+                                  onSelect={() => navigate(`/contacts/contact/edit/${contact.id}`)}
+                                >
+                                  Edit
+                                </MenuItem>
+                              </Can>
+                              <Can permission="Contact.Delete" mode="disable">
+                                <MenuItem
+                                  destructive
+                                  className="contact-actions-item"
+                                  onSelect={() =>
+                                    handleDeleteContact(
+                                      contact.id,
+                                      contact.name ||
+                                        `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+                                    )
+                                  }
+                                >
+                                  Delete
+                                </MenuItem>
+                              </Can>
+                            </Menu>
+                          </div>
                         </td>
 
                         {/* ID column - sequential numbering */}
@@ -1049,66 +1111,6 @@ export const ContactsList: React.FC = () => {
                           </td>
                         )}
 
-                        {/* Actions column — three-dot dropdown reusing the existing View/Edit/Delete handlers */}
-                        <td className="text-center">
-                          <div className="contact-actions-menu-wrapper">
-                            <Menu
-                              open={openActionsMenuId === contact.id}
-                              onOpenChange={(isOpen) =>
-                                setOpenActionsMenuId(isOpen ? contact.id : null)
-                              }
-                              align="end"
-                              offset={4}
-                              className="contact-actions-dropdown"
-                              ariaLabel="Row actions"
-                              trigger={(props) => (
-                                <button
-                                  {...props}
-                                  type="button"
-                                  className="contact-actions-trigger"
-                                  aria-label="Row actions"
-                                >
-                                  <MoreVertical size={16} />
-                                </button>
-                              )}
-                            >
-                              <MenuItem
-                                className="contact-actions-item"
-                                onSelect={() =>
-                                  navigate(`/contacts/contact/edit/${contact.id}?view=true`)
-                                }
-                              >
-                                View
-                              </MenuItem>
-                              {/* mode="disable" inside the row menu, not hide: dropping items
-                                  would change the menu's height from row to row, which reads as
-                                  a rendering glitch rather than a deliberate restriction. */}
-                              <Can permission="Contact.Edit" mode="disable">
-                                <MenuItem
-                                  className="contact-actions-item"
-                                  onSelect={() => navigate(`/contacts/contact/edit/${contact.id}`)}
-                                >
-                                  Edit
-                                </MenuItem>
-                              </Can>
-                              <Can permission="Contact.Delete" mode="disable">
-                                <MenuItem
-                                  destructive
-                                  className="contact-actions-item"
-                                  onSelect={() =>
-                                    handleDeleteContact(
-                                      contact.id,
-                                      contact.name ||
-                                        `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
-                                    )
-                                  }
-                                >
-                                  Delete
-                                </MenuItem>
-                              </Can>
-                            </Menu>
-                          </div>
-                        </td>
                       </tr>
                     )
                   })

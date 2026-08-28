@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using WhatsAppCampaignApi.Models.DTOs.Activity;
 
 namespace WhatsAppCampaignApi.Services.Interfaces;
 
@@ -16,6 +17,11 @@ public interface IAuditService
     /// there is a token to resolve — without it every successful login would be attributed to
     /// "System" instead of to the person who signed in.
     /// </param>
+    /// <param name="metadata">
+    /// Event-specific structured detail for the entry — the messages a chat delete removed, say.
+    /// Serialised into <c>AuditLog.MetadataJson</c>. Null for the great majority of events, which
+    /// are fully described by their description and field-level change set.
+    /// </param>
     Task LogAsync(
         string eventName,
         string category,
@@ -23,5 +29,6 @@ public interface IAuditService
         string? entityType = null,
         string? entityId = null,
         int? actorUserId = null,
-        string? actorUserName = null);
+        string? actorUserName = null,
+        AuditMetadata? metadata = null);
 }

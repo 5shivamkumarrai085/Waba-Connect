@@ -136,12 +136,12 @@ export const LanguagesList: React.FC = () => {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th className="actions-col">ACTIONS</th>
                   <th>ID</th>
                   <th>NAME</th>
                   <th>CODE</th>
                   <th className="text-center">TRANSLATIONS</th>
                   <th className="text-center">ACTIVE</th>
-                  <th className="text-center">ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
@@ -159,38 +159,12 @@ export const LanguagesList: React.FC = () => {
                 ) : (
                   languages.map((language) => (
                     <tr key={language.id}>
-                      <td>{language.id}</td>
-                      <td>
-                        <div className="setup-role-name-cell">
-                          <button
-                            type="button"
-                            className="setup-user-name"
-                            onClick={() => canEdit && openEdit(language)}
-                            disabled={!canEdit}
-                          >
-                            {language.name}
-                          </button>
-                          {language.isDefault && (
-                            <span className="setup-role-badge admin" title="Fallback language">
-                              <Star size={11} />
-                              Default
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td><code>{language.code}</code></td>
-                      <td className="text-center">{language.translationCount}</td>
-                      <td className="text-center">
-                        <span className={`setup-role-badge ${language.isActive ? 'admin' : 'muted'}`}>
-                          {language.isActive ? 'Active' : 'Hidden'}
-                        </span>
-                      </td>
-                      <td className="text-center">
+                      <td className="actions-col">
                         <div className="contact-actions-menu-wrapper">
                           <Menu
                             open={openMenuId === language.id}
                             onOpenChange={(isOpen) => setOpenMenuId(isOpen ? language.id : null)}
-                            align="end"
+                            align="start"
                             offset={4}
                             className="contact-actions-dropdown"
                             ariaLabel="Row actions"
@@ -220,6 +194,32 @@ export const LanguagesList: React.FC = () => {
                             </MenuItem>
                           </Menu>
                         </div>
+                      </td>
+                      <td>{language.id}</td>
+                      <td>
+                        <div className="setup-role-name-cell">
+                          <button
+                            type="button"
+                            className="setup-user-name"
+                            onClick={() => canEdit && openEdit(language)}
+                            disabled={!canEdit}
+                          >
+                            {language.name}
+                          </button>
+                          {language.isDefault && (
+                            <span className="setup-role-badge admin" title="Fallback language">
+                              <Star size={11} />
+                              Default
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td><code>{language.code}</code></td>
+                      <td className="text-center">{language.translationCount}</td>
+                      <td className="text-center">
+                        <span className={`setup-role-badge ${language.isActive ? 'admin' : 'muted'}`}>
+                          {language.isActive ? 'Active' : 'Hidden'}
+                        </span>
                       </td>
                     </tr>
                   ))

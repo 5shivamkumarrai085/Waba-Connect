@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using WhatsAppCampaignApi.Helpers;
 using WhatsAppCampaignApi.Models.DTOs.Auth;
 using WhatsAppCampaignApi.Models.DTOs.Common;
@@ -32,6 +33,10 @@ public class AuthController : ControllerBase
     /// </remarks>
     [HttpPost("login")]
     [AllowAnonymous]
+    // Tighter than the global allowance. This is the endpoint worth guessing at, and it is cheap
+    // to defend — nobody legitimately signs in twenty times a minute. Partitioned by client IP
+    // here, since by definition there is no user yet.
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         try

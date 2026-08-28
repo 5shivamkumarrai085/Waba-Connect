@@ -130,11 +130,11 @@ export const AiPromptsList: React.FC = () => {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th className="actions-col">ACTIONS</th>
                   <th>ID</th>
                   <th>NAME</th>
                   <th>PROMPT</th>
                   <th className="text-center">ACTIVE</th>
-                  <th className="text-center">ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
@@ -152,6 +152,35 @@ export const AiPromptsList: React.FC = () => {
                 ) : (
                   prompts.map((prompt) => (
                     <tr key={prompt.id}>
+                      <td className="actions-col">
+                        <div className="contact-actions-menu-wrapper">
+                          <Menu
+                            open={openMenuId === prompt.id}
+                            onOpenChange={(isOpen) => setOpenMenuId(isOpen ? prompt.id : null)}
+                            align="start"
+                            offset={4}
+                            className="contact-actions-dropdown"
+                            ariaLabel="Row actions"
+                            trigger={(props) => (
+                              <button {...props} type="button" className="contact-actions-trigger" aria-label="Row actions">
+                                <MoreVertical size={16} />
+                              </button>
+                            )}
+                          >
+                            <MenuItem className="contact-actions-item" disabled={!canEdit} onSelect={() => openEdit(prompt)}>
+                              Edit
+                            </MenuItem>
+                            <MenuItem
+                              destructive
+                              className="contact-actions-item"
+                              disabled={!canDelete || prompt.isDefault}
+                              onSelect={() => setDeleteTarget(prompt)}
+                            >
+                              Delete
+                            </MenuItem>
+                          </Menu>
+                        </div>
+                      </td>
                       <td>{prompt.id}</td>
                       <td>
                         <div className="setup-role-name-cell">
@@ -178,35 +207,6 @@ export const AiPromptsList: React.FC = () => {
                         <span className={`setup-role-badge ${prompt.isActive ? 'admin' : 'muted'}`}>
                           {prompt.isActive ? 'Active' : 'Inactive'}
                         </span>
-                      </td>
-                      <td className="text-center">
-                        <div className="contact-actions-menu-wrapper">
-                          <Menu
-                            open={openMenuId === prompt.id}
-                            onOpenChange={(isOpen) => setOpenMenuId(isOpen ? prompt.id : null)}
-                            align="end"
-                            offset={4}
-                            className="contact-actions-dropdown"
-                            ariaLabel="Row actions"
-                            trigger={(props) => (
-                              <button {...props} type="button" className="contact-actions-trigger" aria-label="Row actions">
-                                <MoreVertical size={16} />
-                              </button>
-                            )}
-                          >
-                            <MenuItem className="contact-actions-item" disabled={!canEdit} onSelect={() => openEdit(prompt)}>
-                              Edit
-                            </MenuItem>
-                            <MenuItem
-                              destructive
-                              className="contact-actions-item"
-                              disabled={!canDelete || prompt.isDefault}
-                              onSelect={() => setDeleteTarget(prompt)}
-                            >
-                              Delete
-                            </MenuItem>
-                          </Menu>
-                        </div>
                       </td>
                     </tr>
                   ))

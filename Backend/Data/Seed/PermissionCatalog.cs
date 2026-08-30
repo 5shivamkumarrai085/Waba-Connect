@@ -134,6 +134,12 @@ public static class PermissionCatalog
         {
             (View, "View"), (Delete, "Delete"), ("Clear", "Clear all logs")
         }),
+        // View and Edit only. Settings are not created or deleted — the catalogue decides which
+        // exist — so a Create or Delete capability here would grant nothing.
+        new("OmniSettings",  "OmniConnect Settings", "Setup", new[]
+        {
+            (View, "View"), (Edit, "Edit")
+        }),
     };
 
     /// <summary>Every permission in the catalogue, in stable display order.</summary>

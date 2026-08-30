@@ -12,8 +12,23 @@ public interface IReportQueryService
     /// <summary>The columns the builder can offer, described by the server.</summary>
     IReadOnlyList<ReportColumnDto> GetColumns();
 
+    /// <summary>
+    /// The whole builder vocabulary — report types, their data sections and groupings, and the
+    /// column catalogue. Served as one document so the page opens with one request.
+    /// </summary>
+    ReportMetadataDto GetMetadata();
+
     /// <summary>One page of report rows for the given filters.</summary>
     Task<PagedResponse<ReportRowDto>> QueryAsync(ReportQueryRequest request);
+
+    /// <summary>
+    /// One page of aggregated rows for the request's grouping. Empty when the request is not
+    /// grouped — the row query answers that case.
+    /// </summary>
+    Task<PagedResponse<ReportGroupRowDto>> QueryGroupedAsync(ReportQueryRequest request);
+
+    /// <summary>Every group for these filters, for an export. Capped like the row query.</summary>
+    Task<List<ReportGroupRowDto>> QueryAllGroupedAsync(ReportQueryRequest request);
 
     /// <summary>
     /// Every row matching the filters, for an export. Capped — an unbounded export is a way to

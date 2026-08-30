@@ -35,6 +35,17 @@ export const connectionService = {
     await apiClient.post(`/connections/${id}/reconnect`)
   },
 
+  /**
+   * Re-reads a connection's sender numbers from Meta.
+   *
+   * The repair for a connection that is authenticated but has no number attached — it reads as
+   * configured everywhere except Chat, which correctly refuses to use it.
+   */
+  syncConnectionNumbers: async (id: number): Promise<{ count: number; message: string }> => {
+    const response = await apiClient.post(`/connections/${id}/sync-numbers`)
+    return { count: response.data?.count ?? 0, message: response.data?.message ?? '' }
+  },
+
   deleteConnection: async (id: number): Promise<void> => {
     await apiClient.delete(`/connections/${id}`)
   }

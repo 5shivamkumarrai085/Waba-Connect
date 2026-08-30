@@ -33,6 +33,7 @@ const UserPermissionsList = lazy(() => import('./pages/Permissions/UserPermissio
 const DepartmentPermissionsList = lazy(() => import('./pages/Permissions/DepartmentPermissionsList').then(m => ({ default: m.DepartmentPermissionsList })))
 const Login = lazy(() => import('./pages/Auth/Login').then(m => ({ default: m.Login })))
 const ChangePassword = lazy(() => import('./pages/Auth/ChangePassword').then(m => ({ default: m.ChangePassword })))
+const OmniConnectSettings = lazy(() => import('./pages/OmniSettings/OmniConnectSettings').then(m => ({ default: m.OmniConnectSettings })))
 const SetupLayout = lazy(() => import('./pages/Setup/SetupLayout').then(m => ({ default: m.SetupLayout })))
 const SetupUsersList = lazy(() => import('./pages/Setup/Users/UsersList').then(m => ({ default: m.UsersList })))
 const SetupUserForm = lazy(() => import('./pages/Setup/Users/UserForm').then(m => ({ default: m.UserForm })))
@@ -132,6 +133,12 @@ const App: React.FC = () => {
             <Route path="/activity-logs" element={<Guarded permission="ActivityLog.View"><ActivityLogs /></Guarded>} />
             <Route path="/connections" element={<Guarded permission="ConnectAccount.View"><ConnectionsList /></Guarded>} />
             <Route path="/connections/new" element={<Guarded permission="ConnectAccount.Connect"><ConnectNewWabaPage /></Guarded>} />
+
+            {/* The section is part of the path so a settings page is linkable and survives a
+                refresh. The bare path renders the first section rather than redirecting, which
+                keeps "/omniconnect-settings" a valid destination for the sidebar. */}
+            <Route path="/omniconnect-settings" element={<Guarded permission="OmniSettings.View"><OmniConnectSettings /></Guarded>} />
+            <Route path="/omniconnect-settings/:sectionKey" element={<Guarded permission="OmniSettings.View"><OmniConnectSettings /></Guarded>} />
 
             {/* Connection Access moved under Setup. The old paths redirect so existing
                 bookmarks and any links already shared internally keep working. */}

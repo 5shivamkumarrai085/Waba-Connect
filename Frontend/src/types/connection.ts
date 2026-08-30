@@ -10,6 +10,15 @@ export interface Connection {
   verifiedName?: string
   wabaId?: string
   isConnected: boolean
+  /** Whether the stored WhatsApp credentials are still complete enough to reach Meta. */
+  hasCredentials: boolean
+  /** Whether a sender number is attached. Without one nothing can be sent or received. */
+  hasPhoneNumber: boolean
+  /**
+   * The one status the whole app agrees on: "Connected", "Setup pending" or "Disconnected".
+   * Derived on the server, because this list and Chat used to derive it separately and disagree.
+   */
+  status: string
   connectedOn?: string
   createdAt: string
 }

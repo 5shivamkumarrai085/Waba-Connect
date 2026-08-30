@@ -16,6 +16,7 @@ import {
   GitFork,
   MessageCircle,
   Cpu,
+  Sliders,
   ChevronLeft,
   ChevronRight,
   Menu,
@@ -81,6 +82,7 @@ export const Sidebar: React.FC = () => {
       '/bot-flow': () => import('../pages/BotFlow/BotFlowList'),
       '/message-bot': () => import('../pages/MessageBot/MessageBotList'),
       '/connections': () => import('../pages/Connections/ConnectionsList'),
+      '/omniconnect-settings': () => import('../pages/OmniSettings/OmniConnectSettings'),
       '/setup': () => import('../pages/Setup/SetupLayout')
     }
     if (loadFns[path]) {
@@ -132,7 +134,7 @@ export const Sidebar: React.FC = () => {
         { name: 'Connections', path: '/connections', icon: Link2, permission: 'ConnectAccount.View' },
         // "System Settings" is gone: it belongs to the host application, not to OmniConnect.
         // The /system-settings route now redirects to /omniconnect-settings so bookmarks survive.
-        //{ name: 'OmniConnect Settings', path: '/omniconnect-settings', icon: Sliders },//
+        { name: 'OmniConnect Settings', path: '/omniconnect-settings', icon: Sliders, permission: 'OmniSettings.View' },
         { name: 'Setup', path: '/setup', icon: Cpu, permission: 'Setup.View' },
       ]
     }

@@ -1,27 +1,34 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
+  Calendar,
+  Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Columns3,
   Download,
   FileSpreadsheet,
   FileText,
   Filter,
-  FolderOpen,
   Info,
+  MoreVertical,
+  Pencil,
   Play,
+  Plus,
+  RotateCcw,
   Save,
-  Table2,
   Trash2,
   X
 } from 'lucide-react'
-import { DataTable } from '../DataTable/DataTable'
-import { Pagination } from '../Pagination/Pagination'
 import { Modal } from '../Modal/Modal'
 import { StatusBadge } from '../StatusBadge/StatusBadge'
-import { DateRangePicker } from '../DateRangePicker/DateRangePicker'
 import { MultiSelectChips } from '../MultiSelectChips/MultiSelectChips'
-import { Menu, MenuItem } from '../Menu/Menu'
+import { Menu, MenuItem, type MenuTriggerProps } from '../Menu/Menu'
+import { Skeleton } from '../Skeleton'
 import { reportingService } from '../../services/reportingService'
 import { getErrorMessage } from '../../utils/errorHelper'
 import { formatAbsoluteDateTime } from '../../utils/dateHelper'
@@ -31,7 +38,10 @@ import type {
   ReportColumn,
   ReportFilterOptions,
   ReportFilters,
+  ReportGroupRow,
+  ReportMetadata,
   ReportRow,
+  ReportType,
   ReportExportFormat,
   SavedReport
 } from '../../types/reporting'
@@ -40,15 +50,49 @@ import './ReportBuilder.css'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
+/** Rows the saved-report table shows per page. Short list; short pages. */
+const SAVED_PAGE_SIZE = 10
+
 /**
- * The report builder: pick columns, narrow with filters, run, export, and optionally save the
- * whole combination for next time.
+ * A response gap, as a duration rather than a decimal.
+ *
+ * The server reports minutes because that is the unit the measurement is meaningful in, but
+ * "0.05 min" is not a legible answer to "how quickly did they reply" — hh:mm:ss is.
+ */
+const formatResponseTime = (minutes: number | null | undefined): string => {
+  if (minutes === null || minutes === undefined) return '—'
+
+  const totalSeconds = Math.max(0, Math.round(minutes * 60))
+  const hours = Math.floor(totalSeconds / 3600)
+  const mins = Math.floor((totalSeconds % 3600) / 60)
+  const secs = totalSeconds % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+
+  return `${pad(hours)}:${pad(mins)}:${pad(secs)}`
+}
+
+/** "01 Aug 2026" — the format the header chip and the results subtitle both read in. */
+const formatRangeDate = (value: string): string => {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+
+  return parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+/**
+ * Reporting & Analytics.
  *
  * <para>
- * Deliberately has no "report type" or "group by" selector. The backend has one data source —
- * chat messages plus the campaign recipients they came from — and no aggregation step; offering
- * controls for either would be exactly the hardcoded-looking chrome the rest of this rebuild was
- * trying to remove. What is offered here is everything the query actually supports.
+ * One component for the whole page rather than a page shell plus a builder. The header's date
+ * range, its Filters toggle and its Export menu all act on the same query the card below builds,
+ * and splitting them across two components would mean lifting every piece of that state up to a
+ * parent that does nothing else with it.
+ * </para>
+ * <para>
+ * Everything selectable here — report types, the sections and groupings each one allows, the
+ * column catalogue, and every filter's options — is fetched from the server. Nothing on this page
+ * is a list the client keeps: a report type the UI offers is one the query service knows how to
+ * scope, because they are the same list.
  * </para>
  */
 export const ReportBuilder: React.FC = () => {
@@ -56,37 +100,129 @@ export const ReportBuilder: React.FC = () => {
   const canManage = has('Reporting.Manage')
   const canExport = has('Reporting.Export')
 
-  const [columns, setColumns] = useState<ReportColumn[]>([])
+  const [metadata, setMetadata] = useState<ReportMetadata | null>(null)
   const [filterOptions, setFilterOptions] = useState<ReportFilterOptions | null>(null)
   const [loadingMeta, setLoadingMeta] = useState(true)
 
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
   const [filters, setFilters] = useState<ReportFilters>(emptyReportFilters())
+  // The filters the results on screen were actually produced by. Editing a control changes what
+  // will be asked for; it must not change the "Showing data for …" line above rows that predate it.
+  const [appliedFilters, setAppliedFilters] = useState<ReportFilters>(emptyReportFilters())
+  // Collapsed on load. The panel is ten controls tall, and opening the page with all of them
+  // expanded pushed the results — the thing the page exists to show — below the fold.
   const [showFilters, setShowFilters] = useState(false)
 
   const [rows, setRows] = useState<ReportRow[]>([])
+  const [groupRows, setGroupRows] = useState<ReportGroupRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
-  const [hasRun, setHasRun] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
+  const [hasRun, setHasRun] = useState(false)
   const [exportingFormat, setExportingFormat] = useState<ReportExportFormat | null>(null)
-  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false)
 
   const [savedReports, setSavedReports] = useState<SavedReport[]>([])
   const [loadingSaved, setLoadingSaved] = useState(true)
+  const [savedPage, setSavedPage] = useState(1)
+  const [savedMenuId, setSavedMenuId] = useState<number | null>(null)
+  const [editingReport, setEditingReport] = useState<SavedReport | null>(null)
   const [saveModalOpen, setSaveModalOpen] = useState(false)
 
-  // Metadata first: the column catalogue and filter option lists, so the builder never renders
-  // controls for something that doesn't exist in the data.
+  // The report type currently in force, resolved through the metadata so every dependent control
+  // (sections, groupings, the column list) is derived from one place rather than tracked separately.
+  const reportType = useMemo<ReportType | null>(() => {
+    if (!metadata) return null
+    return (
+      metadata.reportTypes.find((t) => t.key === filters.reportType) ??
+      metadata.reportTypes[0] ??
+      null
+    )
+  }, [metadata, filters.reportType])
+
+  const availableColumns = useMemo<ReportColumn[]>(() => {
+    if (!metadata || !reportType) return []
+    const allowed = new Set(reportType.columnKeys)
+    return metadata.columns.filter((c) => allowed.has(c.key))
+  }, [metadata, reportType])
+
+  const groupByOptions = useMemo(() => {
+    if (!metadata || !reportType) return []
+    const allowed = new Set(reportType.groupByKeys)
+    return metadata.groupBys.filter((g) => allowed.has(g.key))
+  }, [metadata, reportType])
+
+  const isGrouped = Boolean(filters.groupBy && filters.groupBy !== 'none')
+  const wasGrouped = Boolean(appliedFilters.groupBy && appliedFilters.groupBy !== 'none')
+
+  // Selected columns in catalogue order, so removing and re-adding a column does not shuffle the
+  // table into the order they happened to be clicked in.
+  const orderedSelectedColumns = useMemo(
+    () => availableColumns.filter((c) => selectedColumns.includes(c.key)),
+    [availableColumns, selectedColumns]
+  )
+
+  // ── Loading ──────────────────────────────────────────────────────────────
+
+  const runReport = useCallback(async (request: ReportFilters) => {
+    setIsRunning(true)
+    try {
+      const grouped = Boolean(request.groupBy && request.groupBy !== 'none')
+
+      if (grouped) {
+        const page = await reportingService.runGroupedReport(request)
+        setGroupRows(page.items)
+        setRows([])
+        setTotalCount(page.totalCount)
+        setTotalPages(page.totalPages)
+      } else {
+        const page = await reportingService.runReport(request)
+        setRows(page.items)
+        setGroupRows([])
+        setTotalCount(page.totalCount)
+        setTotalPages(page.totalPages)
+      }
+
+      setAppliedFilters(request)
+      setHasRun(true)
+    } catch (err) {
+      if (isRequestCancelled(err)) return
+      toast.error(getErrorMessage(err, 'Could not run the report.'))
+    } finally {
+      setIsRunning(false)
+    }
+  }, [])
+
+  // Kept in a ref so the metadata effect can run the opening report without listing runReport as a
+  // dependency and re-running the whole load when it changes identity.
+  const runReportRef = useRef(runReport)
+  runReportRef.current = runReport
+
   useEffect(() => {
     let cancelled = false
 
-    Promise.all([reportingService.getReportColumns(), reportingService.getReportFilterOptions()])
-      .then(([cols, options]) => {
-        if (cancelled) return
-        setColumns(cols)
-        setSelectedColumns(cols.filter((c) => c.defaultVisible).map((c) => c.key))
+    Promise.all([reportingService.getReportMetadata(), reportingService.getReportFilterOptions()])
+      .then(([meta, options]) => {
+        if (cancelled || !meta) return
+
+        setMetadata(meta)
         setFilterOptions(options)
+
+        const first = meta.reportTypes[0]
+        if (!first) return
+
+        const opening: ReportFilters = {
+          ...emptyReportFilters(),
+          reportType: first.key,
+          dataSection: first.dataSections[0]?.key ?? 'all',
+          groupBy: 'none'
+        }
+
+        setSelectedColumns(first.defaultColumnKeys)
+        setFilters(opening)
+        // Opens with results rather than an empty frame and a Run button. The landing state of a
+        // reporting page is a report; making the first look require a click adds a step to the
+        // one thing every visit starts with.
+        void runReportRef.current(opening)
       })
       .catch((err) => {
         if (cancelled || isRequestCancelled(err)) return
@@ -101,7 +237,7 @@ export const ReportBuilder: React.FC = () => {
     }
   }, [])
 
-  const loadSavedReports = () => {
+  const loadSavedReports = useCallback(() => {
     setLoadingSaved(true)
     reportingService
       .getSavedReports()
@@ -111,55 +247,101 @@ export const ReportBuilder: React.FC = () => {
         toast.error(getErrorMessage(err, 'Could not load saved reports.'))
       })
       .finally(() => setLoadingSaved(false))
-  }
+  }, [])
 
-  useEffect(loadSavedReports, [])
+  useEffect(() => {
+    loadSavedReports()
+  }, [loadSavedReports])
 
-  const orderedSelectedColumns = useMemo(
-    () => columns.filter((c) => selectedColumns.includes(c.key)),
-    [columns, selectedColumns]
-  )
+  // ── Configuration changes ────────────────────────────────────────────────
 
-  const runReport = async (request: ReportFilters) => {
-    setIsRunning(true)
-    try {
-      const page = await reportingService.runReport(request)
-      setRows(page.items)
-      setTotalCount(page.totalCount)
-      setTotalPages(page.totalPages)
-      setHasRun(true)
-    } catch (err) {
-      if (isRequestCancelled(err)) return
-      toast.error(getErrorMessage(err, 'Could not run the report.'))
-    } finally {
-      setIsRunning(false)
+  /**
+   * Switching report type resets the section, the grouping and the columns to that type's own
+   * defaults.
+   *
+   * Carrying them over would be worse than it sounds: a section or grouping the new type does not
+   * offer is silently discarded by the server, so the controls would show one thing and the rows
+   * would be another.
+   */
+  const handleReportTypeChange = (key: string) => {
+    const next = metadata?.reportTypes.find((t) => t.key === key)
+    if (!next) return
+
+    const request: ReportFilters = {
+      ...filters,
+      reportType: next.key,
+      dataSection: next.dataSections[0]?.key ?? 'all',
+      groupBy: 'none',
+      page: 1
     }
+
+    setSelectedColumns(next.defaultColumnKeys)
+    setFilters(request)
+    void runReport(request)
   }
 
-  const handleRun = () => runReport({ ...filters, page: 1 })
+  const handleDataSectionChange = (key: string) => {
+    const request = { ...filters, dataSection: key, page: 1 }
+    setFilters(request)
+    void runReport(request)
+  }
+
+  const handleGroupByChange = (key: string) => {
+    const request = { ...filters, groupBy: key, page: 1 }
+    setFilters(request)
+    void runReport(request)
+  }
+
+  const handleApplyFilters = () => {
+    const request = { ...filters, page: 1 }
+    setFilters(request)
+    void runReport(request)
+  }
+
+  const handleClearFilters = () => {
+    // The report type, section and grouping are the report's identity, not a filter on it —
+    // clearing the filters should narrow nothing, not silently switch which report is on screen.
+    const request: ReportFilters = {
+      ...emptyReportFilters(),
+      reportType: filters.reportType,
+      dataSection: filters.dataSection,
+      groupBy: filters.groupBy,
+      pageSize: filters.pageSize
+    }
+
+    setFilters(request)
+    void runReport(request)
+  }
 
   const handlePage = (page: number) => {
-    const next = { ...filters, page }
-    setFilters(next)
-    runReport(next)
+    const request = { ...appliedFilters, page }
+    setFilters((f) => ({ ...f, page }))
+    void runReport(request)
   }
 
   const handlePageSize = (pageSize: number) => {
-    const next = { ...filters, page: 1, pageSize }
-    setFilters(next)
-    runReport(next)
+    const request = { ...appliedFilters, page: 1, pageSize }
+    setFilters((f) => ({ ...f, page: 1, pageSize }))
+    void runReport(request)
+  }
+
+  const toggleColumn = (key: string) => {
+    setSelectedColumns((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    )
   }
 
   const handleExport = async (format: ReportExportFormat) => {
-    if (selectedColumns.length === 0) {
+    if (!isGrouped && selectedColumns.length === 0) {
       toast.error('Choose at least one column before exporting.')
       return
     }
 
     setExportingFormat(format)
-    setIsExportMenuOpen(false)
     try {
-      await reportingService.exportReport(filters, selectedColumns, format)
+      // The applied filters, not the edited ones: the file has to be the report on screen, or it
+      // is a different document going out under the name of the one someone was looking at.
+      await reportingService.exportReport(appliedFilters, selectedColumns, format)
       toast.success(`Report exported as ${format.toUpperCase()}.`)
     } catch (err) {
       if (isRequestCancelled(err)) return
@@ -169,13 +351,27 @@ export const ReportBuilder: React.FC = () => {
     }
   }
 
+  // ── Saved reports ────────────────────────────────────────────────────────
+
   const runSavedReport = async (report: SavedReport) => {
-    setSelectedColumns(report.columns.length > 0 ? report.columns : columns.filter((c) => c.defaultVisible).map((c) => c.key))
-    setFilters({ ...report.filters, page: 1 })
+    const type = metadata?.reportTypes.find((t) => t.key === report.filters.reportType)
+
+    const request: ReportFilters = { ...report.filters, page: 1 }
+
+    setSelectedColumns(
+      report.columns.length > 0 ? report.columns : type?.defaultColumnKeys ?? selectedColumns
+    )
+    setFilters(request)
     setShowFilters(true)
-    await runReport({ ...report.filters, page: 1 })
-    // Best-effort — a failed stamp must never make "run" look like it failed.
+
+    await runReport(request)
+    // Best-effort — a failed stamp must never make a successful run look like a failure.
     reportingService.touchSavedReport(report.id).catch(() => {})
+  }
+
+  const editSavedReport = (report: SavedReport) => {
+    setEditingReport(report)
+    setSaveModalOpen(true)
   }
 
   const handleDeleteSaved = async (report: SavedReport) => {
@@ -188,6 +384,8 @@ export const ReportBuilder: React.FC = () => {
     }
   }
 
+  // ── Derived display ──────────────────────────────────────────────────────
+
   const activeFilterCount = useMemo(() => {
     let count = 0
     if (filters.from || filters.to) count++
@@ -197,22 +395,41 @@ export const ReportBuilder: React.FC = () => {
     if (filters.messageTypes?.length) count++
     if (filters.directions?.length) count++
     if (filters.statuses?.length) count++
+    if (filters.contactIds?.length) count++
+    if (filters.failureReasons?.length) count++
+    if (filters.agents?.length) count++
     if (filters.failedOnly) count++
     if (filters.search?.trim()) count++
     return count
   }, [filters])
 
-  const tableHeaders = useMemo(
-    () => [
-      { key: 'actions', label: '', className: 'actions-col' },
-      ...orderedSelectedColumns.map((c) => ({ key: c.key, label: c.label }))
-    ],
-    [orderedSelectedColumns]
+  const rangeLabel = useMemo(() => {
+    const { from, to } = filters
+    if (from && to) return `${formatRangeDate(from)} - ${formatRangeDate(to)}`
+    if (from) return `From ${formatRangeDate(from)}`
+    if (to) return `Up to ${formatRangeDate(to)}`
+    return 'All time'
+  }, [filters.from, filters.to])
+
+  const appliedRangeLabel = useMemo(() => {
+    const { from, to } = appliedFilters
+    if (from && to) return `${formatRangeDate(from)} - ${formatRangeDate(to)}`
+    if (from) return `from ${formatRangeDate(from)}`
+    if (to) return `up to ${formatRangeDate(to)}`
+    return 'all time'
+  }, [appliedFilters.from, appliedFilters.to])
+
+  const resultColumns = wasGrouped ? metadata?.groupColumns ?? [] : orderedSelectedColumns
+
+  const savedTotalPages = Math.max(1, Math.ceil(savedReports.length / SAVED_PAGE_SIZE))
+  const pagedSavedReports = savedReports.slice(
+    (savedPage - 1) * SAVED_PAGE_SIZE,
+    savedPage * SAVED_PAGE_SIZE
   )
 
-  const renderCell = (row: ReportRow, key: string): React.ReactNode => {
-    if (key === 'actions') return null
+  // ── Cells ────────────────────────────────────────────────────────────────
 
+  const renderRowCell = (row: ReportRow, key: string): React.ReactNode => {
     const value = (row as unknown as Record<string, unknown>)[key]
 
     switch (key) {
@@ -228,146 +445,232 @@ export const ReportBuilder: React.FC = () => {
           <span className={`report-direction report-direction-${String(value).toLowerCase()}`}>
             {String(value)}
           </span>
-        ) : '—'
+        ) : (
+          '—'
+        )
       case 'responded':
+        // Only outgoing messages can be answered. "No" against an incoming row would read as a
+        // finding rather than as a question that does not apply.
         return row.direction === 'Outgoing' ? (value ? 'Yes' : 'No') : '—'
       case 'responseMinutes':
-        return value != null ? `${value} min` : '—'
+        return formatResponseTime(row.responseMinutes)
       case 'content':
+      case 'templateOrContent':
+      case 'failureReason':
         return value ? (
           <span className="report-content-cell" title={String(value)}>
             {String(value)}
           </span>
-        ) : '—'
+        ) : (
+          '—'
+        )
       default:
         return (value as React.ReactNode) ?? '—'
     }
   }
 
+  const renderGroupCell = (row: ReportGroupRow, key: string): React.ReactNode => {
+    switch (key) {
+      case 'label':
+        return <span className="report-group-label">{row.label}</span>
+      case 'responseRate':
+        return row.responseRate === null || row.responseRate === undefined
+          ? '—'
+          : `${row.responseRate}%`
+      case 'firstAt':
+      case 'lastAt': {
+        const value = row[key]
+        return value ? formatAbsoluteDateTime(value) : '—'
+      }
+      default: {
+        const value = (row as unknown as Record<string, unknown>)[key]
+        return typeof value === 'number' ? value.toLocaleString() : (value as React.ReactNode) ?? '—'
+      }
+    }
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
+  if (loadingMeta) {
+    return (
+      <div className="reporting-page">
+        <div className="reporting-header">
+          <div className="reporting-title-area">
+            <Skeleton variant="title" width={300} height={32} />
+            <Skeleton variant="text" width={480} style={{ marginTop: 8 }} />
+          </div>
+        </div>
+        <div className="reporting-section-card">
+          <Skeleton variant="text" width={220} />
+          <div style={{ marginTop: 16 }}>
+            <Skeleton variant="table" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const columnsMenu = (
+    trigger: (props: MenuTriggerProps) => React.ReactNode,
+    open: boolean,
+    onOpenChange: (open: boolean) => void
+  ) => (
+    <Menu
+      open={open}
+      onOpenChange={onOpenChange}
+      align="start"
+      offset={6}
+      // Picking several columns in a row is the whole point of the control, so a selection must
+      // not dismiss it — the same reasoning as ColumnSelector and MultiSelectChips.
+      closeOnSelect={false}
+      className="report-columns-dropdown"
+      ariaLabel="Report columns"
+      trigger={trigger}
+    >
+      {availableColumns.length === 0 ? (
+        <div className="report-columns-empty">This report type has no columns to choose from.</div>
+      ) : (
+        availableColumns.map((col) => {
+          const isChecked = selectedColumns.includes(col.key)
+          return (
+            <MenuItem
+              key={col.key}
+              className="report-columns-item"
+              aria-checked={isChecked}
+              onSelect={() => toggleColumn(col.key)}
+            >
+              <span className={`report-columns-check${isChecked ? ' is-checked' : ''}`}>
+                {isChecked && <Check size={11} strokeWidth={3} />}
+              </span>
+              <span className="report-columns-name">{col.label}</span>
+              {col.derivedNote && (
+                <span className="report-columns-derived" title={col.derivedNote}>
+                  <Info size={12} />
+                </span>
+              )}
+            </MenuItem>
+          )
+        })
+      )}
+    </Menu>
+  )
+
   return (
-    <div className="report-builder">
-      {/* ── Build Your Report ─────────────────────────────────────────── */}
-      <div className="reporting-section-card">
-        <div className="reporting-section-header">
-          <h2 className="reporting-section-title">
-            <Table2 size={18} />
-            <span>Build Your Report</span>
-          </h2>
-          <p className="reporting-section-subtitle">
-            Every send and reply across your connections, filtered however you need it.
+    <div className="reporting-page">
+      {/* ── Page header ──────────────────────────────────────────────────── */}
+      <div className="reporting-header">
+        <div className="reporting-title-area">
+          <h1>Reporting &amp; Analytics</h1>
+          <p>
+            Generate and download detailed reports for messaging, campaigns, templates,
+            conversations and more.
           </p>
         </div>
 
-        <div className="report-builder-columns">
-          <div className="report-builder-columns-head">
-            <span className="report-builder-columns-label">Columns</span>
-          </div>
+        <div className="reporting-header-actions">
+          <button
+            type="button"
+            className="report-range-chip"
+            onClick={() => setShowFilters(true)}
+            title="Set the date range in Advanced Filters"
+          >
+            <Calendar size={14} />
+            <span>{rangeLabel}</span>
+          </button>
 
-          {/* A checkable grid rather than the MultiSelectChips dropdown here: with up to 16
-              columns, showing every option at once is faster to scan than opening a menu, and
-              the selection itself is shown as the same removable-chip row for consistency. */}
-          <div className="report-column-grid">
-            {columns.map((col) => {
-              const isChecked = selectedColumns.includes(col.key)
-              return (
-                <label key={col.key} className="report-column-option">
-                  <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={() =>
-                      setSelectedColumns((prev) =>
-                        isChecked ? prev.filter((k) => k !== col.key) : [...prev, col.key]
-                      )
-                    }
-                  />
-                  <span>{col.label}</span>
-                  {col.derivedNote && (
-                    <span className="report-column-derived" title={col.derivedNote}>
-                      <Info size={12} />
-                    </span>
-                  )}
-                </label>
-              )
-            })}
-          </div>
-
-          {selectedColumns.length > 0 && (
-            <div className="ms-chips-row report-selected-columns">
-              {orderedSelectedColumns.map((col) => (
-                <span key={col.key} className="ms-chip">
-                  {col.label}
-                  <button
-                    type="button"
-                    className="ms-chip-remove"
-                    onClick={() => setSelectedColumns((prev) => prev.filter((k) => k !== col.key))}
-                    aria-label={`Remove ${col.label}`}
-                  >
-                    <X size={11} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="report-builder-toolbar">
           <button
             type="button"
             className={`report-toolbar-btn${showFilters ? ' is-active' : ''}`}
             onClick={() => setShowFilters((v) => !v)}
           >
             <Filter size={14} />
-            <span>Advanced Filters</span>
-            {activeFilterCount > 0 && <span className="activity-filter-count">{activeFilterCount}</span>}
-          </button>
-
-          <button
-            type="button"
-            className="report-run-btn"
-            onClick={handleRun}
-            disabled={isRunning || loadingMeta || selectedColumns.length === 0}
-          >
-            <Play size={14} />
-            <span>{isRunning ? 'Running…' : 'Run Report'}</span>
-          </button>
-
-          <Menu
-            open={isExportMenuOpen}
-            onOpenChange={setIsExportMenuOpen}
-            align="end"
-            offset={6}
-            ariaLabel="Export format"
-            trigger={(props) => (
-              <button
-                {...props}
-                type="button"
-                className="report-toolbar-btn"
-                disabled={!canExport || !hasRun || exportingFormat !== null}
-                title={!canExport ? "You don't have permission to export reports." : undefined}
-              >
-                <Download size={14} />
-                <span>{exportingFormat ? `Exporting ${exportingFormat.toUpperCase()}…` : 'Export'}</span>
-                <ChevronDown size={13} />
-              </button>
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="activity-filter-count">{activeFilterCount}</span>
             )}
-          >
-            <MenuItem onSelect={() => handleExport('csv')}>
-              <FileText size={14} /> <span>CSV</span>
-            </MenuItem>
-            <MenuItem onSelect={() => handleExport('xlsx')}>
-              <FileSpreadsheet size={14} /> <span>Excel (.xlsx)</span>
-            </MenuItem>
-            <MenuItem onSelect={() => handleExport('pdf')}>
-              <FileText size={14} /> <span>PDF</span>
-            </MenuItem>
-          </Menu>
+          </button>
+
+          <ExportMenu
+            canExport={canExport}
+            disabled={!hasRun}
+            exportingFormat={exportingFormat}
+            onExport={handleExport}
+          />
+        </div>
+      </div>
+
+      {/* ── Build Your Report ────────────────────────────────────────────── */}
+      <div className="reporting-section-card">
+        <div className="reporting-section-header">
+          <h2 className="reporting-section-title">Build Your Report</h2>
+          <p className="reporting-section-subtitle">
+            Select report type, configure filters, columns and grouping to generate your report.
+          </p>
+        </div>
+
+        <div className="report-config-row">
+          <div className="report-config-field">
+            <label htmlFor="report-type">Report Type</label>
+            <select
+              id="report-type"
+              className="report-select"
+              value={filters.reportType ?? ''}
+              onChange={(e) => handleReportTypeChange(e.target.value)}
+            >
+              {(metadata?.reportTypes ?? []).map((type) => (
+                <option key={type.key} value={type.key}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="report-config-field">
+            <label htmlFor="report-section">Data Section</label>
+            <select
+              id="report-section"
+              className="report-select"
+              value={filters.dataSection ?? ''}
+              onChange={(e) => handleDataSectionChange(e.target.value)}
+            >
+              {(reportType?.dataSections ?? []).map((section) => (
+                <option key={section.key} value={section.key}>
+                  {section.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="report-config-field">
+            <label htmlFor="report-groupby">Group By</label>
+            <select
+              id="report-groupby"
+              className="report-select"
+              value={filters.groupBy ?? 'none'}
+              onChange={(e) => handleGroupByChange(e.target.value)}
+            >
+              {groupByOptions.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <ColumnsField
+            count={selectedColumns.length}
+            disabled={isGrouped}
+            renderMenu={columnsMenu}
+          />
 
           {canManage && (
             <button
               type="button"
-              className="report-toolbar-btn"
-              onClick={() => setSaveModalOpen(true)}
-              disabled={selectedColumns.length === 0}
+              className="report-toolbar-btn report-save-btn"
+              onClick={() => {
+                setEditingReport(null)
+                setSaveModalOpen(true)
+              }}
             >
               <Save size={14} />
               <span>Save Report</span>
@@ -375,226 +678,485 @@ export const ReportBuilder: React.FC = () => {
           )}
         </div>
 
-        <AnimatePresence initial={false}>
+        {/* Grouped reports are aggregates, so the column selection has nothing to act on — said
+            out loud rather than leaving a control that silently does nothing. */}
+        {isGrouped ? (
+          <p className="report-grouped-note">
+            Grouped by{' '}
+            <strong>
+              {groupByOptions.find((g) => g.key === filters.groupBy)?.label ?? filters.groupBy}
+            </strong>
+            . The results table shows one aggregated row per group; column selection applies to the
+            ungrouped listing.
+          </p>
+        ) : (
+          <div className="report-selected-columns-block">
+            <div className="report-selected-columns-head">
+              <span className="report-selected-columns-label">
+                Selected Columns ({selectedColumns.length})
+              </span>
+              <AddColumnButton renderMenu={columnsMenu} />
+            </div>
+
+            {selectedColumns.length === 0 ? (
+              <p className="report-empty-note">
+                No columns selected — add at least one to run this report.
+              </p>
+            ) : (
+              <div className="report-chips-row">
+                {orderedSelectedColumns.map((col) => (
+                  <span key={col.key} className="report-chip">
+                    {col.label}
+                    <button
+                      type="button"
+                      className="report-chip-remove"
+                      onClick={() => toggleColumn(col.key)}
+                      aria-label={`Remove ${col.label}`}
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="report-filters-panel">
+          {/* The heading itself is the control, and it lives outside the collapsing region —
+              inside it, closing the panel would take away the only thing left to click. */}
+          <button
+            type="button"
+            className={`report-filters-head${showFilters ? ' is-open' : ''}`}
+            onClick={() => setShowFilters((v) => !v)}
+            aria-expanded={showFilters}
+            aria-controls="report-advanced-filters"
+          >
+            <Filter size={14} />
+            <span>Advanced Filters</span>
+            {/* Shown while collapsed too: a hidden panel that is silently narrowing the results
+                is worth saying out loud. */}
+            {activeFilterCount > 0 && (
+              <span className="activity-filter-count">{activeFilterCount}</span>
+            )}
+            <ChevronDown size={15} className="report-filters-chevron" />
+          </button>
+
+          {/* Rendered outright rather than through AnimatePresence.
+              A height:0 → auto transition here would not settle — it stayed pinned at 0px with the
+              content measured at 243px behind it — and the exiting node was never unmounted, which
+              left eleven invisible filters in the keyboard tab order. A disclosure that reliably
+              shows and hides its contents is worth more than one that animates and does neither. */}
           {showFilters && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="report-filters-wrap"
-            >
-              <div className="activity-filters-panel report-filters-panel">
-                <div className="activity-filter-field report-filters-daterange">
-                  <label>Date Range</label>
-                  <DateRangePicker
-                    from={filters.from}
-                    to={filters.to}
-                    min={filterOptions?.earliestRecord}
-                    max={filterOptions?.latestRecord}
-                    onChange={({ from, to }) => setFilters((f) => ({ ...f, from, to }))}
+              <div
+                id="report-advanced-filters"
+                className="report-filters-wrap"
+              >
+                <div className="report-filters-grid">
+                  <div className="report-filter-field report-filter-daterange">
+                    <label htmlFor="report-from">Date &amp; Time</label>
+                    <div className="report-daterange-inputs">
+                      <input
+                        id="report-from"
+                        type="date"
+                        className="form-control"
+                        value={filters.from ?? ''}
+                        min={filterOptions?.earliestRecord?.slice(0, 10)}
+                        max={filters.to ?? filterOptions?.latestRecord?.slice(0, 10)}
+                        onChange={(e) =>
+                          setFilters((f) => ({ ...f, from: e.target.value || null }))
+                        }
+                      />
+                      <span className="report-daterange-sep">–</span>
+                      <input
+                        id="report-to"
+                        type="date"
+                        className="form-control"
+                        value={filters.to ?? ''}
+                        min={filters.from ?? filterOptions?.earliestRecord?.slice(0, 10)}
+                        max={filterOptions?.latestRecord?.slice(0, 10)}
+                        onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value || null }))}
+                      />
+                    </div>
+                  </div>
+
+                  <MultiSelectChips
+                    label="Campaign"
+                    placeholder="All Campaigns"
+                    options={(filterOptions?.campaigns ?? []).map((c) => ({
+                      value: String(c.id),
+                      label: c.name
+                    }))}
+                    selected={(filters.campaignIds ?? []).map(String)}
+                    onChange={(vals) =>
+                      setFilters((f) => ({ ...f, campaignIds: vals.map(Number) }))
+                    }
+                    emptyMessage="No campaigns yet."
                   />
-                </div>
 
-                <MultiSelectChips
-                  label="Campaigns"
-                  options={(filterOptions?.campaigns ?? []).map((c) => ({ value: String(c.id), label: c.name }))}
-                  selected={(filters.campaignIds ?? []).map(String)}
-                  onChange={(vals) => setFilters((f) => ({ ...f, campaignIds: vals.map(Number) }))}
-                  emptyMessage="No campaigns yet."
-                />
-
-                <MultiSelectChips
-                  label="Connections"
-                  options={(filterOptions?.connections ?? []).map((c) => ({ value: String(c.id), label: c.name }))}
-                  selected={(filters.connectionIds ?? []).map(String)}
-                  onChange={(vals) => setFilters((f) => ({ ...f, connectionIds: vals.map(Number) }))}
-                  emptyMessage="No connections yet."
-                />
-
-                <MultiSelectChips
-                  label="Templates"
-                  options={(filterOptions?.templates ?? []).map((t) => ({ value: t, label: t }))}
-                  selected={filters.templateNames ?? []}
-                  onChange={(vals) => setFilters((f) => ({ ...f, templateNames: vals }))}
-                  emptyMessage="No templates used yet."
-                />
-
-                <MultiSelectChips
-                  label="Message Type"
-                  options={(filterOptions?.messageTypes ?? []).map((t) => ({ value: t, label: t }))}
-                  selected={filters.messageTypes ?? []}
-                  onChange={(vals) => setFilters((f) => ({ ...f, messageTypes: vals }))}
-                />
-
-                <MultiSelectChips
-                  label="Direction"
-                  options={(filterOptions?.directions ?? []).map((d) => ({ value: d, label: d }))}
-                  selected={filters.directions ?? []}
-                  onChange={(vals) => setFilters((f) => ({ ...f, directions: vals }))}
-                />
-
-                <MultiSelectChips
-                  label="Status"
-                  options={(filterOptions?.statuses ?? []).map((s) => ({ value: s, label: s }))}
-                  selected={filters.statuses ?? []}
-                  onChange={(vals) => setFilters((f) => ({ ...f, statuses: vals }))}
-                />
-
-                <div className="activity-filter-field">
-                  <label htmlFor="report-search">Search</label>
-                  <input
-                    id="report-search"
-                    type="text"
-                    className="form-control"
-                    placeholder="Contact, phone or message text…"
-                    value={filters.search ?? ''}
-                    onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value || null }))}
+                  <MultiSelectChips
+                    label="Template"
+                    placeholder="All Templates"
+                    options={(filterOptions?.templates ?? []).map((t) => ({ value: t, label: t }))}
+                    selected={filters.templateNames ?? []}
+                    onChange={(vals) => setFilters((f) => ({ ...f, templateNames: vals }))}
+                    emptyMessage="No templates used yet."
                   />
-                </div>
 
-                <div className="activity-filter-field report-filters-failed">
-                  <label htmlFor="report-failed-only">
+                  <MultiSelectChips
+                    label="WABA / Connection"
+                    placeholder="All Connections"
+                    options={(filterOptions?.connections ?? []).map((c) => ({
+                      value: String(c.id),
+                      label: c.name
+                    }))}
+                    selected={(filters.connectionIds ?? []).map(String)}
+                    onChange={(vals) =>
+                      setFilters((f) => ({ ...f, connectionIds: vals.map(Number) }))
+                    }
+                    emptyMessage="No connections yet."
+                  />
+
+                  <MultiSelectChips
+                    label="Message Type"
+                    placeholder="All"
+                    options={(filterOptions?.messageTypes ?? []).map((t) => ({
+                      value: t,
+                      label: t
+                    }))}
+                    selected={filters.messageTypes ?? []}
+                    onChange={(vals) => setFilters((f) => ({ ...f, messageTypes: vals }))}
+                  />
+
+                  <MultiSelectChips
+                    label="Direction"
+                    placeholder="All"
+                    options={(filterOptions?.directions ?? []).map((d) => ({ value: d, label: d }))}
+                    selected={filters.directions ?? []}
+                    onChange={(vals) => setFilters((f) => ({ ...f, directions: vals }))}
+                  />
+
+                  <MultiSelectChips
+                    label="Status"
+                    placeholder="All"
+                    options={(filterOptions?.statuses ?? []).map((s) => ({ value: s, label: s }))}
+                    selected={filters.statuses ?? []}
+                    onChange={(vals) => setFilters((f) => ({ ...f, statuses: vals }))}
+                  />
+
+                  <MultiSelectChips
+                    label="Sender / Contact"
+                    placeholder="All"
+                    options={(filterOptions?.contacts ?? []).map((c) => ({
+                      value: String(c.id),
+                      label: c.name
+                    }))}
+                    selected={(filters.contactIds ?? []).map(String)}
+                    onChange={(vals) => setFilters((f) => ({ ...f, contactIds: vals.map(Number) }))}
+                    emptyMessage="No contacts have been messaged yet."
+                  />
+
+                  <MultiSelectChips
+                    label="Failure Reason"
+                    placeholder="All"
+                    options={(filterOptions?.failureReasons ?? []).map((r) => ({
+                      value: r,
+                      label: r
+                    }))}
+                    selected={filters.failureReasons ?? []}
+                    onChange={(vals) => setFilters((f) => ({ ...f, failureReasons: vals }))}
+                    emptyMessage="Nothing has failed yet."
+                  />
+
+                  <MultiSelectChips
+                    label="Agent"
+                    placeholder="All"
+                    options={(filterOptions?.agents ?? []).map((a) => ({ value: a, label: a }))}
+                    selected={filters.agents ?? []}
+                    onChange={(vals) => setFilters((f) => ({ ...f, agents: vals }))}
+                    emptyMessage="No contacts are assigned yet."
+                  />
+
+                  <div className="report-filter-field">
+                    <label htmlFor="report-search">Search</label>
                     <input
-                      id="report-failed-only"
-                      type="checkbox"
-                      checked={filters.failedOnly ?? false}
-                      onChange={(e) => setFilters((f) => ({ ...f, failedOnly: e.target.checked || null }))}
+                      id="report-search"
+                      type="text"
+                      className="form-control"
+                      placeholder="Contact, phone or message text…"
+                      value={filters.search ?? ''}
+                      onChange={(e) =>
+                        setFilters((f) => ({ ...f, search: e.target.value || null }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleApplyFilters()
+                      }}
                     />
-                    <span>Failures only</span>
-                  </label>
+                  </div>
                 </div>
 
-                <div className="activity-filter-actions">
+                <div className="report-filters-actions">
+                  <button type="button" className="report-clear-btn" onClick={handleClearFilters}>
+                    <RotateCcw size={13} />
+                    <span>Clear Filters</span>
+                  </button>
                   <button
                     type="button"
-                    className="btn-secondary"
-                    onClick={() => setFilters(emptyReportFilters())}
+                    className="report-apply-btn"
+                    onClick={handleApplyFilters}
+                    disabled={isRunning}
                   >
-                    Clear Filters
-                  </button>
-                  <button type="button" className="btn-primary" onClick={handleRun} disabled={isRunning}>
-                    Apply &amp; Run
+                    {isRunning ? 'Running…' : 'Apply Filters'}
                   </button>
                 </div>
               </div>
-            </motion.div>
           )}
-        </AnimatePresence>
+        </div>
       </div>
 
-      {/* ── Results ────────────────────────────────────────────────────── */}
-      {hasRun && (
-        <div className="reporting-section-card">
+      {/* ── Report Results ───────────────────────────────────────────────── */}
+      <div className="reporting-section-card">
+        <div className="report-results-head">
           <div className="reporting-section-header">
-            <h2 className="reporting-section-title">Results</h2>
-            <p className="reporting-section-subtitle">
-              {totalCount.toLocaleString()} row{totalCount === 1 ? '' : 's'} match{totalCount === 1 ? 'es' : ''} the current filters.
-            </p>
+            <h2 className="reporting-section-title">Report Results</h2>
+            <p className="reporting-section-subtitle">Showing data for {appliedRangeLabel}</p>
           </div>
 
-          <DataTable
-            headers={tableHeaders}
-            rows={rows}
-            renderCell={renderCell}
-            emptyMessage="No rows match these filters. Try widening the date range."
-          />
+          <div className="report-results-controls">
+            <label className="report-pagesize">
+              <span>Records Per Page</span>
+              <select
+                className="report-select report-select-sm"
+                value={filters.pageSize}
+                onChange={(e) => handlePageSize(Number(e.target.value))}
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <Pagination
-            page={filters.page}
-            pageSize={filters.pageSize}
-            totalCount={totalCount}
-            totalPages={totalPages}
-            onPage={handlePage}
-            onPageSize={handlePageSize}
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
-          />
+            {!wasGrouped && (
+              <ResultsColumnsButton renderMenu={columnsMenu} />
+            )}
+          </div>
         </div>
-      )}
 
-      {/* ── Saved Reports ──────────────────────────────────────────────── */}
+        <div className="report-table-scroll">
+          <table className="report-table">
+            <thead>
+              <tr>
+                {resultColumns.map((col) => (
+                  <th key={col.key}>{col.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {isRunning ? (
+                <tr>
+                  <td colSpan={Math.max(1, resultColumns.length)} className="report-table-empty">
+                    Running report…
+                  </td>
+                </tr>
+              ) : wasGrouped ? (
+                groupRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={Math.max(1, resultColumns.length)} className="report-table-empty">
+                      No data matches these filters.
+                    </td>
+                  </tr>
+                ) : (
+                  groupRows.map((row, index) => (
+                    <motion.tr
+                      key={row.key}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{
+                        delay: Math.min(index, 12) * 0.025,
+                        duration: 0.18,
+                        ease: 'easeOut'
+                      }}
+                    >
+                      {resultColumns.map((col) => (
+                        <td key={col.key}>{renderGroupCell(row, col.key)}</td>
+                      ))}
+                    </motion.tr>
+                  ))
+                )
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={Math.max(1, resultColumns.length)} className="report-table-empty">
+                    No records found. Try widening the date range or clearing a filter.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row, index) => (
+                  <motion.tr
+                    key={row.id}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{
+                      delay: Math.min(index, 12) * 0.025,
+                      duration: 0.18,
+                      ease: 'easeOut'
+                    }}
+                  >
+                    {resultColumns.map((col) => (
+                      <td key={col.key}>{renderRowCell(row, col.key)}</td>
+                    ))}
+                  </motion.tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <ReportPager
+          page={appliedFilters.page}
+          pageSize={appliedFilters.pageSize}
+          totalCount={totalCount}
+          totalPages={totalPages}
+          onPage={handlePage}
+        />
+      </div>
+
+      {/* ── Saved Reports ────────────────────────────────────────────────── */}
       <div className="reporting-section-card">
         <div className="reporting-section-header">
-          <h2 className="reporting-section-title">
-            <FolderOpen size={18} />
-            <span>Saved Reports</span>
-          </h2>
-          <p className="reporting-section-subtitle">
-            Your own reports, plus anything a teammate has shared. Saving requires the Reporting.Manage permission.
-          </p>
+          <h2 className="reporting-section-title">Saved Reports</h2>
+          <p className="reporting-section-subtitle">View, manage and run your saved reports.</p>
         </div>
 
-        {loadingSaved ? (
-          <p className="reporting-section-subtitle">Loading…</p>
-        ) : savedReports.length === 0 ? (
-          <p className="audit-detail-empty">No saved reports yet — build one above and save it.</p>
-        ) : (
-          <DataTable
-            headers={[
-              { key: 'actions', label: '', className: 'actions-col' },
-              { key: 'name', label: 'Name' },
-              { key: 'owner', label: 'Owner' },
-              { key: 'visibility', label: 'Visibility' },
-              { key: 'lastRun', label: 'Last Run' }
-            ]}
-            rows={savedReports}
-            renderCell={(report: SavedReport, key: string) => {
-              if (key === 'actions') {
-                return (
-                  <div className="report-saved-actions">
-                    <button
-                      type="button"
-                      className="activity-view-btn"
-                      onClick={() => runSavedReport(report)}
-                    >
-                      <Play size={13} />
-                      <span>Run</span>
-                    </button>
-                    {report.isOwner && (
-                      <button
-                        type="button"
-                        className="activity-view-btn activity-view-btn-icon"
-                        onClick={() => handleDeleteSaved(report)}
-                        title="Delete"
-                        aria-label={`Delete ${report.name}`}
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                  </div>
-                )
-              }
-              if (key === 'name') {
-                return (
-                  <div className="audit-entity-cell">
-                    <span className="audit-entity-name">{report.name}</span>
-                    {report.description && <span className="audit-entity-desc">{report.description}</span>}
-                  </div>
-                )
-              }
-              if (key === 'owner') return report.ownerName || '—'
-              if (key === 'visibility') {
-                return report.isShared ? (
-                  <StatusBadge type="success" text="Shared" />
-                ) : (
-                  <StatusBadge type="warning" text="Private" />
-                )
-              }
-              if (key === 'lastRun') return report.lastRunAt ? formatAbsoluteDateTime(report.lastRunAt) : 'Never run'
-              return null
-            }}
-          />
-        )}
+        <div className="report-table-scroll">
+          <table className="report-table">
+            <thead>
+              <tr>
+                {/* Actions lead the row, as on every other list in the app — reaching a control
+                    should not mean scrolling past six columns of description first. */}
+                <th className="actions-col">Actions</th>
+                <th>Report Name</th>
+                <th>Report Type</th>
+                <th>Data Section</th>
+                <th>Group By</th>
+                <th>Last Run</th>
+                <th>Created By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingSaved ? (
+                <tr>
+                  <td colSpan={7} className="report-table-empty">
+                    Loading…
+                  </td>
+                </tr>
+              ) : pagedSavedReports.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="report-table-empty">
+                    No saved reports yet — build one above and save it.
+                  </td>
+                </tr>
+              ) : (
+                pagedSavedReports.map((report) => (
+                  <tr key={report.id}>
+                    <td className="actions-col">
+                      <div className="report-row-actions">
+                        <button
+                          type="button"
+                          className="report-icon-btn"
+                          onClick={() => runSavedReport(report)}
+                          title="Run this report"
+                          aria-label={`Run ${report.name}`}
+                        >
+                          <Play size={13} />
+                        </button>
+                        {report.isOwner && (
+                          <button
+                            type="button"
+                            className="report-icon-btn"
+                            onClick={() => editSavedReport(report)}
+                            title="Edit"
+                            aria-label={`Edit ${report.name}`}
+                          >
+                            <Pencil size={13} />
+                          </button>
+                        )}
+                        <Menu
+                          open={savedMenuId === report.id}
+                          onOpenChange={(open) => setSavedMenuId(open ? report.id : null)}
+                          align="start"
+                          offset={4}
+                          ariaLabel="Saved report actions"
+                          trigger={(props) => (
+                            <button
+                              {...props}
+                              type="button"
+                              className="report-icon-btn"
+                              aria-label={`More actions for ${report.name}`}
+                            >
+                              <MoreVertical size={14} />
+                            </button>
+                          )}
+                        >
+                          <MenuItem onSelect={() => runSavedReport(report)}>
+                            <Play size={13} /> <span>Run</span>
+                          </MenuItem>
+                          {report.isOwner && (
+                            <MenuItem onSelect={() => editSavedReport(report)}>
+                              <Pencil size={13} /> <span>Edit</span>
+                            </MenuItem>
+                          )}
+                          {report.isOwner && (
+                            <MenuItem onSelect={() => handleDeleteSaved(report)}>
+                              <Trash2 size={13} /> <span>Delete</span>
+                            </MenuItem>
+                          )}
+                        </Menu>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="report-name-cell">
+                        <span className="report-name">{report.name}</span>
+                        {report.description && (
+                          <span className="report-name-desc">{report.description}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td>{report.reportTypeLabel}</td>
+                    <td>{report.dataSectionLabel}</td>
+                    <td>{report.groupByLabel}</td>
+                    <td>{report.lastRunAt ? formatAbsoluteDateTime(report.lastRunAt) : 'Never run'}</td>
+                    <td>{report.ownerName || '—'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <ReportPager
+          page={savedPage}
+          pageSize={SAVED_PAGE_SIZE}
+          totalCount={savedReports.length}
+          totalPages={savedTotalPages}
+          onPage={setSavedPage}
+        />
       </div>
 
       {saveModalOpen && (
         <SaveReportModal
           isOpen={saveModalOpen}
-          onClose={() => setSaveModalOpen(false)}
+          existing={editingReport}
           columns={selectedColumns}
           filters={filters}
+          onClose={() => {
+            setSaveModalOpen(false)
+            setEditingReport(null)
+          }}
           onSaved={() => {
             setSaveModalOpen(false)
+            setEditingReport(null)
             loadSavedReports()
           }}
         />
@@ -603,20 +1165,244 @@ export const ReportBuilder: React.FC = () => {
   )
 }
 
-// ── Save dialog ────────────────────────────────────────────────────────────
+// ── Header export menu ──────────────────────────────────────────────────────
+
+interface ExportMenuProps {
+  canExport: boolean
+  disabled: boolean
+  exportingFormat: ReportExportFormat | null
+  onExport: (format: ReportExportFormat) => void
+}
+
+/**
+ * The header's Export control.
+ *
+ * The whole button opens the menu rather than the left half exporting in some remembered format:
+ * a control that writes a file should say which file it is about to write before it writes it.
+ */
+const ExportMenu: React.FC<ExportMenuProps> = ({
+  canExport,
+  disabled,
+  exportingFormat,
+  onExport
+}) => {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <Menu
+      open={isOpen}
+      onOpenChange={setIsOpen}
+      align="end"
+      offset={6}
+      className="report-export-dropdown"
+      ariaLabel="Export format"
+      trigger={(props) => (
+        <button
+          {...props}
+          type="button"
+          className="report-export-btn"
+          disabled={!canExport || disabled || exportingFormat !== null}
+          title={!canExport ? "You don't have permission to export reports." : undefined}
+        >
+          <Download size={14} />
+          <span>
+            {exportingFormat ? `Exporting ${exportingFormat.toUpperCase()}…` : 'Export'}
+          </span>
+          <span className="report-export-divider" aria-hidden="true" />
+          <ChevronDown size={14} />
+        </button>
+      )}
+    >
+      <MenuItem onSelect={() => onExport('pdf')}>
+        <FileText size={14} className="report-export-icon is-pdf" />
+        <span>Export as PDF</span>
+      </MenuItem>
+      <MenuItem onSelect={() => onExport('xlsx')}>
+        <FileSpreadsheet size={14} className="report-export-icon is-excel" />
+        <span>Export as Excel</span>
+      </MenuItem>
+      <MenuItem onSelect={() => onExport('csv')}>
+        <FileSpreadsheet size={14} className="report-export-icon is-csv" />
+        <span>Export as CSV</span>
+      </MenuItem>
+    </Menu>
+  )
+}
+
+// ── Column pickers ──────────────────────────────────────────────────────────
+
+type ColumnsMenuRenderer = (
+  trigger: (props: MenuTriggerProps) => React.ReactNode,
+  open: boolean,
+  onOpenChange: (open: boolean) => void
+) => React.ReactNode
+
+/** The "N Selected" field in the configuration row. */
+const ColumnsField: React.FC<{
+  count: number
+  disabled: boolean
+  renderMenu: ColumnsMenuRenderer
+}> = ({ count, disabled, renderMenu }) => {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <div className="report-config-field">
+      <label id="report-columns-label">Columns</label>
+      {renderMenu(
+        (props) => (
+          <button
+            {...props}
+            type="button"
+            className={`report-select report-select-trigger${isOpen ? ' is-open' : ''}`}
+            disabled={disabled}
+            aria-labelledby="report-columns-label"
+          >
+            <span>{count} Selected</span>
+            <ChevronDown size={14} />
+          </button>
+        ),
+        isOpen && !disabled,
+        setIsOpen
+      )}
+    </div>
+  )
+}
+
+/** The "+ Add Column" button beside the selected-column chips. */
+const AddColumnButton: React.FC<{ renderMenu: ColumnsMenuRenderer }> = ({ renderMenu }) => {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return renderMenu(
+    (props) => (
+      <button {...props} type="button" className="report-add-column-btn">
+        <Plus size={13} />
+        <span>Add Column</span>
+      </button>
+    ),
+    isOpen,
+    setIsOpen
+  )
+}
+
+/** The "Columns" button in the results header. */
+const ResultsColumnsButton: React.FC<{ renderMenu: ColumnsMenuRenderer }> = ({ renderMenu }) => {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return renderMenu(
+    (props) => (
+      <button {...props} type="button" className={`report-toolbar-btn${isOpen ? ' is-active' : ''}`}>
+        <Columns3 size={14} />
+        <span>Columns</span>
+      </button>
+    ),
+    isOpen,
+    setIsOpen
+  )
+}
+
+// ── Pager ───────────────────────────────────────────────────────────────────
+
+interface ReportPagerProps {
+  page: number
+  pageSize: number
+  totalCount: number
+  totalPages: number
+  onPage: (page: number) => void
+}
+
+/**
+ * The table footer: an entry count on the left, first/previous/page/next/last on the right.
+ *
+ * A local pager rather than the shared `Pagination`: this page needs the numbered page button and
+ * the jump-to-end controls the reference design calls for, and widening the shared component to
+ * cover both shapes would change every other list that uses it.
+ */
+const ReportPager: React.FC<ReportPagerProps> = ({
+  page,
+  pageSize,
+  totalCount,
+  totalPages,
+  onPage
+}) => {
+  if (totalCount === 0) return null
+
+  const firstRow = (page - 1) * pageSize + 1
+  const lastRow = Math.min(page * pageSize, totalCount)
+  const pages = Math.max(totalPages, 1)
+
+  return (
+    <div className="report-pager">
+      <span className="report-pager-summary">
+        Showing {firstRow.toLocaleString()} to {lastRow.toLocaleString()} of{' '}
+        {totalCount.toLocaleString()} entries
+      </span>
+
+      <div className="report-pager-controls">
+        <button
+          type="button"
+          className="report-pager-btn"
+          onClick={() => onPage(1)}
+          disabled={page <= 1}
+          aria-label="First page"
+        >
+          <ChevronsLeft size={14} />
+        </button>
+        <button
+          type="button"
+          className="report-pager-btn"
+          onClick={() => onPage(page - 1)}
+          disabled={page <= 1}
+          aria-label="Previous page"
+        >
+          <ChevronLeft size={14} />
+        </button>
+        <span className="report-pager-current">{page}</span>
+        <button
+          type="button"
+          className="report-pager-btn"
+          onClick={() => onPage(page + 1)}
+          disabled={page >= pages}
+          aria-label="Next page"
+        >
+          <ChevronRight size={14} />
+        </button>
+        <button
+          type="button"
+          className="report-pager-btn"
+          onClick={() => onPage(pages)}
+          disabled={page >= pages}
+          aria-label="Last page"
+        >
+          <ChevronsRight size={14} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Save dialog ─────────────────────────────────────────────────────────────
 
 interface SaveReportModalProps {
   isOpen: boolean
-  onClose: () => void
+  /** The report being edited, or null when saving a new one. */
+  existing: SavedReport | null
   columns: string[]
   filters: ReportFilters
+  onClose: () => void
   onSaved: () => void
 }
 
-const SaveReportModal: React.FC<SaveReportModalProps> = ({ isOpen, onClose, columns, filters, onSaved }) => {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [isShared, setIsShared] = useState(false)
+const SaveReportModal: React.FC<SaveReportModalProps> = ({
+  isOpen,
+  existing,
+  columns,
+  filters,
+  onClose,
+  onSaved
+}) => {
+  const [name, setName] = useState(existing?.name ?? '')
+  const [description, setDescription] = useState(existing?.description ?? '')
+  const [isShared, setIsShared] = useState(existing?.isShared ?? false)
   const [isSaving, setIsSaving] = useState(false)
 
   const handleSave = async () => {
@@ -628,14 +1414,22 @@ const SaveReportModal: React.FC<SaveReportModalProps> = ({ isOpen, onClose, colu
 
     setIsSaving(true)
     try {
-      await reportingService.createSavedReport({
+      const payload = {
         name: trimmed,
         description: description.trim() || null,
         columns,
         filters,
         isShared
-      })
-      toast.success(`"${trimmed}" saved.`)
+      }
+
+      if (existing) {
+        await reportingService.updateSavedReport(existing.id, payload)
+        toast.success(`"${trimmed}" updated.`)
+      } else {
+        await reportingService.createSavedReport(payload)
+        toast.success(`"${trimmed}" saved.`)
+      }
+
       onSaved()
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not save this report.'))
@@ -648,8 +1442,12 @@ const SaveReportModal: React.FC<SaveReportModalProps> = ({ isOpen, onClose, colu
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Save Report"
-      subtitle="Keep this column and filter combination so you don't have to rebuild it."
+      title={existing ? 'Edit Report' : 'Save Report'}
+      subtitle={
+        existing
+          ? 'Updates the saved report to the configuration currently on screen.'
+          : "Keep this report type, column and filter combination so you don't have to rebuild it."
+      }
       size="sm"
       footer={
         <>
@@ -657,13 +1455,13 @@ const SaveReportModal: React.FC<SaveReportModalProps> = ({ isOpen, onClose, colu
             Cancel
           </button>
           <button type="button" className="btn-primary" onClick={handleSave} disabled={isSaving}>
-            {isSaving ? 'Saving…' : 'Save Report'}
+            {isSaving ? 'Saving…' : existing ? 'Update Report' : 'Save Report'}
           </button>
         </>
       }
     >
       <div className="report-save-form">
-        <div className="activity-filter-field">
+        <div className="report-filter-field">
           <label htmlFor="save-report-name">Name</label>
           <input
             id="save-report-name"
@@ -675,7 +1473,7 @@ const SaveReportModal: React.FC<SaveReportModalProps> = ({ isOpen, onClose, colu
             placeholder="e.g. Weekly failures — Support"
           />
         </div>
-        <div className="activity-filter-field">
+        <div className="report-filter-field">
           <label htmlFor="save-report-description">Description (optional)</label>
           <textarea
             id="save-report-description"
@@ -685,7 +1483,7 @@ const SaveReportModal: React.FC<SaveReportModalProps> = ({ isOpen, onClose, colu
             onChange={(e) => setDescription(e.target.value)}
           />
         </div>
-        <div className="activity-filter-field report-filters-failed">
+        <div className="report-filter-field report-save-shared">
           <label htmlFor="save-report-shared">
             <input
               id="save-report-shared"
@@ -695,12 +1493,10 @@ const SaveReportModal: React.FC<SaveReportModalProps> = ({ isOpen, onClose, colu
             />
             <span>Share with everyone who can view reports</span>
           </label>
-          {/* Private is the default on purpose: a report's filters can encode something the
-              author would not choose to publish — a single agent's failures, one campaign's
-              breakdown — so visibility opens on request, not by omission. */}
-          <p className="audit-detail-empty" style={{ marginTop: 4 }}>
-            Private reports are visible only to you.
-          </p>
+          {/* Private by default on purpose: a report's filters can encode something the author
+              would not choose to publish — one agent's failures, one campaign's breakdown — so
+              visibility opens on request, not by omission. */}
+          <p className="report-empty-note">Private reports are visible only to you.</p>
         </div>
       </div>
     </Modal>

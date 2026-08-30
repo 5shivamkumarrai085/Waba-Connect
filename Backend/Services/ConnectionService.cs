@@ -16,17 +16,23 @@ public class ConnectionService : IConnectionService
     private readonly IPermissionService _permissionService;
     private readonly ITemplateService _templateService;
     private readonly IAuditService _auditService;
+    private readonly IMetaGraphService _metaGraphService;
+    private readonly IPhoneRepository _phoneRepository;
 
     public ConnectionService(
         AppDbContext dbContext,
         IPermissionService permissionService,
         ITemplateService templateService,
-        IAuditService auditService)
+        IAuditService auditService,
+        IMetaGraphService metaGraphService,
+        IPhoneRepository phoneRepository)
     {
         _dbContext = dbContext;
         _permissionService = permissionService;
         _templateService = templateService;
         _auditService = auditService;
+        _metaGraphService = metaGraphService;
+        _phoneRepository = phoneRepository;
     }
 
     public async Task<List<ConnectionResponse>> GetAllAsync(string? userId = null, string? departmentId = null)
@@ -193,24 +199,134 @@ public class ConnectionService : IConnectionService
         return true;
     }
 
+    /// <summary>
+    /// Brings a disconnected connection back into service.
+    ///
+    /// <para>
+    /// This used to set <c>Connected = true</c> and return. That is not a reconnection — disconnect
+    /// clears the credentials and deletes the sender numbers, so flipping the flag produced a
+    /// connection the list called "Connected" and Chat called "Setup pending", because it had
+    /// authentication for nothing and no number to send from. Neither screen was wrong; the state
+    /// was.
+    /// </para>
+    /// <para>
+    /// So there are two honest outcomes. If the credentials survived, re-fetch the sender numbers
+    /// from Meta and the connection genuinely works again. If they did not, refuse and say the
+    /// connect wizard has to be run again — a reconnect cannot invent an access token back.
+    /// </para>
+    /// </summary>
     public async Task<bool> ReconnectAsync(int id)
     {
         var config = await _dbContext.WabaConfigurations
             .FirstOrDefaultAsync(w => w.ConnectionId == id);
 
-        if (config != null)
-        {
-            config.Connected = true;
-            config.UpdatedAt = DateTime.UtcNow;
-            await _dbContext.SaveChangesAsync();
+        var name = await GetConnectionNameAsync(id);
 
+        if (config == null
+            || string.IsNullOrWhiteSpace(config.WabaId)
+            || string.IsNullOrWhiteSpace(config.AccessToken))
+        {
+            // Recorded as a failure, not swallowed: someone looking at why a connection stayed
+            // broken should find the attempt in the trail.
             await _auditService.LogAsync(
-                "Connection.Reconnected", "Data",
-                $"Reconnected connection \"{await GetConnectionNameAsync(id)}\".",
+                "Connection.ReconnectFailed", "Data",
+                $"Could not reconnect \"{name}\" — its WhatsApp credentials were cleared when it was disconnected.",
                 "Connection", id.ToString());
+
+            throw new InvalidOperationException(
+                $"\"{name}\" cannot be reconnected from here: disconnecting it cleared its WhatsApp " +
+                "credentials. Use Add Connection to link the WhatsApp Business Account again.");
         }
 
+        var restoredNumbers = await SyncPhoneNumbersAsync(config);
+
+        // Flipped only once Meta has actually answered. Setting it first and syncing after would
+        // leave a connection marked Connected behind a token Meta had just rejected — which is the
+        // exact state this whole change exists to stop producing.
+        config.Connected = true;
+        config.UpdatedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "Connection.Reconnected", "Data",
+            $"Reconnected connection \"{name}\"; {restoredNumbers} sender number(s) restored from Meta.",
+            "Connection", id.ToString());
+
         return true;
+    }
+
+    /// <summary>
+    /// Re-reads a connection's sender numbers from Meta and stores them against it.
+    ///
+    /// <para>
+    /// Exists because a connection can end up authenticated with no number attached — after a
+    /// disconnect/reconnect, or when the phone fetch failed during the original setup — and in that
+    /// state nothing can be sent or received even though everything looks configured. Until now the
+    /// only way out was to run the whole connect wizard again, which is a heavy answer to a missing
+    /// row.
+    /// </para>
+    /// <para>
+    /// Upserted by phone number id rather than cleared and re-inserted: these rows are referenced by
+    /// conversations and campaigns, and deleting them to write the same values back would break
+    /// those references for the sake of a refresh.
+    /// </para>
+    /// </summary>
+    public async Task<int> SyncPhoneNumbersAsync(int id)
+    {
+        var config = await _dbContext.WabaConfigurations
+            .FirstOrDefaultAsync(w => w.ConnectionId == id);
+
+        var name = await GetConnectionNameAsync(id);
+
+        if (config == null
+            || string.IsNullOrWhiteSpace(config.WabaId)
+            || string.IsNullOrWhiteSpace(config.AccessToken))
+        {
+            throw new InvalidOperationException(
+                $"\"{name}\" has no stored WhatsApp credentials to sync with. Use Add Connection to link it again.");
+        }
+
+        var count = await SyncPhoneNumbersAsync(config);
+
+        await _auditService.LogAsync(
+            "Connection.NumbersSynced", "Data",
+            $"Synced sender numbers for \"{name}\" from Meta; {count} number(s) attached.",
+            "Connection", id.ToString());
+
+        return count;
+    }
+
+    /// <summary>
+    /// Fetches and stores a connection's numbers, throwing with Meta's own words when Meta refused.
+    ///
+    /// <para>
+    /// The distinction matters more than it looks. An expired access token and a WABA with no
+    /// phone number both used to arrive here as an empty list, so both were reported as "no
+    /// numbers found" — which sent people looking for a missing phone number when the real answer
+    /// was that their token had expired days earlier and every send was going to fail too.
+    /// </para>
+    /// </summary>
+    private async Task<int> SyncPhoneNumbersAsync(WabaConfiguration config)
+    {
+        var result = await _metaGraphService.GetPhoneNumbersDetailedAsync(config.WabaId, config.AccessToken);
+
+        if (result.Error is not null)
+        {
+            throw new InvalidOperationException(
+                $"WhatsApp rejected this connection: {result.Error} Reconnect the account with a current access token.");
+        }
+
+        var fetched = result.Phones.ToList();
+        if (fetched.Count == 0) return 0;
+
+        foreach (var phone in fetched)
+        {
+            phone.ConnectionId = config.ConnectionId;
+        }
+
+        await _phoneRepository.SaveRangeAsync(fetched);
+
+        return fetched.Count;
     }
 
     public async Task<bool> SoftDeleteAsync(int id)
@@ -285,8 +401,25 @@ public class ConnectionService : IConnectionService
         var config = configs.FirstOrDefault(w => w.ConnectionId == connection.Id);
         var phone = phones.FirstOrDefault(p => p.ConnectionId == connection.Id);
 
+        var isConnected = config?.Connected ?? false;
+        var hasCredentials = config != null
+            && !string.IsNullOrWhiteSpace(config.WabaId)
+            && !string.IsNullOrWhiteSpace(config.AccessToken);
+        var hasPhone = phone != null && !string.IsNullOrWhiteSpace(phone.PhoneNumber);
+
         return new ConnectionResponse
         {
+            // Connected means usable: credentials that work and a number to send from. A
+            // connection missing either is reported as "Setup pending" rather than as connected,
+            // which is what Chat has always shown and what the list used to contradict.
+            Status = !isConnected
+                ? "Disconnected"
+                : hasCredentials && hasPhone
+                    ? "Connected"
+                    : "Setup pending",
+            HasCredentials = hasCredentials,
+            HasPhoneNumber = hasPhone,
+            IsConnected = isConnected,
             Id = connection.Id,
             Name = connection.Name,
             Nickname = connection.Nickname,
@@ -297,7 +430,6 @@ public class ConnectionService : IConnectionService
             DisplayName = phone?.DisplayName,
             VerifiedName = phone?.VerifiedName,
             WabaId = config?.WabaId,
-            IsConnected = config?.Connected ?? false,
             ConnectedOn = config?.CreatedAt,
             CreatedAt = connection.CreatedAt
         };

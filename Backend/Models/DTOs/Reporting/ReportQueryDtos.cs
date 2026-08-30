@@ -6,6 +6,26 @@ namespace WhatsAppCampaignApi.Models.DTOs.Reporting;
 /// </summary>
 public class ReportQueryRequest
 {
+    /// <summary>
+    /// Which report type this request is asking for — see <c>ReportCatalog</c>. Null or an
+    /// unrecognised key falls back to the custom report, which scopes nothing; a typo must
+    /// return everything rather than silently return nothing.
+    /// </summary>
+    public string? ReportType { get; set; }
+
+    /// <summary>
+    /// The scope within that type ("All Messages", "Failures Only", …). Validated against the
+    /// chosen type's own section list, so a section belonging to a different type cannot be
+    /// smuggled in by editing a saved report's JSON.
+    /// </summary>
+    public string? DataSection { get; set; }
+
+    /// <summary>
+    /// Grouping key, or null/"none" for the row-level listing. Only meaningful to the grouped
+    /// endpoint — the row endpoint ignores it, so the two never disagree about paging.
+    /// </summary>
+    public string? GroupBy { get; set; }
+
     /// <summary>Inclusive lower bound on the message timestamp.</summary>
     public DateTime? From { get; set; }
 
@@ -36,6 +56,19 @@ public class ReportQueryRequest
 
     /// <summary>True to return only rows that carry a failure reason.</summary>
     public bool? FailedOnly { get; set; }
+
+    /// <summary>
+    /// Exact failure reasons to match. Distinct from <see cref="FailedOnly"/>: that asks for
+    /// every failure, this asks for a particular kind — which is the question a delivery report
+    /// is usually opened to answer.
+    /// </summary>
+    public List<string>? FailureReasons { get; set; }
+
+    /// <summary>
+    /// Agents, matched against the contact's assignee. A message carries no agent of its own —
+    /// ownership in this product lives on the contact — so this filters through that.
+    /// </summary>
+    public List<string>? Agents { get; set; }
 
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 25;
@@ -77,6 +110,19 @@ public class ReportRowDto
     /// <summary>The rendered message body, truncated for the table; exports carry the full text.</summary>
     public string? Content { get; set; }
 
+    /// <summary>
+    /// The template name when the row came from a campaign, and the message's own content when it
+    /// did not. One column because that is the question being asked of it — "what was sent" — and
+    /// two columns, one of them always blank, answers it worse.
+    /// </summary>
+    public string? TemplateOrContent { get; set; }
+
+    /// <summary>Raw media type as WhatsApp reported it. Null for a text message.</summary>
+    public string? MediaType { get; set; }
+
+    /// <summary>The contact's assignee at the time of reading. Null when nobody owns the contact.</summary>
+    public string? Agent { get; set; }
+
     public DateTime? SentAt { get; set; }
     public DateTime? DeliveredAt { get; set; }
     public DateTime? ReadAt { get; set; }
@@ -107,6 +153,18 @@ public class ReportFilterOptionsDto
     public List<string> MessageTypes { get; set; } = new();
     public List<string> Directions { get; set; } = new();
     public List<string> Statuses { get; set; } = new();
+
+    /// <summary>
+    /// Contacts that actually appear in the message table, most recent first and capped — the
+    /// contact book can run to tens of thousands, and a dropdown is not a place to render one.
+    /// </summary>
+    public List<ReportOption> Contacts { get; set; } = new();
+
+    /// <summary>Distinct failure reasons present in the data, so the list is never stale.</summary>
+    public List<string> FailureReasons { get; set; } = new();
+
+    /// <summary>Distinct contact assignees — the agents a report can be narrowed to.</summary>
+    public List<string> Agents { get; set; } = new();
 
     /// <summary>Earliest and latest message timestamps, so the date picker can bound itself.</summary>
     public DateTime? EarliestRecord { get; set; }
@@ -147,6 +205,19 @@ public class SavedReportDto
 
     /// <summary>The filter set, replayed when the report is run.</summary>
     public ReportQueryRequest Filters { get; set; } = new();
+
+    /// <summary>
+    /// Report type, section and grouping resolved to their display labels.
+    ///
+    /// Resolved server-side rather than left as keys for the client to look up: the saved list is
+    /// rendered before the metadata document has necessarily arrived, and a table of raw keys in
+    /// the meantime reads as broken.
+    /// </summary>
+    public string ReportTypeLabel { get; set; } = string.Empty;
+
+    public string DataSectionLabel { get; set; } = string.Empty;
+
+    public string GroupByLabel { get; set; } = string.Empty;
 
     public bool IsShared { get; set; }
 

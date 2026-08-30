@@ -50,8 +50,42 @@ export interface ReportColumn {
   derivedNote?: string | null
 }
 
+/** A keyed option with a display label — data sections and groupings both use it. */
+export interface ReportKeyedOption {
+  key: string
+  label: string
+  description?: string | null
+}
+
+/** One report type: the shape of the question being asked, and what it allows. */
+export interface ReportType {
+  key: string
+  label: string
+  description?: string | null
+  dataSections: ReportKeyedOption[]
+  groupByKeys: string[]
+  columnKeys: string[]
+  defaultColumnKeys: string[]
+}
+
+/**
+ * The builder's whole vocabulary, served as one document.
+ *
+ * Nothing here is duplicated in the client: a report type the UI offers is one the query service
+ * knows how to scope, because they are the same list.
+ */
+export interface ReportMetadata {
+  reportTypes: ReportType[]
+  columns: ReportColumn[]
+  groupBys: ReportKeyedOption[]
+  groupColumns: ReportColumn[]
+}
+
 /** The filter set the builder sends with every query, export and saved report. */
 export interface ReportFilters {
+  reportType?: string | null
+  dataSection?: string | null
+  groupBy?: string | null
   from?: string | null
   to?: string | null
   campaignIds?: number[] | null
@@ -61,13 +95,21 @@ export interface ReportFilters {
   directions?: string[] | null
   statuses?: string[] | null
   templateNames?: string[] | null
+  failureReasons?: string[] | null
+  agents?: string[] | null
   search?: string | null
   failedOnly?: boolean | null
   page: number
   pageSize: number
 }
 
-export const emptyReportFilters = (): ReportFilters => ({ page: 1, pageSize: 25 })
+export const emptyReportFilters = (): ReportFilters => ({
+  reportType: 'custom',
+  dataSection: 'all',
+  groupBy: 'none',
+  page: 1,
+  pageSize: 25
+})
 
 /** One row of the report — a chat message, or a campaign recipient that never produced one. */
 export interface ReportRow {
@@ -88,6 +130,28 @@ export interface ReportRow {
   failureReason?: string | null
   responded?: boolean | null
   responseMinutes?: number | null
+  /** Template name for a campaign send; the message's own text or attachment otherwise. */
+  templateOrContent?: string | null
+  mediaType?: string | null
+  /** The contact's assignee — a message carries no agent of its own. */
+  agent?: string | null
+}
+
+/** One aggregated row, returned when the builder is grouping rather than listing. */
+export interface ReportGroupRow {
+  key: string
+  label: string
+  total: number
+  outgoing: number
+  incoming: number
+  delivered: number
+  read: number
+  failed: number
+  responded: number
+  /** Replies as a percentage of outgoing. Null when the group sent nothing. */
+  responseRate?: number | null
+  firstAt?: string | null
+  lastAt?: string | null
 }
 
 interface ReportOption {
@@ -103,6 +167,10 @@ export interface ReportFilterOptions {
   messageTypes: string[]
   directions: string[]
   statuses: string[]
+  /** Only contacts that actually appear in the message data, capped server-side. */
+  contacts: ReportOption[]
+  failureReasons: string[]
+  agents: string[]
   earliestRecord?: string | null
   latestRecord?: string | null
 }
@@ -117,6 +185,10 @@ export interface SavedReport {
   isShared: boolean
   /** True only when the signed-in user owns it — the only case edit/delete are allowed. */
   isOwner: boolean
+  /** Report type, section and grouping resolved to labels by the server. */
+  reportTypeLabel: string
+  dataSectionLabel: string
+  groupByLabel: string
   ownerName?: string | null
   lastRunAt?: string | null
   createdAt: string

@@ -7,6 +7,8 @@ import type {
   ExportItemModel,
   ReportColumn,
   ReportFilterOptions,
+  ReportGroupRow,
+  ReportMetadata,
   ReportFilters,
   ReportRow,
   ReportExportFormat,
@@ -17,6 +19,15 @@ import type {
 /** Same shape as the other paged list responses in this app (see AuditLogPage). */
 export interface ReportRowPage {
   items: ReportRow[]
+  totalCount: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+/** The same envelope for aggregated rows. */
+export interface ReportGroupPage {
+  items: ReportGroupRow[]
   totalCount: number
   page: number
   pageSize: number
@@ -87,6 +98,18 @@ export const reportingService = {
     return response.data?.data || []
   },
 
+  /**
+   * The builder's report types, sections, groupings and column catalogue, in one request.
+   *
+   * One call rather than four because the four are useless apart — a report type cannot be
+   * rendered without the sections it allows — and a page that opens with one request feels like
+   * a page rather than a loading sequence.
+   */
+  getReportMetadata: async (): Promise<ReportMetadata> => {
+    const response = await apiClient.get('/Reporting/report/metadata')
+    return response.data?.data
+  },
+
   getReportFilterOptions: async (): Promise<ReportFilterOptions> => {
     const response = await apiClient.get('/Reporting/report/filter-options')
     return response.data?.data
@@ -102,6 +125,16 @@ export const reportingService = {
    */
   runReport: async (filters: ReportFilters): Promise<ReportRowPage> => {
     const response = await apiClient.post('/Reporting/report/query', filters)
+    return response.data?.data
+  },
+
+  /**
+   * The aggregated form of the same query. A separate call rather than a mode flag: the two
+   * return genuinely different rows, and one response carrying both — half of it always empty —
+   * would make every caller work out which half to read.
+   */
+  runGroupedReport: async (filters: ReportFilters): Promise<ReportGroupPage> => {
+    const response = await apiClient.post('/Reporting/report/grouped', filters)
     return response.data?.data
   },
 

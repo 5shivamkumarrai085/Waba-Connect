@@ -54,6 +54,9 @@ public class AppDbContext : DbContext
     // Reporting
     public DbSet<ReportDefinition> ReportDefinitions { get; set; } = null!;
 
+    /// <summary>Key/value store behind the OmniConnect settings screen. See AppSetting.</summary>
+    public DbSet<AppSetting> AppSettings { get; set; } = null!;
+
     // Setup lookups
     public DbSet<ContactStatusLookup> ContactStatuses { get; set; } = null!;
     public DbSet<ContactSourceLookup> ContactSources { get; set; } = null!;
@@ -181,6 +184,13 @@ public class AppDbContext : DbContext
         // Deliberately no foreign key from Contact to these tables. Contact.Status/Source keep
         // storing the lookup's immutable Value string, which means this migration adds tables
         // without touching a single existing contact row.
+        modelBuilder.Entity<AppSetting>(entity =>
+        {
+            // Unique rather than merely indexed: two rows for one key would make "the current
+            // value" ambiguous, and which one won would depend on row order.
+            entity.HasIndex(e => e.Key).IsUnique();
+        });
+
         modelBuilder.Entity<ContactStatusLookup>(entity =>
         {
             entity.ToTable("ContactStatuses");

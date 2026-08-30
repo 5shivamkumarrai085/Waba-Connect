@@ -99,6 +99,19 @@ public class ReportingController : ControllerBase
     public IActionResult GetReportColumns() =>
         Ok(new ApiResponse<object> { Success = true, Data = _reportQueryService.GetColumns() });
 
+    /// <summary>
+    /// The builder's whole vocabulary — report types, the data sections and groupings each one
+    /// offers, and the column catalogue.
+    ///
+    /// One document rather than four endpoints: the client cannot draw a report type without
+    /// knowing which sections it allows, so fetching them apart would only add round trips to the
+    /// same page load.
+    /// </summary>
+    [HttpGet("report/metadata")]
+    [RequiresPermission("Reporting.View")]
+    public IActionResult GetReportMetadata() =>
+        Ok(new ApiResponse<ReportMetadataDto> { Success = true, Data = _reportQueryService.GetMetadata() });
+
     /// <summary>Filter options built from values actually present in the data.</summary>
     [HttpGet("report/filter-options")]
     [RequiresPermission("Reporting.View")]
@@ -121,6 +134,21 @@ public class ReportingController : ControllerBase
     {
         var data = await _reportQueryService.QueryAsync(request ?? new ReportQueryRequest());
         return Ok(new ApiResponse<PagedResponse<ReportRowDto>> { Success = true, Data = data });
+    }
+
+    /// <summary>
+    /// One page of aggregated rows, for a request that chose a grouping.
+    ///
+    /// A separate endpoint rather than a mode flag on the row query: the two return genuinely
+    /// different shapes, and a single response carrying both — one of them always empty — would
+    /// make every caller check which half to read.
+    /// </summary>
+    [HttpPost("report/grouped")]
+    [RequiresPermission("Reporting.View")]
+    public async Task<IActionResult> RunGroupedReport([FromBody] ReportQueryRequest request)
+    {
+        var data = await _reportQueryService.QueryGroupedAsync(request ?? new ReportQueryRequest());
+        return Ok(new ApiResponse<PagedResponse<ReportGroupRowDto>> { Success = true, Data = data });
     }
 
     /// <summary>

@@ -1,9 +1,12 @@
-/* Reporting.css */
+/* Reporting.css — the page frame: header and section cards.
+   Everything inside a card is styled by ReportBuilder.css. */
 
 .reporting-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
   margin-bottom: 24px;
 }
 
@@ -18,6 +21,7 @@
 .reporting-title-area p {
   font-size: 13px;
   color: var(--text-muted);
+  max-width: 640px;
 }
 
 .reporting-section-card {
@@ -44,72 +48,4 @@
 .reporting-section-subtitle {
   font-size: 11px;
   color: var(--text-muted);
-}
-
-/* 2-Column bottom section layout */
-.reporting-bottom-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-}
-
-@media (max-width: 992px) {
-  .reporting-bottom-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.customisation-card {
-  display: flex;
-  flex-direction: column;
-}
-
-.customisation-feature-list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.customisation-feature-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--text-main);
-  font-weight: 500;
-}
-
-.customisation-feature-check-icon {
-  color: var(--success);
-  flex-shrink: 0;
-}
-
-/* === Gen-Z Animations === */
-.page-header { animation: slideUp 0.4s ease-out forwards; }
-.data-table tbody tr { animation: fadeIn 0.3s ease-out forwards; }
-.data-table tbody tr:hover { background: rgba(99, 102, 241, 0.04) !important; transition: background 0.2s ease; }
-
-/* ── Custom Reports divider ──────────────────────────────────────────────── */
-
-.reporting-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 28px 0 16px;
-  font-size: 13px;
-  font-weight: 700;
-  font-family: var(--font-title);
-  color: var(--text-light);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.reporting-divider::before,
-.reporting-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background-color: var(--border-color);
 }

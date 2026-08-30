@@ -399,6 +399,20 @@
   color: #c2410c;
 }
 
+/* Authenticated but unusable. Amber rather than green or red: nothing has failed, and nothing
+   works either. */
+.conn-status-badge.pending {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+.conn-status-hint {
+  margin-top: 4px;
+  font-size: 0.6875rem;
+  color: #b45309;
+  max-width: 190px;
+}
+
 /* Action Buttons.
    Left-aligned now that the column leads the row; flex-end made sense only against the table's
    right edge. */

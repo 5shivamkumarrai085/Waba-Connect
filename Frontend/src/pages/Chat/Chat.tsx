@@ -187,13 +187,21 @@ export const Chat: React.FC = () => {
   useEffect(() => {
     if (connections.length === 0) return
 
-    const selectionIsValid = selectedConnectionId !== null && connections.some(c => c.id === selectedConnectionId)
-    if (selectionIsValid) return
+    const current = connections.find(c => c.id === selectedConnectionId)
+    const firstUsable = connections.find(c => c.isConnected && c.phoneNumber)
 
-    // No connection selected yet, or the persisted/previously-selected one no longer exists
-    // (e.g. it was deleted) — fall back to the first connected line, or just the first connection.
-    const firstConnected = connections.find(c => c.isConnected && c.phoneNumber)
-    setSelectedConnectionId(firstConnected ? firstConnected.id : connections[0].id)
+    // A selection is only worth keeping if it can actually carry a message. The check used to be
+    // "does this connection still exist", which meant a remembered connection that had lost its
+    // sender number kept the whole screen in "Setup pending" — with a working line sitting one
+    // item down the dropdown, unselected. Existing-but-unusable is not a selection worth honouring.
+    const currentIsUsable = Boolean(current?.isConnected && current?.phoneNumber)
+    if (currentIsUsable) return
+
+    // Only moved when there is somewhere better to go: if nothing can send, the remembered choice
+    // stays put rather than shuffling between equally broken lines on every render.
+    if (current && !firstUsable) return
+
+    setSelectedConnectionId(firstUsable ? firstUsable.id : connections[0].id)
   }, [connections, selectedConnectionId, setSelectedConnectionId])
 
   // Accounts change only when someone connects or disconnects a WABA, which the connection

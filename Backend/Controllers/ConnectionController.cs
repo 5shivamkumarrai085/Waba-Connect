@@ -84,7 +84,30 @@ public class ConnectionController : ControllerBase
     public async Task<IActionResult> Reconnect(int id)
     {
         var success = await _connectionService.ReconnectAsync(id);
-        return Ok(new { success, message = "Connection status set to connected." });
+        return Ok(new { success, message = "Connection reconnected and sender numbers restored." });
+    }
+
+    /// <summary>
+    /// Re-reads this connection's sender numbers from Meta.
+    ///
+    /// The repair for a connection that is authenticated but has no number attached — it looks
+    /// configured, and can neither send nor receive. Before this the only way back was to run the
+    /// whole connect wizard again.
+    /// </summary>
+    [HttpPost("{id}/sync-numbers")]
+    [RequiresPermission("ConnectAccount.Connect")]
+    public async Task<IActionResult> SyncNumbers(int id)
+    {
+        var count = await _connectionService.SyncPhoneNumbersAsync(id);
+
+        return Ok(new
+        {
+            success = count > 0,
+            count,
+            message = count > 0
+                ? $"{count} sender number(s) attached."
+                : "Meta returned no phone numbers for this WhatsApp Business Account. Add a number to it in Meta Business Manager, then sync again."
+        });
     }
 
     [HttpDelete("{id}")]

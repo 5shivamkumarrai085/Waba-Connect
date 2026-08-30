@@ -1,87 +1,48 @@
-/* ReportBuilder — reuses the app's existing section-card, filter-panel and chip tokens
-   (ActivityLogs.css, MultiSelectChips.css) rather than inventing a parallel set. */
+/* ReportBuilder — the whole Reporting & Analytics page.
+   Built on the app's own tokens (index.css) rather than a parallel palette, so it inherits
+   dark mode and the shared radii/shadows without restating any of them. */
 
-.report-builder {
+.reporting-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
 }
 
-.reporting-section-title {
+/* ── Page header ──────────────────────────────────────────────────────────── */
+
+.reporting-header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-/* ── Column picker ─────────────────────────────────────────────────────── */
-
-.report-builder-columns {
-  margin-bottom: 16px;
-}
-
-.report-builder-columns-head {
-  margin-bottom: 8px;
-}
-
-.report-builder-columns-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-light);
-}
-
-.report-column-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 6px 14px;
-  padding: 12px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  background-color: var(--bg-primary);
-}
-
-.report-column-option {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 2px;
-  font-size: 13px;
-  color: var(--text-main);
-  cursor: pointer;
-}
-
-.report-column-option input[type='checkbox'] {
-  accent-color: var(--primary);
-  cursor: pointer;
-}
-
-.report-column-derived {
-  display: inline-flex;
-  color: var(--text-light);
-  cursor: help;
-}
-
-.report-selected-columns {
-  margin-top: 10px;
-}
-
-/* ── Toolbar ───────────────────────────────────────────────────────────── */
-
-.report-builder-toolbar {
-  display: flex;
-  align-items: center;
+  gap: 10px;
   flex-wrap: wrap;
+}
+
+.report-range-chip {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  padding-top: 14px;
-  margin-top: 4px;
-  border-top: 1px solid var(--border-light);
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-secondary);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.report-range-chip:hover {
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .report-toolbar-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 12px;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background-color: var(--bg-secondary);
@@ -108,12 +69,12 @@
   color: var(--primary);
 }
 
-.report-run-btn {
+.report-export-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 16px;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
   border: none;
   border-radius: var(--radius-md);
   background-color: var(--primary);
@@ -122,69 +83,502 @@
   font-weight: 600;
   cursor: pointer;
   transition: filter 0.15s ease;
-  margin-left: auto;
 }
 
-.report-run-btn:hover:not(:disabled) {
+.report-export-btn:hover:not(:disabled) {
   filter: brightness(1.08);
 }
 
-.report-run-btn:disabled {
-  opacity: 0.6;
+.report-export-btn:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
-/* ── Filters panel ─────────────────────────────────────────────────────── */
+/* Splits the label from the caret, the way a split button reads — without making the two halves
+   do different things, which would mean writing a file before saying which file. */
+.report-export-divider {
+  width: 1px;
+  height: 18px;
+  background-color: rgba(255, 255, 255, 0.35);
+}
+
+.report-export-dropdown {
+  min-width: 190px;
+}
+
+.report-export-icon.is-pdf {
+  color: #dc2626;
+}
+
+.report-export-icon.is-excel,
+.report-export-icon.is-csv {
+  color: #16a34a;
+}
+
+/* ── Configuration row ────────────────────────────────────────────────────── */
+
+.report-config-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr)) auto;
+  align-items: end;
+  gap: 16px;
+}
+
+.report-config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.report-config-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.report-select {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-secondary);
+  color: var(--text-main);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.report-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.report-select-sm {
+  width: auto;
+  height: 34px;
+  padding: 0 8px;
+}
+
+/* The Columns control is a menu, not a <select>, but it has to sit in the same row and read as
+   the same kind of field — so it borrows the select's box and adds its own caret. */
+.report-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+
+.report-select-trigger.is-open {
+  border-color: var(--primary);
+}
+
+.report-select-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.report-save-btn {
+  height: 38px;
+  white-space: nowrap;
+}
+
+/* ── Selected columns ─────────────────────────────────────────────────────── */
+
+.report-selected-columns-block {
+  margin-top: 20px;
+}
+
+.report-selected-columns-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.report-selected-columns-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.report-add-column-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.report-add-column-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.report-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.report-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px 0 11px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-primary);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.report-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-light);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.report-chip-remove:hover {
+  background-color: var(--error-light);
+  color: var(--error);
+}
+
+.report-empty-note,
+.report-grouped-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.report-grouped-note {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-primary);
+}
+
+/* ── Columns dropdown ─────────────────────────────────────────────────────── */
+
+.report-columns-dropdown {
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.report-columns-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.report-columns-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border-color);
+  border-radius: 4px;
+  color: #fff;
+}
+
+.report-columns-check.is-checked {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+.report-columns-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.report-columns-derived {
+  display: inline-flex;
+  color: var(--text-light);
+  cursor: help;
+}
+
+.report-columns-empty {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ── Advanced filters ─────────────────────────────────────────────────────── */
 
 .report-filters-wrap {
   overflow: hidden;
 }
 
+/* Spacing lives on the content, not under the heading, so the collapsed panel closes flush
+   instead of leaving an empty band below the row. */
+.report-filters-wrap > .report-filters-grid {
+  padding-top: 16px;
+}
+
 .report-filters-panel {
-  margin-top: 14px;
-  margin-bottom: 0;
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-primary);
 }
 
-.report-filters-daterange {
-  grid-column: span 2;
-}
-
-.report-filters-failed label {
+/* The heading is the disclosure control, so it carries a button's reset and spans the panel —
+   the whole row is the hit target, not just the words. */
+.report-filters-head {
   display: flex;
   align-items: center;
   gap: 7px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-main);
+  text-align: left;
   cursor: pointer;
 }
 
-.report-filters-failed input[type='checkbox'] {
-  accent-color: var(--primary);
+.report-filters-head:hover {
+  color: var(--primary);
+}
+
+.report-filters-head:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.report-filters-chevron {
+  margin-left: auto;
+  color: var(--text-light);
+  transition: transform 0.18s var(--ease-out, ease);
+}
+
+.report-filters-head.is-open .report-filters-chevron {
+  transform: rotate(180deg);
+}
+
+.report-filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.report-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.report-filter-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.report-daterange-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.report-daterange-inputs .form-control {
+  min-width: 0;
+  flex: 1;
+}
+
+.report-daterange-sep {
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+/* Spans two tracks: two date inputs side by side in one track are too narrow to read the year in. */
+.report-filter-daterange {
+  grid-column: span 2;
+}
+
+.report-filters-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.report-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--error);
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 
-@media (max-width: 900px) {
-  .report-filters-daterange {
-    grid-column: span 1;
-  }
+.report-clear-btn:hover {
+  background-color: var(--error-light);
 }
 
-/* ── Table cells ───────────────────────────────────────────────────────── */
+.report-apply-btn {
+  height: 34px;
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius-md);
+  background-color: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.report-apply-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.report-apply-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Results ──────────────────────────────────────────────────────────────── */
+
+.report-results-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.report-results-head .reporting-section-header {
+  margin-bottom: 0;
+}
+
+.report-results-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.report-pagesize {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ── Tables ───────────────────────────────────────────────────────────────── */
+
+.report-table-scroll {
+  /* The table is the only thing allowed to scroll sideways — the page body never does, however
+     many columns are selected. */
+  overflow-x: auto;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.report-table thead th {
+  padding: 11px 14px;
+  text-align: left;
+  white-space: nowrap;
+  background-color: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.report-table tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-main);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.report-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.report-table tbody tr:hover {
+  background-color: var(--bg-hover);
+}
+
+.report-table-empty {
+  padding: 32px 14px !important;
+  text-align: center;
+  color: var(--text-muted);
+  white-space: normal !important;
+}
+
+.report-table .actions-col {
+  width: 1%;
+  white-space: nowrap;
+}
 
 .report-content-cell {
   display: inline-block;
-  max-width: 320px;
+  max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: middle;
 }
 
+.report-group-label {
+  font-weight: 600;
+}
+
 .report-direction {
   display: inline-flex;
   padding: 2px 8px;
-  border-radius: var(--radius-full, 999px);
+  border-radius: var(--radius-full);
   font-size: 11px;
   font-weight: 600;
 }
@@ -204,14 +598,155 @@
   color: var(--text-light);
 }
 
-.report-saved-actions {
+.report-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.report-name {
+  font-weight: 600;
+}
+
+.report-name-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.report-row-actions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
+.report-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.report-icon-btn:hover {
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+  color: var(--primary);
+}
+
+/* ── Pager ────────────────────────────────────────────────────────────────── */
+
+.report-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--border-light);
+}
+
+.report-pager-summary {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.report-pager-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.report-pager-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.report-pager-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.report-pager-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.report-pager-current {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  background-color: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ── Save dialog ──────────────────────────────────────────────────────────── */
+
 .report-save-form {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.report-save-shared label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.report-save-shared input[type='checkbox'] {
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+/* ── Narrow viewports ─────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .report-config-row {
+    grid-template-columns: repeat(2, minmax(150px, 1fr));
+  }
+
+  .report-save-btn {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 720px) {
+  .report-config-row {
+    grid-template-columns: 1fr;
+  }
+
+  .report-filter-daterange {
+    grid-column: span 1;
+  }
+
+  .reporting-header-actions {
+    width: 100%;
+  }
 }

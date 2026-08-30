@@ -177,23 +177,39 @@ namespace WhatsAppCampaignApi.Services
             }
         }
 
+        /// <summary>
+        /// A WABA's phone numbers, or an empty list if anything went wrong.
+        ///
+        /// Kept lossy for the callers that only want to refresh whatever they can reach — a
+        /// background sync should not fail a whole operation because one account is unreachable.
+        /// Anything user-triggered should call <see cref="GetPhoneNumbersDetailedAsync"/> instead
+        /// and say what actually happened.
+        /// </summary>
         public async Task<IEnumerable<WabaPhoneNumber>> GetPhoneNumbersAsync(string wabaId, string accessToken)
+        {
+            var result = await GetPhoneNumbersDetailedAsync(wabaId, accessToken);
+            return result.Phones;
+        }
+
+        public async Task<MetaPhoneNumbersResult> GetPhoneNumbersDetailedAsync(string wabaId, string accessToken)
         {
             if (IsMock(wabaId) || IsMock(accessToken))
             {
-                return new List<WabaPhoneNumber>
-                {
-                    new WabaPhoneNumber
+                return new MetaPhoneNumbersResult(
+                    new List<WabaPhoneNumber>
                     {
-                        PhoneNumber = "+15550192834",
-                        PhoneNumberId = "1098234857203",
-                        DisplayName = "RMA Support",
-                        VerifiedName = "RMA Global Enterprise Inc",
-                        Quality = "GREEN",
-                        Status = "APPROVED",
-                        MessageLimit = "1000"
-                    }
-                };
+                        new WabaPhoneNumber
+                        {
+                            PhoneNumber = "+15550192834",
+                            PhoneNumberId = "1098234857203",
+                            DisplayName = "RMA Support",
+                            VerifiedName = "RMA Global Enterprise Inc",
+                            Quality = "GREEN",
+                            Status = "APPROVED",
+                            MessageLimit = "1000"
+                        }
+                    },
+                    null);
             }
 
             try
@@ -202,17 +218,21 @@ namespace WhatsAppCampaignApi.Services
                 string url = $"{MetaGraphBaseUrl}/{wabaId}/phone_numbers";
                 var response = await client.GetAsync(url);
 
+                string content = await response.Content.ReadAsStringAsync();
+
                 if (!response.IsSuccessStatusCode)
                 {
-                    return new List<WabaPhoneNumber>();
+                    // Meta's own wording, surfaced rather than flattened. "The token has expired on
+                    // 15-Aug-26" tells someone exactly what to do; an empty list tells them nothing
+                    // and looks identical to an account that genuinely has no number yet.
+                    return new MetaPhoneNumbersResult(new List<WabaPhoneNumber>(), DescribeMetaError(content, response.StatusCode));
                 }
 
-                string content = await response.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(content);
                 var root = doc.RootElement;
-                
+
                 var phoneNumbers = new List<WabaPhoneNumber>();
-                
+
                 if (root.TryGetProperty("data", out var dataProp) && dataProp.ValueKind == JsonValueKind.Array)
                 {
                     foreach (var element in dataProp.EnumerateArray())
@@ -230,17 +250,41 @@ namespace WhatsAppCampaignApi.Services
 
                         // Clean quality text (e.g. UPPER CASE)
                         phone.Quality = phone.Quality.ToUpper();
-                        
+
                         phoneNumbers.Add(phone);
                     }
                 }
 
-                return phoneNumbers;
+                return new MetaPhoneNumbersResult(phoneNumbers, null);
+            }
+            catch (Exception ex)
+            {
+                return new MetaPhoneNumbersResult(new List<WabaPhoneNumber>(), $"Could not reach Meta: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Pulls the human-readable message out of a Graph API error body, falling back to the
+        /// status code when the body is not the shape we expect.
+        /// </summary>
+        private static string DescribeMetaError(string content, System.Net.HttpStatusCode statusCode)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(content);
+                if (doc.RootElement.TryGetProperty("error", out var error)
+                    && error.TryGetProperty("message", out var message))
+                {
+                    var text = message.GetString();
+                    if (!string.IsNullOrWhiteSpace(text)) return text!;
+                }
             }
             catch
             {
-                return new List<WabaPhoneNumber>();
+                // Fall through to the status code.
             }
+
+            return $"Meta rejected the request ({(int)statusCode}).";
         }
 
 

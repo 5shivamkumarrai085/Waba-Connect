@@ -38,70 +38,105 @@ public class ReportExportService : IReportExportService
             throw new ArgumentException($"Unsupported export format \"{format}\". Use csv, xlsx or pdf.");
         }
 
-        var columns = ResolveColumns(columnKeys);
+        var type = ReportCatalog.ResolveType(filters.ReportType);
+        var isGrouped = ReportCatalog.ResolveGroupByKey(type, filters.GroupBy) != ReportCatalog.NoGrouping;
+
+        // The file has to be the report that is on screen. A grouped report exported as its
+        // underlying messages would be a different document under the same name — and it is the
+        // one someone forwards as a record of what they were looking at.
+        return isGrouped
+            ? await ExportGroupedAsync(filters, type, normalisedFormat)
+            : await ExportRowsAsync(filters, type, columnKeys, normalisedFormat);
+    }
+
+    private async Task<ReportExportResult> ExportRowsAsync(
+        ReportQueryRequest filters,
+        ReportTypeDto type,
+        IReadOnlyList<string>? columnKeys,
+        string format)
+    {
+        var columns = ReportCatalog.ResolveColumns(type, columnKeys);
         var rows = await _reportQueryService.QueryAllAsync(filters);
 
-        if (normalisedFormat == "pdf" && rows.Count > MaxPdfRows)
-        {
-            throw new InvalidOperationException(
-                $"That range produces {rows.Count:N0} rows, which is too many for a PDF " +
-                $"(limit {MaxPdfRows:N0}). Narrow the date range, or export to Excel instead.");
-        }
+        GuardPdfSize(format, rows.Count);
 
-        var stamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+        return Render(format, columns, rows, ValueFor, filters, type);
+    }
 
-        return normalisedFormat switch
-        {
-            "csv" => new ReportExportResult(BuildCsv(columns, rows), "text/csv", $"report_{stamp}.csv"),
-            "xlsx" => new ReportExportResult(
-                BuildXlsx(columns, rows, filters),
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"report_{stamp}.xlsx"),
-            _ => new ReportExportResult(BuildPdf(columns, rows, filters), "application/pdf", $"report_{stamp}.pdf")
-        };
+    private async Task<ReportExportResult> ExportGroupedAsync(
+        ReportQueryRequest filters,
+        ReportTypeDto type,
+        string format)
+    {
+        var rows = await _reportQueryService.QueryAllGroupedAsync(filters);
+
+        GuardPdfSize(format, rows.Count);
+
+        return Render(format, ReportCatalog.GroupColumns, rows, GroupValueFor, filters, type);
+    }
+
+    private static void GuardPdfSize(string format, int rowCount)
+    {
+        if (format != "pdf" || rowCount <= MaxPdfRows) return;
+
+        throw new InvalidOperationException(
+            $"That range produces {rowCount:N0} rows, which is too many for a PDF " +
+            $"(limit {MaxPdfRows:N0}). Narrow the date range, or export to Excel instead.");
     }
 
     /// <summary>
-    /// Resolves the requested keys against the catalogue, dropping anything unrecognised and
-    /// falling back to the default set when nothing valid remains — an export with no columns is
-    /// a blank file, which reads as a broken feature rather than as an empty request.
+    /// Renders whichever row shape it is handed.
+    ///
+    /// Generic over the row rather than duplicated per shape: the three writers care about the
+    /// columns and a way to read a value, not about what a row is, and a second copy of the
+    /// spreadsheet formatting rules would immediately be the copy that is out of date.
     /// </summary>
-    private IReadOnlyList<ReportColumnDto> ResolveColumns(IReadOnlyList<string>? columnKeys)
+    private static ReportExportResult Render<TRow>(
+        string format,
+        IReadOnlyList<ReportColumnDto> columns,
+        IReadOnlyList<TRow> rows,
+        Func<TRow, string, object?> valueFor,
+        ReportQueryRequest filters,
+        ReportTypeDto type)
     {
-        var catalogue = _reportQueryService.GetColumns();
+        var stamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+        var slug = type.Key;
 
-        if (columnKeys is { Count: > 0 })
+        return format switch
         {
-            var selected = columnKeys
-                .Select(key => catalogue.FirstOrDefault(c =>
-                    string.Equals(c.Key, key, StringComparison.OrdinalIgnoreCase)))
-                .Where(c => c is not null)
-                .Select(c => c!)
-                .ToList();
-
-            if (selected.Count > 0) return selected;
-        }
-
-        return catalogue.Where(c => c.DefaultVisible).ToList();
+            "csv" => new ReportExportResult(
+                BuildCsv(columns, rows, valueFor), "text/csv", $"{slug}_report_{stamp}.csv"),
+            "xlsx" => new ReportExportResult(
+                BuildXlsx(columns, rows, valueFor, filters, type),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                $"{slug}_report_{stamp}.xlsx"),
+            _ => new ReportExportResult(
+                BuildPdf(columns, rows, valueFor, filters, type), "application/pdf", $"{slug}_report_{stamp}.pdf")
+        };
     }
 
-    private static byte[] BuildCsv(IReadOnlyList<ReportColumnDto> columns, IReadOnlyList<ReportRowDto> rows)
+    private static byte[] BuildCsv<TRow>(
+        IReadOnlyList<ReportColumnDto> columns,
+        IReadOnlyList<TRow> rows,
+        Func<TRow, string, object?> valueFor)
     {
         var csv = new CsvWriter();
         csv.WriteHeader(columns.Select(c => c.Label).ToArray());
 
         foreach (var row in rows)
         {
-            csv.WriteRow(columns.Select(c => ValueFor(row, c.Key)).ToArray());
+            csv.WriteRow(columns.Select(c => valueFor(row, c.Key)).ToArray());
         }
 
         return csv.ToBytes();
     }
 
-    private static byte[] BuildXlsx(
+    private static byte[] BuildXlsx<TRow>(
         IReadOnlyList<ReportColumnDto> columns,
-        IReadOnlyList<ReportRowDto> rows,
-        ReportQueryRequest filters)
+        IReadOnlyList<TRow> rows,
+        Func<TRow, string, object?> valueFor,
+        ReportQueryRequest filters,
+        ReportTypeDto type)
     {
         using var workbook = new XLWorkbook();
         var sheet = workbook.Worksheets.Add("Report");
@@ -120,7 +155,7 @@ public class ReportExportService : IReportExportService
             for (var c = 0; c < columns.Count; c++)
             {
                 var cell = sheet.Cell(r + 2, c + 1);
-                var value = ValueFor(rows[r], columns[c].Key);
+                var value = valueFor(rows[r], columns[c].Key);
 
                 // Typed, not stringified. This is the reason for using a real spreadsheet library:
                 // a date written as text cannot be sorted chronologically and a number written as
@@ -135,6 +170,11 @@ public class ReportExportService : IReportExportService
                         break;
                     case double d:
                         cell.Value = d;
+                        break;
+                    // Grouped reports are counts. Written as numbers so the column sums, which is
+                    // the first thing anyone does to a column of counts.
+                    case int i:
+                        cell.Value = i;
                         break;
                     case bool b:
                         cell.Value = b ? "Yes" : "No";
@@ -168,7 +208,7 @@ public class ReportExportService : IReportExportService
         meta.Cell(2, 2).Value = rows.Count;
 
         var metaRow = 3;
-        foreach (var (label, value) in DescribeFilters(filters))
+        foreach (var (label, value) in DescribeFilters(filters, type))
         {
             meta.Cell(metaRow, 1).Value = label;
             meta.Cell(metaRow, 2).SetValue(value);
@@ -182,14 +222,16 @@ public class ReportExportService : IReportExportService
         return stream.ToArray();
     }
 
-    private static byte[] BuildPdf(
+    private static byte[] BuildPdf<TRow>(
         IReadOnlyList<ReportColumnDto> columns,
-        IReadOnlyList<ReportRowDto> rows,
-        ReportQueryRequest filters)
+        IReadOnlyList<TRow> rows,
+        Func<TRow, string, object?> valueFor,
+        ReportQueryRequest filters,
+        ReportTypeDto type)
     {
         // QuestPDF's Community licence is set once at startup (Program.cs) — not here, since this
         // runs on every export and the setting is a static process-wide flag.
-        var filterSummary = DescribeFilters(filters).ToList();
+        var filterSummary = DescribeFilters(filters, type).ToList();
 
         var document = Document.Create(container =>
         {
@@ -203,7 +245,7 @@ public class ReportExportService : IReportExportService
 
                 page.Header().Column(header =>
                 {
-                    header.Item().Text("Report").FontSize(16).Bold();
+                    header.Item().Text(type.Label).FontSize(16).Bold();
                     header.Item().Text(
                         $"Generated {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC · {rows.Count:N0} row(s)")
                         .FontSize(8).FontColor("#6b7280");
@@ -243,7 +285,7 @@ public class ReportExportService : IReportExportService
                         foreach (var column in columns)
                         {
                             table.Cell().Background(background).Padding(3)
-                                .Text(FormatForDocument(ValueFor(rows[i], column.Key))).FontSize(7);
+                                .Text(FormatForDocument(valueFor(rows[i], column.Key))).FontSize(7);
                         }
                     }
                 });
@@ -276,6 +318,9 @@ public class ReportExportService : IReportExportService
         "connectionName" => row.ConnectionName,
         "direction" => row.Direction,
         "messageType" => row.MessageType,
+        "mediaType" => row.MediaType,
+        "templateOrContent" => row.TemplateOrContent,
+        "agent" => row.Agent,
         "status" => row.Status,
         "content" => row.Content,
         "sentAt" => row.SentAt,
@@ -284,6 +329,26 @@ public class ReportExportService : IReportExportService
         "failureReason" => row.FailureReason,
         "responded" => row.Responded,
         "responseMinutes" => row.ResponseMinutes,
+        _ => null
+    };
+
+    /// <summary>
+    /// The same accessor for an aggregated row. Kept beside <see cref="ValueFor"/> and written the
+    /// same way, so the grouped export cannot quietly grow its own formatting rules.
+    /// </summary>
+    private static object? GroupValueFor(ReportGroupRowDto row, string key) => key switch
+    {
+        "label" => row.Label,
+        "total" => row.Total,
+        "outgoing" => row.Outgoing,
+        "incoming" => row.Incoming,
+        "delivered" => row.Delivered,
+        "read" => row.Read,
+        "failed" => row.Failed,
+        "responded" => row.Responded,
+        "responseRate" => row.ResponseRate,
+        "firstAt" => row.FirstAt,
+        "lastAt" => row.LastAt,
         _ => null
     };
 
@@ -302,8 +367,19 @@ public class ReportExportService : IReportExportService
     /// Only what was actually set: listing every unused filter as "All" is noise, and the reader
     /// needs to know what was narrowed, not what was not.
     /// </summary>
-    private static IEnumerable<(string Label, string Value)> DescribeFilters(ReportQueryRequest filters)
+    private static IEnumerable<(string Label, string Value)> DescribeFilters(
+        ReportQueryRequest filters,
+        ReportTypeDto type)
     {
+        // The type, section and grouping come first: they decide what the rows below even are, so
+        // a file read on its own says which question it answers before it says how it was narrowed.
+        yield return ("Report type", type.Label);
+        yield return ("Data section", ReportCatalog.LabelForSection(type.Key, filters.DataSection));
+
+        var groupBy = ReportCatalog.ResolveGroupByKey(type, filters.GroupBy);
+        if (groupBy != ReportCatalog.NoGrouping)
+            yield return ("Grouped by", ReportCatalog.LabelForGroupBy(type.Key, groupBy));
+
         if (filters.From.HasValue) yield return ("From", filters.From.Value.ToString("yyyy-MM-dd"));
         if (filters.To.HasValue) yield return ("To", filters.To.Value.ToString("yyyy-MM-dd"));
         if (filters.CampaignIds is { Count: > 0 }) yield return ("Campaigns", $"{filters.CampaignIds.Count} selected");
@@ -312,6 +388,9 @@ public class ReportExportService : IReportExportService
         if (filters.Directions is { Count: > 0 }) yield return ("Direction", string.Join(", ", filters.Directions));
         if (filters.Statuses is { Count: > 0 }) yield return ("Status", string.Join(", ", filters.Statuses));
         if (filters.MessageTypes is { Count: > 0 }) yield return ("Message type", string.Join(", ", filters.MessageTypes));
+        if (filters.FailureReasons is { Count: > 0 }) yield return ("Failure reason", string.Join(", ", filters.FailureReasons));
+        if (filters.Agents is { Count: > 0 }) yield return ("Agent", string.Join(", ", filters.Agents));
+        if (filters.ContactIds is { Count: > 0 }) yield return ("Contacts", $"{filters.ContactIds.Count} selected");
         if (filters.FailedOnly == true) yield return ("Scope", "Failures only");
         if (!string.IsNullOrWhiteSpace(filters.Search)) yield return ("Search", filters.Search);
     }

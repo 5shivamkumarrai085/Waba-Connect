@@ -1,9 +1,10 @@
-# Serilog file-sink output. Written to AppContext.BaseDirectory, which under a normal
-# build resolves inside bin/. Logs are machine-local runtime data, never source.
-Backend/Logs/
-Backend/bin/**/Logs/
-Backend/obj/**/Logs/
-*.log
+# Build files
+**/bin/
+**/obj/
 
-# Local migration review scratch output
-migration-review.sql
+# Frontend dependencies
+**/node_modules/
+
+# Environment files
+.env
+.env.*

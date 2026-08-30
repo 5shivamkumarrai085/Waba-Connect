@@ -29,8 +29,23 @@ import { EditConnectionModal } from './EditConnectionModal'
 import { Menu, MenuItem } from '../../components/Menu/Menu'
 import { Pagination } from '../../components/Pagination/Pagination'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
+import { connectionService } from '../../services/connections/connectionService'
+import { getErrorMessage } from '../../utils/errorHelper'
 import type { Connection } from '../../types/connection'
 import './ConnectionsList.css'
+
+/**
+ * Maps the server's status text to its badge class.
+ *
+ * Three states, not two. "Setup pending" is its own colour because it is its own problem — the
+ * account authenticated fine and there is simply nothing to send from, which needs a different
+ * action from a disconnected one.
+ */
+const statusClass = (status?: string): string => {
+  if (status === 'Connected') return 'connected'
+  if (status === 'Setup pending') return 'pending'
+  return 'disconnected'
+}
 import Can from '../../components/Can/Can'
 
 export const ConnectionsList: React.FC = () => {
@@ -49,6 +64,7 @@ export const ConnectionsList: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('All Status')
   const [editingConn, setEditingConn] = useState<Connection | null>(null)
   const [activeMenuId, setActiveMenuId] = useState<number | null>(null)
+  const [syncingId, setSyncingId] = useState<number | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(5)
 
@@ -83,7 +99,8 @@ export const ConnectionsList: React.FC = () => {
 
     const matchesStatus =
       statusFilter === 'All Status' ||
-      (statusFilter === 'Connected' && conn.isConnected) ||
+      (statusFilter === 'Connected' && conn.status === 'Connected') ||
+      (statusFilter === 'Setup pending' && conn.status === 'Setup pending') ||
       (statusFilter === 'Disconnected' && !conn.isConnected)
 
     return matchesSearch && matchesStatus
@@ -135,6 +152,29 @@ export const ConnectionsList: React.FC = () => {
 
   const handleReconnect = (id: number) => {
     navigate(`/connect-waba?connectionId=${id}`)
+  }
+
+  /**
+   * Re-reads a connection's sender numbers from Meta.
+   *
+   * For the state this page used to hide: authenticated, flagged Connected, but with no number
+   * attached — so Chat refused it as "Setup pending" while this table called it healthy. The
+   * repair is one API call, not the whole connect wizard.
+   */
+  const handleSyncNumbers = async (conn: Connection) => {
+    setSyncingId(conn.id)
+    try {
+      const result = await connectionService.syncConnectionNumbers(conn.id)
+      // Meta answering with no numbers is a real answer, not a failure — the account genuinely
+      // has none yet, and saying "synced" would send the user back to Chat to fail again.
+      if (result.count > 0) toast.success(result.message)
+      else toast.error(result.message)
+      await fetchDashboard()
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not sync sender numbers.'))
+    } finally {
+      setSyncingId(null)
+    }
   }
 
   const handleEditSave = async (id: number, name: string, description?: string, nickname?: string) => {
@@ -260,6 +300,7 @@ export const ConnectionsList: React.FC = () => {
           >
             <option value="All Status">All Status</option>
             <option value="Connected">Connected</option>
+            <option value="Setup pending">Setup pending</option>
             <option value="Disconnected">Disconnected</option>
           </select>
 
@@ -315,6 +356,25 @@ export const ConnectionsList: React.FC = () => {
                                 View
                               </button>
                             </Can>
+                            {/* Only offered where it is the actual repair: a connection that is
+                                authenticated but has no number attached. Offering it on a healthy
+                                connection would be a button whose only outcome is "nothing
+                                changed". */}
+                            {!conn.hasPhoneNumber && (
+                              <Can permission="ConnectAccount.Connect">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSyncNumbers(conn)}
+                                  disabled={syncingId === conn.id}
+                                  className="btn-action-connect"
+                                >
+                                  <RefreshCw
+                                    className={`w-3.5 h-3.5 ${syncingId === conn.id ? 'animate-spin' : ''}`}
+                                  />
+                                  {syncingId === conn.id ? 'Syncing…' : 'Sync Number'}
+                                </button>
+                              </Can>
+                            )}
                             <Can permission="ConnectAccount.Disconnect">
                               <button
                                 type="button"
@@ -417,9 +477,15 @@ export const ConnectionsList: React.FC = () => {
 
                     {/* Status */}
                     <td>
-                      <span className={`conn-status-badge ${conn.isConnected ? 'connected' : 'disconnected'}`}>
-                        {conn.isConnected ? 'Connected' : 'Disconnected'}
+                      {/* The server's own status, not a second derivation of it. This cell said
+                          "Connected" for a connection with no sender number while Chat said
+                          "Setup pending" about the same row — same instant, two answers. */}
+                      <span className={`conn-status-badge ${statusClass(conn.status)}`}>
+                        {conn.status || (conn.isConnected ? 'Connected' : 'Disconnected')}
                       </span>
+                      {conn.isConnected && !conn.hasPhoneNumber && (
+                        <div className="conn-status-hint">No sender number — cannot send or receive</div>
+                      )}
                     </td>
 
                     {/* Connected On */}

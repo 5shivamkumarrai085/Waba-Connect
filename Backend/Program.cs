@@ -93,6 +93,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IDashboardCacheService, DashboardCacheService>();
 builder.Services.AddScoped<IReportingService, ReportingService>();
 builder.Services.AddScoped<IReportQueryService, ReportQueryService>();
+builder.Services.AddScoped<IOmniSettingsService, OmniSettingsService>();
 builder.Services.AddScoped<IReportExportService, ReportExportService>();
 
 // QuestPDF's Community licence, set once here rather than per export — the setting is a static

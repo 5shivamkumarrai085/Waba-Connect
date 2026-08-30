@@ -9,6 +9,19 @@ namespace WhatsAppCampaignApi.Services.Interfaces
         Task<bool> ValidateAppAsync(string appId, string appSecret);
         Task<Business> GetBusinessDetailsAsync(string wabaId, string accessToken);
         Task<IEnumerable<WabaPhoneNumber>> GetPhoneNumbersAsync(string wabaId, string accessToken);
+
+        /// <summary>
+        /// The same fetch, but reporting why it came back empty.
+        ///
+        /// <para>
+        /// <see cref="GetPhoneNumbersAsync"/> returns an empty list for every failure — an expired
+        /// token, a WABA the app cannot see, a network blip — which is fine for the callers that
+        /// only want to refresh what they can. It is not fine for a user-triggered repair, where
+        /// "no numbers found" sent someone hunting for a missing phone number when the real answer
+        /// was that their access token expired twelve days ago.
+        /// </para>
+        /// </summary>
+        Task<MetaPhoneNumbersResult> GetPhoneNumbersDetailedAsync(string wabaId, string accessToken);
         Task<bool> SendTemplateMessageAsync(string phoneNumberId, string accessToken, string recipientNumber, string templateName, string languageCode);
         Task<string> DebugTokenAsync(string accessToken, string appId, string appSecret);
         
@@ -28,4 +41,10 @@ namespace WhatsAppCampaignApi.Services.Interfaces
         /// </summary>
         Task<string?> FetchWebhookUrlFromMetaAsync(string appId, string appSecret, string? wabaId = null, string? accessToken = null);
     }
+    /// <summary>
+    /// What Meta said about a WABA's phone numbers: the numbers, or the reason there were none.
+    /// <paramref name="Error"/> is null when the call succeeded, whatever it returned.
+    /// </summary>
+    public record MetaPhoneNumbersResult(IReadOnlyList<WabaPhoneNumber> Phones, string? Error);
+
 }

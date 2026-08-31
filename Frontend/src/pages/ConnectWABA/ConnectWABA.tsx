@@ -303,7 +303,7 @@ export const ConnectWABA: React.FC = () => {
                     <button
                       type="button"
                       className="btn-waba-action"
-                      style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)', borderColor: '#ef4444' }}
+                      style={{ background: 'linear-gradient(135deg, #dc2626, #dc2626)', borderColor: '#dc2626' }}
                       onClick={handleDisconnectWebhook}
                       disabled={isConnecting}
                     >

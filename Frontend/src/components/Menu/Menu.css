@@ -79,7 +79,7 @@
 
 .oc-menu-item--destructive:hover:not(:disabled),
 .oc-menu-item--destructive:focus-visible:not(:disabled) {
-  background-color: #fef2f2;
+  background-color: #fee2e2;
   color: #dc2626;
 }
 

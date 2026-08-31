@@ -20,7 +20,7 @@
   width: 36px;
   height: 36px;
   border-radius: var(--radius-md);
-  background-color: #faf5ff; /* light purple */
+  background-color: #f5f3ff; /* light purple */
   color: #a855f7;
   display: flex;
   align-items: center;
@@ -93,7 +93,7 @@
 }
 
 .phone-detail-value.quality-red {
-  color: #b91c1c;
+  color: #991b1b;
 }
 
 .message-limit-progress-wrapper {
@@ -159,15 +159,15 @@
 }
 
 .btn-customize-limit:hover {
-  background: #4f46e5;
-  border-color: #4f46e5;
+  background: #2563eb;
+  border-color: #2563eb;
   color: #ffffff;
   transform: translateY(-1px);
 }
 
 /* ─── Daily message limit dialog ────────────────────────────────────
    Replaces ~100 lines of inline styles that hardcoded light-mode hex
-   values (#1e293b, #f1f5f9, #4f46e5) and a z-index of 99999. */
+   values (#1e293b, #f1f5f9, #2563eb) and a z-index of 99999. */
 
 .phone-limit-intro {
   margin: 0 0 16px;

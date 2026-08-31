@@ -75,10 +75,18 @@ namespace WhatsAppCampaignApi.Controllers
                 return BadRequest(new { message = "Facebook App ID and App Secret are required." });
             }
 
-            // Check for duplicate Facebook App ID across connected configurations
+            // Check for duplicate Facebook App ID across connected configurations.
+            //
+            // The connection must still be active as well as connected. Without that clause a
+            // deleted connection went on reserving its App ID forever: the row stayed Connected,
+            // but the connection itself no longer appears anywhere in the UI — so this endpoint
+            // refused the ID and told the operator to "disconnect it first", pointing at something
+            // they could not see, let alone disconnect. Deleting now releases the configuration
+            // too (ConnectionService.SoftDeleteAsync), and this guard no longer counts the dead.
             var existingAppConfig = await _dbContext.WabaConfigurations
                 .Include(c => c.Connection)
-                .FirstOrDefaultAsync(c => c.FacebookAppId == request.FacebookAppId.Trim() && c.Connected &&
+                .ForLiveConnections()
+                .FirstOrDefaultAsync(c => c.FacebookAppId == request.FacebookAppId.Trim() &&
                     (!request.ConnectionId.HasValue || c.ConnectionId != request.ConnectionId.Value));
             if (existingAppConfig != null)
             {
@@ -159,10 +167,17 @@ namespace WhatsAppCampaignApi.Controllers
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            // Check for duplicate WABA ID across connected configurations
+            // Check for duplicate WABA ID across live connections.
+            //
+            // A WABA may only be attached to one connection at a time — two would mean two
+            // routes for the same inbound traffic — so this guard is correct in principle. What
+            // it was missing is that a *deleted* connection is not holding anything: it kept
+            // reserving its WABA ID with no way for the operator to release it, because the
+            // connection named in the error no longer exists in the UI.
             var duplicateConfig = await _dbContext.WabaConfigurations
                 .Include(c => c.Connection)
-                .FirstOrDefaultAsync(c => c.WabaId == request.WabaId && c.Connected && 
+                .ForLiveConnections()
+                .FirstOrDefaultAsync(c => c.WabaId == request.WabaId &&
                     (!request.ConnectionId.HasValue || c.ConnectionId != request.ConnectionId.Value));
             if (duplicateConfig != null)
             {
@@ -543,7 +558,8 @@ namespace WhatsAppCampaignApi.Controllers
         {
             var query = _dbContext.WabaConfigurations
                 .Include(c => c.Connection)
-                .Where(c => c.Connected && !string.IsNullOrEmpty(c.WabaId) && !string.IsNullOrEmpty(c.AccessToken));
+                .ForLiveConnections()
+                .Where(c => !string.IsNullOrEmpty(c.WabaId) && !string.IsNullOrEmpty(c.AccessToken));
 
             if (connectionId.HasValue)
             {
@@ -597,7 +613,8 @@ namespace WhatsAppCampaignApi.Controllers
         {
             var configs = await _dbContext.WabaConfigurations
                 .Include(c => c.Connection)
-                .Where(c => c.Connected && !string.IsNullOrEmpty(c.WabaId) && !string.IsNullOrEmpty(c.AccessToken))
+                .ForLiveConnections()
+                .Where(c => !string.IsNullOrEmpty(c.WabaId) && !string.IsNullOrEmpty(c.AccessToken))
                 .ToListAsync();
 
             var results = new List<object>();

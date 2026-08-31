@@ -138,6 +138,11 @@ export const BotFlowList: React.FC = () => {
 
   return (
     <motion.div {...pageTransitionProps}>
+      {/* Page hero — matches the host's banner treatment. Presentational only. */}
+      <div className="omni-page-hero">
+        <h1>Bot Flow</h1>
+        <p>Design multi-step conversation flows for your WhatsApp bots.</p>
+      </div>
       {/* Action buttons bar */}
       <div className="bot-flow-header-actions">
         <Can permission="BotFlow.Create">

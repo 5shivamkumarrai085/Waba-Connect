@@ -72,7 +72,7 @@
   height: 8px;
   flex-shrink: 0;
   border-radius: var(--radius-full);
-  background-color: #f59e0b;
+  background-color: #d97706;
 }
 
 .assign-perm-status-dot.is-connected {

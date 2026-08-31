@@ -28,14 +28,14 @@ type ViewMode = 'delivery' | 'read'
 
 const DELIVERY_COLORS = {
   delivered: '#10b981',
-  failed: '#ef4444',
+  failed: '#dc2626',
   pending: '#f59e0b'
 }
 
 const READ_COLORS = {
   read: '#5a52e5',
   unread: '#3b82f6',
-  notDelivered: '#ef4444'
+  notDelivered: '#dc2626'
 }
 
 export const DeliveryRateCard: React.FC<DeliveryRateCardProps> = React.memo(({ deliveryBreakdown, readBreakdown }) => {

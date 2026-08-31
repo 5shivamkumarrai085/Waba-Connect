@@ -10,8 +10,11 @@
 /* Sidebar Layout */
 .sidebar {
   width: var(--sidebar-width);
-  background-color: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
+  background-color: var(--omni-sidebar-bg);
+  /* The host separates the rail with a hairline plus a soft outward shadow rather
+     than a hard border — it reads as a raised surface instead of a divider. */
+  border-right: 1px solid var(--omni-sidebar-border);
+  box-shadow: 1px 0 8px rgba(15, 23, 42, 0.04);
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -32,7 +35,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 18px;
   border-bottom: 1px solid var(--border-light);
   transition: var(--transition-normal);
   position: relative;
@@ -47,11 +50,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 28px;
-  font-weight: 700;
+  /* Host brand sizing: smaller, heavier, tightly tracked. */
+  font-size: 20px;
+  font-weight: 800;
   font-family: var(--font-title);
   color: var(--rma-orange);
-  letter-spacing: -0.5px;
+  letter-spacing: -0.04em;
   white-space: nowrap;
   transition: opacity 0.2s ease;
 }
@@ -97,10 +101,21 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 12px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.sidebar-content::-webkit-scrollbar {
+  width: 3px;
+}
+
+.sidebar-content::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
 }
 
 .sidebar.collapsed .sidebar-content {
@@ -110,18 +125,19 @@
 .sidebar-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 1px;
 }
 
 .sidebar-section-title {
-  font-size: 11px;
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: var(--text-light);
-  padding-left: 12px;
-  margin-bottom: 6px;
-  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--omni-sidebar-text-muted);
+  padding: 14px 8px 5px;
+  margin-bottom: 0;
+  font-weight: 700;
   white-space: nowrap;
+  user-select: none;
 }
 
 .sidebar.collapsed .sidebar-section-title {
@@ -131,15 +147,17 @@
 .sidebar-menu-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: 14px;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--omni-sidebar-text);
+  font-size: 13.5px;
   font-weight: 500;
+  letter-spacing: -0.01em;
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: background 120ms ease, color 120ms ease;
   white-space: nowrap;
+  margin-bottom: 1px;
 }
 
 .sidebar.collapsed .sidebar-menu-item {
@@ -149,20 +167,32 @@
 }
 
 .sidebar-menu-item:hover {
-  background-color: var(--border-light);
-  color: var(--primary);
+  background-color: var(--omni-sidebar-bg-hover);
+  color: var(--omni-color-text-primary);
 }
 
 .sidebar-menu-item.active {
-  background-color: var(--primary-light);
-  color: var(--primary);
+  background-color: var(--omni-sidebar-bg-active);
+  color: var(--omni-sidebar-text-active);
   font-weight: 600;
 }
 
 .sidebar-menu-icon {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   flex-shrink: 0;
+  color: var(--omni-sidebar-text-muted);
+  transition: color 120ms ease;
+}
+
+/* The icon tracks the row's state rather than staying grey — it is what the eye
+   lands on first when scanning a rail this dense. */
+.sidebar-menu-item:hover .sidebar-menu-icon {
+  color: var(--omni-sidebar-text);
+}
+
+.sidebar-menu-item.active .sidebar-menu-icon {
+  color: var(--omni-sidebar-accent);
 }
 
 .sidebar-menu-label {
@@ -186,8 +216,10 @@
 .header {
   height: var(--header-height);
   background-color: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
-  padding: 0 32px;
+  border-bottom: 1px solid var(--omni-sidebar-border);
+  /* Matches the rail's raised treatment so the two edges of the shell agree. */
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+  padding: 0 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -211,44 +243,85 @@
 .header-right {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 12px;
 }
 
 .header-search {
   position: relative;
-  width: 240px;
+  width: 300px;
+  max-width: 100%;
 }
 
 .header-search-icon {
   position: absolute;
-  left: 12px;
+  left: 13px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--text-light);
+  color: var(--omni-color-text-muted);
   width: 16px;
   height: 16px;
+  pointer-events: none;
+  transition: color 150ms ease;
 }
 
 .header-search-input {
   width: 100%;
-  padding: 8px 12px 8px 36px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-full);
+  height: 38px;
+  /* The host uses a soft-filled rounded rectangle rather than a pill outline —
+     it sits quieter next to the icon buttons beside it. */
+  padding: 0 14px 0 40px;
+  border: 1.5px solid #e8edf5;
+  border-radius: 10px;
   font-size: 13px;
-  background-color: var(--bg-primary);
-  transition: var(--transition-fast);
+  font-family: inherit;
+  color: var(--text-main);
+  background-color: var(--omni-color-surface-alt);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+
+.header-search-input::placeholder {
+  color: var(--omni-color-text-muted);
+}
+
+.header-search-input:hover {
+  background-color: var(--bg-hover);
+  border-color: #d4dbe8;
 }
 
 .header-search-input:focus {
   border-color: var(--primary);
   background-color: var(--bg-secondary);
-  box-shadow: 0 0 0 2px var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.header-search:focus-within .header-search-icon {
+  color: var(--primary);
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
+}
+
+/* Host icon buttons: square-ish, quiet until hovered. Applied to the header's
+   existing round action buttons so they read as one set with the search box. */
+.header-actions > button:not(.header-avatar-btn) {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1.5px solid transparent;
+  background: transparent;
+  color: #64748b;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.header-actions > button:not(.header-avatar-btn):hover {
+  background: var(--bg-hover);
+  color: #1e293b;
+  border-color: var(--border-color);
 }
 
 /* ── Account avatar & menu ─────────────────────────────────────────── */
@@ -257,8 +330,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--border-color);
@@ -392,11 +465,11 @@
 
 /* Base Themes (Light/Dark) */
 .dark-theme {
-  --bg-primary: #111827;
-  --bg-secondary: #1f2937;
-  --text-primary: #f9fafb;
-  --text-secondary: #9ca3af;
-  --border-light: #374151;
+  --bg-primary: #0f172a;
+  --bg-secondary: #0f172a;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --border-light: #334155;
 }
 
 .sidebar-logo-img {
@@ -492,7 +565,7 @@
 
 .header-create-campaign-btn,
 .header-create-plus-btn {
-  background-color: var(--primary, #6366f1) !important;
+  background-color: var(--primary, #3b82f6) !important;
   color: #ffffff !important;
   border-radius: 50% !important;
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
@@ -501,7 +574,7 @@
 
 .header-create-plus-btn:hover,
 .header-create-plus-btn.active {
-  background-color: #4f46e5 !important;
+  background-color: #2563eb !important;
   transform: scale(1.08) rotate(45deg);
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.45);
 }
@@ -549,7 +622,7 @@
 
 .quick-create-item:hover {
   background-color: #f1f5f9;
-  color: #4f46e5;
+  color: #2563eb;
 }
 
 .quick-create-icon {
@@ -558,7 +631,7 @@
 }
 
 .quick-create-item:hover .quick-create-icon {
-  color: #4f46e5;
+  color: #2563eb;
 }
 
 /* ─── All entrance animations now handled by Motion (framer-motion) ─── 
@@ -567,3 +640,431 @@
    prefers-reduced-motion-aware behavior.
 */
 
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   PAGE HERO BANNER — the host's signature page header
+
+   The host opens every page with a deep-blue gradient banner carrying the title,
+   a status pill and the page's controls. Waba's pages were plain flex rows with a
+   dark <h1> on the grey shell background, which is the single biggest reason the
+   two products still looked unrelated after the palette was matched.
+
+   Applied by selecting each page's *existing* header class rather than by adding a
+   wrapper element. Every one of these already has the right shape — a title block
+   on the left, controls on the right — so nothing in any .tsx has to move, and no
+   behaviour can regress from a purely visual change.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.dashboard-welcome,
+.activity-header,
+.reporting-header,
+.contacts-page-header,
+.campaign-page-header,
+.templates-page-header,
+.conn-page-header,
+.waba-page-header,
+.permission-header,
+.omni-page-hero {
+  position: relative;
+  overflow: hidden;
+  /* Skin only — no display, alignment or gap.
+   *
+   * Imposing `display: flex; justify-content: space-between` here looked right on
+   * the pages that already lay their header out as a row, and broke every page that
+   * did not: Contacts renders a bare <h1> followed by a <p>, so space-between threw
+   * the subtitle to the far right of the banner. Each page already arranges its own
+   * header correctly; this block is only responsible for what the header looks like,
+   * not for how it is laid out. */
+  padding: 28px 32px;
+  margin-bottom: 24px;
+  border: none;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #3b82f6 100%);
+  box-shadow: 0 8px 30px rgba(37, 99, 235, 0.28), 0 2px 6px rgba(37, 99, 235, 0.15);
+}
+
+/* Two soft light sources bled in from the right. They are what stop the gradient
+   reading as a flat blue rectangle. */
+.dashboard-welcome::before,
+.activity-header::before,
+.reporting-header::before,
+.contacts-page-header::before,
+.campaign-page-header::before,
+.templates-page-header::before,
+.conn-page-header::before,
+.waba-page-header::before,
+.permission-header,
+.omni-page-hero::before {
+  content: '';
+  position: absolute;
+  top: -60px;
+  right: -60px;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 70%);
+  pointer-events: none;
+}
+
+.dashboard-welcome::after,
+.activity-header::after,
+.reporting-header::after,
+.contacts-page-header::after,
+.campaign-page-header::after,
+.templates-page-header::after,
+.conn-page-header::after,
+.waba-page-header::after,
+.permission-header,
+.omni-page-hero::after {
+  content: '';
+  position: absolute;
+  bottom: -80px;
+  right: 140px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 70%);
+  pointer-events: none;
+}
+
+/* Everything inside sits above the decoration. */
+.dashboard-welcome > *,
+.activity-header > *,
+.reporting-header > *,
+.contacts-page-header > *,
+.campaign-page-header > *,
+.templates-page-header > *,
+.conn-page-header > *,
+.waba-page-header > *,
+.permission-header,
+.omni-page-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Titles and body copy on the banner.
+ *
+ * The selector is deliberately doubled (:is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero):is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero)). Each page wraps its own
+ * heading in a page-specific element — .dashboard-welcome-left h1, .contacts-page-header
+ * .title-block p and so on — and those rules score the same (0,1,1) as a plain
+ * `.hero h1` would. A tie is broken by source order, and every page's stylesheet is
+ * imported by its own component, so it always loads after this file and always won.
+ * The result was a dark-slate heading and grey subtitle sitting on a blue gradient,
+ * which is unreadable rather than merely off-brand. Doubling the ancestor takes this
+ * to (0,2,1) and settles it on specificity instead of on import order, which is not
+ * something this file can control.
+ */
+:is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero):is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero) :is(h1, h2) {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: #fff;
+  margin-bottom: 6px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+:is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero):is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero) p,
+:is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero):is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero) :is(h1, h2) + p {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13.5px;
+}
+
+/* Small print that pages put in the header — counts, hints, breadcrumbs. */
+:is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero):is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero) :is(span, small, label) {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+/* …except inside a control, which carries its own colour. */
+:is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero):is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero) :is(button, a, .filter-bar, .status-badge) :is(span, small, label) {
+  color: inherit;
+}
+
+/* ── Controls on the banner ──────────────────────────────────────────────────
+   A white card or a blue primary button would both disappear against this
+   background, so controls inside the hero become the host's glass pills. Scoped
+   to the hero only — the same components elsewhere are untouched. */
+
+.dashboard-welcome .btn-secondary,
+.activity-header .btn-secondary,
+.reporting-header .btn-secondary,
+.contacts-page-header .btn-secondary,
+.campaign-page-header .btn-secondary,
+.templates-page-header .btn-secondary,
+.conn-page-header .btn-secondary,
+.waba-page-header .btn-secondary,
+.permission-header,
+.omni-page-hero .btn-secondary {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+  backdrop-filter: blur(8px);
+  box-shadow: none;
+}
+
+.dashboard-welcome .btn-secondary:hover,
+.activity-header .btn-secondary:hover,
+.reporting-header .btn-secondary:hover,
+.contacts-page-header .btn-secondary:hover,
+.campaign-page-header .btn-secondary:hover,
+.templates-page-header .btn-secondary:hover,
+.conn-page-header .btn-secondary:hover,
+.waba-page-header .btn-secondary:hover,
+.permission-header,
+.omni-page-hero .btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.26);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+/* The primary action keeps its prominence by inverting: solid white on blue. */
+.dashboard-welcome .btn-primary,
+.activity-header .btn-primary,
+.reporting-header .btn-primary,
+.contacts-page-header .btn-primary,
+.campaign-page-header .btn-primary,
+.templates-page-header .btn-primary,
+.conn-page-header .btn-primary,
+.waba-page-header .btn-primary,
+.permission-header,
+.omni-page-hero .btn-primary {
+  background: #fff;
+  color: var(--omni-color-primary-700);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+}
+
+.dashboard-welcome .btn-primary::before,
+.activity-header .btn-primary::before,
+.reporting-header .btn-primary::before,
+.contacts-page-header .btn-primary::before,
+.campaign-page-header .btn-primary::before,
+.templates-page-header .btn-primary::before,
+.conn-page-header .btn-primary::before,
+.waba-page-header .btn-primary::before,
+.permission-header,
+.omni-page-hero .btn-primary::before {
+  display: none;
+}
+
+.dashboard-welcome .btn-primary:hover:not(:disabled),
+.activity-header .btn-primary:hover:not(:disabled),
+.reporting-header .btn-primary:hover:not(:disabled),
+.contacts-page-header .btn-primary:hover:not(:disabled),
+.campaign-page-header .btn-primary:hover:not(:disabled),
+.templates-page-header .btn-primary:hover:not(:disabled),
+.conn-page-header .btn-primary:hover:not(:disabled),
+.waba-page-header .btn-primary:hover:not(:disabled),
+.permission-header,
+.omni-page-hero .btn-primary:hover:not(:disabled) {
+  background: #f8fafc;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.24);
+}
+
+@media (max-width: 768px) {
+  .dashboard-welcome,
+  .activity-header,
+  .reporting-header,
+  .contacts-page-header,
+  .campaign-page-header,
+  .templates-page-header,
+  .conn-page-header,
+  .waba-page-header,
+  .permission-header,
+.omni-page-hero {
+    padding: 20px 18px;
+    border-radius: 16px;
+  }
+}
+
+/* ── Segmented filter bar on the hero ────────────────────────────────────────
+   The host renders its time-range switcher as a translucent track with a solid
+   white pill on the active segment (see the "All Time / Today / …" control in the
+   reference). Waba's FilterBar has exactly that structure already, so it only
+   needs the colours re-pointed while it sits on the banner. */
+
+.dashboard-welcome .filter-bar,
+.activity-header .filter-bar,
+.reporting-header .filter-bar {
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(8px);
+  border-radius: var(--radius-full);
+  padding: 4px;
+}
+
+.dashboard-welcome .filter-btn,
+.activity-header .filter-btn,
+.reporting-header .filter-btn {
+  color: rgba(255, 255, 255, 0.82);
+  background: transparent;
+  border-radius: var(--radius-full);
+}
+
+.dashboard-welcome .filter-btn:hover,
+.activity-header .filter-btn:hover,
+.reporting-header .filter-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.dashboard-welcome .filter-btn.active,
+.activity-header .filter-btn.active,
+.reporting-header .filter-btn.active {
+  background: #fff;
+  color: var(--omni-color-primary-700);
+  font-weight: 600;
+}
+
+/* The sliding underline this control draws for its active tab is redundant once
+   the active segment is a filled white pill, and reads as a stray mark on it. */
+.dashboard-welcome .filter-btn-indicator,
+.activity-header .filter-btn-indicator,
+.reporting-header .filter-btn-indicator {
+  display: none;
+}
+
+/* ── Reporting header's own controls ─────────────────────────────────────── */
+
+.reporting-header .report-range-chip,
+.reporting-header .report-toolbar-btn {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+  backdrop-filter: blur(8px);
+}
+
+.reporting-header .report-range-chip:hover,
+.reporting-header .report-toolbar-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.26);
+  border-color: rgba(255, 255, 255, 0.45);
+  color: #fff;
+}
+
+.reporting-header .report-toolbar-btn.is-active {
+  background: #fff;
+  border-color: #fff;
+  color: var(--omni-color-primary-700);
+}
+
+.reporting-header .report-export-btn {
+  background: #fff;
+  color: var(--omni-color-primary-700);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+}
+
+.reporting-header .report-export-btn:hover:not(:disabled) {
+  background: #f8fafc;
+  filter: none;
+}
+
+.reporting-header .report-export-divider {
+  background-color: rgba(37, 99, 235, 0.25);
+}
+
+/* The count badge is white-on-blue everywhere else; inverted here so it stays
+   legible against the glass button it sits inside. */
+.reporting-header .activity-filter-count,
+.activity-header .activity-filter-count {
+  background: #fff;
+  color: var(--omni-color-primary-700);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   CARD SURFACES — the host's panel treatment
+
+   Rounder (16px), a cooler and slightly heavier 1.5px border, and the host's
+   two-layer shadow. Applied to the container classes the pages already use, so
+   panels, table shells and KPI tiles stop reading as three different families.
+
+   Only the frame is touched — no padding, layout or content rules — so nothing
+   inside any of these cards shifts position.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.contacts-card,
+.contacts-selection-card,
+.permission-table-card,
+.permission-filter-card,
+.conn-table-card,
+.conn-filter-card,
+.table-card,
+.bulk-card,
+.waba-setup-card,
+.reporting-section-card {
+  border-radius: var(--radius-lg);
+  border: 1.5px solid #e8edf5;
+  box-shadow: var(--shadow-card);
+}
+
+/* KPI tiles get the same frame plus the host's hover lift. They are the one card
+   family that is interactive-feeling in the reference. */
+.conn-kpi-card,
+.setup-kpi-card,
+.permission-kpi-card,
+.campaign-stat-card {
+  border-radius: var(--radius-lg);
+  border: 1.5px solid #e8edf5;
+  box-shadow: var(--shadow-card);
+  transition: border-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.conn-kpi-card:hover,
+.setup-kpi-card:hover,
+.permission-kpi-card:hover,
+.campaign-stat-card:hover {
+  border-color: var(--omni-color-primary-200);
+  box-shadow: 0 12px 28px -4px rgba(37, 99, 235, 0.12);
+  transform: translateY(-2.5px);
+}
+
+/* The host's KPI icon is a rounded tile with a tinted gradient fill and a matching
+   hairline, not a flat square. These pages already render an icon wrapper in that
+   position, so it only needs the surface. */
+.conn-kpi-icon-wrapper,
+.stat-card-icon-wrapper {
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.conn-kpi-icon-wrapper.blue,
+.stat-card-icon-wrapper.blue {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.conn-kpi-icon-wrapper.green,
+.stat-card-icon-wrapper.green {
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+
+.conn-kpi-icon-wrapper.amber,
+.stat-card-icon-wrapper.amber,
+.stat-card-icon-wrapper.orange {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  color: #d97706;
+  border: 1px solid #fde68a;
+}
+
+.conn-kpi-icon-wrapper.purple,
+.stat-card-icon-wrapper.purple {
+  background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
+  color: #7c3aed;
+  border: 1px solid #c4b5fd;
+}
+
+.conn-kpi-icon-wrapper.red,
+.stat-card-icon-wrapper.red {
+  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conn-kpi-card:hover,
+  .setup-kpi-card:hover,
+  .permission-kpi-card:hover,
+  .campaign-stat-card:hover { transform: none; }
+}

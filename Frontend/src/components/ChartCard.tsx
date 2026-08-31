@@ -23,8 +23,8 @@ interface ChartCardProps {
   data?: any[]
 }
 
-const COLOR_PRIMARY = '#6366f1'
-const COLOR_ERROR = '#ef4444'
+const COLOR_PRIMARY = '#3b82f6'
+const COLOR_ERROR = '#dc2626'
 const COLOR_BORDER = '#cbd5e1'
 const COLOR_TEXT_MUTED = '#64748b'
 

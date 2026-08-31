@@ -414,6 +414,100 @@ public class WhatsAppCloudApiService : IWhatsAppService
         }
     }
 
+    /// <summary>
+    /// Decides what a failed template fetch means, and stops the retry loop when the answer is
+    /// "these credentials will never work again".
+    ///
+    /// <para>
+    /// Meta distinguishes two kinds of refusal, and so must we. An expired or invalid token
+    /// (OAuthException, code 190) and a WABA the app cannot see (code 100, subcode 33) are
+    /// permanent until a human reconnects the account — retrying every fifteen minutes forever
+    /// achieves nothing except an error in the log every fifteen minutes forever, which is how a
+    /// real problem ends up looking like background noise. Those mark the configuration
+    /// disconnected, which takes it out of the sync and surfaces it in the UI as needing
+    /// attention.
+    /// </para>
+    /// <para>
+    /// Everything else — a 500 from Meta, a timeout, a transport blip — is transient and is left
+    /// alone to retry on the next cycle. Demoting a live connection because Meta had a bad minute
+    /// would be its own outage.
+    /// </para>
+    /// </summary>
+    private async Task HandleTemplateFetchFailureAsync(
+        int connectionId,
+        WabaConfiguration config,
+        System.Net.HttpStatusCode status,
+        string responseBody)
+    {
+        var (code, subcode, message) = ParseMetaError(responseBody);
+
+        var isPermanent =
+            code == 190 ||                        // token expired, revoked or malformed
+            (code == 100 && subcode == 33) ||     // object missing, or app lacks permission on it
+            status == System.Net.HttpStatusCode.Forbidden;
+
+        if (!isPermanent)
+        {
+            // Warning, not Error: a transient failure that the next cycle will retry is not an
+            // incident, and logging it at Error trains people to ignore the level that matters.
+            _logger.LogWarning(
+                "Template fetch for connection {ConnectionId} failed transiently ({Status}). Will retry. {Message}",
+                connectionId, status, message);
+            return;
+        }
+
+        if (!config.Connected)
+        {
+            // Already demoted; say nothing. This is what stops the same line repeating on every
+            // sync for an account nobody has reconnected yet.
+            return;
+        }
+
+        config.Connected = false;
+        config.UpdatedAt = DateTime.UtcNow;
+
+        try
+        {
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogWarning(
+                "Connection {ConnectionId} has been marked disconnected: WhatsApp rejected its credentials " +
+                "permanently ({Message}). Reconnect the account to resume template sync.",
+                connectionId, message);
+        }
+        catch (Exception ex)
+        {
+            // Never let bookkeeping break a read. The next cycle will try to demote it again.
+            _logger.LogWarning(ex, "Could not mark connection {ConnectionId} disconnected.", connectionId);
+        }
+    }
+
+    /// <summary>
+    /// Pulls Meta's error code, subcode and message out of a Graph API error body.
+    ///
+    /// Tolerant of a body that is not the expected shape — a proxy error page or a truncated
+    /// response must not turn a handled failure into an unhandled one.
+    /// </summary>
+    private static (int Code, int Subcode, string Message) ParseMetaError(string responseBody)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(responseBody);
+            if (!doc.RootElement.TryGetProperty("error", out var error))
+                return (0, 0, "No error detail returned.");
+
+            var code = error.TryGetProperty("code", out var c) && c.TryGetInt32(out var ci) ? ci : 0;
+            var sub = error.TryGetProperty("error_subcode", out var sc) && sc.TryGetInt32(out var si) ? si : 0;
+            var msg = error.TryGetProperty("message", out var m) ? m.GetString() ?? string.Empty : string.Empty;
+
+            return (code, sub, msg);
+        }
+        catch
+        {
+            return (0, 0, "Unreadable error response.");
+        }
+    }
+
     public async Task<List<WhatsAppTemplateInfo>> GetTemplatesForConnectionAsync(int connectionId)
     {
         try
@@ -432,8 +526,17 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Failed to fetch templates for connection {ConnectionId}. Status: {Status}, Response: {Response}", connectionId, response.StatusCode, responseBody);
-                return await GetTemplatesAsync();
+                await HandleTemplateFetchFailureAsync(connectionId, config, response.StatusCode, responseBody);
+
+                // Deliberately no fallback to GetTemplatesAsync().
+                //
+                // That fallback fetched with whichever configuration happens to come first, so a
+                // connection whose own credentials had failed quietly displayed a *different*
+                // account's templates as its own. For a product where a template is the thing you
+                // send to someone else's customers, showing the wrong account's is worse than
+                // showing none — and it also doubled every failure in the log, once for this
+                // connection and once for the fallback.
+                return [];
             }
 
             using var doc = JsonDocument.Parse(responseBody);

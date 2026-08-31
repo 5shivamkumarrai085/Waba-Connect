@@ -59,7 +59,7 @@
 }
 
 .required-star {
-  color: #ef4444;
+  color: #dc2626;
   margin-right: 3px;
 }
 
@@ -69,14 +69,14 @@
 
 .loader-text {
   font-size: 11px;
-  color: var(--primary, #6366f1);
+  color: var(--primary, #3b82f6);
   display: block;
   margin-top: 6px;
 }
 
 .error-text {
   font-size: 11px;
-  color: #ef4444;
+  color: #dc2626;
   display: block;
   margin-top: 6px;
 }
@@ -312,8 +312,8 @@
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: var(--radius-md, 8px);
-  background: var(--primary-light, #eef2ff);
-  color: var(--primary, #4338ca);
+  background: var(--primary-light, #eff6ff);
+  color: var(--primary, #1d4ed8);
   font-size: 12px;
   font-weight: 500;
 }
@@ -330,7 +330,7 @@
   gap: 6px;
   padding: 8px 14px;
   border-radius: 24px;
-  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
   border: 1.5px solid #86efac;
   color: #166534;
   font-size: 13px;

@@ -504,7 +504,7 @@ export const TemplateBotWizard: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => { setFileUrl(''); setFileName('') }}
-                          style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
+                          style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', padding: '4px' }}
                           title="Remove file"
                         >
                           <Trash2 size={16} />

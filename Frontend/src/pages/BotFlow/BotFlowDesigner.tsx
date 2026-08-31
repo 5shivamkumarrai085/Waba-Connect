@@ -493,7 +493,7 @@ const ButtonMessageNode = ({ id, data, selected }: any) => {
                 
                 {/* Connection Status indicator */}
                 <div className="connection-status-wrapper" style={{ marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-start' }}>
-                  <span style={{ color: connected ? '#10b981' : '#ef4444', fontSize: '10px' }}>
+                  <span style={{ color: connected ? '#10b981' : '#dc2626', fontSize: '10px' }}>
                     Button {idx + 1} response {connected ? 'Connected' : 'Not connected'}
                   </span>
                   <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`}></span>
@@ -842,7 +842,7 @@ const ListMessageNode = ({ id, data, selected }: any) => {
                     style={{
                       border: 'none',
                       background: 'none',
-                      color: '#ef4444',
+                      color: '#dc2626',
                       fontSize: '14px',
                       fontWeight: 'bold',
                       cursor: 'pointer',
@@ -868,7 +868,7 @@ const ListMessageNode = ({ id, data, selected }: any) => {
                   return (
                     <div key={item.id} className="inner-item-card list-item-subcard" style={{ gap: '8px', border: '1px solid #cbd5e1', padding: '10px', borderRadius: '6px', backgroundColor: '#ffffff', position: 'relative', marginTop: '8px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '10px', fontWeight: 700, color: connected ? '#10b981' : '#ef4444' }}>
+                        <span style={{ fontSize: '10px', fontWeight: 700, color: connected ? '#10b981' : '#dc2626' }}>
                           — Item {itemIdx + 1} * (Required) {connected ? '' : '(Not connected)'}
                         </span>
                         <button type="button" onClick={() => removeItemFromSection(secIdx, itemIdx)} className="inner-item-delete-btn">Remove</button>
@@ -899,7 +899,7 @@ const ListMessageNode = ({ id, data, selected }: any) => {
 
                       {/* Connection status for list items */}
                       <div className="connection-status-wrapper" style={{ marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-start' }}>
-                        <span style={{ color: connected ? '#10b981' : '#ef4444', fontSize: '10px' }}>
+                        <span style={{ color: connected ? '#10b981' : '#dc2626', fontSize: '10px' }}>
                           Item {itemIdx + 1} response {connected ? 'Connected' : 'Not connected'}
                         </span>
                         <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`}></span>

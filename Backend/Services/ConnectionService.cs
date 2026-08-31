@@ -158,28 +158,7 @@ public class ConnectionService : IConnectionService
         var config = await _dbContext.WabaConfigurations
             .FirstOrDefaultAsync(w => w.ConnectionId == id);
 
-        if (config != null)
-        {
-            config.Connected = false;
-            config.FacebookAppId = string.Empty;
-            config.FacebookAppSecret = string.Empty;
-            config.AccessToken = string.Empty;
-            config.WabaId = string.Empty;
-            config.VerifyToken = string.Empty;
-            config.WebhookUrl = string.Empty;
-            config.UpdatedAt = DateTime.UtcNow;
-        }
-
-        // Remove phone numbers associated with this connection
-        var phones = await _dbContext.WabaPhoneNumbers
-            .Where(p => p.ConnectionId == id)
-            .ToListAsync();
-        if (phones.Count > 0)
-        {
-            _dbContext.WabaPhoneNumbers.RemoveRange(phones);
-        }
-
-        await _dbContext.SaveChangesAsync();
+        var phoneCount = await ReleaseConfigurationAsync(id, config);
 
         // Sync templates to remove templates from this now-disconnected connection
         try
@@ -193,7 +172,7 @@ public class ConnectionService : IConnectionService
 
         await _auditService.LogAsync(
             "Connection.Disconnected", "Data",
-            $"Disconnected connection \"{await GetConnectionNameAsync(id)}\"; credentials cleared and {phones.Count} phone number(s) removed.",
+            $"Disconnected connection \"{await GetConnectionNameAsync(id)}\"; credentials cleared and {phoneCount} phone number(s) removed.",
             "Connection", id.ToString());
 
         return true;
@@ -332,20 +311,73 @@ public class ConnectionService : IConnectionService
     public async Task<bool> SoftDeleteAsync(int id)
     {
         var connection = await _dbContext.Connections.FindAsync(id);
-        if (connection != null)
+        if (connection == null) return false;
+
+        connection.IsActive = false;
+        connection.UpdatedAt = DateTime.UtcNow;
+
+        // Release the WhatsApp configuration as well.
+        //
+        // Deleting used to flip IsActive and stop there, which left the configuration row
+        // Connected with its Facebook App ID, WABA ID and access token intact. Two things
+        // followed from that, both bad: the duplicate-App-ID guard kept reserving the ID for a
+        // connection that no longer appears anywhere in the UI — so the error told the operator
+        // to "disconnect it first" with nothing left to click — and a deleted account went on
+        // holding a live Meta token in the database indefinitely.
+        //
+        // Deleting is strictly more final than disconnecting, so it now does at least as much.
+        var config = await _dbContext.WabaConfigurations
+            .FirstOrDefaultAsync(w => w.ConnectionId == id);
+
+        var phoneCount = await ReleaseConfigurationAsync(id, config);
+
+        await _auditService.LogAsync(
+            "Connection.Deleted", "Data",
+            $"Deleted connection \"{connection.Name}\"; credentials cleared and {phoneCount} phone number(s) removed.",
+            "Connection", connection.Id.ToString());
+
+        return true;
+    }
+
+    /// <summary>
+    /// Clears a connection's WhatsApp credentials and detaches its sender numbers, returning how
+    /// many numbers were removed.
+    ///
+    /// <para>
+    /// Shared by disconnect and delete so the two cannot drift apart — they did, and the gap was
+    /// where an unusable-but-still-reserved configuration could survive.
+    /// </para>
+    /// <para>
+    /// The configuration row itself is kept rather than deleted: it carries the connection's
+    /// identity for the audit trail, and reconnecting reuses it.
+    /// </para>
+    /// </summary>
+    private async Task<int> ReleaseConfigurationAsync(int connectionId, WabaConfiguration? config)
+    {
+        if (config != null)
         {
-            connection.IsActive = false;
-            connection.UpdatedAt = DateTime.UtcNow;
-            await _dbContext.SaveChangesAsync();
-
-            await _auditService.LogAsync(
-                "Connection.Deleted", "Data",
-                $"Deleted connection \"{connection.Name}\".",
-                "Connection", connection.Id.ToString());
-
-            return true;
+            config.Connected = false;
+            config.FacebookAppId = string.Empty;
+            config.FacebookAppSecret = string.Empty;
+            config.AccessToken = string.Empty;
+            config.WabaId = string.Empty;
+            config.VerifyToken = string.Empty;
+            config.WebhookUrl = string.Empty;
+            config.UpdatedAt = DateTime.UtcNow;
         }
-        return false;
+
+        var phones = await _dbContext.WabaPhoneNumbers
+            .Where(p => p.ConnectionId == connectionId)
+            .ToListAsync();
+
+        if (phones.Count > 0)
+        {
+            _dbContext.WabaPhoneNumbers.RemoveRange(phones);
+        }
+
+        await _dbContext.SaveChangesAsync();
+
+        return phones.Count;
     }
 
     /// <summary>

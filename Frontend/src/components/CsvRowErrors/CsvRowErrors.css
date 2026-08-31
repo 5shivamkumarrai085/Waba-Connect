@@ -5,8 +5,8 @@
 .csv-summary-box {
   display: flex;
   gap: 12px;
-  background-color: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  background-color: #ecfdf5;
+  border: 1px solid #a7f3d0;
   border-radius: 8px;
   padding: 16px;
   margin-top: 20px;
@@ -54,12 +54,12 @@
 }
 
 .csv-summary-box.is-empty .csv-summary-strong {
-  color: #b45309;
+  color: #92400e;
 }
 
 /* Same shape as the summary box, red palette, since this reports rejected rows. */
 .csv-errors-box {
-  background-color: #fef2f2;
+  background-color: #fee2e2;
   border: 1px solid #fecaca;
   border-radius: 8px;
   padding: 16px;
@@ -68,7 +68,7 @@
 
 .csv-errors-box .csv-errors-title {
   font-weight: 700;
-  color: #b91c1c;
+  color: #991b1b;
   font-size: 13px;
 }
 

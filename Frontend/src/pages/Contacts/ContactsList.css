@@ -275,7 +275,7 @@
 }
 
 .btn-bulk-delete {
-  background-color: #ef4444;
+  background-color: #dc2626;
 }
 
 .btn-bulk-delete:hover:not(:disabled) {
@@ -538,7 +538,7 @@
 
 .export-action:hover:not(:disabled) {
   background-color: var(--bg-hover, #f1f5f9);
-  color: var(--primary, #6366f1);
+  color: var(--primary, #3b82f6);
 }
 
 .export-action:disabled {
@@ -627,8 +627,8 @@
 }
 
 .btn-clear-filters:hover:not(:disabled) {
-  background-color: #fef2f2;
-  color: #ef4444;
+  background-color: #fee2e2;
+  color: #dc2626;
   border-color: #fca5a5;
 }
 
@@ -784,8 +784,8 @@
   border: 1px solid transparent;
 }
 
-.group-badge-purple { background-color: #f3e8ff; color: #7e22ce; border-color: #e9d5ff; }
-.group-badge-green { background-color: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+.group-badge-purple { background-color: #f3e8ff; color: #6d28d9; border-color: #e9d5ff; }
+.group-badge-green { background-color: #d1fae5; color: #065f46; border-color: #a7f3d0; }
 .group-badge-orange { background-color: #fef3c7; color: #d97706; border-color: #fde68a; }
 .group-badge-pink { background-color: #fce7f3; color: #be185d; border-color: #fbcfe8; }
 .group-badge-blue { background-color: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }

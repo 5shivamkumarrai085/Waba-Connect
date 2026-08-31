@@ -24,41 +24,41 @@
 }
 
 .bot-flow-btn.btn-primary {
-  background-color: #6366f1;
+  background-color: #3b82f6;
   color: #ffffff;
 }
 
 .bot-flow-btn.btn-primary:hover {
-  background-color: #4f46e5;
+  background-color: #2563eb;
 }
 
 .bot-flow-btn.btn-secondary {
   background-color: #ffffff;
-  border-color: #d1d5db;
-  color: #374151;
+  border-color: #cbd5e1;
+  color: #334155;
 }
 
 .bot-flow-btn.btn-secondary:hover {
-  background-color: #f3f4f6;
-  border-color: #9ca3af;
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
 }
 
 .bot-flow-table-card {
   background-color: #ffffff;
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e2e8f0;
   overflow: hidden;
 }
 
 .bot-flow-table-toolbar {
   padding: 16px 24px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e2e8f0;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  background-color: #fafafa;
+  background-color: #f8fafc;
 }
 
 .toolbar-left {
@@ -73,17 +73,17 @@
   width: 36px;
   height: 36px;
   border-radius: 6px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e2e8f0;
   background-color: #ffffff;
-  color: #6b7280;
+  color: #64748b;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .refresh-icon-btn:hover {
-  background-color: #f3f4f6;
-  color: #374151;
-  border-color: #d1d5db;
+  background-color: #f1f5f9;
+  color: #334155;
+  border-color: #cbd5e1;
 }
 
 .bot-flow-table {
@@ -97,31 +97,31 @@
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
-  color: #4b5563;
-  background-color: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
+  color: #475569;
+  background-color: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
   letter-spacing: 0.05em;
 }
 
 .bot-flow-table td {
   padding: 16px 24px;
   font-size: 14px;
-  color: #374151;
-  border-bottom: 1px solid #e5e7eb;
+  color: #334155;
+  border-bottom: 1px solid #e2e8f0;
   vertical-align: middle;
 }
 
 .bot-flow-table tr:hover {
-  background-color: #f9fafb;
+  background-color: #f8fafc;
 }
 
 .flow-name-cell {
   font-weight: 500;
-  color: #111827;
+  color: #0f172a;
 }
 
 .flow-desc-cell {
-  color: #4b5563;
+  color: #475569;
   max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -158,13 +158,13 @@
 }
 
 .action-flow-btn.btn-delete {
-  background-color: #ef4444;
+  background-color: #dc2626;
 }
 
 .bot-flow-pagination {
   padding: 12px 24px;
   background-color: #ffffff;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -187,16 +187,16 @@
 .popup-body textarea {
   padding: 10px 14px;
   border-radius: 6px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #cbd5e1;
   outline: none;
   font-size: 14px;
-  color: #1f2937;
+  color: #0f172a;
   resize: vertical;
   font-family: inherit;
 }
 
 .popup-body textarea:focus {
-  border-color: #6366f1;
+  border-color: #3b82f6;
 }
 
 /* === Gen-Z Animations === */
@@ -207,4 +207,4 @@
 
 
 
-.data-table tbody tr:hover { background: rgba(99, 102, 241, 0.04) !important; transition: background 0.2s ease; }
+.data-table tbody tr:hover { background: rgba(37, 99, 235, 0.05) !important; transition: background 0.2s ease; }

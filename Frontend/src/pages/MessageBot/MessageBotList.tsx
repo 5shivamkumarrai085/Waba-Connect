@@ -132,6 +132,11 @@ export const MessageBotList: React.FC = () => {
 
   return (
     <motion.div {...pageTransitionProps}>
+      {/* Page hero — matches the host's banner treatment. Presentational only. */}
+      <div className="omni-page-hero">
+        <h1>Message Bot</h1>
+        <p>Automatic replies triggered by keywords in incoming messages.</p>
+      </div>
       {/* Top Toolbar actions */}
       <div className="message-bots-toolbar">
         <Can permission="MessageBot.Create">

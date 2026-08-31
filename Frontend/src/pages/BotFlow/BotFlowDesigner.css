@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background-color: #f3f4f6;
+  background-color: #f1f5f9;
   overflow: hidden;
   position: relative;
 }
@@ -10,7 +10,7 @@
 .designer-header {
   height: 64px;
   background-color: #ffffff;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e2e8f0;
   padding: 0 24px;
   display: flex;
   justify-content: space-between;
@@ -32,12 +32,12 @@
 .flow-designer-title {
   font-size: 16px;
   font-weight: 600;
-  color: #111827;
+  color: #0f172a;
 }
 
 .flow-designer-subtitle {
   font-size: 12px;
-  color: #6b7280;
+  color: #64748b;
 }
 
 .header-right {
@@ -60,22 +60,22 @@
 }
 
 .designer-action-btn.btn-primary {
-  background-color: #6366f1;
+  background-color: #3b82f6;
   color: #ffffff;
 }
 
 .designer-action-btn.btn-primary:hover {
-  background-color: #4f46e5;
+  background-color: #2563eb;
 }
 
 .designer-action-btn.btn-secondary {
   background-color: #ffffff;
-  border-color: #d1d5db;
-  color: #374151;
+  border-color: #cbd5e1;
+  color: #334155;
 }
 
 .designer-action-btn.btn-secondary:hover {
-  background-color: #f3f4f6;
+  background-color: #f1f5f9;
 }
 
 /* Designer Workspaces Layout */
@@ -90,7 +90,7 @@
 .designer-components-sidebar {
   width: 280px;
   background-color: #ffffff;
-  border-right: 1px solid #e5e7eb;
+  border-right: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
   z-index: 5;
@@ -100,8 +100,8 @@
   padding: 16px 20px;
   font-size: 14px;
   font-weight: 600;
-  color: #374151;
-  border-bottom: 1px solid #e5e7eb;
+  color: #334155;
+  border-bottom: 1px solid #e2e8f0;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -125,7 +125,7 @@
 .category-title {
   font-size: 12px;
   font-weight: 600;
-  color: #9ca3af;
+  color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -137,19 +137,19 @@
 }
 
 .draggable-node-item {
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
   padding: 10px 14px;
   font-size: 13px;
   font-weight: 500;
-  color: #374151;
+  color: #334155;
   cursor: grab;
   transition: all 0.2s;
 }
 
 .draggable-node-item:hover {
-  border-color: #6366f1;
+  border-color: #3b82f6;
   background-color: #f5f7ff;
 }
 
@@ -160,7 +160,7 @@
 /* Canvas Area grid styling */
 .designer-canvas-grid {
   flex-grow: 1;
-  background-color: #fafbfc;
+  background-color: #f8fafc;
   overflow: hidden;
   position: relative;
 }
@@ -179,12 +179,12 @@
 }
 
 .node-card-wrapper.selected {
-  border-color: #6366f1;
+  border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 
 .node-card-wrapper.invalid {
-  border-color: #ef4444 !important;
+  border-color: #dc2626 !important;
 }
 
 .node-card-wrapper.invalid.selected {
@@ -291,13 +291,13 @@
 .node-input-fields label {
   font-size: 11px;
   font-weight: 600;
-  color: #4b5563;
+  color: #475569;
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
 
 .node-input-fields label.error-label {
-  color: #ef4444 !important;
+  color: #dc2626 !important;
 }
 
 /* Forms CSS matching reference fields */
@@ -308,7 +308,7 @@
   border-radius: 6px;
   border: 1px solid #cbd5e1;
   font-size: 12.5px;
-  color: #1f2937;
+  color: #0f172a;
   outline: none;
   background-color: #ffffff;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -318,7 +318,7 @@
 .node-input-fields input:focus,
 .node-input-fields select:focus,
 .node-input-fields textarea:focus {
-  border-color: #6366f1;
+  border-color: #3b82f6;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
 }
 
@@ -326,16 +326,16 @@
 .node-input-fields select.error-input,
 .node-input-fields textarea.error-input {
   border-color: #fca5a5 !important;
-  background-color: #fef2f2 !important;
+  background-color: #fee2e2 !important;
 }
 
 .node-input-fields input.error-input-border {
-  border-bottom: 1.5px solid #ef4444 !important;
+  border-bottom: 1.5px solid #dc2626 !important;
 }
 
 .input-error-msg {
   font-size: 10px;
-  color: #ef4444;
+  color: #dc2626;
   margin-top: 2px;
   font-weight: 500;
 }
@@ -343,14 +343,14 @@
 /* Character counters */
 .character-counter {
   font-size: 10px;
-  color: #9ca3af;
+  color: #94a3b8;
   text-align: right;
   margin-top: 1px;
 }
 
 /* Validation Summary Panel (Red / Pink warning box) */
 .node-validation-panel {
-  background-color: #fef2f2;
+  background-color: #fee2e2;
   border: 1px solid #fca5a5;
   border-radius: 6px;
   padding: 10px;
@@ -443,7 +443,7 @@
 .sugg-title {
   font-size: 10px;
   font-weight: 600;
-  color: #9ca3af;
+  color: #94a3b8;
   text-transform: uppercase;
 }
 
@@ -455,19 +455,19 @@
 
 .suggestion-chip {
   font-size: 10.5px;
-  background-color: #f3f4f6;
-  border: 1px solid #e5e7eb;
+  background-color: #f1f5f9;
+  border: 1px solid #e2e8f0;
   padding: 3px 6px;
   border-radius: 4px;
-  color: #4b5563;
+  color: #475569;
   cursor: pointer;
   transition: background-color 0.2s;
 }
 
 .suggestion-chip:hover {
-  background-color: #e0e7ff;
-  border-color: #818cf8;
-  color: #4f46e5;
+  background-color: #dbeafe;
+  border-color: #60a5fa;
+  color: #2563eb;
 }
 
 /* Inner card layouts (Buttons, Sections, Contacts) */
@@ -494,7 +494,7 @@
 .inner-item-delete-btn {
   background: none;
   border: none;
-  color: #ef4444;
+  color: #dc2626;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -507,7 +507,7 @@
 .add-field-link-btn {
   background: none;
   border: none;
-  color: #4f46e5;
+  color: #2563eb;
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
@@ -540,8 +540,8 @@
 }
 
 .status-dot.disconnected {
-  background-color: #ef4444;
-  box-shadow: 0 0 6px #ef4444;
+  background-color: #dc2626;
+  box-shadow: 0 0 6px #dc2626;
 }
 
 .status-text {
@@ -677,7 +677,7 @@
 
 .upload-media-area:hover {
   background-color: #f1f5f9;
-  border-color: #6366f1;
+  border-color: #3b82f6;
 }
 
 .upload-icon {
@@ -786,14 +786,14 @@
   width: 11px !important;
   height: 11px !important;
   background-color: #ffffff !important;
-  border: 2.5px solid #6366f1 !important;
+  border: 2.5px solid #3b82f6 !important;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9) !important;
   transition: transform 0.15s, background-color 0.15s, border-color 0.15s, box-shadow 0.15s !important;
 }
 
 .react-flow__handle:hover {
   transform: scale(1.4) !important;
-  background-color: #6366f1 !important;
+  background-color: #3b82f6 !important;
   box-shadow: 0 0 8px rgba(99, 102, 241, 0.6) !important;
 }
 
@@ -847,9 +847,9 @@
 .edge-delete-btn {
   width: 20px;
   height: 20px;
-  background-color: #ef4444;
+  background-color: #dc2626;
   color: #ffffff;
-  border: 1px solid #ef4444;
+  border: 1px solid #dc2626;
   border-radius: 50%;
   cursor: pointer;
   display: flex;

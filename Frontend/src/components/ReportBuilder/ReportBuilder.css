@@ -112,7 +112,7 @@
 
 .report-export-icon.is-excel,
 .report-export-icon.is-csv {
-  color: #16a34a;
+  color: #059669;
 }
 
 /* ── Configuration row ────────────────────────────────────────────────────── */
@@ -589,8 +589,8 @@
 }
 
 .report-direction-incoming {
-  background-color: #dcfce7;
-  color: #15803d;
+  background-color: #d1fae5;
+  color: #065f46;
 }
 
 .report-direction-system {

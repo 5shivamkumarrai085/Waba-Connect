@@ -16,15 +16,15 @@
   align-self: flex-start;
   padding: 6px 12px;
   border-radius: var(--radius-full, 999px);
-  background-color: #dcfce7;
-  color: #15803d;
+  background-color: #d1fae5;
+  color: #065f46;
   font-size: 12px;
   font-weight: 600;
 }
 
 .audit-detail-status.is-failed {
   background-color: #fee2e2;
-  color: #b91c1c;
+  color: #991b1b;
 }
 
 /* ── Field rows ──────────────────────────────────────────────────────────── */
@@ -113,7 +113,7 @@
   padding: 1px 7px;
   border-radius: var(--radius-full, 999px);
   background-color: #fee2e2;
-  color: #b91c1c;
+  color: #991b1b;
   font-size: 11px;
   font-weight: 700;
   font-family: var(--font-body);
@@ -290,6 +290,391 @@
 }
 
 .audit-change-new {
-  color: #15803d;
+  color: #065f46;
   font-weight: 500;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   HOST DRAWER CONTENT — sections as crisp cards
+
+   The host renders each block inside its drawer as a white card with a 1.5px cool
+   border and a small uppercase pill for the section title, sitting on the sunken
+   drawer body. Applied to the classes this panel already renders, so no markup
+   changes and every value the panel shows stays exactly where it was.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.audit-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.audit-detail-rows,
+.audit-detail-section {
+  background: var(--omni-color-surface);
+  border: 1.5px solid #e8edf5;
+  border-radius: 14px;
+  padding: 16px 18px 14px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+  transition: box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.audit-detail-rows:hover,
+.audit-detail-section:hover {
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.07);
+  border-color: var(--omni-color-primary-100);
+}
+
+/* Section headings become the host's gradient pill badge. */
+.audit-detail-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 3.5px 10px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--omni-color-primary-700);
+  background: linear-gradient(90deg, #eff6ff 0%, #f0f9ff 100%);
+  border: 1px solid var(--omni-color-primary-100);
+  border-radius: 16px;
+}
+
+/* Each field is a compact subcard with a blue edge that appears on hover. */
+.audit-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  margin-bottom: 8px;
+  background: var(--omni-color-surface);
+  border: 1.5px solid #e8edf5;
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+  transition: background 180ms ease, border-color 180ms ease,
+              box-shadow 180ms ease, transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.audit-detail-row:last-child {
+  margin-bottom: 0;
+}
+
+.audit-detail-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 3.5px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, #3b82f6, #818cf8);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.audit-detail-row:hover {
+  background: #f0f7ff;
+  border-color: var(--omni-color-primary-300);
+  box-shadow: 0 3px 12px rgba(37, 99, 235, 0.08);
+  transform: translateY(-1.5px);
+}
+
+.audit-detail-row:hover::before {
+  opacity: 1;
+}
+
+.audit-detail-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--omni-color-text-muted);
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.audit-detail-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--omni-color-text-primary);
+  min-width: 0;
+  word-break: break-word;
+}
+
+.audit-detail-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .audit-detail-row:hover { transform: none; }
+}
+
+/* ── Overview + Timeline two-column split ─────────────────────────────────── */
+
+.audit-overview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.audit-overview-divider {
+  padding-left: 18px;
+  border-left: 1.5px dashed var(--omni-color-border);
+}
+
+@media (max-width: 640px) {
+  .audit-overview-grid { grid-template-columns: 1fr; gap: 14px; }
+  .audit-overview-divider {
+    padding-left: 0;
+    padding-top: 12px;
+    border-left: none;
+    border-top: 1.5px dashed var(--omni-color-border);
+  }
+}
+
+.audit-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Two-up field cards for the context sections. */
+.audit-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .audit-field-grid { grid-template-columns: 1fr; }
+}
+
+.audit-field-grid .audit-detail-row,
+.audit-detail-list .audit-detail-row {
+  margin-bottom: 0;
+}
+
+/* ── Icon tiles ───────────────────────────────────────────────────────────── */
+
+.audit-detail-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.audit-detail-icon.is-blue {
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  color: #2563eb;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.12);
+}
+
+.audit-detail-icon.is-neutral {
+  background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+  color: #64748b;
+  box-shadow: 0 1px 3px rgba(100, 116, 139, 0.1);
+}
+
+.audit-detail-icon.is-purple {
+  background: linear-gradient(135deg, #f5f3ff, #ede9fe);
+  color: #7c3aed;
+  box-shadow: 0 1px 3px rgba(124, 58, 237, 0.12);
+}
+
+.audit-detail-icon.is-success {
+  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+  color: #059669;
+  box-shadow: 0 1px 3px rgba(5, 150, 105, 0.12);
+}
+
+.audit-detail-icon.is-danger {
+  background: linear-gradient(135deg, #fee2e2, #fee2e2);
+  color: #dc2626;
+  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.12);
+}
+
+/* ── Row body ─────────────────────────────────────────────────────────────── */
+
+.audit-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5px;
+  min-width: 0;
+}
+
+.audit-detail-row .audit-detail-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--omni-color-text-muted);
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.audit-detail-row .audit-detail-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--omni-color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* ── Value pills ──────────────────────────────────────────────────────────── */
+
+.audit-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: var(--omni-color-surface-alt);
+  border: 1px solid var(--omni-color-border);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--omni-color-text-primary);
+}
+
+.audit-pill-mono {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.audit-pill-action {
+  background: var(--omni-color-info-bg);
+  border-color: var(--omni-color-primary-200);
+  color: var(--omni-color-info-text);
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.audit-pill-result {
+  background: var(--omni-color-success-bg);
+  border-color: #a7f3d0;
+  color: var(--omni-color-success-text);
+}
+
+.audit-pill-result.is-failed {
+  background: var(--omni-color-danger-bg);
+  border-color: #fca5a5;
+  color: var(--omni-color-danger-text);
+}
+
+.audit-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* ── Timeline ─────────────────────────────────────────────────────────────── */
+
+.audit-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  position: relative;
+  padding-left: 14px;
+}
+
+.audit-timeline::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 1px;
+  background: linear-gradient(180deg, #93c5fd, #e2e8f0);
+}
+
+.audit-timeline-step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.audit-timeline-dot {
+  position: absolute;
+  left: -14px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px #bfdbfe;
+}
+
+.audit-timeline-dot.is-success {
+  background: #059669;
+  box-shadow: 0 0 0 2px #a7f3d0;
+}
+
+.audit-timeline-dot.is-danger {
+  background: #dc2626;
+  box-shadow: 0 0 0 2px #fca5a5;
+}
+
+.audit-timeline-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px;
+  background: var(--omni-color-surface);
+  border: 1.5px solid #e8edf5;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+}
+
+.audit-timeline-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--omni-color-text-primary);
+}
+
+.audit-timeline-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--omni-color-text-secondary);
+}
+
+/* ── Raw user agent ───────────────────────────────────────────────────────── */
+
+.audit-ua-label {
+  margin: 12px 0 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--omni-color-text-muted);
+}
+
+.audit-ua-box {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--omni-color-surface-alt);
+  border: 1.5px solid var(--omni-color-border);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.03);
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: #334155;
+  white-space: pre-wrap;
+  word-break: break-word;
 }

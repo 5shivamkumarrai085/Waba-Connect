@@ -3,7 +3,9 @@
 .data-table-wrapper {
   width: 100%;
   overflow-x: auto;
-  border-radius: 4px; /* small, sharp radius */
+  /* The host rounds its table shells generously; the old 4px read as a different
+     component family from every card around it. */
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
 }
@@ -16,18 +18,19 @@
 }
 
 .data-table th {
-  padding: 8px 12px;
+  padding: 12px 16px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--omni-color-text-muted);
   border-bottom: 1px solid var(--border-color);
-  letter-spacing: 0.5px;
-  background-color: var(--bg-primary);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  background-color: var(--omni-color-surface-alt);
 }
 
 .data-table td {
-  padding: 8px 12px;
+  padding: 12px 16px;
   font-size: 13px;
   font-weight: 400;
   border-bottom: 1px solid var(--border-color);
@@ -41,7 +44,7 @@
 }
 
 .data-table tbody tr:hover {
-  background-color: var(--bg-hover);
+  background-color: var(--omni-color-surface-alt);
 }
 
 .data-table tbody tr:last-child td {
@@ -63,7 +66,7 @@
 
 .sort-icon {
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--omni-color-text-muted);
   margin-left: 2px;
   user-select: none;
 }

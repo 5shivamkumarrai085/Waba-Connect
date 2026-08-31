@@ -67,23 +67,23 @@
 }
 
 .add-contact-card .stepper-step:hover {
-  color: #4f46e5;
+  color: #2563eb;
   background-color: rgba(79, 70, 229, 0.04);
 }
 
 .add-contact-card .stepper-step.active {
-  color: #4f46e5;
+  color: #2563eb;
   font-weight: 600;
 }
 
 .add-contact-card .stepper-step.active::after {
   left: 16px;
   right: 16px;
-  background-color: #4f46e5;
+  background-color: #2563eb;
 }
 
 .add-contact-card .stepper-step.completed {
-  color: #4f46e5;
+  color: #2563eb;
 }
 
 /* Form groups and labels */
@@ -295,7 +295,7 @@
   font-size: 14px;
   font-weight: 600;
   color: #ffffff;
-  background-color: #4f46e5; /* Theme purple brand color */
+  background-color: #2563eb; /* Theme purple brand color */
   border: none;
   padding: 0 24px;
   height: 40px;
@@ -314,14 +314,14 @@
 
 /* Validation errors and invalid highlighting */
 .add-contact-card .form-control.is-invalid {
-  border-color: #ef4444 !important;
-  background-color: #fef2f2 !important;
+  border-color: #dc2626 !important;
+  background-color: #fee2e2 !important;
 }
 .add-contact-card .form-control.is-invalid:focus {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
 }
 .invalid-feedback {
-  color: #ef4444;
+  color: #dc2626;
   font-size: 12px;
   font-weight: 500;
   margin-top: 4px;
@@ -425,7 +425,7 @@
 }
 
 .country-picker-search input:focus {
-  border-color: #6366f1;
+  border-color: #3b82f6;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
 }
 
@@ -452,11 +452,11 @@
 
 .country-picker-item:hover {
   background-color: #f1f5f9;
-  color: #4f46e5;
+  color: #2563eb;
 }
 
 .country-picker-item.active {
-  background-color: #eef2ff;
+  background-color: #eff6ff;
   font-weight: 500;
 }
 
@@ -545,7 +545,7 @@
 .note-delete-btn {
   background: none;
   border: none;
-  color: #ef4444;
+  color: #dc2626;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;

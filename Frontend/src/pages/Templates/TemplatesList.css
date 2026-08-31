@@ -70,7 +70,7 @@
 
 /* Primary load button stands out — explicit class instead of :first-child so button order can change freely */
 .templates-toolbar .btn-toolbar-primary {
-  background-color: #4f46e5;
+  background-color: #2563eb;
   color: #ffffff;
   border: none;
 }
@@ -81,7 +81,7 @@
 }
 
 .templates-toolbar .btn-toolbar-primary:disabled {
-  background-color: #818cf8;
+  background-color: #60a5fa;
   opacity: 0.7;
 }
 
@@ -202,8 +202,8 @@
 }
 
 .btn-clear-filters:hover:not(:disabled) {
-  background-color: #fef2f2;
-  color: #ef4444;
+  background-color: #fee2e2;
+  color: #dc2626;
   border-color: #fca5a5;
 }
 
@@ -256,7 +256,7 @@
 
 .templates-filter-grid .form-control:focus {
   outline: none;
-  border-color: #4f46e5;
+  border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
 }
 
@@ -322,7 +322,7 @@
 }
 
 .templates-card .data-table tbody tr:hover {
-  background: rgba(99, 102, 241, 0.04);
+  background: rgba(37, 99, 235, 0.05);
   transform: translateY(-2px) scale(1.005);
   box-shadow: 0 8px 24px rgba(99, 102, 241, 0.08);
   z-index: 2;
@@ -447,8 +447,8 @@
 
 .template-reject-reason {
   font-size: 11px;
-  color: #ef4444;
-  background-color: #fef2f2;
+  color: #dc2626;
+  background-color: #fee2e2;
   border: 1px solid #fecaca;
   padding: 4px 8px;
   border-radius: 6px;
@@ -498,7 +498,7 @@
 .btn-show-more {
   background: none;
   border: none;
-  color: #4f46e5;
+  color: #2563eb;
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;

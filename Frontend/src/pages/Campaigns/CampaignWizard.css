@@ -33,20 +33,20 @@
 
 .wizard-badge.purple {
   border: 1px solid #c084fc;
-  color: #7e22ce;
-  background-color: #faf5ff;
+  color: #6d28d9;
+  background-color: #f5f3ff;
 }
 
 .wizard-badge.yellow {
   border: 1px solid #fbbf24;
-  color: #b45309;
+  color: #92400e;
   background-color: #fffbeb;
 }
 
 .wizard-badge.green {
   border: 1px solid #34d399;
   color: #047857;
-  background-color: #f0fdf4;
+  background-color: #ecfdf5;
 }
 
 /* Two columns grid for form vs preview */
@@ -113,7 +113,7 @@
 
 .scheduling-card.active.green {
   border-color: #10b981;
-  background-color: #f0fdf4;
+  background-color: #ecfdf5;
 }
 
 .scheduling-card.active.blue {
@@ -191,7 +191,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   padding: 16px;
-  background-color: #fafbfc;
+  background-color: #f8fafc;
 }
 
 .wizard-label-spacer {
@@ -261,7 +261,7 @@
 
 /* Next and Save Buttons style */
 .btn-wizard-next, .btn-wizard-save {
-  background-color: #4f46e5 !important;
+  background-color: #2563eb !important;
   color: #ffffff !important;
   box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
 }
@@ -402,7 +402,7 @@
 }
 
 .upload-file-remove-btn:hover {
-  color: #ef4444;
+  color: #dc2626;
   background-color: rgba(239, 68, 68, 0.1);
 }
 
@@ -433,14 +433,14 @@
   display: block;
   margin-top: 6px;
   font-size: 12px;
-  color: #ef4444;
+  color: #dc2626;
 }
 
 .form-control.is-invalid {
-  border-color: #ef4444;
+  border-color: #dc2626;
 }
 
 .form-control.is-invalid:focus {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
-  border-color: #ef4444 !important;
+  border-color: #dc2626 !important;
 }

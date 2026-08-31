@@ -9,7 +9,7 @@ interface ColorPickerProps {
 }
 
 const PRESETS = [
-  '#22C55E', '#3B82F6', '#EAB308', '#A855F7', '#EF4444',
+  '#22C55E', '#3B82F6', '#EAB308', '#A855F7', '#dc2626',
   '#10B981', '#F97316', '#06B6D4', '#EC4899', '#6B7280'
 ]
 

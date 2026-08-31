@@ -32,7 +32,12 @@ namespace WhatsAppCampaignApi.Services
 
         public async Task<HealthLog> RunHealthCheckAsync()
         {
-            var configs = await _dbContext.WabaConfigurations.Where(c => c.Connected && c.ConnectionId != null).ToListAsync();
+            // Deleted connections are not health-checked: reporting an outage for an integration
+            // the operator already removed is noise they cannot act on.
+            var configs = await _dbContext.WabaConfigurations
+                .ForLiveConnections()
+                .Where(c => c.ConnectionId != null)
+                .ToListAsync();
             
             if (configs == null || !configs.Any())
             {

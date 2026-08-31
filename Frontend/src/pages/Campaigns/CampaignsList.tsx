@@ -208,6 +208,11 @@ export const CampaignsList: React.FC = () => {
 
   return (
     <motion.div {...pageTransitionProps}>
+      {/* Page hero — matches the host's banner treatment. Presentational only. */}
+      <div className="omni-page-hero">
+        <h1>Campaigns</h1>
+        <p>Create, schedule and track your WhatsApp campaigns.</p>
+      </div>
       {/* Top Toolbar actions */}
       <div className="campaigns-toolbar">
         <Can permission="Campaign.Create">

@@ -10,31 +10,77 @@
   font-weight: 600;
   font-size: 14px;
   padding: 10px 18px;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
   text-align: center;
+  transition: background 160ms ease, box-shadow 160ms ease, transform 100ms ease, opacity 160ms ease;
+}
+
+/* The host's buttons dip very slightly under the cursor. It is the one piece of
+   feedback that makes a click feel registered before the network answers. */
+.btn:active:not(:disabled) {
+  transform: scale(0.977);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-primary {
-  background-color: var(--primary);
-  color: white;
-  box-shadow: 0 4px 6px -1px rgba(90, 82, 229, 0.2);
+  background: linear-gradient(135deg, #2f72f5 0%, #1d4ed8 100%);
+  color: #fff;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.18),
+    0 4px 12px rgba(37, 99, 235, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
-.btn-primary:hover {
-  background-color: var(--primary-hover);
-  box-shadow: 0 4px 12px -1px rgba(90, 82, 229, 0.35);
+/* Light sweep across the face on hover. Purely decorative, and removed outright
+   under reduced-motion rather than merely slowed. */
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 25%, rgba(255, 255, 255, 0.13) 50%, transparent 75%);
+  transform: translateX(-110%);
+  transition: none;
+  pointer-events: none;
+}
+
+.btn-primary:hover:not(:disabled)::before {
+  transform: translateX(110%);
+  transition: transform 0.52s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+  box-shadow:
+    0 2px 4px rgba(15, 23, 42, 0.2),
+    0 8px 20px rgba(37, 99, 235, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 .btn-secondary {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   color: var(--text-main);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-secondary:hover {
-  background-color: var(--bg-hover);
+  background-color: var(--omni-color-surface-alt);
+  border-color: #c8d4e0;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn:active:not(:disabled) { transform: none; }
+  .btn-primary::before { display: none; }
 }
 
 /* Stat Cards Layout */
@@ -62,17 +108,60 @@
   background-color: var(--bg-secondary);
   border-radius: var(--radius-lg);
   padding: 28px 24px;
-  border: 1px solid var(--border-color);
+  border: 1.5px solid #e8edf5;
   box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   min-height: 175px;
-  transition: box-shadow 0.22s ease;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* The coloured cap along the top edge is the host's signature on a metric card.
+   Rendered as a pseudo-element so no markup has to change to gain it, and cycled
+   through the brand/status hues by position the way the host does. */
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3.5px;
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
+}
+
+.stat-cards-grid > *:nth-child(4n + 1) .stat-card::before,
+.stat-cards-grid > .stat-card:nth-child(4n + 1)::before {
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
+}
+
+.stat-cards-grid > *:nth-child(4n + 2) .stat-card::before,
+.stat-cards-grid > .stat-card:nth-child(4n + 2)::before {
+  background: linear-gradient(90deg, #7c3aed, #a78bfa);
+}
+
+.stat-cards-grid > *:nth-child(4n + 3) .stat-card::before,
+.stat-cards-grid > .stat-card:nth-child(4n + 3)::before {
+  background: linear-gradient(90deg, #059669, #34d399);
+}
+
+.stat-cards-grid > *:nth-child(4n + 4) .stat-card::before,
+.stat-cards-grid > .stat-card:nth-child(4n + 4)::before {
+  background: linear-gradient(90deg, #d97706, #fbbf24);
 }
 
 .stat-card:hover {
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.08);
+  border-color: var(--omni-color-primary-200);
+  box-shadow: 0 12px 28px -4px rgba(37, 99, 235, 0.12);
+  transform: translateY(-2.5px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-card:hover { transform: none; }
 }
 
 .stat-card-top {
@@ -98,17 +187,17 @@
 /* Colors for specific icons */
 .stat-card-icon-wrapper.blue {
   background-color: #e0f2fe;
-  color: #0284c7;
+  color: #2563eb;
 }
 
 .stat-card-icon-wrapper.purple {
   background-color: #f3e8ff;
-  color: #7e22ce;
+  color: #6d28d9;
 }
 
 .stat-card-icon-wrapper.green {
-  background-color: #dcfce7;
-  color: #15803d;
+  background-color: #d1fae5;
+  color: #065f46;
 }
 
 .stat-card-icon-wrapper.orange {
@@ -182,23 +271,36 @@
   padding: 0.75rem 1rem;
   font-size: 0.875rem;
   line-height: 1.5;
-  color: var(--text-primary);
-  background-color: var(--bg-primary);
-  border: 1.5px solid var(--border-light);
-  border-radius: 8px;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  font-family: inherit;
+  color: var(--text-main);
+  background-color: var(--omni-color-surface-alt);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-sizing: border-box;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
-.form-control:hover, .form-input:hover, .form-select:hover {
-  border-color: var(--text-secondary);
+.form-control::placeholder, .form-input::placeholder {
+  color: var(--omni-color-text-muted);
+}
+
+/* Host inputs lift to white on hover rather than darkening their border alone —
+   the field reads as becoming active before it is even focused. */
+.form-control:hover:not(:disabled):not(:focus),
+.form-input:hover:not(:disabled):not(:focus),
+.form-select:hover:not(:disabled):not(:focus) {
+  border-color: #c8d4e0;
+  background-color: var(--bg-secondary);
 }
 
 .form-control:focus, .form-input:focus, .form-select:focus {
   outline: none;
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.15);
-  background-color: var(--bg-primary);
+  /* Was `var(--brand-primary)` — a variable this project never defines — paired
+     with a green glow left over from another palette. So the focus ring rendered
+     with no border colour at all and the wrong accent. Now the brand blue. */
+  border-color: var(--primary);
+  background-color: var(--bg-secondary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
 select.form-control, select.form-select {

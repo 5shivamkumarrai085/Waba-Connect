@@ -7,7 +7,7 @@
    inline styles instead.
 
    Colours map to design tokens rather than the Tailwind palette they imitated.
-   Note the accent shifts from blue-600 to the app's actual --primary (#5a52e5
+   Note the accent shifts from blue-600 to the app's actual --primary (#2563eb
    indigo); these dialogs were off-brand. */
 
 /* ─── Shared form body ──────────────────────────────────────────── */
@@ -103,7 +103,7 @@
 
 .conn-detail-status-pill--off {
   background-color: #fffbeb;
-  color: #b45309;
+  color: #92400e;
   border: 1px solid #fde68a;
 }
 

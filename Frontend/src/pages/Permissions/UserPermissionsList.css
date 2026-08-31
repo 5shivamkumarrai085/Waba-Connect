@@ -100,7 +100,7 @@
 }
 
 .permission-kpi-icon.blue { background-color: #eff6ff; color: #2563eb; }
-.permission-kpi-icon.green { background-color: #f0fdf4; color: #16a34a; }
+.permission-kpi-icon.green { background-color: #ecfdf5; color: #059669; }
 .permission-kpi-icon.amber { background-color: #fffbeb; color: #d97706; }
 .permission-kpi-icon.emerald { background-color: #ecfdf5; color: #059669; }
 
@@ -285,12 +285,12 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background-color: #dcfce7;
-  color: #16a34a;
+  background-color: #d1fae5;
+  color: #059669;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #bbf7d0;
+  border: 1px solid #a7f3d0;
 }
 
 .conn-more-pill {
@@ -323,12 +323,12 @@
 }
 
 .status-pill.active {
-  background-color: #f0fdf4;
-  color: #16a34a;
+  background-color: #ecfdf5;
+  color: #059669;
 }
 
 .status-pill.inactive {
-  background-color: #fef2f2;
+  background-color: #fee2e2;
   color: #dc2626;
 }
 
@@ -338,7 +338,7 @@
   border-radius: 50%;
 }
 
-.status-pill.active .status-dot { background-color: #16a34a; }
+.status-pill.active .status-dot { background-color: #059669; }
 .status-pill.inactive .status-dot { background-color: #dc2626; }
 
 .action-buttons {

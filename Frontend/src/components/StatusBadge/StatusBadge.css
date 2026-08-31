@@ -1,13 +1,22 @@
-/* StatusBadge.css */
+/* StatusBadge.css
+ *
+ * Aligned to the host's Badge component: soft tint, deep text, no outline, 600
+ * weight on the pill.
+ *
+ * The success and info variants used to carry an infinite `pulse-glow` halo. In
+ * a table where most rows read "Delivered", that meant every row throbbing on a
+ * two-second loop forever — motion with nothing to say, and the loudest thing on
+ * a page whose job is to be read. The host badges do not animate; neither do
+ * these now. Nothing else about them changed. */
 
 .status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  font-size: 11px;
-  font-weight: 500;
+  gap: var(--omni-space-1);
+  padding: 2px var(--omni-space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--omni-font-size-xs, 12px);
+  font-weight: 600;
   text-transform: capitalize;
   border: 1px solid transparent;
   white-space: nowrap;
@@ -20,41 +29,24 @@
 .status-badge.verified,
 .status-badge.approved,
 .status-badge.fresh {
-  background-color: #f0fdf4;
-  color: #16a34a;
-  border: 1px solid #bbf7d0;
-  animation: pulse-glow-success 2s infinite;
-}
-
-@keyframes pulse-glow-success {
-  0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.4); }
-  70% { box-shadow: 0 0 0 4px rgba(22, 163, 74, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+  background-color: var(--omni-color-success-bg);
+  color: var(--omni-color-success-text);
 }
 
 /* In Progress, Contacted, Info */
 .status-badge.in-progress,
 .status-badge.contacted,
 .status-badge.info {
-  background-color: #eff6ff;
-  color: #2563eb;
-  border: 1px solid #bfdbfe;
-  animation: pulse-glow-blue 2s infinite 1s;
-}
-
-@keyframes pulse-glow-blue {
-  0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
-  70% { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+  background-color: var(--omni-color-info-bg);
+  color: var(--omni-color-info-text);
 }
 
 /* Pending, Follow Up, Warning */
 .status-badge.pending,
 .status-badge.follow-up,
 .status-badge.warning {
-  background-color: #fff7ed;
-  color: #c2410c;
-  border: 1px solid #fed7aa;
+  background-color: var(--omni-color-warning-bg);
+  color: var(--omni-color-warning-text);
 }
 
 /* Partially Failed — a campaign that already ran with a mix of successes and
@@ -73,9 +65,8 @@
 .status-badge.error,
 .status-badge.rejected,
 .status-badge.unverified {
-  background-color: #fef2f2;
-  color: #b91c1c;
-  border: 1px solid #fecaca;
+  background-color: var(--omni-color-danger-bg);
+  color: var(--omni-color-danger-text);
 }
 
 .status-badge-icon {

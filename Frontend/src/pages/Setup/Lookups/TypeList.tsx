@@ -29,7 +29,7 @@ export const TypeList: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<ContactTypeLookup | null>(null)
 
   const [name, setName] = useState('')
-  const [color, setColor] = useState('#6366F1')
+  const [color, setColor] = useState('#3b82f6')
   const [isActive, setIsActive] = useState(true)
 
   const load = async (showSpinner = true) => {

@@ -13,13 +13,13 @@
 .info-card.theme-blue {
   background-color: #f0f9ff;
   border-color: #bae6fd;
-  color: #0369a1;
+  color: #1d4ed8;
 }
 
 .info-card.theme-orange {
   background-color: #fffbeb;
   border-color: #fde68a;
-  color: #b45309;
+  color: #92400e;
 }
 
 .info-card-header {
@@ -37,11 +37,11 @@
 }
 
 .info-card.theme-blue .info-card-title {
-  color: #0369a1;
+  color: #1d4ed8;
 }
 
 .info-card.theme-orange .info-card-title {
-  color: #b45309;
+  color: #92400e;
 }
 
 .info-card-body {

@@ -4,14 +4,23 @@
     {
       "name": "frontend-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "Frontend"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "Frontend"
+      ],
       "port": 5173,
       "autoPort": true
     },
     {
       "name": "backend-dev",
       "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "Backend"],
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "Backend"
+      ],
       "port": 5155
     }
   ]

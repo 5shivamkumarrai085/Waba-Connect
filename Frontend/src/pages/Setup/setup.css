@@ -367,7 +367,7 @@
   padding: 0;
   border: none;
   border-radius: var(--radius-full);
-  background-color: #d1d5db;
+  background-color: #cbd5e1;
   cursor: pointer;
   transition: background-color 0.18s var(--ease-out);
 }
@@ -850,8 +850,8 @@ textarea.setup-textarea {
 .syslog-badge-information { background-color: #dbeafe; color: #1d4ed8; }
 .syslog-badge-warning { background-color: var(--warning-light); color: #a16207; }
 .syslog-badge-error,
-.syslog-badge-fatal { background-color: var(--error-light); color: #b91c1c; }
-.syslog-badge-debug { background-color: #f3e8ff; color: #7e22ce; }
+.syslog-badge-fatal { background-color: var(--error-light); color: #991b1b; }
+.syslog-badge-debug { background-color: #f3e8ff; color: #6d28d9; }
 .syslog-badge-verbose { background-color: var(--bg-hover); color: var(--text-muted); }
 
 .syslog-date { white-space: nowrap; font-size: 12px; color: var(--text-muted); }
@@ -936,8 +936,8 @@ textarea.setup-textarea {
   background-color: var(--error-light);
 }
 
-.activity-detail-error strong { display: block; margin-bottom: 4px; font-size: 12px; color: #b91c1c; }
-.activity-detail-error p { margin: 0; font-size: 12px; line-height: 1.5; color: #b91c1c; }
+.activity-detail-error strong { display: block; margin-bottom: 4px; font-size: 12px; color: #991b1b; }
+.activity-detail-error p { margin: 0; font-size: 12px; line-height: 1.5; color: #991b1b; }
 
 /* Search row above a Setup list table. Sits inside the card, so it carries its own bottom
    border rather than relying on the table's first row for separation. */

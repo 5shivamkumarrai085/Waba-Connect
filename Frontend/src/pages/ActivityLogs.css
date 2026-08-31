@@ -131,7 +131,7 @@
 /* === Gen-Z Animations === */
 .page-header { animation: slideUp 0.4s ease-out forwards; }
 .data-table tbody tr { animation: fadeIn 0.3s ease-out forwards; }
-.data-table tbody tr:hover { background: rgba(99, 102, 241, 0.04) !important; transition: background 0.2s ease; }
+.data-table tbody tr:hover { background: rgba(37, 99, 235, 0.05) !important; transition: background 0.2s ease; }
 
 /* ── Toolbar: filters, columns, refresh ─────────────────────────────────────
    Sits alongside the existing search box and tabs. Uses the app's own tokens

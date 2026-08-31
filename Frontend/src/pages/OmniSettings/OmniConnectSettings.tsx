@@ -140,7 +140,10 @@ export const OmniConnectSettings: React.FC = () => {
   if (isLoading) {
     return (
       <motion.div {...pageTransitionProps}>
+        <div className="omni-page-hero">
         <h1 className="omni-settings-title">OmniConnect Settings</h1>
+        <p>Configure lead capture, bots, webhooks and AI for your WhatsApp workspace.</p>
+      </div>
         <div className="omni-settings-layout">
           <div className="omni-settings-rail">
             <Skeleton variant="text" count={8} />
@@ -158,7 +161,10 @@ export const OmniConnectSettings: React.FC = () => {
 
   return (
     <motion.div {...pageTransitionProps}>
-      <h1 className="omni-settings-title">OmniConnect Settings</h1>
+      <div className="omni-page-hero">
+        <h1 className="omni-settings-title">OmniConnect Settings</h1>
+        <p>Configure lead capture, bots, webhooks and AI for your WhatsApp workspace.</p>
+      </div>
 
       <div className="omni-settings-layout">
         <nav className="omni-settings-rail" aria-label="Settings sections">

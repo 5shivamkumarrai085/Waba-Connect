@@ -544,9 +544,9 @@
   flex-shrink: 0;
 }
 
-.recent-activity-icon.blue { background-color: #e0f2fe; color: #0284c7; }
-.recent-activity-icon.purple { background-color: #f3e8ff; color: #7e22ce; }
-.recent-activity-icon.green { background-color: #dcfce7; color: #15803d; }
+.recent-activity-icon.blue { background-color: #e0f2fe; color: #2563eb; }
+.recent-activity-icon.purple { background-color: #f3e8ff; color: #6d28d9; }
+.recent-activity-icon.green { background-color: #d1fae5; color: #065f46; }
 .recent-activity-icon.orange { background-color: #ffedd5; color: #ea580c; }
 
 .recent-activity-content {

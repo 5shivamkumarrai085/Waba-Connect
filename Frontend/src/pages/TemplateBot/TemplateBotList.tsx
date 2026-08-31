@@ -148,6 +148,11 @@ export const TemplateBotList: React.FC = () => {
 
   return (
     <motion.div {...pageTransitionProps}>
+      {/* Page hero — matches the host's banner treatment. Presentational only. */}
+      <div className="omni-page-hero">
+        <h1>Template Bot</h1>
+        <p>Send an approved template automatically when a keyword matches.</p>
+      </div>
       {/* Top Action buttons */}
       <div className="template-bot-header-actions">
         <Can permission="TemplateBot.Create">

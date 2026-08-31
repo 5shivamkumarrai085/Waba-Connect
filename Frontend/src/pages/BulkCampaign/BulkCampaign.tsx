@@ -298,7 +298,11 @@ export const BulkCampaign: React.FC = () => {
 
   return (
     <motion.div className="bulk-campaign-container" {...pageTransitionProps}>
-      <h2 className="bulk-campaign-title">Campaigns from CSV File</h2>
+      {/* Page hero — matches the host's banner treatment. Presentational only. */}
+      <div className="omni-page-hero">
+        <h2 className="bulk-campaign-title">Campaigns from CSV File</h2>
+        <p>Upload a CSV to create and send a campaign to many recipients at once.</p>
+      </div>
 
       {/* Modern Stepper Indicator */}
       <div className="bulk-stepper">
@@ -337,7 +341,7 @@ export const BulkCampaign: React.FC = () => {
 
             {/* Sender Connection(s) */}
             <div className="form-group margin-top-20">
-              <label className="form-label">Sender Connection(s) <span style={{ color: '#ef4444' }}>*</span></label>
+              <label className="form-label">Sender Connection(s) <span style={{ color: '#dc2626' }}>*</span></label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
                 {connections.filter(c => c.isConnected && c.phoneNumber).map((conn) => {
                   const isSelected = selectedConnectionIds.includes(conn.id)
@@ -348,9 +352,9 @@ export const BulkCampaign: React.FC = () => {
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: '6px',
                         padding: '8px 14px', borderRadius: '24px',
-                        border: isSelected ? '1.5px solid #6366f1' : '1.5px solid #e2e8f0',
-                        background: isSelected ? 'linear-gradient(135deg, #eef2ff, #e0e7ff)' : '#f8fafc',
-                        color: isSelected ? '#4338ca' : '#475569',
+                        border: isSelected ? '1.5px solid #3b82f6' : '1.5px solid #e2e8f0',
+                        background: isSelected ? 'linear-gradient(135deg, #eef2ff, #dbeafe)' : '#f8fafc',
+                        color: isSelected ? '#1d4ed8' : '#475569',
                         fontSize: '13px', fontWeight: 500, cursor: 'pointer',
                         transition: 'all 0.2s', fontFamily: 'inherit'
                       }}
@@ -378,7 +382,7 @@ export const BulkCampaign: React.FC = () => {
                           fontSize: '10px', fontWeight: 700, letterSpacing: '0.03em',
                           padding: '2px 6px', borderRadius: '4px',
                           backgroundColor: 'rgba(255,255,255,0.6)', border: '1px solid rgba(99,102,241,0.25)',
-                          color: isSelected ? '#4338ca' : '#475569'
+                          color: isSelected ? '#1d4ed8' : '#475569'
                         }}>
                           {conn.nickname}
                         </span>
@@ -388,7 +392,7 @@ export const BulkCampaign: React.FC = () => {
                   )
                 })}
                 {connections.filter(c => c.isConnected && c.phoneNumber).length === 0 && (
-                  <span style={{ fontSize: '13px', color: '#ef4444' }}>No connected WABA numbers found</span>
+                  <span style={{ fontSize: '13px', color: '#dc2626' }}>No connected WABA numbers found</span>
                 )}
               </div>
             </div>
@@ -476,7 +480,7 @@ export const BulkCampaign: React.FC = () => {
                   ))}
                 </select>
                 {isLoadingTemplates && (
-                  <div style={{ fontSize: '12px', color: '#6366f1', marginTop: '4px', fontWeight: 500 }}>
+                  <div style={{ fontSize: '12px', color: '#3b82f6', marginTop: '4px', fontWeight: 500 }}>
                     Loading approved templates...
                   </div>
                 )}

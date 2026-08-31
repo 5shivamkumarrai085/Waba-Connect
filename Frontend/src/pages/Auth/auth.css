@@ -220,7 +220,7 @@
 .auth-error {
   border: 1px solid #fecaca;
   background-color: var(--error-light);
-  color: #b91c1c;
+  color: #991b1b;
 }
 
 .auth-notice {

@@ -63,7 +63,7 @@ interface AuditEventDetailsProps {
  * The tone only colours the tile. It carries no meaning the text does not already state,
  * so a reader who cannot distinguish the hues loses nothing.
  */
-const DetailRow: React.FC<{
+export const DetailRow: React.FC<{
   icon: React.ReactNode
   label: string
   tone?: 'blue' | 'neutral' | 'purple' | 'success' | 'danger'
@@ -86,7 +86,7 @@ const DetailRow: React.FC<{
  * recognise is still fully readable rather than lost. Unknown values say "Unknown"
  * instead of guessing.
  */
-const describeUserAgent = (ua?: string | null): { browser: string; os: string } => {
+export const describeUserAgent = (ua?: string | null): { browser: string; os: string } => {
   if (!ua) return { browser: 'Unknown', os: 'Unknown' }
 
   // Order matters: Edge and Opera both advertise Chrome, and Chrome advertises Safari.

@@ -1,0 +1,99 @@
+/* ContactDetailsDrawer
+ *
+ * The drawer shell, header, body surface, section cards, icon tiles, labels, values and pills all
+ * come from Modal's `--place-right` rules and AuditEventDetails.css — the same stylesheet the
+ * Audit Events drawer uses. Only what is genuinely specific to a contact lives here: the tab strip
+ * spacing, the full-width escape hatch, links, prose and notes.
+ */
+
+.contact-drawer {
+  min-width: 0;
+}
+
+/* The tab strip sits flush against the drawer header, then separates itself from the first
+   section card below. */
+.contact-drawer .stepper-container,
+.contact-drawer .stepper {
+  margin-top: 0;
+  margin-bottom: 14px;
+}
+
+/* ── Full-width escape hatch ───────────────────────────────────────────────
+   `.audit-field-grid` is the shared two-column grid. Content whose length makes two columns the
+   wrong answer — a URL, a street address, a paragraph — opts out by spanning both tracks, so one
+   grid can hold both without a second grid or a bespoke layout. */
+.contact-drawer .audit-field-grid > .is-full {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+/* ── Links ─────────────────────────────────────────────────────────────────
+   Reading affordances only: mail, dial, open. Nothing here edits the contact. */
+.contact-drawer-link {
+  color: var(--omni-color-primary-700);
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.contact-drawer-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Prose values ──────────────────────────────────────────────────────────
+   Addresses and descriptions are multi-line. The shared value style is tuned for a single line,
+   so these relax the line height and honour the newlines the author typed. */
+.contact-drawer-prose {
+  display: block;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* ── Notes ─────────────────────────────────────────────────────────────────
+   Same card treatment as the audit drawer's deleted-message list: white card, cool hairline,
+   content above a quiet timestamp. */
+.contact-drawer-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.contact-drawer-note {
+  padding: 10px 12px;
+  background: var(--omni-color-surface);
+  border: 1.5px solid #e8edf5;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+}
+
+.contact-drawer-note-content {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--omni-color-text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.contact-drawer-note-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--omni-color-text-secondary);
+}
+
+/* On a narrow drawer the shared grid already collapses to one column; the full-width rows are
+   then simply rows, and need no special case. */
+@media (max-width: 600px) {
+  .contact-drawer .stepper-container,
+  .contact-drawer .stepper {
+    margin-bottom: 10px;
+  }
+}

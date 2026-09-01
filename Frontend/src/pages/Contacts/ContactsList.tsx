@@ -30,6 +30,7 @@ import toast from 'react-hot-toast'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
 import { Skeleton } from '../../components/Skeleton'
+import { ContactDetailsDrawer } from './ContactDetailsDrawer'
 import './ContactsList.css'
 import { formatAbsoluteDateTime } from '../../utils/dateHelper'
 import Can from '../../components/Can/Can'
@@ -69,6 +70,10 @@ const getAssignedName = (assignedTo?: string) => {
 
 export const ContactsList: React.FC = () => {
   const navigate = useNavigate()
+
+  // Contact being previewed in the right-hand drawer. The full page at
+  // /contacts/contact/edit/:id is untouched and still handles editing.
+  const [viewingContactId, setViewingContactId] = useState<number | null>(null)
   const { has } = usePermission()
   const {
     contacts,
@@ -928,7 +933,7 @@ export const ContactsList: React.FC = () => {
                               <MenuItem
                                 className="contact-actions-item"
                                 onSelect={() =>
-                                  navigate(`/contacts/contact/edit/${contact.id}?view=true`)
+                                  setViewingContactId(contact.id)
                                 }
                               >
                                 View
@@ -974,7 +979,7 @@ export const ContactsList: React.FC = () => {
                             <div className="contact-name-cell">
                               <span
                                 className="contact-link-name"
-                                onClick={() => navigate(`/contacts/contact/edit/${contact.id}?view=true`)}
+                                onClick={() => setViewingContactId(contact.id)}
                               >
                                 {contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim()}
                               </span>
@@ -1195,6 +1200,11 @@ export const ContactsList: React.FC = () => {
         // conversation to get permanently stuck (see Chat.tsx's requestedContactId
         // guard for the underlying fix to the ?contactId= URL param handling).
       />
+      <ContactDetailsDrawer
+        contactId={viewingContactId}
+        onClose={() => setViewingContactId(null)}
+      />
+
     </motion.div>
   )
 }

@@ -6,6 +6,7 @@ import { Pagination } from '../components/Pagination/Pagination'
 import { ColumnSelector } from '../components/ColumnSelector/ColumnSelector'
 import { Avatar } from '../components/Avatar/Avatar'
 import { AuditEventDetails } from '../components/AuditEventDetails/AuditEventDetails'
+import { LoginAttemptDetails } from '../components/AuditEventDetails/LoginAttemptDetails'
 import { MetricCard } from '../components/MetricCard/MetricCard'
 import { DataTable } from '../components/DataTable/DataTable'
 import { StatusBadge } from '../components/StatusBadge/StatusBadge'
@@ -13,7 +14,6 @@ import { FilterBar } from '../components/FilterBar/FilterBar'
 import { SearchBar } from '../components/SearchBar/SearchBar'
 import { Tabs } from '../components/Tabs/Tabs'
 import type { TabItem } from '../components/Tabs/Tabs'
-import { Modal } from '../components/Modal/Modal'
 import type { LoginSuccessModel, LoginErrorModel, AuditLogModel, AuditLogFilters } from '../types/reporting'
 import {
   Shield,
@@ -567,25 +567,7 @@ export const ActivityLogs: React.FC = () => {
 
       <AuditEventDetails event={viewingAudit} onClose={() => setViewingAudit(null)} />
 
-      <Modal
-        isOpen={viewingError !== null}
-        onClose={() => setViewingError(null)}
-        title="Failed sign-in attempt"
-        size="md"
-      >
-        {viewingError && (
-          <div className="activity-detail">
-            <div className="activity-detail-row"><span>Time</span><span>{formatAbsoluteDateTime(viewingError.time)}</span></div>
-            <div className="activity-detail-row"><span>Email tried</span><span>{viewingError.email}</span></div>
-            <div className="activity-detail-row"><span>IP address</span><span>{viewingError.ipAddress}</span></div>
-            <div className="activity-detail-row"><span>User agent</span><span>{viewingError.userAgent}</span></div>
-            <div className="activity-detail-error">
-              <strong>Why it failed</strong>
-              <p>{viewingError.reason}</p>
-            </div>
-          </div>
-        )}
-      </Modal>
+      <LoginAttemptDetails attempt={viewingError} onClose={() => setViewingError(null)} />
     </motion.div>
   )
 }

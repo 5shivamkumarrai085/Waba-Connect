@@ -27,6 +27,33 @@ public class OmniSettingsController : ControllerBase
     }
 
     /// <summary>
+    /// The handful of settings the browser itself acts on.
+    ///
+    /// <para>
+    /// Separate from the schema endpoint, and gated on nothing but being signed in. The schema
+    /// requires <c>OmniSettings.View</c> — correctly, since it exposes every configured value —
+    /// but a support agent who cannot administer settings still needs to know whether the chat is
+    /// meant to make a sound. Asking them to hold the administration permission to find that out
+    /// would be the wrong trade.
+    /// </para>
+    /// <para>
+    /// It returns only what the client acts on. Nothing sensitive passes through here, and
+    /// deliberately so: adding a field to this response is a decision to publish it to every
+    /// signed-in user.
+    /// </para>
+    /// </summary>
+    [HttpGet("client")]
+    public async Task<IActionResult> GetClientSettings()
+    {
+        var data = new ClientOmniSettingsDto
+        {
+            ChatNotificationSoundEnabled = await _settingsService.GetFlagAsync("notifications.chatSoundEnabled")
+        };
+
+        return Ok(new ApiResponse<ClientOmniSettingsDto> { Success = true, Data = data });
+    }
+
+    /// <summary>
     /// Every section, field, option list and stored value.
     ///
     /// The page is drawn from this, so a field added to the catalogue appears with no frontend

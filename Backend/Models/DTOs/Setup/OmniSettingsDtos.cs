@@ -123,3 +123,15 @@ public class SaveOmniSettingsRequest
     /// </summary>
     public Dictionary<string, object?> Values { get; set; } = new();
 }
+
+/// <summary>
+/// The settings the browser itself acts on.
+///
+/// Its own small DTO rather than a slice of the schema, so that what reaches every signed-in user
+/// is an explicit, reviewable list rather than whatever the schema happens to contain.
+/// </summary>
+public class ClientOmniSettingsDto
+{
+    /// <summary>Whether the chat should play a sound when a new message arrives.</summary>
+    public bool ChatNotificationSoundEnabled { get; set; }
+}

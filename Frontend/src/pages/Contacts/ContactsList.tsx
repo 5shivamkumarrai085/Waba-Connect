@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { pageTransitionProps, transitions } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import { useContactStore } from '../../store/contactStore'
+import { contactFields } from '../../utils/contactSearchFields'
+import { matchesSearch } from '../../utils/smartSearch'
 import { useLookupStore } from '../../store/lookupStore'
 import { contactService } from '../../services/contacts/contactService'
 import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
@@ -159,17 +161,10 @@ export const ContactsList: React.FC = () => {
 
   // Filter contacts locally based on search query and custom filter dropdowns
   const filteredContacts = contacts.filter((c: any) => {
-    // 1. Search Query filter
-    const q = searchQuery.toLowerCase()
+    // 1. Search Query filter — every field the row carries, via the shared matcher, so this and
+    //    the select-all in contactStore cannot disagree about which rows the search covers.
     const contactName = c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim()
-    const matchesSearch = (
-      contactName.toLowerCase().includes(q) ||
-      (c.phone || '').includes(q) ||
-      (c.email || '').toLowerCase().includes(q) ||
-      (c.type || '').toLowerCase().includes(q) ||
-      (c.company && c.company.toLowerCase().includes(q))
-    )
-    if (!matchesSearch) return false
+    if (!matchesSearch(searchQuery, contactFields(c, contactName))) return false
 
     // 2. Type filter
     if (filterType !== 'All') {
@@ -640,7 +635,7 @@ export const ContactsList: React.FC = () => {
             <SearchBar
               value={searchQuery}
               onChange={setSearchQuery}
-              placeholder="Search by name, phone or email..."
+              placeholder="Search name, phone, email, company, status, source..."
             />
           </div>
         </div>

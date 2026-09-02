@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { pageTransitionProps, fadeSlideUp, buttonHoverProps, transitions } from '../../utils/motion'
 import { useTemplateStore } from '../../store/templateStore'
+import { matchesSearch } from '../../utils/smartSearch'
 import { StatusBadge } from '../../components/StatusBadge/StatusBadge'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
@@ -100,12 +101,19 @@ export const TemplatesList: React.FC = () => {
   // Filter templates locally based on ALL selected filters
   const filteredTemplates = templates.filter((t) => {
     // 1. General search box filter
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      const matchesSearch = 
-        t.name.toLowerCase().includes(q) ||
-        t.bodyText.toLowerCase().includes(q)
-      if (!matchesSearch) return false
+    // Every field the row shows. Category, Status and Language are all columns on this table,
+    // and none of them used to match.
+    if (!matchesSearch(searchQuery, [
+      t.name,
+      t.bodyText,
+      t.category,
+      t.status,
+      t.language,
+      t.templateType,
+      t.headerContent,
+      t.footerText
+    ])) {
+      return false
     }
 
     // 2. Specific Template Name filter
@@ -304,7 +312,7 @@ export const TemplatesList: React.FC = () => {
         <SearchBar
           value={searchQuery}
           onChange={setSearchQuery}
-          placeholder="Search templates"
+          placeholder="Search name, body, category, status, language..."
         />
       </motion.div>
 

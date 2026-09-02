@@ -88,7 +88,22 @@ public class ContactService : IContactService
         if (!string.IsNullOrEmpty(request.Search))
         {
             var search = request.Search.ToLower();
-            query = query.Where(c => c.Name.ToLower().Contains(search) || c.Phone.Contains(search));
+
+            // Every field the contact list can show. Searching a company, an owner, a status or a
+            // source returned nothing before, even though all four are columns on the table.
+            query = query.Where(c =>
+                c.Name.ToLower().Contains(search) ||
+                c.Phone.ToLower().Contains(search) ||
+                (c.Email != null && c.Email.ToLower().Contains(search)) ||
+                (c.Company != null && c.Company.ToLower().Contains(search)) ||
+                c.Type.ToLower().Contains(search) ||
+                c.Status.ToLower().Contains(search) ||
+                c.Source.ToLower().Contains(search) ||
+                (c.AssignedTo != null && c.AssignedTo.ToLower().Contains(search)) ||
+                (c.Tags != null && c.Tags.ToLower().Contains(search)) ||
+                (c.City != null && c.City.ToLower().Contains(search)) ||
+                (c.State != null && c.State.ToLower().Contains(search)) ||
+                (c.Country != null && c.Country.ToLower().Contains(search)));
         }
 
         if (request.SortDescending)

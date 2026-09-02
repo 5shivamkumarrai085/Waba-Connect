@@ -703,6 +703,49 @@ textarea.setup-textarea {
 
 .setup-modal-form { display: flex; flex-direction: column; gap: 18px; }
 
+/* -- Setup forms in the right-side drawer -------------------------------------
+   Status, Type, Source, Language, Group, AI Prompt and Canned Reply all open in the shared
+   right-edge drawer now, the same surface as Audit Event Details and Contact Details -- one way to
+   open a record across the product, and the list stays visible behind it, which matters on these
+   screens because entries are usually added several at a time.
+
+   The drawer body is deliberately sunken so that content cards read as raised. A bare form on it
+   would look unfinished, so the form becomes the card. Scoped to `--place-right` so the same
+   markup in a centred dialog anywhere else is untouched. */
+
+.oc-dialog-panel--place-right .setup-modal-form {
+  padding: 18px;
+  background: var(--omni-color-surface, var(--bg-secondary));
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+/* The footer is the drawer's action bar: it sits on the sunken body, so it needs its own ground
+   and a top edge rather than the hairline that suited a white dialog. */
+.oc-dialog-panel--place-right .oc-dialog-footer {
+  padding: 14px 18px 18px;
+  background: var(--omni-color-surface-alt, var(--bg-primary));
+  border-top: 1px solid var(--border-light);
+}
+
+/* Save is the reason the drawer is open, so it takes the room; Cancel stays a quiet escape. */
+.oc-dialog-panel--place-right .oc-dialog-footer .oc-dialog-btn {
+  height: 38px;
+}
+
+.oc-dialog-panel--place-right .oc-dialog-footer .oc-dialog-btn-primary {
+  flex: 1;
+  justify-content: center;
+}
+
+/* On a phone the drawer is full width; the form card would otherwise be padded twice. */
+@media (max-width: 480px) {
+  .oc-dialog-panel--place-right .setup-modal-form {
+    padding: 14px;
+  }
+}
+
 .setup-color-cell { display: flex; align-items: center; gap: 8px; }
 
 .setup-color-dot {

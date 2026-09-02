@@ -8,6 +8,8 @@ import toast from 'react-hot-toast'
 import { useDashboardStore } from './dashboardStore'
 import { useChatStore } from './chatStore'
 import { isRequestCancelled } from '../services/apiClient'
+import { contactFields } from '../utils/contactSearchFields'
+import { matchesSearch } from '../utils/smartSearch'
 
 /**
  * Cross-module edges for contact writes, declared here rather than through a global event bus so
@@ -91,15 +93,14 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
   toggleAllRowSelection: () => {
     const { selectedIds, searchQuery } = get()
 
-    // Filter contacts based on search query first
+    // Filter contacts based on search query first.
+    //
+    // Shares its field list with the Contacts table via contactFields. These two had drifted --
+    // the table searched five fields and this searched three -- so with a search active the header
+    // checkbox could select a different set of rows than the one on screen.
     const filtered = get().contacts.filter(c => {
-      const q = searchQuery.toLowerCase()
       const cName = c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim()
-      return (
-        cName.toLowerCase().includes(q) ||
-        (c.phone || '').includes(q) ||
-        (c.type || '').toLowerCase().includes(q)
-      )
+      return matchesSearch(searchQuery, contactFields(c as unknown as Record<string, unknown>, cName))
     })
 
     const filteredIds = filtered.map(c => c.id)

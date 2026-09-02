@@ -67,7 +67,16 @@ public class MessageActivityController : ControllerBase
             query = query.Where(l =>
                 (l.Name != null && l.Name.ToLower().Contains(term)) ||
                 (l.TemplateName != null && l.TemplateName.ToLower().Contains(term)) ||
-                (l.ContactPhone != null && l.ContactPhone.Contains(term)));
+                (l.ContactPhone != null && l.ContactPhone.ToLower().Contains(term)) ||
+                // Category and relation type are columns on this table, and the id is the first
+                // one; searching any of them used to return nothing.
+                l.Category.ToLower().Contains(term) ||
+                (l.RelationType != null && l.RelationType.ToLower().Contains(term)) ||
+                (l.ErrorMessage != null && l.ErrorMessage.ToLower().Contains(term)) ||
+                (l.TriggeredBy != null && l.TriggeredBy.ToLower().Contains(term)) ||
+                (l.WhatsAppMessageId != null && l.WhatsAppMessageId.ToLower().Contains(term)) ||
+                l.Id.ToString().Contains(term) ||
+                (l.ResponseCode != null && l.ResponseCode.ToString()!.Contains(term)));
         }
 
         var totalCount = await query.CountAsync();

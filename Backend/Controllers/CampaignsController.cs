@@ -159,19 +159,54 @@ public class CampaignsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// A sample CSV showing the columns the importer accepts.
+    ///
+    /// Several rows rather than one: a single row does not show that the file is meant to hold
+    /// many, and a sample with a quoted comma in it is the fastest way to answer "what if my data
+    /// contains a comma" without anyone reading documentation.
+    /// </summary>
     [HttpGet("csv-sample")]
     [RequiresPermission("BulkCampaign.View")]
     public IActionResult GetCsvSample()
     {
-        var csvContent = "firstname,lastname,phone,email,country\nSample Data,Sample Data,+15551234567,66d824de53e6b@example.com,Sample Data\n";
-        var bytes = System.Text.Encoding.UTF8.GetBytes(csvContent);
-        return File(bytes, "text/csv", "campaigns_sample.csv");
+        var csv = new System.Text.StringBuilder();
+        csv.AppendLine("firstname,lastname,phone,email,country");
+        csv.AppendLine("Aditya,Sharma,+919812345670,aditya.sharma@example.com,India");
+        csv.AppendLine("Priya,Nair,+919812345671,priya.nair@example.com,India");
+        csv.AppendLine("John,Miller,+15551234567,john.miller@example.com,United States");
+        csv.AppendLine("\"Fernandes, Ana\",Costa,+5511998765432,ana.costa@example.com,Brazil");
+
+        // The BOM is deliberate: without it Excel opens a UTF-8 CSV as the local ANSI codepage and
+        // mangles every non-ASCII name in the file.
+        var bytes = System.Text.Encoding.UTF8.GetPreamble()
+            .Concat(System.Text.Encoding.UTF8.GetBytes(csv.ToString()))
+            .ToArray();
+
+        return File(bytes, "text/csv", "bulk_campaign_sample.csv");
     }
 
+    /// <summary>
+    /// Reads an uploaded CSV and reports how many rows are usable, without creating anything.
+    ///
+    /// <para>
+    /// Streams the file a record at a time through <see cref="BulkCampaignCsv"/> rather than
+    /// loading it with <c>ReadAllLines</c>, so memory is flat regardless of row count, and quoted
+    /// fields containing commas or newlines parse correctly instead of silently becoming broken
+    /// rows.
+    /// </para>
+    /// <para>
+    /// Every judgement here — which columns count, what a valid phone is, what counts as a name —
+    /// comes from the same helper the create path uses, so the preview cannot promise a different
+    /// number of recipients than the campaign ends up with.
+    /// </para>
+    /// </summary>
     [HttpPost("csv-validate")]
     [Consumes("multipart/form-data")]
     [RequiresPermission("BulkCampaign.Create")]
-    public async Task<ActionResult<ApiResponse<CsvValidationResponse>>> ValidateCsv(IFormFile file)
+    [RequestSizeLimit(CsvUploadLimits.MaxBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = CsvUploadLimits.MaxBytes)]
+    public async Task<ActionResult<ApiResponse<CsvValidationResponse>>> ValidateCsv(IFormFile file, CancellationToken cancellationToken)
     {
         if (file == null || file.Length == 0)
         {
@@ -180,98 +215,82 @@ public class CampaignsController : ControllerBase
 
         if (!Path.GetExtension(file.FileName).Equals(".csv", StringComparison.OrdinalIgnoreCase))
         {
-            return BadRequest(new ApiResponse<CsvValidationResponse> { Success = false, Message = "cannot upload wrong format csv file" });
+            return BadRequest(new ApiResponse<CsvValidationResponse> { Success = false, Message = "Only .csv files can be uploaded. Export your sheet as CSV and try again." });
         }
 
         var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "csv");
-        if (!Directory.Exists(uploadsFolder))
-        {
-            Directory.CreateDirectory(uploadsFolder);
-        }
+        Directory.CreateDirectory(uploadsFolder);
 
         var uniqueFileName = $"{Guid.NewGuid()}_{Path.GetFileName(file.FileName)}";
         var filePath = Path.Combine(uploadsFolder, uniqueFileName);
 
-        using (var fileStream = new FileStream(filePath, FileMode.Create))
+        await using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
         {
-            await file.CopyToAsync(fileStream);
+            await file.CopyToAsync(fileStream, cancellationToken);
         }
 
-        var lines = await System.IO.File.ReadAllLinesAsync(filePath);
-        if (lines.Length < 2)
-        {
-            System.IO.File.Delete(filePath);
-            return BadRequest(new ApiResponse<CsvValidationResponse> { Success = false, Message = "cannot upload wrong format csv file" });
-        }
-
-        var headers = CsvHelper.SplitCsvRow(lines[0]).Select(h => h.ToLower().Trim()).ToList();
-
-        int phoneIdx = headers.FindIndex(h => h == "phone" || h == "phoneno" || h == "phone number" || h == "telephone");
-        int firstNameIdx = headers.FindIndex(h => h == "firstname" || h == "first name" || h == "name");
-
-        if (phoneIdx == -1 || firstNameIdx == -1)
-        {
-            System.IO.File.Delete(filePath);
-            return BadRequest(new ApiResponse<CsvValidationResponse> { Success = false, Message = "cannot upload wrong format csv file" });
-        }
-
-        int totalRecords = 0;
-        int validCount = 0;
-        int invalidCount = 0;
+        int totalRecords = 0, validCount = 0, invalidCount = 0;
         var errors = new List<CsvRowError>();
+        CsvColumnMap? map = null;
 
-        for (int i = 1; i < lines.Length; i++)
+        try
         {
-            var line = lines[i];
-            if (string.IsNullOrWhiteSpace(line)) continue;
+            await using var readStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
 
-            totalRecords++;
-            var rowNumber = i + 1; // 1-based, matches what a user sees opening the file in a spreadsheet (row 1 = header)
-            var fields = CsvHelper.SplitCsvRow(line);
-            if (fields.Count <= Math.Max(phoneIdx, firstNameIdx))
+            await foreach (var (rowNumber, fields) in BulkCampaignCsv.ReadRecordsAsync(readStream, cancellationToken))
             {
-                invalidCount++;
-                errors.Add(new CsvRowError { RowNumber = rowNumber, Column = null, Value = line, Reason = "Row has fewer columns than the header row." });
-                continue;
-            }
-
-            var phoneVal = fields[phoneIdx].Trim();
-            // PhoneNumberHelper is the single normaliser for the whole app. The inline version
-            // that used to live here stripped only spaces, dashes and brackets, so a phone column
-            // Excel had typed as a number ("919143000000.0") failed every row of an otherwise
-            // good file — and said only that the format was invalid.
-            var phoneValid = PhoneNumberHelper.TryNormalize(phoneVal, out _, out var phoneFailure);
-
-            var firstName = fields[firstNameIdx].Trim();
-            var nameValid = firstName.Length >= 2;
-
-            if (phoneValid && nameValid)
-            {
-                validCount++;
-            }
-            else
-            {
-                invalidCount++;
-                if (!phoneValid)
+                if (map == null)
                 {
-                    errors.Add(new CsvRowError { RowNumber = rowNumber, Column = "phone", Value = phoneVal, Reason = phoneFailure! });
+                    map = BulkCampaignCsv.MapColumns(fields);
+                    if (map == null)
+                    {
+                        System.IO.File.Delete(filePath);
+                        return BadRequest(new ApiResponse<CsvValidationResponse>
+                        {
+                            Success = false,
+                            Message = "The file needs a phone column and a name column. Download the sample file to see the expected format."
+                        });
+                    }
+
+                    continue;
                 }
-                if (!nameValid)
+
+                totalRecords++;
+
+                if (BulkCampaignCsv.TryReadRow(fields, rowNumber, map, out _, out var rowErrors))
                 {
-                    errors.Add(new CsvRowError { RowNumber = rowNumber, Column = "firstname", Value = firstName, Reason = "Name must be at least 2 characters long." });
+                    validCount++;
+                }
+                else
+                {
+                    invalidCount++;
+                    // The count stays exact; only the list is capped, so a wholly malformed file
+                    // cannot produce a response bigger than the upload that caused it.
+                    if (errors.Count < BulkCampaignCsv.MaxReportedErrors)
+                    {
+                        errors.AddRange(rowErrors.Take(BulkCampaignCsv.MaxReportedErrors - errors.Count));
+                    }
                 }
             }
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to read uploaded CSV {FileName}", file.FileName);
+            System.IO.File.Delete(filePath);
+            return BadRequest(new ApiResponse<CsvValidationResponse> { Success = false, Message = "The file could not be read as CSV. Download the sample file to see the expected format." });
+        }
 
-        var requestScheme = Request.Scheme;
-        var requestHost = Request.Host.Value;
+        if (map == null || totalRecords == 0)
+        {
+            System.IO.File.Delete(filePath);
+            return BadRequest(new ApiResponse<CsvValidationResponse> { Success = false, Message = "The file has a header row but no data rows." });
+        }
 
-        // Valid rows proceed even when some rows in the same file are invalid — invalid
-        // rows are reported (not silently dropped) rather than rejecting the whole upload,
-        // matching standard bulk-import UX. When there are zero valid rows the uploaded
-        // file itself is discarded (nothing usable to create a campaign from), but the
-        // response still succeeds (HTTP 200) with the full row-level error list, instead
-        // of the previous opaque 400 that gave no indication of what was wrong.
+        // Valid rows proceed even when some rows in the same file are invalid — invalid rows are
+        // reported (not silently dropped) rather than rejecting the whole upload, matching standard
+        // bulk-import UX. When there are zero valid rows the uploaded file itself is discarded
+        // (nothing usable to create a campaign from), but the response still succeeds (HTTP 200)
+        // with the row-level error list, instead of an opaque 400 that says nothing about why.
         if (validCount == 0)
         {
             System.IO.File.Delete(filePath);
@@ -291,7 +310,7 @@ public class CampaignsController : ControllerBase
             });
         }
 
-        var fileUrl = $"{requestScheme}://{requestHost}/uploads/csv/{uniqueFileName}";
+        var fileUrl = $"{Request.Scheme}://{Request.Host.Value}/uploads/csv/{uniqueFileName}";
 
         return Ok(new ApiResponse<CsvValidationResponse>
         {
@@ -305,7 +324,9 @@ public class CampaignsController : ControllerBase
                 InvalidCount = invalidCount,
                 Errors = errors
             },
-            Message = "CSV uploaded successfully"
+            Message = invalidCount == 0
+                ? $"{validCount:N0} record(s) ready to send."
+                : $"{validCount:N0} of {totalRecords:N0} record(s) are ready to send; {invalidCount:N0} row(s) will be skipped."
         });
     }
 

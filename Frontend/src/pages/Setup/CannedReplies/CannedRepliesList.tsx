@@ -233,21 +233,21 @@ export const CannedRepliesList: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         title={editing ? 'Edit Canned Reply' : 'New Canned Reply'}
         icon={<MessageSquareReply size={18} />}
+        subtitle="Saved replies agents can insert into a chat"
+        placement="right"
         size="md"
+        // Cancel is gone: the drawer already has a close button in its header, and two
+        // ways to abandon the same form is one more than anybody needs. Save is the only
+        // thing the footer is for now.
         footer={
-          <>
-            <button type="button" className="oc-dialog-btn oc-dialog-btn-secondary" onClick={() => setIsModalOpen(false)}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              form={FORM_ID}
-              className="oc-dialog-btn oc-dialog-btn-primary"
-              disabled={isSubmitting || !title.trim() || !description.trim()}
-            >
-              {isSubmitting ? 'Saving…' : 'Submit'}
-            </button>
-          </>
+          <button
+            type="submit"
+            form={FORM_ID}
+            className="oc-dialog-btn oc-dialog-btn-primary"
+            disabled={isSubmitting || !title.trim() || !description.trim()}
+          >
+            {isSubmitting ? 'Saving…' : 'Submit'}
+          </button>
         }
       >
         <form id={FORM_ID} onSubmit={handleSubmit} className="setup-modal-form">

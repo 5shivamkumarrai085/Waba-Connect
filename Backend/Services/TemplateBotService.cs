@@ -57,9 +57,15 @@ public class TemplateBotService : ITemplateBotService
         {
             var search = request.Search.ToLower();
             query = query.Where(b => 
-                b.Name.ToLower().Contains(search) || 
+                b.Name.ToLower().Contains(search) ||
                 b.TriggerKeyword.ToLower().Contains(search) ||
-                b.Template.Name.ToLower().Contains(search)
+                b.Template.Name.ToLower().Contains(search) ||
+                // Relation type and reply type are columns on this table; the template's
+                // body is what the bot actually sends.
+                b.RelationType.ToLower().Contains(search) ||
+                b.ReplyType.ToLower().Contains(search) ||
+                b.Template.BodyText.ToLower().Contains(search) ||
+                (b.Connection != null && b.Connection.Name.ToLower().Contains(search))
             );
         }
 

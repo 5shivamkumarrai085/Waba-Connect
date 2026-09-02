@@ -4,6 +4,7 @@ using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.DTOs.Setup;
 using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Services.Interfaces;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace WhatsAppCampaignApi.Services;
 
@@ -15,6 +16,10 @@ public class OmniSettingsService : IOmniSettingsService
     private readonly IAuditService _auditService;
     private readonly ICurrentUserService _currentUser;
     private readonly ILogger<OmniSettingsService> _logger;
+    private readonly IMemoryCache _cache;
+
+    /// <summary>Single cache slot holding every stored setting. See GetCachedValuesAsync.</summary>
+    private const string CacheKey = "omni-settings:values";
 
     /// <summary>
     /// What a stored secret is replaced with in any log or audit entry.
@@ -35,13 +40,15 @@ public class OmniSettingsService : IOmniSettingsService
         IEncryptionService encryption,
         IAuditService auditService,
         ICurrentUserService currentUser,
-        ILogger<OmniSettingsService> logger)
+        ILogger<OmniSettingsService> logger,
+        IMemoryCache cache)
     {
         _dbContext = dbContext;
         _encryption = encryption;
         _auditService = auditService;
         _currentUser = currentUser;
         _logger = logger;
+        _cache = cache;
     }
 
     // ── Read ─────────────────────────────────────────────────────────────────
@@ -279,6 +286,10 @@ public class OmniSettingsService : IOmniSettingsService
 
         await _dbContext.SaveChangesAsync();
 
+        // Before the audit write, not after: the settings are live the instant the rows are
+        // committed, and a reader that arrives in between must not be served the old values.
+        InvalidateCache();
+
         await _auditService.LogAsync(
             "Settings.Updated", "Settings",
             changed.Count == 0
@@ -386,6 +397,19 @@ public class OmniSettingsService : IOmniSettingsService
 
             if (IsEmpty(field, value)) continue;
 
+            // The webhook destination is the one field whose value this server will later make an
+            // outbound request to, so what it may contain is checked when it is set rather than
+            // discovered at three in the morning when an event fails to forward.
+            if (string.Equals(field.Key, "webhook.resendUrl", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Uri.TryCreate(value!.Trim(), UriKind.Absolute, out var destination)
+                    || (destination.Scheme != Uri.UriSchemeHttp && destination.Scheme != Uri.UriSchemeHttps))
+                {
+                    throw new InvalidOperationException(
+                        $"\"{field.Label}\" must be a full http:// or https:// URL.");
+                }
+            }
+
             if (field.Type == "number" && int.TryParse(value, out var number))
             {
                 if (field.Min.HasValue && number < field.Min.Value)
@@ -440,15 +464,50 @@ public class OmniSettingsService : IOmniSettingsService
 
     // ── Consumption ──────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Every stored setting, as one cached dictionary.
+    ///
+    /// <para>
+    /// The consumers of these settings sit on hot paths — every inbound WhatsApp message reads the
+    /// auto-lead and stop-bot settings, every chat query reads the agent restriction — and each
+    /// individual read was a separate round trip to Postgres. The whole table is at most a couple
+    /// of dozen short rows, so it is loaded once and held until something writes to it.
+    /// </para>
+    /// <para>
+    /// Values are cached exactly as stored: secrets stay encrypted in the cache and are decrypted
+    /// per call, so a memory dump never contains a plaintext API key.
+    /// </para>
+    /// </summary>
+    private async Task<Dictionary<string, string?>> GetCachedValuesAsync()
+    {
+        if (_cache.TryGetValue(CacheKey, out Dictionary<string, string?>? cached) && cached is not null)
+        {
+            return cached;
+        }
+
+        var rows = await _dbContext.AppSettings.AsNoTracking()
+            .Select(s => new { s.Key, s.Value })
+            .ToListAsync();
+
+        var values = rows.ToDictionary(r => r.Key, r => r.Value, StringComparer.OrdinalIgnoreCase);
+
+        // No expiry: the cache is dropped when a section is saved, which is the only thing that can
+        // make it stale. A timeout would only add a window where a saved setting is ignored.
+        _cache.Set(CacheKey, values);
+
+        return values;
+    }
+
+    /// <inheritdoc />
+    public void InvalidateCache() => _cache.Remove(CacheKey);
+
     public async Task<string?> GetValueAsync(string key)
     {
         var field = OmniSettingsCatalog.AllFields
             .FirstOrDefault(f => string.Equals(f.Key, key, StringComparison.OrdinalIgnoreCase));
 
-        var raw = await _dbContext.AppSettings.AsNoTracking()
-            .Where(s => s.Key == key)
-            .Select(s => s.Value)
-            .FirstOrDefaultAsync();
+        var values = await GetCachedValuesAsync();
+        var raw = values.GetValueOrDefault(key);
 
         if (raw is null || field is null || !field.IsSecret) return raw;
 
@@ -470,5 +529,30 @@ public class OmniSettingsService : IOmniSettingsService
     {
         var raw = await GetValueAsync(key);
         return bool.TryParse(raw, out var flag) ? flag : fallback;
+    }
+
+    /// <inheritdoc />
+    public async Task<int> GetNumberAsync(string key, int fallback)
+    {
+        var raw = await GetValueAsync(key);
+        return int.TryParse(raw, out var number) ? number : fallback;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> GetListAsync(string key)
+    {
+        var raw = await GetValueAsync(key);
+        if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<string>();
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(raw, JsonOptions) ?? [];
+        }
+        catch (JsonException ex)
+        {
+            // A hand-edited row should not take down the feature reading it.
+            _logger.LogWarning(ex, "Setting {Key} does not hold a JSON array; treating it as empty.", key);
+            return Array.Empty<string>();
+        }
     }
 }

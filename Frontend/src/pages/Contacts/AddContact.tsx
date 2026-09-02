@@ -17,6 +17,7 @@ import type {
 } from '../../types/contacts'
 import './AddContact.css'
 import { getErrorMessage } from '../../utils/errorHelper'
+import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
 export const AddContact: React.FC = () => {
   const navigate = useNavigate()
@@ -345,46 +346,40 @@ export const AddContact: React.FC = () => {
                 <div className="add-contact-top-grid">
                   <div className="form-group form-group-required">
                     <label className="form-label">Status</label>
-                    <select
-                      className={`form-control ${errors.statusVal ? 'is-invalid' : ''}`}
+                    <SearchableSelect
+                      searchThreshold={1}
+                      className={errors.statusVal ? 'is-invalid' : undefined}
+                      placeholder="Select Status"
+                      label="Status"
                       value={statusVal}
-                      onChange={(e) => setStatusVal(e.target.value)}
-                      required
-                    >
-                      <option value="">Select Status</option>
-                      {statuses.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
+                      options={statuses.map(s => ({ value: String(s.id), label: s.name }))}
+                      onChange={setStatusVal}
+                    />
                   </div>
 
                   <div className="form-group form-group-required">
                     <label className="form-label">Source</label>
-                    <select
-                      className={`form-control ${errors.sourceVal ? 'is-invalid' : ''}`}
+                    <SearchableSelect
+                      searchThreshold={1}
+                      className={errors.sourceVal ? 'is-invalid' : undefined}
+                      placeholder="Select Source"
+                      label="Source"
                       value={sourceVal}
-                      onChange={(e) => setSourceVal(e.target.value)}
-                      required
-                    >
-                      <option value="">Select Source</option>
-                      {sources.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
+                      options={sources.map(s => ({ value: String(s.id), label: s.name }))}
+                      onChange={setSourceVal}
+                    />
                   </div>
 
                   <div className="form-group">
                     <label className="form-label">Assigned</label>
-                    <select
-                      className="form-control"
+                    <SearchableSelect
+                      searchThreshold={1}
+                      placeholder="Select Assigned Name"
+                      label="Assigned"
                       value={assignedVal}
-                      onChange={(e) => setAssignedVal(e.target.value)}
-                    >
-                      <option value="">Select Assigned Name</option>
-                      {assignedUsers.map(u => (
-                        <option key={u.id} value={u.name}>{u.name}</option>
-                      ))}
-                    </select>
+                      options={assignedUsers.map(u => ({ value: u.name, label: u.name }))}
+                      onChange={setAssignedVal}
+                    />
                   </div>
                 </div>
 
@@ -432,17 +427,15 @@ export const AddContact: React.FC = () => {
 
                   <div className="form-group form-group-required">
                     <label className="form-label">Type</label>
-                    <select
-                      className={`form-control ${errors.typeVal ? 'is-invalid' : ''}`}
+                    <SearchableSelect
+                      searchThreshold={1}
+                      className={errors.typeVal ? 'is-invalid' : undefined}
+                      placeholder="Select Type"
+                      label="Type"
                       value={typeVal}
-                      onChange={(e) => setTypeVal(e.target.value)}
-                      required
-                    >
-                      <option value="">Select Type</option>
-                      {types.map(t => (
-                        <option key={t.id} value={t.id}>{t.name}</option>
-                      ))}
-                    </select>
+                      options={types.map(t => ({ value: String(t.id), label: t.name }))}
+                      onChange={setTypeVal}
+                    />
                     {errors.typeVal && <span className="invalid-feedback">{errors.typeVal}</span>}
                   </div>
 
@@ -539,31 +532,27 @@ export const AddContact: React.FC = () => {
 
                   <div className="form-group">
                     <label className="form-label">Default Language</label>
-                    <select
-                      className="form-control"
+                    <SearchableSelect
+                      searchThreshold={1}
+                      placeholder="Select Language"
+                      label="Default Language"
                       value={languageVal}
-                      onChange={(e) => setLanguageVal(e.target.value)}
-                    >
-                      <option value="">Select Language</option>
-                      {languages.map(l => (
-                        <option key={l.id} value={l.name}>{l.name}</option>
-                      ))}
-                    </select>
+                      options={languages.map(l => ({ value: l.name, label: l.name }))}
+                      onChange={setLanguageVal}
+                    />
                   </div>
 
                   {/* Groups field */}
                   <div className="form-group">
                     <label className="form-label">Assign to Groups</label>
-                    <select
-                      className="form-control"
+                    <SearchableSelect
+                      searchThreshold={1}
+                      placeholder="Select Groups"
+                      label="Assign to Groups"
                       value={selectedGroups}
-                      onChange={(e) => setSelectedGroups(e.target.value)}
-                    >
-                      <option value="">Select Groups</option>
-                      {groups.map(g => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
-                      ))}
-                    </select>
+                      options={groups.map(g => ({ value: String(g.id), label: g.name }))}
+                      onChange={setSelectedGroups}
+                    />
                   </div>
                 </div>
               </div>
@@ -597,24 +586,27 @@ export const AddContact: React.FC = () => {
 
                   <div className="form-group">
                     <label className="form-label">Country</label>
-                    <select
-                      className="form-control"
+                    <SearchableSelect
+                      searchThreshold={1}
+                      placeholder="Select Country"
+                      label="Country"
                       value={countryVal}
-                      onChange={(e) => {
-                        const val = e.target.value
+                      disabled={isViewMode}
+                      // The dial code follows the country, exactly as it did on the native select.
+                      options={ALL_COUNTRIES.map(c => ({
+                        value: c.name,
+                        label: c.name,
+                        // Lets someone type "+44" or "GB" and still find the United Kingdom.
+                        keywords: `${c.code} ${c.dialCode ?? ''}`
+                      }))}
+                      onChange={(val) => {
                         setCountryVal(val)
                         const matched = ALL_COUNTRIES.find(c => c.name === val || c.code === val)
                         if (matched && matched.dialCode) {
                           setSelectedDialCodeVal(matched.dialCode)
                         }
                       }}
-                      disabled={isViewMode}
-                    >
-                      <option value="">Select Country</option>
-                      {ALL_COUNTRIES.map(c => (
-                        <option key={c.code} value={c.name}>{c.name}</option>
-                      ))}
-                    </select>
+                    />
                   </div>
 
                   <div className="form-group">

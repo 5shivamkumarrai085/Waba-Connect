@@ -47,6 +47,8 @@ import { resolveMediaUrl } from '../../utils/mediaUrl'
 import { buildLookupMap, resolveLookup, badgeStyleFor, type ResolvedLookup } from '../../utils/lookupColors'
 import { contactService } from '../../services/contacts/contactService'
 import type { ContactType } from '../../types/contacts'
+import { matchesSearch } from '../../utils/smartSearch'
+import { useChatNotificationSound } from '../../hooks/useChatNotificationSound'
 
 const EMOJIS = [
   '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇',
@@ -119,6 +121,13 @@ export const Chat: React.FC = () => {
     setConversationsFilter,
     setSidebarSearchQuery
   } = useChatStore()
+
+  // Plays a tone when the inbox gains an unread message, if the operator has enabled the sound in
+  // OmniConnect Settings. Reads the total rather than watching individual threads: that total is
+  // what actually means "something new arrived that you have not seen".
+  useChatNotificationSound(
+    useMemo(() => conversations.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0), [conversations])
+  )
 
   const [messageText, setMessageText] = useState('')
   const [showTimeBanner, setShowTimeBanner] = useState(false)
@@ -403,10 +412,14 @@ export const Chat: React.FC = () => {
     }
   }, [lastActiveMessage])
 
+  // Message search inside the open conversation. The text is what gets highlighted, but an
+  // attachment is found by its filename and a failed send by its error -- neither of which lives
+  // in the text -- so both are matched too.
   const searchedMessages = useMemo(() => {
     if (!msgSearchQuery.trim()) return messages
-    const q = msgSearchQuery.toLowerCase()
-    return messages.filter(m => m.text.toLowerCase().includes(q))
+    return messages.filter((m) =>
+      matchesSearch(msgSearchQuery, [m.text, m.mediaFileName, m.mediaType, m.errorMessage])
+    )
   }, [messages, msgSearchQuery])
 
   // Note CRUD handlers
@@ -842,7 +855,7 @@ export const Chat: React.FC = () => {
           <SearchBar
             value={sidebarSearchQuery}
             onChange={setSidebarSearchQuery}
-            placeholder="Searching..."
+            placeholder="Search name, phone, message, group..."
           />
         </div>
 

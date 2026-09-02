@@ -52,8 +52,16 @@ public class MessageBotService : IMessageBotService
         {
             var search = request.Search.ToLower();
             query = query.Where(b => 
-                b.Name.ToLower().Contains(search) || 
-                b.TriggerKeyword.ToLower().Contains(search)
+                b.Name.ToLower().Contains(search) ||
+                b.TriggerKeyword.ToLower().Contains(search) ||
+                // The reply is the substance of the bot, and relation type and reply type
+                // are both columns; none of the three were reachable from the search box.
+                b.ReplyText.ToLower().Contains(search) ||
+                b.RelationType.ToLower().Contains(search) ||
+                b.ReplyType.ToLower().Contains(search) ||
+                (b.Header != null && b.Header.ToLower().Contains(search)) ||
+                (b.Footer != null && b.Footer.ToLower().Contains(search)) ||
+                (b.Connection != null && b.Connection.Name.ToLower().Contains(search))
             );
         }
 

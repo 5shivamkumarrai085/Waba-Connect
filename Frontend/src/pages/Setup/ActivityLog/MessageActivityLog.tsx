@@ -195,7 +195,7 @@ export const MessageActivityLog: React.FC = () => {
               <Search size={15} className="setup-search-icon" />
               <input
                 type="text"
-                placeholder="Search name, template or phone..."
+                placeholder="Search id, category, name, template, phone, relation type..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />

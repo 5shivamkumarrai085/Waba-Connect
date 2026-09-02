@@ -19,30 +19,34 @@ public class BotRouterService : IBotRouterService
     private readonly AppDbContext _dbContext;
     private readonly IFlowExecutionService _flowExecutionService;
     private readonly IWhatsAppService _whatsAppService;
-    private readonly IAiProvider _groqProvider;
+    private readonly IEnumerable<IAiProvider> _aiProviders;
     private readonly IEncryptionService _encryptionService;
     private readonly MessageBotExecutor _messageBotExecutor;
     private readonly IConfiguration _configuration;
     private readonly ILogger<BotRouterService> _logger;
 
+    private readonly IOmniSettingsService _settings;
+
     public BotRouterService(
         AppDbContext dbContext,
         IFlowExecutionService flowExecutionService,
         IWhatsAppService whatsAppService,
-        IAiProvider groqProvider,
+        IEnumerable<IAiProvider> aiProviders,
         IEncryptionService encryptionService,
         MessageBotExecutor messageBotExecutor,
         IConfiguration configuration,
-        ILogger<BotRouterService> logger)
+        ILogger<BotRouterService> logger,
+        IOmniSettingsService settings)
     {
         _dbContext = dbContext;
         _flowExecutionService = flowExecutionService;
         _whatsAppService = whatsAppService;
-        _groqProvider = groqProvider;
+        _aiProviders = aiProviders;
         _encryptionService = encryptionService;
         _messageBotExecutor = messageBotExecutor;
         _configuration = configuration;
         _logger = logger;
+        _settings = settings;
     }
 
     public async Task<bool> RouteMessageAsync(string phoneNumber, string incomingMessage, Contact contact, int? connectionId = null)
@@ -57,6 +61,14 @@ public class BotRouterService : IBotRouterService
         }
 
         _logger.LogInformation("Routing incoming message from {Phone}: '{Message}'", normalizedPhone, cleanMessage);
+
+        // ── Stop Bot ────────────────────────────────────────────────────────────────────────────
+        // Ahead of every other branch, because a customer who has said stop must not be answered
+        // by any automation — message bot, template bot, flow or assistant alike.
+        if (await HandleStopBotAsync(normalizedPhone, cleanMessage, connectionId))
+        {
+            return false;
+        }
 
         if (connectionId.HasValue)
         {
@@ -103,14 +115,23 @@ public class BotRouterService : IBotRouterService
 
         if (activeSession != null || isBotFlowAiStop)
         {
-            string stopKeyword = "stop";
-            if (activeSession != null)
+            // Words that end an assistant session. The configured list wins; the per-assistant
+            // appsettings value, and then "stop", remain as the fallback so an install that has
+            // never opened the settings page behaves exactly as it did before.
+            var stopKeywords = (await _settings.GetListAsync("assistant.stopKeywords")).ToList();
+
+            if (stopKeywords.Count == 0)
             {
-                var assistantName = activeSession.AssistantName;
-                stopKeyword = _configuration[$"PersonalAssistants:{assistantName}:StopKeyword"] ?? "stop";
+                var configuredKeyword = activeSession != null
+                    ? _configuration[$"PersonalAssistants:{activeSession.AssistantName}:StopKeyword"]
+                    : null;
+
+                stopKeywords.Add(configuredKeyword ?? "stop");
             }
 
-            if (string.Equals(cleanMessage, stopKeyword, StringComparison.OrdinalIgnoreCase))
+            var stopCandidate = cleanMessage.Trim().Trim('.', '!', '?', ',', ';', ':').Trim();
+
+            if (stopKeywords.Any(k => string.Equals(k.Trim(), stopCandidate, StringComparison.OrdinalIgnoreCase)))
             {
                 _logger.LogInformation("Stop keyword matched. Terminating AI session/flow for phone {Phone}", normalizedPhone);
                 
@@ -381,12 +402,164 @@ public class BotRouterService : IBotRouterService
         return false;
     }
 
+    /// <summary>
+    /// Applies the Stop Bot settings to one inbound message.
+    ///
+    /// <para>
+    /// Returns true when this message must not produce any automated reply — either because it
+    /// <em>is</em> the stop word, or because the sender is still inside a stop window they opened
+    /// earlier.
+    /// </para>
+    /// <para>
+    /// The suppression is per sender and per connection, never global: silencing bots for everyone
+    /// because one customer opted out would be a far larger action than the customer asked for.
+    /// </para>
+    /// <para>
+    /// Matching is deliberately forgiving — trimmed, case-insensitive, and tolerant of the
+    /// punctuation people actually type ("STOP.", "stop!"). It is still whole-message matching
+    /// rather than substring: a sentence containing the word "stop" in passing ("stop by the shop
+    /// tomorrow?") is a question for a human, not an opt-out.
+    /// </para>
+    /// </summary>
+    private async Task<bool> HandleStopBotAsync(string normalizedPhone, string cleanMessage, int? connectionId)
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+
+            var suppression = await _dbContext.BotSuppressions
+                .Where(b => b.PhoneNumber == normalizedPhone
+                            && (b.ConnectionId == null || b.ConnectionId == connectionId))
+                .OrderByDescending(b => b.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            var isSuppressed = suppression != null && (suppression.ResumeAt == null || suppression.ResumeAt > now);
+
+            var keywords = await _settings.GetListAsync("stopBot.keywords");
+
+            if (keywords.Count > 0)
+            {
+                var candidate = cleanMessage.Trim().Trim('.', '!', '?', ',', ';', ':').Trim();
+
+                var matched = keywords.FirstOrDefault(k =>
+                    !string.IsNullOrWhiteSpace(k) &&
+                    string.Equals(k.Trim(), candidate, StringComparison.OrdinalIgnoreCase));
+
+                if (matched != null)
+                {
+                    // A restart window of zero or less means "until someone intervenes", which is
+                    // the honest reading of an unqualified stop.
+                    var restartHours = await _settings.GetNumberAsync("stopBot.restartAfterHours", 0);
+                    var resumeAt = restartHours > 0 ? now.AddHours(restartHours) : (DateTime?)null;
+
+                    _dbContext.BotSuppressions.Add(new BotSuppression
+                    {
+                        PhoneNumber = normalizedPhone,
+                        ConnectionId = connectionId,
+                        MatchedKeyword = matched,
+                        CreatedAt = now,
+                        ResumeAt = resumeAt
+                    });
+
+                    // Anything the customer was mid-way through is over: leaving a flow or an
+                    // assistant session active would have it resume the moment the window lapses,
+                    // picking up a conversation the customer ended.
+                    var openSessions = await _dbContext.AiSessions
+                        .Where(a => a.PhoneNumber == normalizedPhone && a.IsActive)
+                        .ToListAsync();
+
+                    foreach (var session in openSessions)
+                    {
+                        session.IsActive = false;
+                        session.UpdatedAt = now;
+                    }
+
+                    var openFlows = await _dbContext.ConversationStates
+                        .Where(c => c.PhoneNumber == normalizedPhone && c.Status == "Active")
+                        .ToListAsync();
+
+                    foreach (var flow in openFlows)
+                    {
+                        flow.Status = "Completed";
+                        flow.UpdatedAt = now;
+                    }
+
+                    await _dbContext.SaveChangesAsync();
+
+                    _logger.LogInformation(
+                        "Stop Bot: {Phone} sent \"{Keyword}\". Automated replies suppressed {Until}.",
+                        normalizedPhone, matched,
+                        resumeAt.HasValue ? $"until {resumeAt:u}" : "indefinitely");
+
+                    return true;
+                }
+            }
+
+            if (isSuppressed)
+            {
+                _logger.LogInformation(
+                    "Stop Bot: ignoring message from {Phone} — suppressed until {Until}.",
+                    normalizedPhone,
+                    suppression!.ResumeAt.HasValue ? suppression.ResumeAt.Value.ToString("u") : "further notice");
+
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            // Failing open: a settings or database problem must not silence every bot in the
+            // product. The message routes as it would have before this feature existed.
+            _logger.LogError(ex, "Stop Bot check failed for {Phone}; continuing with normal routing.", normalizedPhone);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The registered AI provider with this name.
+    ///
+    /// Falls back to the first registered provider rather than throwing: a missing registration is
+    /// a deployment problem, and answering the customer with the other model beats not answering.
+    /// </summary>
+    private IAiProvider ResolveProvider(string providerName)
+    {
+        var match = _aiProviders.FirstOrDefault(p =>
+            string.Equals(p.ProviderName, providerName, StringComparison.OrdinalIgnoreCase));
+
+        if (match != null) return match;
+
+        _logger.LogWarning("AI provider \"{Provider}\" is not registered; falling back.", providerName);
+        return _aiProviders.First();
+    }
+
     private async Task ProcessAiAssistantRequestAsync(Contact contact, string normalizedPhone, string incomingMessage, AiSession session, int? connectionId = null)
     {
         string assistantName = session.AssistantName;
-        
-        string? apiKey = _configuration[$"PersonalAssistants:{assistantName}:ApiKey"] ?? _configuration["Groq:ApiKey"];
-        string? model = _configuration[$"PersonalAssistants:{assistantName}:Model"] ?? _configuration["Groq:Model"] ?? "llama-3.1-8b-instant";
+
+        // ── AI Integration ──────────────────────────────────────────────────────────────────────
+        // With OpenAI switched on in settings, the assistant runs on the configured model and the
+        // key stored (encrypted) there. With it off, nothing about the previous behaviour changes:
+        // Groq, with the key and model from appsettings. The provider is chosen by name from the
+        // registered set rather than being newed up here.
+        var useOpenAi = await _settings.GetFlagAsync("ai.openAiEnabled");
+
+        string? apiKey;
+        string? model;
+        IAiProvider provider;
+
+        if (useOpenAi)
+        {
+            apiKey = await _settings.GetValueAsync("ai.openAiSecretKey");
+            model = await _settings.GetValueAsync("ai.chatModel");
+            provider = ResolveProvider("OpenAI");
+        }
+        else
+        {
+            apiKey = _configuration[$"PersonalAssistants:{assistantName}:ApiKey"] ?? _configuration["Groq:ApiKey"];
+            model = _configuration[$"PersonalAssistants:{assistantName}:Model"] ?? _configuration["Groq:Model"] ?? "llama-3.1-8b-instant";
+            provider = ResolveProvider("Groq");
+        }
         // Prompt resolution, most specific first:
         //   1. a database prompt matching the assistant's name,
         //   2. the database prompt flagged as default,
@@ -409,11 +582,20 @@ public class BotRouterService : IBotRouterService
         systemPrompt ??= _configuration[$"PersonalAssistants:{assistantName}:Prompt"]
             ?? _configuration[$"PersonalAssistants:{assistantName}:SystemPrompt"]
             ?? "You are OmniBot, a highly capable customer assistant for OmniConnect platform. Respond to the customer query in a polite, helpful, and concise manner.";
-        string? footer = _configuration[$"PersonalAssistants:{assistantName}:Footer"] ?? "Send 'stop' to stop AI messages";
+        // Assistant footer: the configured message wins, then the per-assistant appsettings value,
+        // then the original default. A footer set to whitespace means "no footer" and is honoured
+        // as such rather than falling through to the default.
+        var configuredFooter = await _settings.GetValueAsync("assistant.footerMessage");
+
+        string? footer = configuredFooter is not null
+            ? configuredFooter.Trim()
+            : _configuration[$"PersonalAssistants:{assistantName}:Footer"] ?? "Send 'stop' to stop AI messages";
 
         if (string.IsNullOrEmpty(apiKey))
         {
-            _logger.LogError("Cannot run Personal Assistant completion because Groq API Key is not configured.");
+            _logger.LogError(
+                "Cannot run Personal Assistant completion: no API key configured for {Provider}.",
+                provider.ProviderName);
             string? resolvedPhoneNumberId = null;
             if (connectionId.HasValue)
             {
@@ -429,8 +611,26 @@ public class BotRouterService : IBotRouterService
 
         try
         {
-            string aiResponse = await _groqProvider.GenerateResponseAsync(systemPrompt ?? "You are a helpful assistant.", incomingMessage, model ?? "llama3-8b-8192", apiKey);
+            string aiResponse = await provider.GenerateResponseAsync(
+                systemPrompt ?? "You are a helpful assistant.",
+                incomingMessage,
+                model ?? string.Empty,
+                apiKey);
+
             string replyText = string.IsNullOrEmpty(footer) ? aiResponse : $"{aiResponse}\n\n{footer}";
+
+            // Assistant message delay. An instant answer reads as a machine; a short pause reads as
+            // someone typing. Awaited rather than blocked — this runs on a pooled thread serving
+            // the webhook pipeline, and Thread.Sleep here would hold that thread against every
+            // other inbound message.
+            var delaySeconds = await _settings.GetNumberAsync("assistant.messageDelaySeconds", 0);
+            if (delaySeconds > 0)
+            {
+                // Bounded: a mistyped value must not park a worker for hours.
+                var delay = TimeSpan.FromSeconds(Math.Min(delaySeconds, 120));
+                _logger.LogDebug("Holding assistant reply to {Phone} for {Delay}s.", normalizedPhone, delay.TotalSeconds);
+                await Task.Delay(delay);
+            }
 
             string? resolvedPhoneNumberId = null;
             if (connectionId.HasValue)
@@ -444,7 +644,7 @@ public class BotRouterService : IBotRouterService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to call Groq completions API for phone {Phone}", normalizedPhone);
+            _logger.LogError(ex, "Failed to call the {Provider} completions API for phone {Phone}", provider.ProviderName, normalizedPhone);
             string? resolvedPhoneNumberId = null;
             if (connectionId.HasValue)
             {

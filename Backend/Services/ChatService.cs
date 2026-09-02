@@ -15,19 +15,22 @@ public class ChatService : IChatService
     private readonly ITemplateService _templateService;
     private readonly ICurrentUserService _currentUser;
     private readonly IAuditService _auditService;
+    private readonly IOmniSettingsService _settings;
 
     public ChatService(
         AppDbContext dbContext,
         IWhatsAppService whatsAppService,
         ITemplateService templateService,
         ICurrentUserService currentUser,
-        IAuditService auditService)
+        IAuditService auditService,
+        IOmniSettingsService settings)
     {
         _dbContext = dbContext;
         _whatsAppService = whatsAppService;
         _templateService = templateService;
         _currentUser = currentUser;
         _auditService = auditService;
+        _settings = settings;
     }
 
     public async Task<List<ChatAccountResponse>> GetAccountsAsync(int? connectionId = null)
@@ -49,6 +52,63 @@ public class ChatService : IChatService
         return accounts.Select(MapAccount).ToList();
     }
 
+    /// <summary>
+    /// The contact-owner name this caller is limited to, or null when they may see everything.
+    ///
+    /// <para>
+    /// Enforced here rather than in the UI. Hiding rows in the browser while the API still returns
+    /// them is not a restriction — anyone can read the response — so every chat read path asks this
+    /// question and applies the answer to its query.
+    /// </para>
+    /// <para>
+    /// Administrators are exempt: the setting exists to keep agents in their own lane, not to lock
+    /// the account's owner out of their own inbox.
+    /// </para>
+    /// <para>
+    /// The comparison is by display name because that is what <see cref="Contact.AssignedTo"/>
+    /// holds — the contact form writes the user's name into it, not their id. An agent whose
+    /// account has no name claim gets an empty restriction, which matches nothing: failing closed
+    /// is the only safe direction for a visibility rule.
+    /// </para>
+    /// </summary>
+    private async Task<string?> GetAgentRestrictionAsync()
+    {
+        if (!await _settings.GetFlagAsync("supportAgent.restrictChatAccess")) return null;
+        if (_currentUser.IsAdministrator) return null;
+        if (!_currentUser.IsAuthenticated) return null;
+
+        return _currentUser.UserName ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Throws unless this caller may see the given conversation.
+    ///
+    /// Used by the endpoints that take a conversation id and act on it — reading its messages,
+    /// marking it read, sending into it, deleting from it. Each of those is a way to reach a
+    /// conversation without going through the list, so each needs the check the list already has.
+    /// </summary>
+    private async Task EnsureConversationVisibleAsync(int conversationId)
+    {
+        var restriction = await GetAgentRestrictionAsync();
+        if (restriction is null) return;
+
+        var visible = await RestrictToAgent(_dbContext.ChatConversations.AsNoTracking(), restriction)
+            .AnyAsync(c => c.Id == conversationId);
+
+        if (!visible)
+            throw new KeyNotFoundException($"Chat conversation with ID {conversationId} not found.");
+    }
+
+    /// <summary>Applies <see cref="GetAgentRestrictionAsync"/> to any conversation query.</summary>
+    private static IQueryable<ChatConversation> RestrictToAgent(
+        IQueryable<ChatConversation> query,
+        string? assignedToName)
+    {
+        if (assignedToName is null) return query;
+
+        return query.Where(c => c.Contact.AssignedTo != null && c.Contact.AssignedTo == assignedToName);
+    }
+
     public async Task<List<ChatConversationResponse>> GetConversationsAsync(string? search = null, string? filter = null, int? connectionId = null)
     {
         // No reconciliation here. This is polled by every open Chat tab, and rebuilding the
@@ -64,6 +124,10 @@ public class ChatService : IChatService
             .Include(c => c.WabaPhoneNumber)
             .AsQueryable();
 
+        // Applied before search, filter and paging, so counts and results are all consistent with
+        // what this caller is allowed to see.
+        query = RestrictToAgent(query, await GetAgentRestrictionAsync());
+
         if (connectionId.HasValue)
         {
             query = query.Where(c => c.ConnectionId == connectionId.Value);
@@ -72,9 +136,19 @@ public class ChatService : IChatService
         if (!string.IsNullOrWhiteSpace(search))
         {
             var normalizedSearch = search.Trim().ToLower();
+
+            // The conversation list shows the contact, the last message and the connection. Only
+            // the first was searchable, so looking for a phrase you remembered from a conversation
+            // -- the obvious way to find it again -- found nothing.
             query = query.Where(c =>
                 c.Contact.Name.ToLower().Contains(normalizedSearch)
-                || c.Contact.Phone.Contains(normalizedSearch));
+                || c.Contact.Phone.ToLower().Contains(normalizedSearch)
+                || (c.Contact.Email != null && c.Contact.Email.ToLower().Contains(normalizedSearch))
+                || (c.Contact.Company != null && c.Contact.Company.ToLower().Contains(normalizedSearch))
+                || (c.LastMessageText != null && c.LastMessageText.ToLower().Contains(normalizedSearch))
+                || (c.Connection != null && c.Connection.Name.ToLower().Contains(normalizedSearch))
+                || c.Contact.GroupMemberships.Any(m =>
+                       m.Group != null && m.Group.Name.ToLower().Contains(normalizedSearch)));
         }
 
         if (string.Equals(filter, "Unread Chats", StringComparison.OrdinalIgnoreCase))
@@ -92,14 +166,21 @@ public class ChatService : IChatService
 
     public async Task<ChatConversationResponse> GetConversationAsync(int id)
     {
-        var conversation = await _dbContext.ChatConversations
-            .AsNoTracking()
-            .Include(c => c.Contact)
-                .ThenInclude(contact => contact.GroupMemberships)
-                    .ThenInclude(membership => membership.Group)
-            .Include(c => c.WabaPhoneNumber)
+        var restriction = await GetAgentRestrictionAsync();
+
+        var conversation = await RestrictToAgent(
+                _dbContext.ChatConversations
+                    .AsNoTracking()
+                    .Include(c => c.Contact)
+                        .ThenInclude(contact => contact.GroupMemberships)
+                            .ThenInclude(membership => membership.Group)
+                    .Include(c => c.WabaPhoneNumber),
+                restriction)
             .FirstOrDefaultAsync(c => c.Id == id);
 
+        // Deliberately the same "not found" a genuinely missing id produces. Telling an agent that
+        // a conversation exists but is not theirs leaks the existence of every other agent's
+        // customers, one id at a time.
         if (conversation == null)
             throw new KeyNotFoundException($"Chat conversation with ID {id} not found.");
 
@@ -119,6 +200,10 @@ public class ChatService : IChatService
     /// </summary>
     public async Task<List<ChatMessageResponse>> GetMessagesAsync(int conversationId)
     {
+        // The conversation guard has to be repeated here: the messages endpoint takes an id
+        // directly, so without this an agent could read any thread by guessing a number.
+        await EnsureConversationVisibleAsync(conversationId);
+
         var messages = await _dbContext.ChatMessages
             .AsNoTracking()
             .Where(m => m.ConversationId == conversationId && !m.IsDeleted)
@@ -134,6 +219,8 @@ public class ChatService : IChatService
     /// </summary>
     public async Task MarkConversationReadAsync(int conversationId)
     {
+        await EnsureConversationVisibleAsync(conversationId);
+
         await _dbContext.ChatConversations
             .Where(c => c.Id == conversationId && c.UnreadCount > 0)
             .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.UnreadCount, 0));
@@ -218,6 +305,8 @@ public class ChatService : IChatService
     /// </summary>
     public async Task<int> DeleteMessagesAsync(int conversationId, IReadOnlyCollection<int> messageIds)
     {
+        await EnsureConversationVisibleAsync(conversationId);
+
         if (messageIds.Count == 0) return 0;
 
         var messages = await _dbContext.ChatMessages
@@ -340,6 +429,8 @@ public class ChatService : IChatService
 
     public async Task<ChatMessageResponse> SendMessageAsync(int conversationId, SendChatMessageRequest request)
     {
+        await EnsureConversationVisibleAsync(conversationId);
+
         var conversation = await _dbContext.ChatConversations
             .Include(c => c.Contact)
             .Include(c => c.WabaPhoneNumber)
@@ -723,6 +814,8 @@ public class ChatService : IChatService
 
     public async Task DeleteConversationAsync(int conversationId)
     {
+        await EnsureConversationVisibleAsync(conversationId);
+
         var conversation = await _dbContext.ChatConversations
             .Include(c => c.Messages)
             .Include(c => c.Contact)

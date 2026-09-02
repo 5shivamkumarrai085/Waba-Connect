@@ -233,8 +233,14 @@ public class ActivityController : ControllerBase
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim().ToLower();
+
+            // Every column the tab renders. "chrome", "windows" and a failure reason are all
+            // visible on the row, so they are all things people type into the box; before this,
+            // only the email and the IP matched and everything else silently returned nothing.
             query = query.Where(a => a.Email.ToLower().Contains(term) ||
-                                     (a.IpAddress != null && a.IpAddress.Contains(term)));
+                                     (a.IpAddress != null && a.IpAddress.ToLower().Contains(term)) ||
+                                     (a.UserAgent != null && a.UserAgent.ToLower().Contains(term)) ||
+                                     (a.FailureReason != null && a.FailureReason.ToLower().Contains(term)));
         }
 
         var totalCount = await query.CountAsync();
@@ -331,12 +337,21 @@ public class ActivityController : ControllerBase
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim().ToLower();
+
+            // Widened to every field the table can show, plus the event number. Action, Status and
+            // entity type are columns on this table, so "create", "failed" or "Contact" are all
+            // reasonable things to type -- and all three matched nothing before.
             query = query.Where(a => a.Event.ToLower().Contains(term) ||
                                      a.Category.ToLower().Contains(term) ||
                                      (a.Module != null && a.Module.ToLower().Contains(term)) ||
+                                     (a.Action != null && a.Action.ToLower().Contains(term)) ||
+                                     (a.Status != null && a.Status.ToLower().Contains(term)) ||
                                      (a.EntityName != null && a.EntityName.ToLower().Contains(term)) ||
+                                     (a.EntityType != null && a.EntityType.ToLower().Contains(term)) ||
                                      (a.UserName != null && a.UserName.ToLower().Contains(term)) ||
-                                     (a.Description != null && a.Description.ToLower().Contains(term)));
+                                     (a.Description != null && a.Description.ToLower().Contains(term)) ||
+                                     (a.IpAddress != null && a.IpAddress.ToLower().Contains(term)) ||
+                                     a.EventNumber.ToString().Contains(term));
         }
 
         var totalCount = await query.CountAsync();

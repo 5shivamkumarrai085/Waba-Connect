@@ -23,6 +23,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
     private readonly AppDbContext _dbContext;
     private readonly ILogger<WhatsAppCloudApiService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IOmniSettingsService _settings;
 
     private string ApiVersion => _configuration["WhatsApp:ApiVersion"] ?? "v21.0";
     private string BaseUrl => $"https://graph.facebook.com/{ApiVersion}";
@@ -38,13 +39,15 @@ public class WhatsAppCloudApiService : IWhatsAppService
         IConfiguration configuration,
         AppDbContext dbContext,
         ILogger<WhatsAppCloudApiService> logger,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        IOmniSettingsService settings)
     {
         _httpClient = httpClient;
         _configuration = configuration;
         _dbContext = dbContext;
         _logger = logger;
         _scopeFactory = scopeFactory;
+        _settings = settings;
     }
 
     private async Task<(string AccessToken, string PhoneNumberId, string BusinessAccountId)> GetActiveConfigAsync(string? requestedPhoneNumberId = null, int? connectionId = null)
@@ -637,6 +640,9 @@ public class WhatsAppCloudApiService : IWhatsAppService
     {
         if (payload.Entry == null) return;
 
+        // Re-send runs after the loop below, never before it: the customer endpoint is secondary,
+        // and Meta re-delivers anything we are slow to acknowledge.
+
         foreach (var entry in payload.Entry)
         {
             if (entry.Changes == null) continue;
@@ -667,6 +673,23 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 }
             }
         }
+
+        // Forwarded on a detached task so a slow customer endpoint cannot hold up the 200 owed to
+        // Meta. The forwarder never throws, and takes its own scope because this one ends with the
+        // request.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var forwarder = scope.ServiceProvider.GetRequiredService<IWebhookForwarder>();
+                await forwarder.ForwardAsync(payload);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Webhook forwarding task failed.");
+            }
+        });
     }
 
     /// <summary>
@@ -697,6 +720,9 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 Source = nameof(ContactSource.WhatsApp),
                 IsActive = true
             };
+
+            await ApplyAutoLeadSettingsAsync(contact);
+
             _dbContext.Contacts.Add(contact);
             await _dbContext.SaveChangesAsync();
         }
@@ -852,6 +878,69 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 _logger.LogError(ex, "Error routing incoming message in background task for phone {Phone}", normalizedPhone);
             }
         });
+    }
+
+    /// <summary>
+    /// Stamps a newly seen WhatsApp sender with the configured lead status, source and owner.
+    ///
+    /// <para>
+    /// Only for a contact that does not exist yet — this is called from the one branch that
+    /// constructs one, so a returning sender keeps whatever a human has since set on them. That is
+    /// what stops the setting quietly re-classifying an existing customer as a new lead every time
+    /// they send a message.
+    /// </para>
+    /// <para>
+    /// When the toggle is off the contact is still created, because the conversation and its
+    /// messages cannot exist without one and dropping it would lose the inbound message entirely.
+    /// What the toggle governs is whether the contact is <em>enrolled as a lead</em>: with it off
+    /// the row keeps the neutral defaults it has always had, and no status, source or owner from
+    /// this screen is applied.
+    /// </para>
+    /// <para>
+    /// Nothing here is hardcoded. The status and source are whatever the operator chose from the
+    /// lookup tables, and the owner is resolved from the stored user id to the display name,
+    /// because <see cref="Contact.AssignedTo"/> holds a name — that is what the contact form
+    /// writes into it, and a mismatch would leave the contact assigned to nobody the UI can find.
+    /// </para>
+    /// </summary>
+    private async Task ApplyAutoLeadSettingsAsync(Contact contact)
+    {
+        try
+        {
+            if (!await _settings.GetFlagAsync("autoLead.enabled")) return;
+
+            var status = await _settings.GetValueAsync("autoLead.status");
+            if (!string.IsNullOrWhiteSpace(status)) contact.Status = status;
+
+            var source = await _settings.GetValueAsync("autoLead.source");
+            if (!string.IsNullOrWhiteSpace(source)) contact.Source = source;
+
+            var assignedUserId = await _settings.GetValueAsync("autoLead.assignedUserId");
+            if (!string.IsNullOrWhiteSpace(assignedUserId) && int.TryParse(assignedUserId, out var userId))
+            {
+                var owner = await _dbContext.AppUsers.AsNoTracking()
+                    .Where(u => u.Id == userId && u.IsActive)
+                    .Select(u => new { u.FirstName, u.LastName })
+                    .FirstOrDefaultAsync();
+
+                if (owner != null)
+                {
+                    contact.AssignedTo = string.IsNullOrWhiteSpace(owner.LastName)
+                        ? owner.FirstName
+                        : $"{owner.FirstName} {owner.LastName}".Trim();
+                }
+            }
+
+            _logger.LogInformation(
+                "Auto Lead applied to {Phone}: status={Status}, source={Source}, assignedTo={AssignedTo}",
+                contact.Phone, contact.Status, contact.Source, contact.AssignedTo ?? "(unassigned)");
+        }
+        catch (Exception ex)
+        {
+            // A settings failure must not cost us the inbound message. The contact is still
+            // created with its defaults and the conversation proceeds.
+            _logger.LogError(ex, "Could not apply Auto Lead settings to incoming contact {Phone}.", contact.Phone);
+        }
     }
 
     /// <summary>

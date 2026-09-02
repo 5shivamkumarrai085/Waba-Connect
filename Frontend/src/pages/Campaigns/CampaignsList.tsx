@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import { useCampaignStore } from '../../store/campaignStore'
+import { matchesSearch } from '../../utils/smartSearch'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
 import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight, MoreVertical } from 'lucide-react'
@@ -83,12 +84,17 @@ export const CampaignsList: React.FC = () => {
   // Local Filter logic
   const filteredCampaigns = campaigns.filter((c) => {
     // 1. General search bar query
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      const matchesSearch = 
-        c.name.toLowerCase().includes(q) ||
-        c.templateName.toLowerCase().includes(q)
-      if (!matchesSearch) return false
+    // Status, relation type and the connection are all columns on this table, so they are all
+    // things people type into the search box.
+    if (!matchesSearch(searchQuery, [
+      c.name,
+      c.templateName,
+      c.status,
+      c.relationType,
+      c.connectionName,
+      c.connectionNickname
+    ])) {
+      return false
     }
 
     // 2. Template Filter dropdown

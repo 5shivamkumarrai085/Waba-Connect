@@ -35,4 +35,22 @@ public interface IOmniSettingsService
 
     /// <summary>A boolean setting, with an explicit fallback for "never configured".</summary>
     Task<bool> GetFlagAsync(string key, bool fallback = false);
+
+    /// <summary>A whole-number setting, or the fallback when unset or unparseable.</summary>
+    Task<int> GetNumberAsync(string key, int fallback);
+
+    /// <summary>
+    /// A list setting — the "tags" and "multiselect" field types, stored as a JSON array.
+    /// Returns an empty list when unset, never null, so callers can iterate unconditionally.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetListAsync(string key);
+
+    /// <summary>
+    /// Drops the cached values.
+    ///
+    /// Saving a section does this automatically. It is exposed because the settings are cached
+    /// process-wide while the rows they come from are shared, so a caller that changes an
+    /// AppSetting by any other route has to be able to say so.
+    /// </summary>
+    void InvalidateCache();
 }

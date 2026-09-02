@@ -222,21 +222,21 @@ export const AiPromptsList: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         title={editing ? 'Edit AI Prompt' : 'New AI Prompt'}
         icon={<Sparkles size={18} />}
+        subtitle="Instructions the assistant follows when replying"
+        placement="right"
         size="lg"
+        // Cancel is gone: the drawer already has a close button in its header, and two
+        // ways to abandon the same form is one more than anybody needs. Save is the only
+        // thing the footer is for now.
         footer={
-          <>
-            <button type="button" className="oc-dialog-btn oc-dialog-btn-secondary" onClick={() => setIsModalOpen(false)}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              form={FORM_ID}
-              className="oc-dialog-btn oc-dialog-btn-primary"
-              disabled={isSubmitting || !name.trim() || !promptText.trim()}
-            >
-              {isSubmitting ? 'Saving…' : 'Submit'}
-            </button>
-          </>
+          <button
+            type="submit"
+            form={FORM_ID}
+            className="oc-dialog-btn oc-dialog-btn-primary"
+            disabled={isSubmitting || !name.trim() || !promptText.trim()}
+          >
+            {isSubmitting ? 'Saving…' : 'Submit'}
+          </button>
         }
       >
         <form id={FORM_ID} onSubmit={handleSubmit} className="setup-modal-form">

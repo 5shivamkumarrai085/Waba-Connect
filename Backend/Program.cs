@@ -126,7 +126,18 @@ builder.Services.AddScoped<INodeExecutor, AIAssistantExecutor>();
 builder.Services.AddScoped<INodeExecutor, CallToActionExecutor>();
 
 builder.Services.AddScoped<IEncryptionService, EncryptionService>();
+// Webhook re-send. A short timeout because this is a best-effort side channel: a customer
+// endpoint that hangs must not tie up a worker while Meta waits for its acknowledgement.
+builder.Services.AddScoped<IWebhookForwarder, WebhookForwarder>();
+builder.Services.AddHttpClient(WebhookForwarder.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
+// Both AI providers are registered against IAiProvider. BotRouterService takes the whole set and
+// picks by ProviderName, so which one answers a customer is a setting rather than a deployment.
 builder.Services.AddHttpClient<IAiProvider, GroqProvider>();
+builder.Services.AddHttpClient<IAiProvider, OpenAiProvider>();
 builder.Services.AddScoped<MessageBotExecutor>();
 builder.Services.AddScoped<IBotRouterService, BotRouterService>();
 
@@ -140,6 +151,10 @@ builder.Services.AddHostedService<ChatConversationReconcilerService>();
 // Refreshes templates from Meta on a schedule, so reading the template list never waits on an
 // outbound HTTPS call.
 builder.Services.AddHostedService<TemplateSyncBackgroundService>();
+
+// Auto Clear Chat History. Reads its own setting each run, so the toggle takes effect at the next
+// sweep rather than at the next restart.
+builder.Services.AddHostedService<ChatHistoryCleanupService>();
 
 // Authentication, RBAC and auditing
 builder.Services.AddScoped<IPermissionResolver, PermissionResolver>();
@@ -376,6 +391,24 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 // 5. Add Controllers and Validation
+// ── Upload limits ───────────────────────────────────────────────────────────────────────────────
+// Kestrel refuses a request body over 30 MB by default, and the multipart form reader caps a
+// section at 128 MB. Both defaults sit below what a bulk-campaign CSV can legitimately be, and
+// both reject the request before any controller runs -- so a large upload surfaced as a bare
+// network error with nothing to explain it. Raised to the single limit the endpoint declares, so
+// the transport, the form reader and the action attribute all agree.
+builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
+{
+    options.Limits.MaxRequestBodySize = WhatsAppCampaignApi.Helpers.CsvUploadLimits.MaxBytes;
+});
+
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = WhatsAppCampaignApi.Helpers.CsvUploadLimits.MaxBytes;
+    options.ValueLengthLimit = int.MaxValue;
+    options.MemoryBufferThreshold = int.MaxValue;
+});
+
 builder.Services.AddControllers(options =>
 {
     options.Filters.Add<SanitizeInputFilter>();

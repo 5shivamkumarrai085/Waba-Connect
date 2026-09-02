@@ -9,7 +9,6 @@ import type { CsvValidationData, CsvRowError } from '../../services/campaigns/ca
 import { campaignService } from '../../services/campaigns/campaignService'
 import { templateService } from '../../services/templates/templateService'
 import { WhatsAppPreview } from '../../components/WhatsAppPreview/WhatsAppPreview'
-import { apiClient } from '../../services/apiClient'
 import type { Template } from '../../types/templates'
 import { 
   Play, 
@@ -167,10 +166,17 @@ export const BulkCampaign: React.FC = () => {
   }
 
   // Download sample CSV from backend
-  const handleDownloadSample = () => {
-    const base = apiClient.defaults.baseURL || 'http://localhost:5155/api'
-    const cleanBase = base.replace(/\/api$/, '') // strip trailing api
-    window.open(`${cleanBase}/api/Campaigns/csv-sample`, '_blank')
+  const [isDownloadingSample, setIsDownloadingSample] = useState(false)
+
+  const handleDownloadSample = async () => {
+    setIsDownloadingSample(true)
+    try {
+      await campaignUploadService.downloadCsvSample()
+    } catch {
+      toast.error('Could not download the sample file. Please try again.')
+    } finally {
+      setIsDownloadingSample(false)
+    }
   }
 
   // Compile variable requests payload
@@ -790,9 +796,10 @@ export const BulkCampaign: React.FC = () => {
                     type="button" 
                     className="btn-download-sample-modal"
                     onClick={handleDownloadSample}
+                    disabled={isDownloadingSample}
                   >
                     <Download size={14} />
-                    <span>Download Sample</span>
+                    <span>{isDownloadingSample ? 'Preparing…' : 'Download Sample'}</span>
                   </button>
                 </div>
 

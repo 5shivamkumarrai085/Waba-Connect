@@ -53,7 +53,26 @@ public class TemplateService : ITemplateService
         if (!string.IsNullOrEmpty(request.Search))
         {
             var search = request.Search.ToLower();
-            query = query.Where(t => t.Name.ToLower().Contains(search));
+
+            // Category and Status are enums; see CampaignService for why they are resolved in
+            // memory before the query rather than compared as text inside it.
+            var matchingCategories = Enum.GetValues<TemplateCategory>()
+                .Where(c => c.ToString().ToLower().Contains(search))
+                .ToList();
+
+            var matchingStatuses = Enum.GetValues<TemplateStatus>()
+                .Where(s => s.ToString().ToLower().Contains(search))
+                .ToList();
+
+            query = query.Where(t =>
+                t.Name.ToLower().Contains(search) ||
+                // The body is the template, and language, category and status are all columns.
+                t.BodyText.ToLower().Contains(search) ||
+                t.Language.ToLower().Contains(search) ||
+                (t.HeaderContent != null && t.HeaderContent.ToLower().Contains(search)) ||
+                (t.FooterText != null && t.FooterText.ToLower().Contains(search)) ||
+                matchingCategories.Contains(t.Category) ||
+                matchingStatuses.Contains(t.Status));
         }
 
         var totalCount = await query.CountAsync();

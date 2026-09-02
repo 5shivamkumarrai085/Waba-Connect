@@ -44,8 +44,11 @@ public class BotFlowService : IBotFlowService
         {
             var search = request.Search.ToLower();
             query = query.Where(f => 
-                f.Name.ToLower().Contains(search) || 
-                (f.Description != null && f.Description.ToLower().Contains(search))
+                f.Name.ToLower().Contains(search) ||
+                (f.Description != null && f.Description.ToLower().Contains(search)) ||
+                // A flow is identified in the list by the connection it runs on as much
+                // as by its name, so that is worth matching too.
+                (f.Connection != null && f.Connection.Name.ToLower().Contains(search))
             );
         }
 

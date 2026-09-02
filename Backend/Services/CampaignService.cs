@@ -44,7 +44,22 @@ public class CampaignService : ICampaignService
         if (!string.IsNullOrEmpty(request.Search))
         {
             var search = request.Search.ToLower();
-            query = query.Where(c => c.Name.ToLower().Contains(search));
+
+            // Status is an enum, so "failed" or "draft" cannot be matched as text in SQL. The
+            // statuses whose names contain the term are resolved here and the query asks for those
+            // values, which is translatable and keeps the whole search in one round trip.
+            var matchingStatuses = Enum.GetValues<CampaignStatus>()
+                .Where(s => s.ToString().ToLower().Contains(search))
+                .ToList();
+
+            query = query.Where(c =>
+                c.Name.ToLower().Contains(search) ||
+                // The template and the connection are both columns on the campaigns table.
+                c.Template.Name.ToLower().Contains(search) ||
+                (c.Connection != null && c.Connection.Name.ToLower().Contains(search)) ||
+                c.RelationType.ToLower().Contains(search) ||
+                (c.CreatedBy != null && c.CreatedBy.ToLower().Contains(search)) ||
+                matchingStatuses.Contains(c.Status));
         }
 
         var totalCount = await query.CountAsync();
@@ -880,6 +895,25 @@ public class CampaignService : ICampaignService
         return "document";
     }
 
+    /// <summary>
+    /// Builds a campaign from a previously validated CSV.
+    ///
+    /// <para>
+    /// This used to walk the file a row at a time, issuing a <c>SELECT</c> to look the contact up
+    /// and a <c>SaveChanges</c> to insert it — two round trips per row, against a Postgres instance
+    /// that is a network hop away. At a realistic 40ms per round trip a 10,000-row file needed over
+    /// thirteen minutes of pure latency, so the browser gave up long before the import did and the
+    /// feature simply appeared not to work. The row count at which it broke was a function of
+    /// network latency, which is why it seemed to work on small files and fail without a message on
+    /// real ones.
+    /// </para>
+    /// <para>
+    /// It now reads the file as a stream, resolves every contact in batched queries, and inserts in
+    /// batches — turning 2N round trips into roughly 2N/1000. The same 10,000-row file costs about
+    /// twenty round trips. Memory is bounded by the number of distinct phone numbers rather than by
+    /// the file, and nothing is loaded twice.
+    /// </para>
+    /// </summary>
     public async Task<CsvCampaignCreateResponse> CreateCsvCampaignAsync(CreateCsvCampaignRequest request)
     {
         var normalizedName = request.Name.Trim().ToLower();
@@ -904,114 +938,141 @@ public class CampaignService : ICampaignService
             }
         }
 
-        var lines = await File.ReadAllLinesAsync(filePath);
-        if (lines.Length < 2)
-            throw new ArgumentException("CSV file must contain a header row and at least one data row.");
-
-        var headers = CsvHelper.SplitCsvRow(lines[0]).Select(h => h.ToLower().Trim()).ToList();
-        
-        int phoneIdx = headers.FindIndex(h => h == "phone" || h == "phoneno" || h == "phone number" || h == "telephone");
-        int firstNameIdx = headers.FindIndex(h => h == "firstname" || h == "first name" || h == "name");
-        int lastNameIdx = headers.FindIndex(h => h == "lastname" || h == "last name");
-        int emailIdx = headers.FindIndex(h => h == "email" || h == "email address");
-        int countryIdx = headers.FindIndex(h => h == "country");
-
-        if (phoneIdx == -1)
-            throw new ArgumentException("cannot upload wrong format csv file (Missing phone column)");
-        if (firstNameIdx == -1)
-            throw new ArgumentException("cannot upload wrong format csv file (Missing name/firstname column)");
-
-        var contactIds = new HashSet<int>();
-        var skippedRows = new List<CsvRowError>();
-
-        for (int i = 1; i < lines.Length; i++)
-        {
-            var line = lines[i];
-            if (string.IsNullOrWhiteSpace(line)) continue;
-
-            var rowNumber = i + 1;
-            var fields = CsvHelper.SplitCsvRow(line);
-            if (fields.Count <= Math.Max(phoneIdx, firstNameIdx))
-            {
-                skippedRows.Add(new CsvRowError { RowNumber = rowNumber, Column = null, Value = line, Reason = "Row has fewer columns than the header row." });
-                continue;
-            }
-
-            var phoneVal = fields[phoneIdx].Trim();
-            // Must stay byte-for-byte equivalent to the validation pass in
-            // CampaignsController.ValidateCsv — if the two disagree, csv-validate reports N valid
-            // rows and csv-create silently builds a campaign with fewer recipients. Both now call
-            // the same helper, which is the only way to keep them honest.
-            if (!PhoneNumberHelper.TryNormalize(phoneVal, out var cleanedPhone, out var phoneFailure))
-            {
-                skippedRows.Add(new CsvRowError { RowNumber = rowNumber, Column = "phone", Value = phoneVal, Reason = phoneFailure! });
-                continue;
-            }
-
-            var firstName = fields[firstNameIdx].Trim();
-            var lastName = lastNameIdx != -1 && lastNameIdx < fields.Count ? fields[lastNameIdx].Trim() : string.Empty;
-            var emailVal = emailIdx != -1 && emailIdx < fields.Count ? fields[emailIdx].Trim() : string.Empty;
-            var countryVal = countryIdx != -1 && countryIdx < fields.Count ? fields[countryIdx].Trim() : string.Empty;
-
-            var fullName = string.IsNullOrEmpty(lastName) ? firstName : $"{firstName} {lastName}".Trim();
-            if (fullName.Length < 2)
-            {
-                fullName = "CSV User";
-            }
-
-            // IgnoreQueryFilters + restore-if-soft-deleted mirrors ContactService.CreateAsync's pattern —
-            // without this, a phone number reused from a previously soft-deleted contact is invisible to
-            // the filtered lookup below, causing a duplicate-key DbUpdateException on insert.
-            var contact = await _dbContext.Contacts.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Phone == cleanedPhone);
-            if (contact == null)
-            {
-                contact = new Contact
-                {
-                    Name = fullName,
-                    Phone = cleanedPhone,
-                    Type = request.RelationType,
-                    Status = nameof(ContactStatus.New),
-                    Source = nameof(ContactSource.Import),
-                    IsActive = true,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-                _dbContext.Contacts.Add(contact);
-                await _dbContext.SaveChangesAsync();
-            }
-            else if (contact.IsDeleted)
-            {
-                contact.IsDeleted = false;
-                contact.IsActive = true;
-                contact.Name = fullName;
-                contact.Type = request.RelationType;
-                contact.Source = nameof(ContactSource.Import);
-                contact.UpdatedAt = DateTime.UtcNow;
-                await _dbContext.SaveChangesAsync();
-            }
-
-            contactIds.Add(contact.Id);
-        }
-
         var template = await _dbContext.Templates.FindAsync(request.TemplateId);
         if (template == null)
             throw new KeyNotFoundException("Template not found.");
 
-        if (contactIds.Count == 0)
+        // ── Read ────────────────────────────────────────────────────────────────────────────────
+        // Streamed, and judged by the same helper the validate endpoint used, so the recipient
+        // count here cannot differ from the number the user was shown before confirming.
+        var rowsByPhone = new Dictionary<string, CsvContactRow>(StringComparer.Ordinal);
+        var skippedRows = new List<CsvRowError>();
+        CsvColumnMap? map = null;
+
+        await using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
+        {
+            await foreach (var (rowNumber, fields) in BulkCampaignCsv.ReadRecordsAsync(stream))
+            {
+                if (map == null)
+                {
+                    map = BulkCampaignCsv.MapColumns(fields);
+                    if (map == null)
+                        throw new ArgumentException("The file needs a phone column and a name column. Download the sample file to see the expected format.");
+                    continue;
+                }
+
+                if (!BulkCampaignCsv.TryReadRow(fields, rowNumber, map, out var row, out var rowErrors))
+                {
+                    if (skippedRows.Count < BulkCampaignCsv.MaxReportedErrors)
+                        skippedRows.AddRange(rowErrors.Take(BulkCampaignCsv.MaxReportedErrors - skippedRows.Count));
+                    continue;
+                }
+
+                // The same number twice in one file is one recipient, not two — the first row wins,
+                // which is also what the validate pass counted.
+                rowsByPhone.TryAdd(row.Phone, row);
+            }
+        }
+
+        if (rowsByPhone.Count == 0)
             throw new ArgumentException("No valid contacts found in the CSV file.");
 
+        // ── Resolve contacts ────────────────────────────────────────────────────────────────────
+        // Chunked because a single IN clause with a hundred thousand parameters is refused by the
+        // driver long before Postgres sees it.
+        const int LookupChunk = 1000;
+
+        var phones = rowsByPhone.Keys.ToList();
+        var contactIdsByPhone = new Dictionary<string, int>(StringComparer.Ordinal);
+        var toRestore = new List<Contact>();
+
+        foreach (var chunk in phones.Chunk(LookupChunk))
+        {
+            // IgnoreQueryFilters mirrors ContactService.CreateAsync's pattern — without it a phone
+            // number belonging to a soft-deleted contact is invisible here, and the insert below
+            // fails on the unique index instead of restoring the row that already exists.
+            var found = await _dbContext.Contacts
+                .IgnoreQueryFilters()
+                .Where(c => chunk.Contains(c.Phone))
+                .ToListAsync();
+
+            foreach (var contact in found)
+            {
+                contactIdsByPhone[contact.Phone] = contact.Id;
+                if (contact.IsDeleted) toRestore.Add(contact);
+            }
+        }
+
+        // ── Restore ─────────────────────────────────────────────────────────────────────────────
+        if (toRestore.Count > 0)
+        {
+            foreach (var contact in toRestore)
+            {
+                var row = rowsByPhone[contact.Phone];
+                contact.IsDeleted = false;
+                contact.IsActive = true;
+                contact.Name = row.FullName;
+                contact.Type = request.RelationType;
+                contact.Source = nameof(ContactSource.Import);
+                contact.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _dbContext.SaveChangesAsync();
+        }
+
+        // ── Insert what is new ──────────────────────────────────────────────────────────────────
+        const int InsertChunk = 500;
+
+        var newRows = rowsByPhone.Values
+            .Where(r => !contactIdsByPhone.ContainsKey(r.Phone))
+            .ToList();
+
+        foreach (var chunk in newRows.Chunk(InsertChunk))
+        {
+            var now = DateTime.UtcNow;
+            var contacts = chunk.Select(r => new Contact
+            {
+                Name = r.FullName,
+                Phone = r.Phone,
+                Email = string.IsNullOrWhiteSpace(r.Email) ? null : r.Email,
+                Country = string.IsNullOrWhiteSpace(r.Country) ? null : r.Country,
+                Type = request.RelationType,
+                Status = nameof(ContactStatus.New),
+                Source = nameof(ContactSource.Import),
+                IsActive = true,
+                CreatedAt = now,
+                UpdatedAt = now
+            }).ToList();
+
+            _dbContext.Contacts.AddRange(contacts);
+            await _dbContext.SaveChangesAsync();
+
+            foreach (var contact in contacts)
+            {
+                contactIdsByPhone[contact.Phone] = contact.Id;
+            }
+
+            // Tracked entities accumulate across chunks and slow every subsequent SaveChanges as
+            // the change tracker rescans them. They are saved and will not be touched again.
+            _dbContext.ChangeTracker.Clear();
+        }
+
+        // Clearing the tracker above detached the template, and the response reads its name.
+        var templateName = template.Name;
+
+        // ── Campaign ────────────────────────────────────────────────────────────────────────────
         var campaign = new Campaign
         {
             Name = request.Name,
             TemplateId = request.TemplateId,
-            // CSV path stays single-select (unlike CreateAsync/UpdateAsync above) — still
-            // validated via Enum.Parse (throws on an invalid value), just converted to
-            // string to match Campaign.RelationType's new type.
+            // CSV path stays single-select (unlike CreateAsync/UpdateAsync above) — still validated
+            // via Enum.Parse (throws on an invalid value), just converted to string to match
+            // Campaign.RelationType's type.
             RelationType = Enum.Parse<ContactType>(request.RelationType, true).ToString(),
             ScheduleType = Enum.Parse<ScheduleType>(request.ScheduleType, true),
             ScheduledAt = request.ScheduledAt,
             Status = Enum.Parse<ScheduleType>(request.ScheduleType, true) == ScheduleType.Immediate ? CampaignStatus.Sending : CampaignStatus.Scheduled,
-            TotalRecipients = contactIds.Count,
+            TotalRecipients = contactIdsByPhone.Count,
             ConnectionId = request.ConnectionId,
             IsBulkCampaign = true
         };
@@ -1037,11 +1098,11 @@ public class CampaignService : ICampaignService
             }
         }
 
-        foreach (var cid in contactIds)
+        foreach (var contactId in contactIdsByPhone.Values)
         {
             campaign.CampaignContacts.Add(new CampaignContact
             {
-                ContactId = cid,
+                ContactId = contactId,
                 Status = MessageStatus.Pending
             });
         }
@@ -1049,11 +1110,11 @@ public class CampaignService : ICampaignService
         _dbContext.Campaigns.Add(campaign);
         await _dbContext.SaveChangesAsync();
 
-        // Separate event from Campaign.Created: a bulk CSV campaign also creates contacts as a
-        // side effect, which is worth being able to find in the trail on its own.
+        // Separate event from Campaign.Created: a bulk CSV campaign also creates contacts as a side
+        // effect, which is worth being able to find in the trail on its own.
         await _auditService.LogAsync(
             "BulkCampaign.Created", "Data",
-            $"Created bulk campaign \"{campaign.Name}\" from CSV \"{fileName}\" with {contactIds.Count} recipient(s).",
+            $"Created bulk campaign \"{campaign.Name}\" from CSV \"{fileName}\" with {campaign.TotalRecipients} recipient(s).",
             "Campaign", campaign.Id.ToString());
 
         if (campaign.Status == CampaignStatus.Sending)
@@ -1065,7 +1126,7 @@ public class CampaignService : ICampaignService
         {
             Id = campaign.Id,
             Name = campaign.Name,
-            TemplateName = template.Name,
+            TemplateName = templateName,
             RelationType = campaign.RelationType.ToString(),
             ScheduleType = campaign.ScheduleType.ToString(),
             ScheduledAt = campaign.ScheduledAt,

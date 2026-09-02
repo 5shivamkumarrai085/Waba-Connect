@@ -12,6 +12,7 @@ import { DataTable } from '../components/DataTable/DataTable'
 import { StatusBadge } from '../components/StatusBadge/StatusBadge'
 import { FilterBar } from '../components/FilterBar/FilterBar'
 import { SearchBar } from '../components/SearchBar/SearchBar'
+import { SearchableSelect } from '../components/SearchableSelect/SearchableSelect'
 import { Tabs } from '../components/Tabs/Tabs'
 import type { TabItem } from '../components/Tabs/Tabs'
 import type { LoginSuccessModel, LoginErrorModel, AuditLogModel, AuditLogFilters } from '../types/reporting'
@@ -357,7 +358,7 @@ export const ActivityLogs: React.FC = () => {
           <SearchBar
             value={searchQuery}
             onChange={setSearchQuery}
-            placeholder="Search logs..."
+            placeholder="Search by user, module, action, status, email, IP..."
           />
 
           <div className="activity-toolbar-actions">
@@ -433,64 +434,65 @@ export const ActivityLogs: React.FC = () => {
             </div>
 
             {/* Every option list comes from /audit-filters — the distinct values actually present
-                in the table — so a module added later appears here with no frontend change. */}
+                in the table — so a module added later appears here with no frontend change.
+
+                These were native <select>s. The lists they carry are open-ended — every module the
+                app audits, every user who has ever acted — and a browser popup over one of those
+                can only be scrolled. SearchableSelect stores exactly what the select stored (the
+                raw value, empty string for "all"), so the draft-filter shape, Apply and Reset all
+                behave as they did. */}
             <div className="activity-filter-field">
               <label htmlFor="audit-module">Module</label>
-              <select
+              <SearchableSelect
                 id="audit-module"
-                className="form-control"
+                label="Module"
+                placeholder="All Modules"
                 value={draftFilters.module || ''}
-                onChange={(e) => setDraftFilters({ ...draftFilters, module: e.target.value || undefined })}
-              >
-                <option value="">All Modules</option>
-                {auditFilterOptions.modules.map((module) => (
-                  <option key={module} value={module}>{module}</option>
-                ))}
-              </select>
+                options={auditFilterOptions.modules.map((module) => ({ value: module, label: module }))}
+                onChange={(value) => setDraftFilters({ ...draftFilters, module: value || undefined })}
+                emptyMessage="No modules recorded yet."
+              />
             </div>
             <div className="activity-filter-field">
               <label htmlFor="audit-action">Action</label>
-              <select
+              <SearchableSelect
                 id="audit-action"
-                className="form-control"
+                label="Action"
+                placeholder="All Actions"
                 value={draftFilters.action || ''}
-                onChange={(e) => setDraftFilters({ ...draftFilters, action: e.target.value || undefined })}
-              >
-                <option value="">All Actions</option>
-                {auditFilterOptions.actions.map((action) => (
-                  <option key={action} value={action}>{action}</option>
-                ))}
-              </select>
+                options={auditFilterOptions.actions.map((action) => ({ value: action, label: action }))}
+                onChange={(value) => setDraftFilters({ ...draftFilters, action: value || undefined })}
+                emptyMessage="No actions recorded yet."
+              />
             </div>
             <div className="activity-filter-field">
               <label htmlFor="audit-user">User</label>
-              <select
+              <SearchableSelect
                 id="audit-user"
-                className="form-control"
-                value={draftFilters.userId ?? ''}
-                onChange={(e) =>
-                  setDraftFilters({ ...draftFilters, userId: e.target.value ? Number(e.target.value) : undefined })
+                label="User"
+                placeholder="All Users"
+                value={draftFilters.userId != null ? String(draftFilters.userId) : ''}
+                options={auditFilterOptions.users.map((user) => ({
+                  value: String(user.id),
+                  label: user.name
+                }))}
+                onChange={(value) =>
+                  setDraftFilters({ ...draftFilters, userId: value ? Number(value) : undefined })
                 }
-              >
-                <option value="">All Users</option>
-                {auditFilterOptions.users.map((user) => (
-                  <option key={user.id} value={user.id}>{user.name}</option>
-                ))}
-              </select>
+                emptyMessage="No users recorded yet."
+              />
             </div>
             <div className="activity-filter-field">
               <label htmlFor="audit-status">Status</label>
-              <select
+              <SearchableSelect
                 id="audit-status"
-                className="form-control"
+                label="Status"
+                placeholder="All Status"
                 value={draftFilters.status || ''}
-                onChange={(e) => setDraftFilters({ ...draftFilters, status: e.target.value || undefined })}
-              >
-                <option value="">All Status</option>
-                {auditFilterOptions.statuses.map((status) => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-              </select>
+                options={auditFilterOptions.statuses.map((status) => ({ value: status, label: status }))}
+                onChange={(value) => setDraftFilters({ ...draftFilters, status: value || undefined })}
+                emptyMessage="No statuses recorded yet."
+              />
             </div>
 
             <div className="activity-filter-actions">

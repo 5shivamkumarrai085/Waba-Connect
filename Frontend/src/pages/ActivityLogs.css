@@ -200,11 +200,31 @@
 
 /* ── Filter panel ───────────────────────────────────────────────────────── */
 
+/* ── Audit filter panel ──────────────────────────────────────────────────────
+   Six fields — From, To, Module, Action, User, Status — that must read as one row of controls.
+
+   They did not, because two of them are native date inputs wearing `.form-control` and four are
+   SearchableSelect triggers, and those two styles disagreed about nearly everything: 48px tall
+   against 38px, a 1.5px border against 1px, 14px text against 13px, and two different field
+   backgrounds. The fix is not to restyle either component globally — both are right for the places
+   they came from — but to give this panel one field metric that both adopt while they are in it. */
+
 .activity-filters-panel {
+  /* One source of truth for the row: change this and labels, fields and buttons all follow. */
+  --activity-field-height: 40px;
+
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 14px;
-  padding: 16px;
+  /* 190px fits "All Modules" and a date without either wrapping. auto-fit keeps the row full at
+     any width, and the fields stay equal because every track is 1fr. */
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  /* Row gap is larger than column gap: rows need to separate label-plus-field groups, columns only
+     need to separate fields. */
+  gap: 18px 16px;
+  /* Tops of the labels line up because every cell starts at the top of its track — without this,
+     stretch makes a cell as tall as the tallest in the row and the alignment drifts. */
+  align-items: start;
+
+  padding: 20px;
   margin-bottom: 16px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -219,18 +239,80 @@
 }
 
 .activity-filter-field label {
+  /* A fixed line-height rather than an inherited one: the label box is then exactly the same
+     height in every cell, which is what actually makes the fields below them line up. */
   font-size: 12px;
   font-weight: 600;
+  line-height: 16px;
   color: var(--text-light);
 }
 
-/* Spans the full row and right-aligns, so Apply is never stranded mid-grid
-   between two dropdowns at an awkward viewport width. */
+/* ── One field metric for the whole panel ────────────────────────────────────
+   The date inputs and the dropdown triggers are different components; inside this panel they are
+   the same control. Height, padding, border, radius, type size and ground are all matched here so
+   the row reads as one. */
+
+.activity-filters-panel .form-control,
+.activity-filters-panel .ss-trigger {
+  height: var(--activity-field-height);
+  padding: 0 12px;
+  font-size: 13px;
+  line-height: normal;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-secondary);
+  box-sizing: border-box;
+}
+
+.activity-filters-panel .form-control:hover:not(:focus),
+.activity-filters-panel .ss-trigger:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+/* One focus ring for both, so tabbing across the row does not change shape.
+   `.form-control:focus` in index.css is written with !important, so this has to match it to win. */
+.activity-filters-panel .form-control:focus,
+.activity-filters-panel .ss-trigger.is-open {
+  outline: none;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12) !important;
+}
+
+/* ── Actions ─────────────────────────────────────────────────────────────────
+   Spans the full row and right-aligns, so Apply is never stranded mid-grid between two dropdowns
+   at an awkward viewport width. Separated by a hairline because it is a different kind of thing
+   from the fields above it, and the buttons take the field height so the panel closes on the same
+   rhythm it opened with. */
 .activity-filter-actions {
   grid-column: 1 / -1;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
+
+  margin-top: 2px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-light);
+}
+
+.activity-filter-actions .btn {
+  height: var(--activity-field-height);
+  padding: 0 18px;
+  font-size: 13px;
+}
+
+/* On a phone the fields stack, and full-width buttons are easier to hit than two small ones
+   crowded against the right edge. */
+@media (max-width: 560px) {
+  .activity-filters-panel {
+    padding: 16px;
+    gap: 14px;
+  }
+
+  .activity-filter-actions .btn {
+    flex: 1;
+  }
 }
 
 /* ── Audit table cells ──────────────────────────────────────────────────── */

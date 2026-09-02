@@ -40,6 +40,9 @@ public class AppDbContext : DbContext
     public DbSet<ClientAiSetting> ClientAiSettings { get; set; } = null!;
     public DbSet<AiSession> AiSessions { get; set; } = null!;
 
+    /// <summary>Customers who have told the bots to stop. See <see cref="BotSuppression"/>.</summary>
+    public DbSet<BotSuppression> BotSuppressions { get; set; } = null!;
+
     // Authentication & RBAC
     public DbSet<AppUser> AppUsers { get; set; } = null!;
     public DbSet<Role> Roles { get; set; } = null!;
@@ -485,6 +488,17 @@ public class AppDbContext : DbContext
             entity.ToTable("AiSessions");
             entity.HasIndex(e => e.PhoneNumber);
             entity.HasOne(e => e.MessageBot).WithMany().HasForeignKey(e => e.MessageBotId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BotSuppression>(entity =>
+        {
+            entity.ToTable("BotSuppressions");
+            entity.Property(e => e.PhoneNumber).HasMaxLength(32).IsRequired();
+            entity.Property(e => e.MatchedKeyword).HasMaxLength(100);
+            // Every read is "is this caller silenced right now", so the lookup is by number and
+            // expiry together.
+            entity.HasIndex(e => new { e.PhoneNumber, e.ResumeAt });
+            entity.HasOne(e => e.Connection).WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

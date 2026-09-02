@@ -562,3 +562,54 @@
   position: relative !important;
   z-index: 999999 !important;
 }
+
+/* == Searchable dropdowns ====================================================
+   The Status, Source, Assigned, Type, Language, Groups and Country fields are
+   SearchableSelect now rather than native <select>s, so each one carries its own
+   search box and a scrolling option list.
+
+   The control is styled to be indistinguishable from the .form-control beside it:
+   same border, radius, padding, type size, hover and focus. Nothing about the
+   form's spacing or rhythm changes -- only what happens when the field is opened.
+   Scoped to this card so no other page is affected. */
+
+.add-contact-card .ss-trigger {
+  height: auto;
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background-color: var(--bg-secondary);
+  transition: all 0.2s ease-in-out;
+}
+
+.add-contact-card .ss-trigger:hover:not(:disabled) {
+  border-color: var(--text-muted);
+}
+
+.add-contact-card .ss-trigger.is-open {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+/* Placeholder text matches the inputs' placeholder rather than the shared token,
+   so "Select Status" and "Enter First Name" read as the same weight of hint. */
+.add-contact-card .ss-trigger-text {
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.add-contact-card .ss-trigger-text.is-selected {
+  color: var(--text-main);
+  font-weight: 400;
+}
+
+/* Same error treatment the native selects had. */
+.add-contact-card .ss-trigger.is-invalid {
+  border-color: #dc2626 !important;
+  background-color: #fee2e2 !important;
+}
+
+.add-contact-card .ss-trigger.is-invalid.is-open {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
+}

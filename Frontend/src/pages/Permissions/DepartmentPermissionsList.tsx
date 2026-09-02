@@ -23,6 +23,7 @@ import type { Connection } from '../../types/connection'
 import './UserPermissionsList.css'
 import './DepartmentPermissionsList.css'
 import Can from '../../components/Can/Can'
+import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
 export const DepartmentPermissionsList: React.FC = () => {
   const [dashboard, setDashboard] = useState<DepartmentPermissionDashboard | null>(null)
@@ -184,30 +185,28 @@ export const DepartmentPermissionsList: React.FC = () => {
             />
           </div>
 
-          <select
-            value={selectedConnId}
-            onChange={(e) => setSelectedConnId(e.target.value === 'All' ? 'All' : Number(e.target.value))}
+          <SearchableSelect
+            label="Connection"
+            placeholder="All Connections"
+            allValue="All"
             className="permission-select"
-          >
-            <option value="All">Select Connection</option>
-            <option value="All">All Connections</option>
-            {connections.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+            value={String(selectedConnId)}
+            options={connections.map((c) => ({ value: String(c.id), label: c.name }))}
+            onChange={(val) => setSelectedConnId(val === 'All' ? 'All' : Number(val))}
+          />
 
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
+          <SearchableSelect
+            label="Permission Status"
+            placeholder="All Status"
+            allValue="All Status"
             className="permission-select"
-          >
-            <option value="All Status">Permission Status</option>
-            <option value="All Status">All Status</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
+            value={selectedStatus}
+            options={[
+              { value: 'Active', label: 'Active' },
+              { value: 'Inactive', label: 'Inactive' }
+            ]}
+            onChange={setSelectedStatus}
+          />
         </div>
 
         <Can permission="ConnectionAccess.Assign">

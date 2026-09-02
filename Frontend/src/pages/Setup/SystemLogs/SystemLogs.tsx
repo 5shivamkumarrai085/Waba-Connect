@@ -10,6 +10,7 @@ import Can from '../../../components/Can/Can'
 import { apiClient } from '../../../services/apiClient'
 import { getErrorMessage } from '../../../utils/errorHelper'
 import { pageTransitionProps } from '../../../utils/motion'
+import { SearchableSelect } from '../../../components/SearchableSelect/SearchableSelect'
 
 interface LogFile {
   name: string
@@ -157,19 +158,20 @@ export const SystemLogs: React.FC = () => {
 
       <div className="contacts-card syslog-card">
         <div className="syslog-toolbar">
-          <select
-            className="contacts-pager-size-select syslog-file-select"
-            value={selectedFile}
-            onChange={(e) => { setSelectedFile(e.target.value); setPage(1) }}
+          <SearchableSelect
+            label="Log file"
+            placeholder={files.length === 0 ? 'No log files' : 'Select a log file'}
+            hideAllOption
+            className="syslog-file-select"
             disabled={files.length === 0}
-          >
-            {files.length === 0 && <option value="">No log files</option>}
-            {files.map((file) => (
-              <option key={file.name} value={file.name}>
-                {file.displayName} ({formatSize(file.sizeBytes)}){file.isToday ? ' — active' : ''}
-              </option>
-            ))}
-          </select>
+            value={selectedFile}
+            options={files.map((file) => ({
+              value: file.name,
+              label: `${file.displayName} (${formatSize(file.sizeBytes)})${file.isToday ? ' — active' : ''}`,
+              keywords: file.name
+            }))}
+            onChange={(val) => { setSelectedFile(val); setPage(1) }}
+          />
 
           <div className="syslog-toolbar-right">
             <Can permission="SystemLog.Delete">

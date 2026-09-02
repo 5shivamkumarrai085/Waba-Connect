@@ -858,9 +858,24 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
         await _dbContext.SaveChangesAsync();
 
-        // Start flow execution asynchronously
+        // Start flow execution asynchronously.
+        //
+        // Detached so Meta gets its 200 immediately, but serialised per customer: a bot turn reads
+        // the conversation state, decides, and writes the next state, and two of those interleaving
+        // on one person corrupted the conversation — duplicate greetings, menus answering the wrong
+        // message, and a "stop" undone by a task still running from the message before it.
         _ = Task.Run(async () =>
         {
+            using var turn = await ConversationGate.EnterAsync(normalizedPhone);
+
+            if (turn is null)
+            {
+                _logger.LogWarning(
+                    "Timed out waiting for the previous bot turn for {Phone}; skipping this message rather than running two at once.",
+                    normalizedPhone);
+                return;
+            }
+
             try
             {
                 using var scope = _scopeFactory.CreateScope();

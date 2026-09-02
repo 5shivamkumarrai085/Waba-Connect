@@ -14,6 +14,7 @@ import { toast } from 'react-hot-toast'
 import './BotFlowList.css'
 import Can from '../../components/Can/Can'
 import usePermission from '../../hooks/usePermission'
+import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
 export const BotFlowList: React.FC = () => {
   const navigate = useNavigate()
@@ -354,15 +355,17 @@ export const BotFlowList: React.FC = () => {
                 </div>
                 <div className="form-group">
                   <label>Connection</label>
-                  <select
-                    value={modalConnectionId}
-                    onChange={(e) => setModalConnectionId(e.target.value ? Number(e.target.value) : '')}
-                  >
-                    <option value="">All Connections</option>
-                    {connections.map((conn) => (
-                      <option key={conn.id} value={conn.id}>{conn.name}</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    label="Connection"
+                    placeholder="All Connections"
+                    value={modalConnectionId === '' ? '' : String(modalConnectionId)}
+                    options={connections.map((conn) => ({
+                      value: String(conn.id),
+                      label: conn.name,
+                      keywords: conn.phoneNumber ?? ''
+                    }))}
+                    onChange={(val) => setModalConnectionId(val ? Number(val) : '')}
+                  />
                 </div>
               </div>
             </form>

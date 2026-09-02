@@ -20,6 +20,7 @@ import {
 import './TemplatesList.css'
 import { useConnectionStore } from '../../store/connectionStore'
 import Can from '../../components/Can/Can'
+import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
 export const TemplatesList: React.FC = () => {
   const {
@@ -352,76 +353,68 @@ export const TemplatesList: React.FC = () => {
             {/* Filter 1: Template Name Select Dropdown */}
             <div className="filter-group">
               <span className="filter-label">Template Name</span>
-              <select
-                className="form-control"
+              <SearchableSelect
+                label="Template Name"
+                placeholder="All"
                 value={nameQuery}
-                onChange={(e) => setNameQuery(e.target.value)}
-              >
-                <option value="">All</option>
-                {Array.from(new Set(templates.map(t => t.name))).map(name => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
+                options={Array.from(new Set(templates.map(t => t.name))).map(name => ({
+                  value: name,
+                  label: name
+                }))}
+                onChange={setNameQuery}
+              />
             </div>
 
             {/* Filter 2: Languages selection */}
             <div className="filter-group">
               <span className="filter-label">Languages</span>
-              <select
-                className="form-control"
+              <SearchableSelect
+                label="Languages"
+                placeholder="All"
+                allValue="All"
                 value={languageFilter}
-                onChange={(e) => setLanguageFilter(e.target.value)}
-              >
-                <option value="All">All</option>
-                {(languages || []).map(l => (
-                  <option key={l.code} value={l.code}>{l.name}</option>
-                ))}
-              </select>
+                options={(languages || []).map(l => ({ value: l.code, label: l.name, keywords: l.code }))}
+                onChange={setLanguageFilter}
+              />
             </div>
 
             {/* Filter 3: Category selection */}
             <div className="filter-group">
               <span className="filter-label">Category</span>
-              <select
-                className="form-control"
+              <SearchableSelect
+                label="Category"
+                placeholder="All"
+                allValue="All"
                 value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-              >
-                <option value="All">All</option>
-                {(categories || []).map(c => (
-                  <option key={c.id} value={c.name}>{c.name}</option>
-                ))}
-              </select>
+                options={(categories || []).map(c => ({ value: c.name, label: c.name }))}
+                onChange={setCategoryFilter}
+              />
             </div>
 
             {/* Filter 4: Template Type selection */}
             <div className="filter-group">
               <span className="filter-label">Template Type</span>
-              <select
-                className="form-control"
+              <SearchableSelect
+                label="Template Type"
+                placeholder="All"
+                allValue="All"
                 value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-              >
-                <option value="All">All</option>
-                {(types || []).map(t => (
-                  <option key={t.id} value={t.name}>{t.name}</option>
-                ))}
-              </select>
+                options={(types || []).map(t => ({ value: t.name, label: t.name }))}
+                onChange={setTypeFilter}
+              />
             </div>
 
             {/* Filter 5: Status selection */}
             <div className="filter-group">
               <span className="filter-label">Status</span>
-              <select
-                className="form-control"
+              <SearchableSelect
+                label="Status"
+                placeholder="All"
+                allValue="All"
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="All">All</option>
-                {(statuses || []).map(s => (
-                  <option key={s.id} value={s.name}>{s.name}</option>
-                ))}
-              </select>
+                options={(statuses || []).map(s => ({ value: s.name, label: s.name }))}
+                onChange={setStatusFilter}
+              />
             </div>
 
             <div className="filter-group filter-group-clear">

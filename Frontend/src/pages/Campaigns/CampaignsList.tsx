@@ -16,6 +16,7 @@ import { templateService } from '../../services/templates/templateService'
 import { contactService } from '../../services/contacts/contactService'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import Can from '../../components/Can/Can'
+import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
 export const CampaignsList: React.FC = () => {
   const navigate = useNavigate()
@@ -277,31 +278,29 @@ export const CampaignsList: React.FC = () => {
           <div className="campaigns-filter-row fade-in">
             <div className="filter-group">
               <span className="filter-label">Template</span>
-              <select
-                className="form-control"
+              <SearchableSelect
+                label="Template"
+                placeholder="All"
+                allValue="All"
                 value={templateFilter}
-                onChange={(e) => setTemplateFilter(e.target.value)}
-              >
-                <option value="All">All</option>
-                {templates.map(t => (
-                  <option key={t.id} value={t.name}>{t.name}</option>
-                ))}
-              </select>
+                options={templates.map(t => ({ value: t.name, label: t.name }))}
+                onChange={setTemplateFilter}
+              />
             </div>
 
             <div className="filter-group">
               <span className="filter-label">Relation Type</span>
-              <select
-                className="form-control"
+              <SearchableSelect
+                label="Relation Type"
+                placeholder="All"
+                allValue="All"
                 value={relationTypeFilter}
-                onChange={(e) => setRelationTypeFilter(e.target.value)}
-              >
-                <option value="All">All</option>
-                {relationTypes.map(t => (
-                  <option key={t.id} value={t.id}>{t.id}</option>
-                ))}
-                <option value="Csv_campaign">Csv_campaign</option>
-              </select>
+                options={[
+                  ...relationTypes.map(t => ({ value: String(t.id), label: String(t.id) })),
+                  { value: 'Csv_campaign', label: 'Csv_campaign' }
+                ]}
+                onChange={setRelationTypeFilter}
+              />
             </div>
 
             <div className="filter-group">

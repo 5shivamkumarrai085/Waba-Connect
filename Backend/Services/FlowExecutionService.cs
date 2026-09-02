@@ -19,24 +19,79 @@ public class FlowExecutionService : IFlowExecutionService
     private readonly IConversationStateService _stateService;
     private readonly IEnumerable<INodeExecutor> _executors;
     private readonly IWhatsAppService _whatsAppService;
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<FlowExecutionService> _logger;
 
     public FlowExecutionService(
         AppDbContext dbContext,
         IFlowLoaderService flowLoader,
         IConversationStateService stateService,
         IEnumerable<INodeExecutor> executors,
-        IWhatsAppService whatsAppService)
+        IWhatsAppService whatsAppService,
+        IConfiguration configuration,
+        ILogger<FlowExecutionService> logger)
     {
         _dbContext = dbContext;
         _flowLoader = flowLoader;
         _stateService = stateService;
         _executors = executors;
         _whatsAppService = whatsAppService;
+        _configuration = configuration;
+        _logger = logger;
     }
+
+    /// <summary>
+    /// How long a half-finished flow keeps hold of a conversation.
+    ///
+    /// <para>
+    /// A flow used to stay Active until it reached an end node, and a customer who abandoned it
+    /// mid-menu never reached one. From then on <em>every</em> message they sent — for weeks, in
+    /// practice — was fed back into the menu they had walked away from, which answered "Good
+    /// morning" with "Please choose an option" and never let the trigger keywords be evaluated
+    /// again. Sessions have to end on their own, and a customer returning tomorrow has to be
+    /// starting a new conversation, not resuming yesterday's.
+    /// </para>
+    /// <para>
+    /// Thirty minutes is the working default: long enough that a customer reading options, or
+    /// stepping away for a coffee, comes back to the same menu; short enough that the next
+    /// unrelated message is treated as a fresh conversation. Override with
+    /// <c>BotFlow:SessionTimeoutMinutes</c>.
+    /// </para>
+    /// </summary>
+    private TimeSpan SessionTimeout =>
+        TimeSpan.FromMinutes(_configuration.GetValue("BotFlow:SessionTimeoutMinutes", 30));
 
     public async Task<bool> ExecuteFlowStepAsync(string phoneNumber, string incomingMessage, int? connectionId = null)
     {
+        // ── Stop means stop ─────────────────────────────────────────────────────────────────────
+        // The bot router already refuses to route a suppressed customer, so in the normal path this
+        // never fires. It is here anyway because this engine is what actually sends the menus, and
+        // "a customer who said stop is never answered" is too important to rest on a single check
+        // at one entry point. Any future caller of the flow engine inherits the rule for free.
+        if (await IsSuppressedAsync(phoneNumber, connectionId))
+        {
+            _logger.LogInformation(
+                "Bot flow refused for {Phone}: the customer has stopped automated replies.", phoneNumber);
+
+            // Close anything still open, so the moment the suppression lapses they are not dropped
+            // back into a half-finished menu from before they opted out.
+            await CloseActiveStateAsync(phoneNumber, connectionId);
+            return false;
+        }
+
         var activeState = await _stateService.GetActiveStateAsync(phoneNumber, connectionId);
+
+        // An abandoned session must not keep intercepting messages. Closed here rather than by a
+        // sweeper so the very next message is already free to match a trigger keyword.
+        if (activeState != null && DateTime.UtcNow - activeState.UpdatedAt > SessionTimeout)
+        {
+            _logger.LogInformation(
+                "Bot flow session for {Phone} expired after {Minutes:0} minutes of inactivity; closing it and re-evaluating triggers.",
+                phoneNumber, (DateTime.UtcNow - activeState.UpdatedAt).TotalMinutes);
+
+            await _stateService.DeleteStateAsync(phoneNumber, connectionId);
+            activeState = null;
+        }
 
         if (activeState != null)
         {
@@ -56,6 +111,61 @@ public class FlowExecutionService : IFlowExecutionService
         else
         {
             return await EvaluateTriggersAsync(phoneNumber, incomingMessage, connectionId);
+        }
+    }
+
+    /// <summary>
+    /// Whether this customer has told the bots to stop and the window has not yet lapsed.
+    ///
+    /// Matches the router's rule exactly: a suppression recorded without a connection applies
+    /// everywhere, one recorded against a connection applies to that number only.
+    /// </summary>
+    private async Task<bool> IsSuppressedAsync(string phoneNumber, int? connectionId)
+    {
+        try
+        {
+            var normalized = phoneNumber.Replace("+", string.Empty).Trim();
+            var now = DateTime.UtcNow;
+
+            return await _dbContext.BotSuppressions
+                .AsNoTracking()
+                .AnyAsync(b => b.PhoneNumber == normalized
+                               && (b.ConnectionId == null || b.ConnectionId == connectionId)
+                               && (b.ResumeAt == null || b.ResumeAt > now));
+        }
+        catch (Exception ex)
+        {
+            // Failing open: a database blip must not silence every bot in the product. The router's
+            // own check is the primary guard, and it runs first.
+            _logger.LogError(ex, "Could not check bot suppression for {Phone}; continuing.", phoneNumber);
+            return false;
+        }
+    }
+
+    /// <summary>Ends any flow this customer is part-way through. Safe to call when there is none.</summary>
+    private async Task CloseActiveStateAsync(string phoneNumber, int? connectionId)
+    {
+        try
+        {
+            var normalized = phoneNumber.Replace("+", string.Empty).Trim();
+
+            var open = await _dbContext.ConversationStates
+                .Where(c => c.PhoneNumber == normalized && c.Status == "Active")
+                .ToListAsync();
+
+            if (open.Count == 0) return;
+
+            foreach (var state in open)
+            {
+                state.Status = "Completed";
+                state.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not close the active bot flow for {Phone}.", phoneNumber);
         }
     }
 

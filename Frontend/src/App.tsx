@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast'
 import { PageLayout } from './components/PageLayout'
 import { RequireAuth } from './components/RequireAuth'
 import Can from './components/Can/Can'
+import { useChatNotificationSound } from './hooks/useChatNotificationSound'
 
 // Lazy loaded page components
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
@@ -62,13 +63,20 @@ const LoadingFallback: React.FC = () => (
  * The signed-in shell: sidebar, header, and the page container. Everything inside requires a
  * session, so the guard is applied once here rather than repeated on ~30 routes.
  */
-const AuthedShell: React.FC = () => (
-  <RequireAuth>
-    <PageLayout>
-      <Outlet />
-    </PageLayout>
-  </RequireAuth>
-)
+const AuthedShell: React.FC = () => {
+  // One watcher for the whole signed-in app, so a new WhatsApp message is announced wherever the
+  // user happens to be — not only while the Chat page is open. Mounted here rather than in Chat
+  // because a single instance is also what guarantees one sound per arrival.
+  useChatNotificationSound()
+
+  return (
+    <RequireAuth>
+      <PageLayout>
+        <Outlet />
+      </PageLayout>
+    </RequireAuth>
+  )
+}
 
 /**
  * Route-level permission gate.

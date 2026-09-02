@@ -13,6 +13,7 @@ import { toast } from 'react-hot-toast'
 import './TemplateBotList.css'
 import Can from '../../components/Can/Can'
 import usePermission from '../../hooks/usePermission'
+import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
 export const TemplateBotList: React.FC = () => {
   const navigate = useNavigate()
@@ -200,30 +201,35 @@ export const TemplateBotList: React.FC = () => {
           <div className="template-bot-filters-drawer">
             <div className="filter-group">
               <label>Relation Type</label>
-              <select 
-                value={relationType} 
-                onChange={(e) => setRelationType(e.target.value)}
-              >
-                <option value="All">All</option>
-                <option value="Lead">Lead</option>
-                <option value="Customer">Customer</option>
-              </select>
+              <SearchableSelect
+                label="Relation Type"
+                placeholder="All"
+                allValue="All"
+                value={relationType}
+                options={[
+                  { value: 'Lead', label: 'Lead' },
+                  { value: 'Customer', label: 'Customer' }
+                ]}
+                onChange={setRelationType}
+              />
             </div>
             <div className="filter-group">
               <label>Status</label>
-              <select
+              <SearchableSelect
+                label="Status"
+                placeholder="All"
+                allValue="All"
                 value={isActive === undefined ? 'All' : isActive ? 'Active' : 'Inactive'}
-                onChange={(e) => {
-                  const val = e.target.value
+                options={[
+                  { value: 'Active', label: 'Active' },
+                  { value: 'Inactive', label: 'Inactive' }
+                ]}
+                onChange={(val) => {
                   if (val === 'All') setIsActive(undefined)
                   else if (val === 'Active') setIsActive(true)
                   else setIsActive(false)
                 }}
-              >
-                <option value="All">All</option>
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </select>
+              />
             </div>
           </div>
         )}

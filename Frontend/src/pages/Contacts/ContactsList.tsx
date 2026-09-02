@@ -38,6 +38,7 @@ import { formatAbsoluteDateTime } from '../../utils/dateHelper'
 import Can from '../../components/Can/Can'
 import usePermission from '../../hooks/usePermission'
 import { buildLookupMap, resolveLookup, badgeStyleFor } from '../../utils/lookupColors'
+import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
 // Fallback only. Groups now carry an admin-chosen colour from Setup → Groups; this
 // deterministic name-hash covers groups created before that column existed, so they still get a
@@ -672,99 +673,83 @@ export const ContactsList: React.FC = () => {
             <div className="contacts-filters-grid">
             <div className="filter-field">
               <label>Status</label>
-              <select
-                className="contacts-pager-size-select width-full"
+              <SearchableSelect
+                label="Status"
+                placeholder="All"
+                allValue="All"
                 value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-              >
-                <option value="All">All</option>
-                {statuses.map((status: any) => (
-                  <option key={status.id} value={status.name}>
-                    {status.name}
-                  </option>
-                ))}
-              </select>
+                options={statuses.map((status: any) => ({ value: status.name, label: status.name }))}
+                onChange={setFilterStatus}
+              />
             </div>
 
             <div className="filter-field">
               <label>Source</label>
-              <select
-                className="contacts-pager-size-select width-full"
+              <SearchableSelect
+                label="Source"
+                placeholder="All"
+                allValue="All"
                 value={filterSource}
-                onChange={(e) => setFilterSource(e.target.value)}
-              >
-                <option value="All">All</option>
-                {sources.map((source: any) => (
-                  <option key={source.id} value={source.name}>
-                    {source.name}
-                  </option>
-                ))}
-              </select>
+                options={sources.map((source: any) => ({ value: source.name, label: source.name }))}
+                onChange={setFilterSource}
+              />
             </div>
 
             <div className="filter-field">
               <label>Assigned</label>
-              <select
-                className="contacts-pager-size-select width-full"
+              <SearchableSelect
+                label="Assigned"
+                placeholder="All"
+                allValue="All"
                 value={filterAssigned}
-                onChange={(e) => setFilterAssigned(e.target.value)}
-              >
-                <option value="All">All</option>
-                {assignedUsers.map((user: any) => {
-                  const label = getAssignedName(user.name);
-                  return (
-                    <option key={user.id} value={label}>
-                      {label}
-                    </option>
-                  )
+                options={assignedUsers.map((user: any) => {
+                  const label = getAssignedName(user.name)
+                  return { value: label, label }
                 })}
-              </select>
+                onChange={setFilterAssigned}
+              />
             </div>
 
             <div className="filter-field">
               <label>Group</label>
-              <select
-                className="contacts-pager-size-select width-full"
+              <SearchableSelect
+                label="Group"
+                placeholder="All"
+                allValue="All"
                 value={filterGroup}
-                onChange={(e) => setFilterGroup(e.target.value)}
-              >
-                <option value="All">All</option>
-                {groups.map((group: any) => (
-                  <option key={group.id} value={group.name || group.groupName}>
-                    {group.name || group.groupName}
-                  </option>
-                ))}
-              </select>
+                options={groups.map((group: any) => ({
+                  value: group.name || group.groupName,
+                  label: group.name || group.groupName
+                }))}
+                onChange={setFilterGroup}
+              />
             </div>
 
             <div className="filter-field">
               <label>Tags</label>
-              <select
-                className="contacts-pager-size-select width-full"
+              <SearchableSelect
+                label="Tags"
+                placeholder="All"
+                allValue="All"
                 value={filterTag}
-                onChange={(e) => setFilterTag(e.target.value)}
-              >
-                <option value="All">All</option>
-                {tagOptions.map((tag) => (
-                  <option key={tag} value={tag}>{tag}</option>
-                ))}
-              </select>
+                options={tagOptions.map((tag) => ({ value: tag, label: tag }))}
+                onChange={setFilterTag}
+              />
             </div>
 
             <div className="filter-field">
               <label>Type</label>
-              <select
-                className="contacts-pager-size-select width-full"
+              <SearchableSelect
+                label="Type"
+                placeholder="All"
+                allValue="All"
                 value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-              >
-                <option value="All">All</option>
-                {contactTypes.map((t: any) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name.charAt(0).toUpperCase() + t.name.slice(1)}
-                  </option>
-                ))}
-              </select>
+                options={contactTypes.map((t: any) => ({
+                  value: String(t.id),
+                  label: t.name.charAt(0).toUpperCase() + t.name.slice(1)
+                }))}
+                onChange={setFilterType}
+              />
             </div>
 
             <div className="filter-field filter-field-dates">

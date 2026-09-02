@@ -55,6 +55,9 @@ public class ButtonNodeExecutor : INodeExecutor
             // Ignore parse errors
         }
 
+        // Unrecognised replies at this node so far. Zero on the first send.
+        var retryCount = 0;
+
         // Check if we are resuming (processing reply) or arriving (first send)
         if (state.CurrentNodeId == node.NodeId)
         {
@@ -81,7 +84,9 @@ public class ButtonNodeExecutor : INodeExecutor
                 {
                     var collectVars = new Dictionary<string, string>
                     {
-                        { node.NodeId, matchedButton!.Value ?? matchedButton.Text }
+                        { node.NodeId, matchedButton!.Value ?? matchedButton.Text },
+                        // A good answer wipes the slate: the next menu gets its own full allowance.
+                        { MenuRetryPolicy.KeyFor(node.NodeId), "0" }
                     };
                     return new NodeExecutionResult
                     {
@@ -91,7 +96,17 @@ public class ButtonNodeExecutor : INodeExecutor
                 }
             }
 
-            // Invalid input fallback: Resend options and remain paused here
+            // Invalid input. One re-prompt is helpful; a second unrecognised reply means the
+            // customer is not answering the menu, so the flow ends rather than asking forever.
+            var giveUp = MenuRetryPolicy.OnUnrecognised(state, node.NodeId);
+            if (giveUp != null)
+            {
+                return giveUp;
+            }
+
+            retryCount = MenuRetryPolicy.AttemptsSoFar(state, node.NodeId) + 1;
+
+            // Falls through to re-send the options below.
         }
 
         // Send the interactive buttons message
@@ -128,7 +143,9 @@ public class ButtonNodeExecutor : INodeExecutor
         }
         await _whatsAppService.SendCustomPayloadAsync(state.PhoneNumber, payload, resolvedPhoneId, state.ConnectionId);
 
-        return NodeExecutionResult.Pause(node.NodeId);
+        var paused = NodeExecutionResult.Pause(node.NodeId);
+        paused.CollectVariables = MenuRetryPolicy.Counter(node.NodeId, retryCount);
+        return paused;
     }
 
     private class ButtonItem

@@ -47,6 +47,7 @@ const statusClass = (status?: string): string => {
   return 'disconnected'
 }
 import Can from '../../components/Can/Can'
+import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
 export const ConnectionsList: React.FC = () => {
   const navigate = useNavigate()
@@ -293,16 +294,19 @@ export const ConnectionsList: React.FC = () => {
         </div>
 
         <div className="conn-filter-controls">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+          <SearchableSelect
+            label="Status"
+            placeholder="All Status"
+            allValue="All Status"
             className="conn-select-status"
-          >
-            <option value="All Status">All Status</option>
-            <option value="Connected">Connected</option>
-            <option value="Setup pending">Setup pending</option>
-            <option value="Disconnected">Disconnected</option>
-          </select>
+            value={statusFilter}
+            options={[
+              { value: 'Connected', label: 'Connected' },
+              { value: 'Setup pending', label: 'Setup pending' },
+              { value: 'Disconnected', label: 'Disconnected' }
+            ]}
+            onChange={setStatusFilter}
+          />
 
           <button
             type="button"

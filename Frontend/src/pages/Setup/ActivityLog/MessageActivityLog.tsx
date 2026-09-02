@@ -12,6 +12,7 @@ import { apiClient } from '../../../services/apiClient'
 import { getErrorMessage } from '../../../utils/errorHelper'
 import { formatAbsoluteDateTime } from '../../../utils/dateHelper'
 import { pageTransitionProps } from '../../../utils/motion'
+import { SearchableSelect } from '../../../components/SearchableSelect/SearchableSelect'
 
 interface ActivityEntry {
   id: number
@@ -180,15 +181,18 @@ export const MessageActivityLog: React.FC = () => {
       <div className="contacts-card">
         <div className="contacts-controls-row">
           <div className="contacts-controls-left">
-            <select
-              className="contacts-pager-size-select"
+            <SearchableSelect
+              label="Category"
+              placeholder="All categories"
+              allValue="All"
+              hideAllOption
               value={category}
-              onChange={(e) => { setCategory(e.target.value); setPage(1) }}
-            >
-              {categories.map((c) => (
-                <option key={c} value={c}>{c === 'All' ? 'All categories' : c}</option>
-              ))}
-            </select>
+              options={categories.map((c) => ({
+                value: c,
+                label: c === 'All' ? 'All categories' : c
+              }))}
+              onChange={(val) => { setCategory(val); setPage(1) }}
+            />
           </div>
           <div className="contacts-controls-right">
             <div className="setup-search">

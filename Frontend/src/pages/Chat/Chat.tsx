@@ -48,7 +48,7 @@ import { buildLookupMap, resolveLookup, badgeStyleFor, type ResolvedLookup } fro
 import { contactService } from '../../services/contacts/contactService'
 import type { ContactType } from '../../types/contacts'
 import { matchesSearch } from '../../utils/smartSearch'
-import { useChatNotificationSound } from '../../hooks/useChatNotificationSound'
+import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
 const EMOJIS = [
   '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇',
@@ -122,12 +122,6 @@ export const Chat: React.FC = () => {
     setSidebarSearchQuery
   } = useChatStore()
 
-  // Plays a tone when the inbox gains an unread message, if the operator has enabled the sound in
-  // OmniConnect Settings. Reads the total rather than watching individual threads: that total is
-  // what actually means "something new arrived that you have not seen".
-  useChatNotificationSound(
-    useMemo(() => conversations.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0), [conversations])
-  )
 
   const [messageText, setMessageText] = useState('')
   const [showTimeBanner, setShowTimeBanner] = useState(false)
@@ -805,50 +799,53 @@ export const Chat: React.FC = () => {
             <label className="chat-sidebar-field-label">
               Active Connection
             </label>
-            <select
-              className="form-control chat-connection-select"
-              value={selectedConnectionId ?? ''}
-              onChange={(e) => setSelectedConnectionId(e.target.value ? Number(e.target.value) : null)}
-            >
-              {connections.map((conn) => (
-                <option key={conn.id} value={conn.id}>
-                  {conn.name} ({conn.phoneNumber || 'Setup pending'})
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              label="Active connection"
+              placeholder="Select a connection"
+              hideAllOption
+              className="chat-connection-select"
+              value={selectedConnectionId != null ? String(selectedConnectionId) : ''}
+              options={connections.map((conn) => ({
+                value: String(conn.id),
+                label: `${conn.name} (${conn.phoneNumber || 'Setup pending'})`,
+                keywords: conn.phoneNumber ?? ''
+              }))}
+              onChange={(val) => setSelectedConnectionId(val ? Number(val) : null)}
+            />
           </div>
 
           <div className="chat-account-display-row">
             <Avatar name={selectedAccount?.verifiedName || selectedAccount?.phoneNumber || 'From Account'} size="small" />
             <div className="chat-dropdown-full">
               <span className="upload-sub-text">Sender Line:</span>
-              <select
-                className="form-control"
-                value={fromNumber}
-                onChange={(e) => setFromNumber(e.target.value)}
+              <SearchableSelect
+                label="Sender line"
+                placeholder={accounts.length === 0 ? 'No WABA numbers connected' : 'Select a sender line'}
+                hideAllOption
                 disabled={accounts.length === 0}
-              >
-                {accounts.length === 0 ? (
-                  <option value="">No WABA numbers connected</option>
-                ) : (
-                  accounts.map((account) => (
-                    <option key={account.phoneNumberId} value={account.phoneNumberId}>
-                      {account.phoneNumber || account.verifiedName || account.phoneNumberId}
-                    </option>
-                  ))
-                )}
-              </select>
+                value={fromNumber}
+                options={accounts.map((account) => ({
+                  value: account.phoneNumberId,
+                  label: account.phoneNumber || account.verifiedName || account.phoneNumberId,
+                  keywords: account.verifiedName ?? ''
+                }))}
+                onChange={setFromNumber}
+              />
             </div>
           </div>
 
-          <select
-            className="form-control"
+          <SearchableSelect
+            label="Chat filter"
+            placeholder="All Chats"
+            allValue="All Chats"
+            hideAllOption
             value={conversationsFilter}
-            onChange={(e) => setConversationsFilter(e.target.value)}
-          >
-            <option value="All Chats">All Chats</option>
-            <option value="Unread Chats">Unread Chats</option>
-          </select>
+            options={[
+              { value: 'All Chats', label: 'All Chats' },
+              { value: 'Unread Chats', label: 'Unread Chats' }
+            ]}
+            onChange={setConversationsFilter}
+          />
         </div>
 
         <div className="chat-sidebar-search">

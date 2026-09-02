@@ -62,6 +62,9 @@ public class ListNodeExecutor : INodeExecutor
         }
 
         // Resuming: user selected a list item
+        // Unrecognised replies at this node so far. Zero on the first send.
+        var retryCount = 0;
+
         if (state.CurrentNodeId == node.NodeId)
         {
             var matchedRow = allRows.FirstOrDefault(r =>
@@ -88,7 +91,9 @@ public class ListNodeExecutor : INodeExecutor
                 {
                     var collectVars = new Dictionary<string, string>
                     {
-                        { node.NodeId, rowId }
+                        { node.NodeId, rowId },
+                        // A good answer wipes the slate: the next menu gets its own full allowance.
+                        { MenuRetryPolicy.KeyFor(node.NodeId), "0" }
                     };
                     return new NodeExecutionResult
                     {
@@ -98,7 +103,15 @@ public class ListNodeExecutor : INodeExecutor
                 }
             }
 
-            // Invalid input fallback: resend list and pause
+            // Invalid input. Same rule as the button menu: one re-prompt, then the flow ends
+            // rather than answering every unrelated message with the same list.
+            var giveUp = MenuRetryPolicy.OnUnrecognised(state, node.NodeId);
+            if (giveUp != null)
+            {
+                return giveUp;
+            }
+
+            retryCount = MenuRetryPolicy.AttemptsSoFar(state, node.NodeId) + 1;
         }
 
         // Convert list sections to Meta structure
@@ -142,7 +155,9 @@ public class ListNodeExecutor : INodeExecutor
         }
         await _whatsAppService.SendCustomPayloadAsync(state.PhoneNumber, payload, resolvedPhoneId, state.ConnectionId);
 
-        return NodeExecutionResult.Pause(node.NodeId);
+        var paused = NodeExecutionResult.Pause(node.NodeId);
+        paused.CollectVariables = MenuRetryPolicy.Counter(node.NodeId, retryCount);
+        return paused;
     }
 
     private class ListSection

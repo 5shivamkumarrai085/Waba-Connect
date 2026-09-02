@@ -16,6 +16,23 @@ interface SearchableSelectProps {
   options: SearchableSelectOption[]
   /** Label for the "no choice made" row, e.g. "All Modules". Also the trigger's resting text. */
   placeholder?: string
+  /**
+   * The value that means "nothing chosen".
+   *
+   * Empty string by default, matching the empty <option> a native select carries. Some filter
+   * screens in this app use the literal string "All" for the same idea, and they are drop-in
+   * replacements only if the component can be told which sentinel they use.
+   */
+  allValue?: string
+  /**
+   * Suppresses the "all" row.
+   *
+   * Some selects have no empty option at all -- picking a connection, or a log file -- and others
+   * already carry their own "All" entry inside the option list. Rendering an extra one would give
+   * the user a choice the original control never offered, which is a behaviour change dressed as
+   * a styling one.
+   */
+  hideAllOption?: boolean
   /** Rendered above the trigger, and wired to it for screen readers. */
   label?: string
   id?: string
@@ -24,8 +41,11 @@ interface SearchableSelectProps {
   /**
    * Number of options from which the search box appears.
    *
-   * Defaults to one more than the list shows without scrolling, so the box turns up exactly when
-   * the list starts to scroll and options go out of sight — never over a list you can read whole.
+   * Defaults to 1, i.e. always. An earlier version only showed it once the list was long enough to
+   * scroll, on the reasoning that a search box over two options is clutter. In practice the
+   * inconsistency was worse than the clutter: filter rows sit side by side, and one field
+   * behaving differently from the one next to it reads as a bug rather than as a considered
+   * choice. Raise it per call site if a particular list is genuinely better without one.
    */
   searchThreshold?: number
   emptyMessage?: string
@@ -56,11 +76,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   onChange,
   options,
   placeholder = 'All',
+  allValue = '',
+  hideAllOption = false,
   label,
   id,
   disabled = false,
   className,
-  searchThreshold = 6,
+  searchThreshold = 1,
   emptyMessage
 }) => {
   const [isOpen, setIsOpen] = useState(false)
@@ -70,8 +92,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const showSearch = options.length >= searchThreshold
 
   const selectedLabel = useMemo(
-    () => options.find((o) => o.value === value)?.label ?? '',
-    [options, value]
+    () => (value === allValue ? '' : options.find((o) => o.value === value)?.label ?? ''),
+    [options, value, allValue]
   )
 
   /**
@@ -169,14 +191,16 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       <div className="ss-options">
         {/* The "all" row, matching the empty <option> the native select carried. Kept out of the
             filtered list so there is always a way back to unfiltered, however narrow the search. */}
-        <MenuItem
-          className="ss-item"
-          aria-checked={value === ''}
-          onSelect={() => pick('')}
-        >
-          <span className="ss-item-check">{value === '' && <Check size={13} />}</span>
-          <span className="ss-item-label">{placeholder}</span>
-        </MenuItem>
+        {!hideAllOption && (
+          <MenuItem
+            className="ss-item"
+            aria-checked={value === allValue}
+            onSelect={() => pick(allValue)}
+          >
+            <span className="ss-item-check">{value === allValue && <Check size={13} />}</span>
+            <span className="ss-item-label">{placeholder}</span>
+          </MenuItem>
+        )}
 
         {options.length === 0 ? (
           <div className="ss-empty">{emptyMessage ?? 'Nothing to select yet.'}</div>

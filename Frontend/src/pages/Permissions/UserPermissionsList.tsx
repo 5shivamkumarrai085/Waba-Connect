@@ -21,6 +21,7 @@ import type { UserPermissionDashboard } from '../../types/permission'
 import type { Connection } from '../../types/connection'
 import './UserPermissionsList.css'
 import Can from '../../components/Can/Can'
+import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
 export const UserPermissionsList: React.FC = () => {
   const [dashboard, setDashboard] = useState<UserPermissionDashboard | null>(null)
@@ -179,42 +180,42 @@ export const UserPermissionsList: React.FC = () => {
             />
           </div>
 
-          <select
+          <SearchableSelect
+            label="Department"
+            placeholder="All Departments"
+            allValue="All Departments"
+            className="permission-select"
             value={selectedDept}
-            onChange={(e) => setSelectedDept(e.target.value)}
-            className="permission-select"
-          >
-            <option value="All Departments">Select Department</option>
-            <option value="All Departments">All Departments</option>
-            <option value="Sales">Sales</option>
-            <option value="Support">Support</option>
-            <option value="Marketing">Marketing</option>
-          </select>
+            options={[
+              { value: 'Sales', label: 'Sales' },
+              { value: 'Support', label: 'Support' },
+              { value: 'Marketing', label: 'Marketing' }
+            ]}
+            onChange={setSelectedDept}
+          />
 
-          <select
-            value={selectedConnId}
-            onChange={(e) => setSelectedConnId(e.target.value === 'All' ? 'All' : Number(e.target.value))}
+          <SearchableSelect
+            label="Connection"
+            placeholder="All Connections"
+            allValue="All"
             className="permission-select"
-          >
-            <option value="All">Select Connection</option>
-            <option value="All">All Connections</option>
-            {connections.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+            value={String(selectedConnId)}
+            options={connections.map((c) => ({ value: String(c.id), label: c.name }))}
+            onChange={(val) => setSelectedConnId(val === 'All' ? 'All' : Number(val))}
+          />
 
-          <select
+          <SearchableSelect
+            label="Permission Status"
+            placeholder="All Status"
+            allValue="All Status"
+            className="permission-select"
             value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="permission-select"
-          >
-            <option value="All Status">Permission Status</option>
-            <option value="All Status">All Status</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
+            options={[
+              { value: 'Active', label: 'Active' },
+              { value: 'Inactive', label: 'Inactive' }
+            ]}
+            onChange={setSelectedStatus}
+          />
         </div>
 
         <Can permission="ConnectionAccess.Assign">

@@ -13,6 +13,7 @@ import { toast } from 'react-hot-toast'
 import './MessageBotList.css'
 import Can from '../../components/Can/Can'
 import usePermission from '../../hooks/usePermission'
+import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
 export const MessageBotList: React.FC = () => {
   const navigate = useNavigate()
@@ -196,31 +197,30 @@ export const MessageBotList: React.FC = () => {
           <div className="message-bots-filter-row fade-in">
             <div className="filter-group">
               <span className="filter-label">Relation Type</span>
-              <select
-                className="form-control"
+              <SearchableSelect
+                label="Relation Type"
+                placeholder="All"
                 value={relationTypeFilter}
-                onChange={(e) => setRelationTypeFilter(e.target.value)}
-              >
-                <option value="">All</option>
-                <option value="Lead">Lead</option>
-                <option value="Customer">Customer</option>
-              </select>
+                options={[
+                  { value: 'Lead', label: 'Lead' },
+                  { value: 'Customer', label: 'Customer' }
+                ]}
+                onChange={setRelationTypeFilter}
+              />
             </div>
 
             <div className="filter-group">
               <span className="filter-label">Status</span>
-              <select
-                className="form-control"
+              <SearchableSelect
+                label="Status"
+                placeholder="All"
                 value={isActiveFilter === null ? '' : isActiveFilter ? 'true' : 'false'}
-                onChange={(e) => {
-                  const val = e.target.value
-                  setIsActiveFilter(val === '' ? null : val === 'true')
-                }}
-              >
-                <option value="">All</option>
-                <option value="true">Active</option>
-                <option value="false">Inactive</option>
-              </select>
+                options={[
+                  { value: 'true', label: 'Active' },
+                  { value: 'false', label: 'Inactive' }
+                ]}
+                onChange={(val) => setIsActiveFilter(val === '' ? null : val === 'true')}
+              />
             </div>
           </div>
         )}

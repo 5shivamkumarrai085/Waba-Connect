@@ -750,3 +750,600 @@
     width: 100%;
   }
 }
+
+
+/* == Reporting layout ========================================================
+   The page is now: header, a row of headline cards, then a two-column body with the report on the
+   left and its charts on the right, with saved reports full width underneath.
+
+   Every colour below is a project token. The charts and cards borrow the app's own palette rather
+   than introducing a second one, so a change of brand colour moves this page with everything else.
+   ========================================================================== */
+
+/* -- Summary cards --------------------------------------------------------- */
+
+.report-kpi-row {
+  display: grid;
+  /* Five across on a wide screen, folding to two and then one. minmax rather than a fixed count so
+     a measure added server-side simply joins the row. */
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.report-kpi-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.report-kpi-card:hover {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.07);
+  transform: translateY(-1px);
+}
+
+.report-kpi-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  background-color: var(--primary-light);
+  color: var(--primary);
+}
+
+/* Tone only changes the icon tile. The card stays neutral so five of them side by side read as one
+   row rather than as five competing panels. */
+.report-kpi-card.is-info .report-kpi-icon { background-color: rgba(14, 165, 233, 0.12); color: #0ea5e9; }
+.report-kpi-card.is-success .report-kpi-icon { background-color: rgba(34, 197, 94, 0.12); color: #16a34a; }
+.report-kpi-card.is-warning .report-kpi-icon { background-color: rgba(245, 158, 11, 0.14); color: #d97706; }
+.report-kpi-card.is-danger .report-kpi-icon { background-color: rgba(239, 68, 68, 0.12); color: #dc2626; }
+
+.report-kpi-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.report-kpi-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.report-kpi-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.report-kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+  line-height: 1.15;
+}
+
+.report-kpi-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/* Green is "the number moved the way you want", not "the number went up" — a rise in failures is
+   shown in red. The component decides which; this only paints it. */
+.report-kpi-trend.is-up { color: #16a34a; }
+.report-kpi-trend.is-down { color: #dc2626; }
+
+.report-kpi-compare {
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+/* Loading skeleton, shaped like the real card so the row does not resize when data lands. */
+.report-kpi-card.is-loading .report-kpi-icon,
+.report-kpi-card.is-loading .report-kpi-label,
+.report-kpi-card.is-loading .report-kpi-value {
+  background-color: var(--bg-hover);
+  border-radius: 6px;
+  color: transparent;
+}
+
+.report-kpi-card.is-loading .report-kpi-label { width: 90px; height: 12px; }
+.report-kpi-card.is-loading .report-kpi-value { width: 64px; height: 22px; margin-top: 6px; }
+
+/* -- Two-column body ------------------------------------------------------- */
+
+.report-main-grid {
+  display: grid;
+  /* The analytics column is a fixed reading width; the report takes whatever is left. */
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 18px;
+  align-items: start;
+}
+
+.report-main-col {
+  min-width: 0;
+}
+
+.report-analytics-col {
+  display: flex;
+  flex-direction: column;
+  /* Tighter than the page gutter: these three cards are one panel read together, not three
+     unrelated sections, and the wider gap left an obvious hole between the chart and the donut. */
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Below this the charts have no room to be read side by side, so they go underneath. */
+@media (max-width: 1200px) {
+  .report-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* -- Analytics cards ------------------------------------------------------- */
+
+.report-analytics-card {
+  padding: 14px 16px;
+  /* The column already spaces its children with flex gap. The shared card's own bottom margin was
+     stacking on top of that, which is where the wide hole between the chart and the donut came
+     from. */
+  margin-bottom: 0;
+}
+
+.report-analytics-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.report-analytics-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.report-analytics-meta {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.report-analytics-empty {
+  padding: 28px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-light);
+}
+
+.report-analytics-chart {
+  margin-left: -6px;
+}
+
+/* -- Donut ----------------------------------------------------------------- */
+
+.report-donut-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.report-donut {
+  position: relative;
+}
+
+/* The total belongs in the hole: it is what the ring adds up to, not a separate statistic. */
+.report-donut-centre {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.report-donut-centre strong {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.1;
+}
+
+.report-donut-centre span {
+  font-size: 10.5px;
+  color: var(--text-light);
+}
+
+.report-donut-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-donut-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.report-donut-dot {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.report-donut-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-main);
+}
+
+.report-donut-value {
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* -- Top campaigns --------------------------------------------------------- */
+
+.report-top-campaigns {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: none;
+}
+
+.report-top-campaigns li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.report-top-rank {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-light);
+  line-height: 18px;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.report-top-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.report-top-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.report-top-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--text-main);
+}
+
+.report-top-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+/* A track and a fill: the bar is read against the busiest campaign, so the list is a ranking. */
+.report-top-bar {
+  margin-top: 5px;
+  height: 4px;
+  border-radius: 999px;
+  background-color: var(--bg-hover);
+  overflow: hidden;
+}
+
+.report-top-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background-color: var(--primary);
+}
+
+/* -- Quick filters --------------------------------------------------------- */
+
+.report-quick-filters {
+  display: flex;
+  align-items: center;
+  /* Right-aligned, matching the reference: the date periods moved to the page header, so this row
+     now carries the one control that is left. */
+  justify-content: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-light);
+}
+
+.report-quick-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.report-quick-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.report-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-secondary);
+  font-family: var(--font-family);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+.report-quick-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* The selected range is stated by the tint, not by a heavy fill — several of these sit in a row and
+   a solid block would out-shout the report beneath them. */
+.report-quick-btn.is-active {
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.report-quick-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .report-quick-filters {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+
+/* -- Configuration actions -------------------------------------------------
+   Run and Save sit at the end of the field row, stacked, so the two things you do with a
+   configuration are next to the configuration itself. */
+
+.report-config-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-self: end;
+}
+
+.report-run-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius-md);
+  background-color: var(--primary);
+  color: #fff;
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.22);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.report-run-btn:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28);
+}
+
+.report-run-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.report-run-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: report-spin 0.7s linear infinite;
+}
+
+@keyframes report-spin {
+  to { transform: rotate(360deg); }
+}
+
+.report-config-actions .report-save-btn {
+  height: 38px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+/* -- Advanced Filters on the quick-filter row ------------------------------ */
+
+/* The quick ranges take the space; the disclosure is pushed to the far end. */
+.report-quick-options {
+  flex: 1;
+}
+
+.report-quick-filters .report-filters-head {
+  width: auto;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* The panel it opens is full width, directly beneath the strip. */
+.report-filters-panel {
+  margin-top: 0;
+}
+
+/* -- Analytics column stays put -------------------------------------------
+   The charts summarise the whole filtered set, so they stay in view while the table beneath them
+   is scrolled — reading row 200 while the totals have scrolled off is the wrong way round.
+
+   Sticky rather than fixed: it still flows in the grid, still stacks under the report on a narrow
+   screen, and stops at the end of its column instead of overlapping the saved reports below. */
+/* Sticky resolves against the nearest ancestor that establishes a scrollport, and the app shell's
+   .main-content carries overflow-y: auto. It never actually scrolls -- the body does -- so a sticky
+   child inside it has no range to stick within and simply scrolls away.
+
+   Neutralised only while the reporting page is mounted, via :has(), so the shell behaves exactly as
+   before on every other page. The report table keeps its own horizontal scroller, so nothing here
+   depends on the shell clipping overflow. */
+.main-content:has(.reporting-page) {
+  overflow: visible;
+}
+
+@media (min-width: 1201px) {
+  .report-analytics-col {
+    position: sticky;
+    top: 16px;
+    align-self: start;
+    /* Deliberately no max-height and no inner scrollbar. A second scrollbar inside the page reads
+       as a bug and steals wheel events from the report the user is actually scrolling. The column
+       is simply as tall as its three cards, pinned while the report scrolls past it. */
+  }
+}
+
+@media (max-width: 1100px) {
+  .report-config-actions {
+    grid-column: 1 / -1;
+    flex-direction: row;
+  }
+}
+
+
+/* -- Columns menu: search then scroll --------------------------------------
+   The same shape as every other multi-select in the app — a pinned search box above a scrolling
+   list — so picking a column feels like picking a filter anywhere else. */
+
+.report-columns-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  margin: -4px -4px 4px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.report-columns-search-icon {
+  flex-shrink: 0;
+  color: var(--text-light);
+}
+
+.report-columns-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: var(--font-family);
+  font-size: 12.5px;
+  color: var(--text-main);
+}
+
+.report-columns-search-input:focus { outline: none; }
+.report-columns-search-input::placeholder { color: var(--text-light); }
+
+.report-columns-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-light);
+  cursor: pointer;
+}
+
+.report-columns-search-clear:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+}
+
+/* About five rows, with the sixth half-showing so it is obvious the list continues. Matches the
+   cap used by the searchable selects elsewhere. */
+.report-columns-list {
+  max-height: calc((34px * 5) + 14px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.report-columns-list::-webkit-scrollbar { width: 8px; }
+.report-columns-list::-webkit-scrollbar-track { background: transparent; }
+.report-columns-list::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border: 2px solid var(--bg-secondary);
+  border-radius: 4px;
+}
+.report-columns-list::-webkit-scrollbar-thumb:hover { background-color: var(--text-light); }
+
+/* The surface is sized by its content now that the list carries its own cap. */
+.report-columns-dropdown {
+  max-height: none;
+}

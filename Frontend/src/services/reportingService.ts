@@ -13,7 +13,8 @@ import type {
   ReportRow,
   ReportExportFormat,
   SavedReport,
-  SaveReportRequest
+  SaveReportRequest,
+  ReportSummary,
 } from '../types/reporting'
 
 /** Same shape as the other paged list responses in this app (see AuditLogPage). */
@@ -125,6 +126,17 @@ export const reportingService = {
    */
   runReport: async (filters: ReportFilters): Promise<ReportRowPage> => {
     const response = await apiClient.post('/Reporting/report/query', filters)
+    return response.data?.data
+  },
+
+  /**
+   * The summary cards and charts for the same filters.
+   *
+   * Sent as its own request rather than folded into the row query: the table pages, and the
+   * headline numbers must describe the whole filtered set rather than the 25 rows on screen.
+   */
+  getReportSummary: async (filters: ReportFilters): Promise<ReportSummary> => {
+    const response = await apiClient.post('/Reporting/report/summary', filters)
     return response.data?.data
   },
 

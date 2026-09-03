@@ -462,6 +462,188 @@ public class ReportQueryService : IReportQueryService
     /// Soft-deleted messages are excluded throughout: they have been removed from the product, and
     /// a report that still counted them would disagree with every other screen.
     /// </summary>
+    /// <inheritdoc />
+    public async Task<ReportSummaryDto> GetSummaryAsync(ReportQueryRequest request)
+    {
+        request ??= new ReportQueryRequest();
+
+        // The same predicate the table is built from. Anything else and the cards would describe a
+        // different set of messages than the rows underneath them.
+        var query = BuildQuery(request);
+
+        // One pass over the filtered set, counted in SQL. Grouping by status and direction together
+        // means every KPI comes from a single scan rather than five separate COUNT queries.
+        var byStatus = await query
+            .GroupBy(m => new { m.Status, m.Direction })
+            .Select(g => new { g.Key.Status, g.Key.Direction, Count = g.Count() })
+            .ToListAsync();
+
+        var total = byStatus.Sum(x => x.Count);
+
+        int CountWhere(Func<ChatMessageStatus, ChatMessageDirection, bool> predicate) =>
+            byStatus.Where(x => predicate(x.Status, x.Direction)).Sum(x => x.Count);
+
+        // "Delivered" counts anything that reached the handset, which includes messages since read.
+        // Reporting them as separate, non-overlapping buckets would show a delivered count that
+        // falls as customers open their messages.
+        var delivered = CountWhere((s, _) => s is ChatMessageStatus.Delivered or ChatMessageStatus.Read);
+        var read = CountWhere((s, _) => s == ChatMessageStatus.Read);
+        var failed = CountWhere((s, _) => s == ChatMessageStatus.Failed);
+        var responses = CountWhere((_, d) => d == ChatMessageDirection.Incoming);
+
+        var summary = new ReportSummaryDto { Total = total };
+
+        // ── Comparison with the preceding window ────────────────────────────────────────────────
+        // Only possible when the request actually bounded a period. Without one there is no
+        // "previous" to speak of, and inventing a window would put a trend on the card that the
+        // user never asked to measure.
+        Dictionary<string, int>? previous = null;
+        string? comparisonLabel = null;
+
+        if (request.From.HasValue && request.To.HasValue)
+        {
+            var from = request.From.Value.Date;
+            var to = request.To.Value.Date;
+            var span = to - from;
+
+            var previousTo = from.AddDays(-1);
+            var previousFrom = previousTo - span;
+
+            var previousRequest = ClonePeriod(request, previousFrom, previousTo);
+            var previousQuery = BuildQuery(previousRequest);
+
+            var previousByStatus = await previousQuery
+                .GroupBy(m => new { m.Status, m.Direction })
+                .Select(g => new { g.Key.Status, g.Key.Direction, Count = g.Count() })
+                .ToListAsync();
+
+            int PreviousWhere(Func<ChatMessageStatus, ChatMessageDirection, bool> predicate) =>
+                previousByStatus.Where(x => predicate(x.Status, x.Direction)).Sum(x => x.Count);
+
+            previous = new Dictionary<string, int>
+            {
+                ["total"] = previousByStatus.Sum(x => x.Count),
+                ["delivered"] = PreviousWhere((st, _) => st is ChatMessageStatus.Delivered or ChatMessageStatus.Read),
+                ["read"] = PreviousWhere((st, _) => st == ChatMessageStatus.Read),
+                ["responses"] = PreviousWhere((_, d) => d == ChatMessageDirection.Incoming),
+                ["failed"] = PreviousWhere((st, _) => st == ChatMessageStatus.Failed)
+            };
+
+            comparisonLabel = $"vs {previousFrom:MMM dd} - {previousTo:MMM dd}";
+        }
+
+        ReportKpiDto Kpi(string key, string label, int value) => new()
+        {
+            Key = key,
+            Label = label,
+            Value = value,
+            PreviousValue = previous?.GetValueOrDefault(key),
+            ChangePercent = PercentChange(previous?.GetValueOrDefault(key), value),
+            ComparisonLabel = previous is null ? null : comparisonLabel
+        };
+
+        summary.Kpis =
+        [
+            Kpi("total", "Total Messages", total),
+            Kpi("delivered", "Delivered", delivered),
+            Kpi("read", "Read", read),
+            Kpi("responses", "Responses", responses),
+            Kpi("failed", "Failed", failed)
+        ];
+
+        // ── Activity over time ──────────────────────────────────────────────────────────────────
+        // Grouped by date parts rather than by DateTrunc, which Npgsql cannot translate.
+        var activity = await query
+            .GroupBy(m => new { m.CreatedAt.Year, m.CreatedAt.Month, m.CreatedAt.Day })
+            .Select(g => new
+            {
+                g.Key.Year,
+                g.Key.Month,
+                g.Key.Day,
+                Count = g.Count()
+            })
+            .ToListAsync();
+
+        summary.Activity = activity
+            .Select(a => new ReportActivityPointDto
+            {
+                Date = new DateTime(a.Year, a.Month, a.Day, 0, 0, 0, DateTimeKind.Utc),
+                Count = a.Count
+            })
+            .OrderBy(a => a.Date)
+            .ToList();
+
+        // ── Message type breakdown ──────────────────────────────────────────────────────────────
+        // MediaType is null for a plain text message, which is the commonest kind, so the null case
+        // is named rather than dropped.
+        var byType = await query
+            .GroupBy(m => m.MediaType)
+            .Select(g => new { Type = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        summary.ByType = byType
+            .Select(t => new ReportTypeSliceDto
+            {
+                Type = string.IsNullOrWhiteSpace(t.Type) ? "Text" : t.Type,
+                Count = t.Count,
+                Percent = total == 0 ? 0 : Math.Round((double)t.Count / total * 100, 1)
+            })
+            .OrderByDescending(t => t.Count)
+            .ToList();
+
+        // ── Top campaigns ───────────────────────────────────────────────────────────────────────
+        var topCampaigns = await query
+            .Where(m => m.CampaignId != null && m.Campaign != null)
+            .GroupBy(m => new { Id = m.CampaignId!.Value, m.Campaign!.Name })
+            .Select(g => new ReportTopCampaignDto
+            {
+                CampaignId = g.Key.Id,
+                Name = g.Key.Name,
+                Count = g.Count()
+            })
+            .OrderByDescending(c => c.Count)
+            .Take(5)
+            .ToListAsync();
+
+        summary.TopCampaigns = topCampaigns;
+
+        return summary;
+    }
+
+    /// <summary>
+    /// The same request over a different period. Every other filter is carried across unchanged, so
+    /// the comparison measures the passage of time and nothing else.
+    /// </summary>
+    private static ReportQueryRequest ClonePeriod(ReportQueryRequest source, DateTime from, DateTime to) => new()
+    {
+        ReportType = source.ReportType,
+        DataSection = source.DataSection,
+        GroupBy = source.GroupBy,
+        From = from,
+        To = to,
+        CampaignIds = source.CampaignIds,
+        ConnectionIds = source.ConnectionIds,
+        ContactIds = source.ContactIds,
+        MessageTypes = source.MessageTypes,
+        Directions = source.Directions,
+        Statuses = source.Statuses,
+        TemplateNames = source.TemplateNames,
+        Search = source.Search
+    };
+
+    /// <summary>
+    /// Change from one figure to the next, as a percentage.
+    ///
+    /// Null when there is no previous figure to compare against, and null when the previous figure
+    /// was zero — "up from nothing" is not a percentage, and rendering it as +100% would understate
+    /// what actually happened.
+    /// </summary>
+    private static double? PercentChange(int? previous, int current)
+    {
+        if (previous is null or 0) return null;
+        return Math.Round((double)(current - previous.Value) / previous.Value * 100, 1);
+    }
+
     private IQueryable<ChatMessage> BuildQuery(ReportQueryRequest request)
     {
         var query = _dbContext.ChatMessages.AsNoTracking().Where(m => !m.IsDeleted);

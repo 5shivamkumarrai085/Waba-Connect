@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
-  Calendar,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -18,11 +17,11 @@ import {
   MoreVertical,
   Pencil,
   Play,
-  Plus,
   RotateCcw,
   Save,
   Trash2,
-  X
+  X,
+  Search,
 } from 'lucide-react'
 import { Modal } from '../Modal/Modal'
 import { StatusBadge } from '../StatusBadge/StatusBadge'
@@ -43,10 +42,15 @@ import type {
   ReportRow,
   ReportType,
   ReportExportFormat,
-  SavedReport
+  SavedReport,
+  ReportSummary,
 } from '../../types/reporting'
 import { emptyReportFilters } from '../../types/reporting'
 import './ReportBuilder.css'
+import { ReportKpiCards } from './ReportKpiCards'
+import { ReportAnalytics } from './ReportAnalytics'
+import { SearchableSelect } from '../SearchableSelect/SearchableSelect'
+import { FilterBar } from '../FilterBar/FilterBar'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
@@ -116,6 +120,11 @@ export const ReportBuilder: React.FC = () => {
   const [rows, setRows] = useState<ReportRow[]>([])
   const [groupRows, setGroupRows] = useState<ReportGroupRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
+
+  // The headline cards and the charts beside the table. Fetched alongside every run, from the same
+  // filters, so the numbers on the cards always describe the rows underneath them.
+  const [summary, setSummary] = useState<ReportSummary | null>(null)
+  const [isSummaryLoading, setIsSummaryLoading] = useState(true)
   const [totalPages, setTotalPages] = useState(0)
   const [isRunning, setIsRunning] = useState(false)
   const [hasRun, setHasRun] = useState(false)
@@ -184,6 +193,9 @@ export const ReportBuilder: React.FC = () => {
 
       setAppliedFilters(request)
       setHasRun(true)
+
+      // Not awaited: the rows are already on screen by now, and the cards catch up.
+      void loadSummaryRef.current(request)
     } catch (err) {
       if (isRequestCancelled(err)) return
       toast.error(getErrorMessage(err, 'Could not run the report.'))
@@ -191,6 +203,29 @@ export const ReportBuilder: React.FC = () => {
       setIsRunning(false)
     }
   }, [])
+
+  /**
+   * The summary behind the cards and charts.
+   *
+   * Deliberately separate from the row fetch and never awaited by it: the table is the thing the
+   * user asked for, and a slow aggregate must not hold it up. A failure here leaves the previous
+   * figures on screen and is not surfaced as a toast — the report itself still worked, and an error
+   * about a chart would be noise on top of a page that is functioning.
+   */
+  const loadSummary = useCallback(async (request: ReportFilters) => {
+    setIsSummaryLoading(true)
+    try {
+      setSummary(await reportingService.getReportSummary(request))
+    } catch (err) {
+      if (isRequestCancelled(err)) return
+      // Swallowed on purpose. See above.
+    } finally {
+      setIsSummaryLoading(false)
+    }
+  }, [])
+
+  const loadSummaryRef = useRef(loadSummary)
+  loadSummaryRef.current = loadSummary
 
   // Kept in a ref so the metadata effect can run the opening report without listing runReport as a
   // dependency and re-running the whole load when it changes identity.
@@ -290,6 +325,68 @@ export const ReportBuilder: React.FC = () => {
     const request = { ...filters, groupBy: key, page: 1 }
     setFilters(request)
     void runReport(request)
+  }
+
+  /**
+   * The four periods the rest of the product offers.
+   *
+   * Deliberately the same set, in the same order, as the Dashboard's switcher — someone moving
+   * between the two pages should not have to learn a second vocabulary for the same idea. Each one
+   * resolves to the `from`/`to` the Advanced Filters panel writes, so a period and a hand-picked
+   * range are the same thing to the query, the export and a saved report.
+   *
+   * Weeks and months run to today rather than to their calendar end: a report about "this month"
+   * on the 3rd is about the three days so far, not about a month that has not happened.
+   */
+  const timeFilterRanges = useMemo(() => {
+    const iso = (d: Date) => {
+      const local = new Date(d.getTime() - d.getTimezoneOffset() * 60_000)
+      return local.toISOString().slice(0, 10)
+    }
+
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    // Monday-first: the business week, not the browser locale's.
+    const startOfWeek = new Date(today)
+    startOfWeek.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+
+    return {
+      today: { from: iso(today), to: iso(today) },
+      week: { from: iso(startOfWeek), to: iso(today) },
+      month: { from: iso(startOfMonth), to: iso(today) },
+      // "All" is the absence of a date filter rather than a very wide one, so the query stays
+      // unbounded and the comparison cards correctly show no trend.
+      all: { from: null, to: null }
+    } as const
+  }, [])
+
+  /** Which period the current range corresponds to. A hand-picked range matches none of them. */
+  const activeTimeFilter = useMemo(() => {
+    const current = { from: filters.from ?? null, to: filters.to ?? null }
+    const match = (Object.keys(timeFilterRanges) as (keyof typeof timeFilterRanges)[]).find(
+      (key) =>
+        (timeFilterRanges[key].from ?? null) === current.from &&
+        (timeFilterRanges[key].to ?? null) === current.to
+    )
+    return match ?? ''
+  }, [timeFilterRanges, filters.from, filters.to])
+
+  /**
+   * Applies a period and runs the report.
+   *
+   * Goes through the same setFilters/runReport pair every other control uses, so this is not a
+   * second way of fetching a report — it is the existing way with the dates filled in.
+   */
+  const handleTimeFilter = (key: string) => {
+    const range = timeFilterRanges[key as keyof typeof timeFilterRanges]
+    if (!range) return
+
+    const next = { ...filters, from: range.from, to: range.to, page: 1 }
+    setFilters(next)
+    void runReport(next)
   }
 
   const handleApplyFilters = () => {
@@ -403,14 +500,12 @@ export const ReportBuilder: React.FC = () => {
     return count
   }, [filters])
 
-  const rangeLabel = useMemo(() => {
-    const { from, to } = filters
-    if (from && to) return `${formatRangeDate(from)} - ${formatRangeDate(to)}`
-    if (from) return `From ${formatRangeDate(from)}`
-    if (to) return `Up to ${formatRangeDate(to)}`
-    return 'All time'
-  }, [filters.from, filters.to])
-
+  /**
+   * The period the rows on screen actually cover.
+   *
+   * Read from the applied filters rather than the draft ones, so the subtitle describes the report
+   * that ran and not the range someone is part-way through choosing.
+   */
   const appliedRangeLabel = useMemo(() => {
     const { from, to } = appliedFilters
     if (from && to) return `${formatRangeDate(from)} - ${formatRangeDate(to)}`
@@ -489,6 +584,20 @@ export const ReportBuilder: React.FC = () => {
     }
   }
 
+  /**
+   * Filters the column list as you type.
+   *
+   * Declared with the rest of the state, above the loading early-return — a hook placed after it
+   * runs only on some renders, which React rejects outright.
+   */
+  const [columnSearch, setColumnSearch] = useState('')
+
+  const visibleColumns = useMemo(() => {
+    const term = columnSearch.trim().toLowerCase()
+    if (!term) return availableColumns
+    return availableColumns.filter((col) => col.label.toLowerCase().includes(term))
+  }, [availableColumns, columnSearch])
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   if (loadingMeta) {
@@ -527,31 +636,64 @@ export const ReportBuilder: React.FC = () => {
       ariaLabel="Report columns"
       trigger={trigger}
     >
-      {availableColumns.length === 0 ? (
-        <div className="report-columns-empty">This report type has no columns to choose from.</div>
-      ) : (
-        availableColumns.map((col) => {
-          const isChecked = selectedColumns.includes(col.key)
-          return (
-            <MenuItem
-              key={col.key}
-              className="report-columns-item"
-              aria-checked={isChecked}
-              onSelect={() => toggleColumn(col.key)}
-            >
-              <span className={`report-columns-check${isChecked ? ' is-checked' : ''}`}>
-                {isChecked && <Check size={11} strokeWidth={3} />}
-              </span>
-              <span className="report-columns-name">{col.label}</span>
-              {col.derivedNote && (
-                <span className="report-columns-derived" title={col.derivedNote}>
-                  <Info size={12} />
+      {/* Same search-then-scroll shape as every other multi-select on the page. Pinned above the
+          list so it stays reachable however far down the columns you are. */}
+      <div className="report-columns-search">
+        <Search size={13} className="report-columns-search-icon" />
+        <input
+          type="text"
+          className="report-columns-search-input"
+          placeholder="Search columns..."
+          value={columnSearch}
+          aria-label="Search columns"
+          onChange={(e) => setColumnSearch(e.target.value)}
+          // Menu maps Home/End onto its item list; inside a text box those keys belong to the
+          // caret. Arrow Up/Down still travel on, so the list is reachable from here.
+          onKeyDown={(e) => {
+            if (e.key === 'Home' || e.key === 'End') e.stopPropagation()
+          }}
+        />
+        {columnSearch && (
+          <button
+            type="button"
+            className="report-columns-search-clear"
+            aria-label="Clear search"
+            onClick={() => setColumnSearch('')}
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>
+
+      <div className="report-columns-list">
+        {availableColumns.length === 0 ? (
+          <div className="report-columns-empty">This report type has no columns to choose from.</div>
+        ) : visibleColumns.length === 0 ? (
+          <div className="report-columns-empty">No columns match &ldquo;{columnSearch.trim()}&rdquo;.</div>
+        ) : (
+          visibleColumns.map((col) => {
+            const isChecked = selectedColumns.includes(col.key)
+            return (
+              <MenuItem
+                key={col.key}
+                className="report-columns-item"
+                aria-checked={isChecked}
+                onSelect={() => toggleColumn(col.key)}
+              >
+                <span className={`report-columns-check${isChecked ? ' is-checked' : ''}`}>
+                  {isChecked && <Check size={11} strokeWidth={3} />}
                 </span>
-              )}
-            </MenuItem>
-          )
-        })
-      )}
+                <span className="report-columns-name">{col.label}</span>
+                {col.derivedNote && (
+                  <span className="report-columns-derived" title={col.derivedNote}>
+                    <Info size={12} />
+                  </span>
+                )}
+              </MenuItem>
+            )
+          })
+        )}
+      </div>
     </Menu>
   )
 
@@ -568,27 +710,13 @@ export const ReportBuilder: React.FC = () => {
         </div>
 
         <div className="reporting-header-actions">
-          <button
-            type="button"
-            className="report-range-chip"
-            onClick={() => setShowFilters(true)}
-            title="Set the date range in Advanced Filters"
-          >
-            <Calendar size={14} />
-            <span>{rangeLabel}</span>
-          </button>
-
-          <button
-            type="button"
-            className={`report-toolbar-btn${showFilters ? ' is-active' : ''}`}
-            onClick={() => setShowFilters((v) => !v)}
-          >
-            <Filter size={14} />
-            <span>Filters</span>
-            {activeFilterCount > 0 && (
-              <span className="activity-filter-count">{activeFilterCount}</span>
-            )}
-          </button>
+          {/* The same switcher, in the same place, as the Dashboard's. The date range it sets is
+              the one every other control on this page reads, so nothing else had to change. */}
+          <FilterBar
+            options={['today', 'week', 'month', 'all']}
+            activeOption={activeTimeFilter}
+            onChange={handleTimeFilter}
+          />
 
           <ExportMenu
             canExport={canExport}
@@ -598,6 +726,17 @@ export const ReportBuilder: React.FC = () => {
           />
         </div>
       </div>
+
+      {/* ── Summary cards ────────────────────────────────────────────────────
+          Built from whatever measures the server returns for the current filters. Nothing on
+          these cards is computed from the rows on screen, which are only one page of the set. */}
+      <ReportKpiCards summary={summary} isLoading={isSummaryLoading} />
+
+      {/* ── Report + analytics ───────────────────────────────────────────────
+          The builder and its results take the main column; the charts sit alongside on a wide
+          screen and fall underneath on a narrow one. */}
+      <div className="report-main-grid">
+        <div className="report-main-col">
 
       {/* ── Build Your Report ────────────────────────────────────────────── */}
       <div className="reporting-section-card">
@@ -611,50 +750,50 @@ export const ReportBuilder: React.FC = () => {
         <div className="report-config-row">
           <div className="report-config-field">
             <label htmlFor="report-type">Report Type</label>
-            <select
+            <SearchableSelect
               id="report-type"
-              className="report-select"
+              label="Report Type"
+              placeholder="Select a report type"
+              hideAllOption
               value={filters.reportType ?? ''}
-              onChange={(e) => handleReportTypeChange(e.target.value)}
-            >
-              {(metadata?.reportTypes ?? []).map((type) => (
-                <option key={type.key} value={type.key}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
+              options={(metadata?.reportTypes ?? []).map((type) => ({
+                value: type.key,
+                label: type.label
+              }))}
+              onChange={handleReportTypeChange}
+            />
           </div>
 
           <div className="report-config-field">
             <label htmlFor="report-section">Data Section</label>
-            <select
+            <SearchableSelect
               id="report-section"
-              className="report-select"
+              label="Data Section"
+              placeholder="Select a data section"
+              hideAllOption
               value={filters.dataSection ?? ''}
-              onChange={(e) => handleDataSectionChange(e.target.value)}
-            >
-              {(reportType?.dataSections ?? []).map((section) => (
-                <option key={section.key} value={section.key}>
-                  {section.label}
-                </option>
-              ))}
-            </select>
+              options={(reportType?.dataSections ?? []).map((section) => ({
+                value: section.key,
+                label: section.label
+              }))}
+              onChange={handleDataSectionChange}
+            />
           </div>
 
           <div className="report-config-field">
             <label htmlFor="report-groupby">Group By</label>
-            <select
+            <SearchableSelect
               id="report-groupby"
-              className="report-select"
+              label="Group By"
+              placeholder="None"
+              hideAllOption
               value={filters.groupBy ?? 'none'}
-              onChange={(e) => handleGroupByChange(e.target.value)}
-            >
-              {groupByOptions.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              options={groupByOptions.map((option) => ({
+                value: option.key,
+                label: option.label
+              }))}
+              onChange={handleGroupByChange}
+            />
           </div>
 
           <ColumnsField
@@ -663,24 +802,48 @@ export const ReportBuilder: React.FC = () => {
             renderMenu={columnsMenu}
           />
 
-          {canManage && (
+          {/* The two actions on the configuration, stacked at the end of the field row: running
+              the report is the primary one, saving the definition the secondary. Both sit beside
+              the fields they act on rather than at the far end of the card. */}
+          <div className="report-config-actions">
             <button
               type="button"
-              className="report-toolbar-btn report-save-btn"
-              onClick={() => {
-                setEditingReport(null)
-                setSaveModalOpen(true)
-              }}
+              className="report-run-btn"
+              onClick={handleApplyFilters}
+              disabled={isRunning}
             >
-              <Save size={14} />
-              <span>Save Report</span>
+              {isRunning ? (
+                <>
+                  <span className="report-run-spinner" aria-hidden="true" />
+                  <span>Running…</span>
+                </>
+              ) : (
+                <>
+                  <Play size={14} />
+                  <span>Run Report</span>
+                </>
+              )}
             </button>
-          )}
+
+            {canManage && (
+              <button
+                type="button"
+                className="report-toolbar-btn report-save-btn"
+                onClick={() => {
+                  setEditingReport(null)
+                  setSaveModalOpen(true)
+                }}
+              >
+                <Save size={14} />
+                <span>Save Report</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Grouped reports are aggregates, so the column selection has nothing to act on — said
             out loud rather than leaving a control that silently does nothing. */}
-        {isGrouped ? (
+        {isGrouped && (
           <p className="report-grouped-note">
             Grouped by{' '}
             <strong>
@@ -689,42 +852,12 @@ export const ReportBuilder: React.FC = () => {
             . The results table shows one aggregated row per group; column selection applies to the
             ungrouped listing.
           </p>
-        ) : (
-          <div className="report-selected-columns-block">
-            <div className="report-selected-columns-head">
-              <span className="report-selected-columns-label">
-                Selected Columns ({selectedColumns.length})
-              </span>
-              <AddColumnButton renderMenu={columnsMenu} />
-            </div>
-
-            {selectedColumns.length === 0 ? (
-              <p className="report-empty-note">
-                No columns selected — add at least one to run this report.
-              </p>
-            ) : (
-              <div className="report-chips-row">
-                {orderedSelectedColumns.map((col) => (
-                  <span key={col.key} className="report-chip">
-                    {col.label}
-                    <button
-                      type="button"
-                      className="report-chip-remove"
-                      onClick={() => toggleColumn(col.key)}
-                      aria-label={`Remove ${col.label}`}
-                    >
-                      <X size={11} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
         )}
 
-        <div className="report-filters-panel">
-          {/* The heading itself is the control, and it lives outside the collapsing region —
-              inside it, closing the panel would take away the only thing left to click. */}
+        {/* ── Advanced filters ───────────────────────────────────────────────
+            The date periods now live in the page header beside Export, so all that remains here
+            is the disclosure for everything a date cannot express. */}
+        <div className="report-quick-filters">
           <button
             type="button"
             className={`report-filters-head${showFilters ? ' is-open' : ''}`}
@@ -741,6 +874,9 @@ export const ReportBuilder: React.FC = () => {
             )}
             <ChevronDown size={15} className="report-filters-chevron" />
           </button>
+        </div>
+
+        <div className="report-filters-panel">
 
           {/* Rendered outright rather than through AnimatePresence.
               A height:0 → auto transition here would not settle — it stayed pinned at 0px with the
@@ -1022,6 +1158,11 @@ export const ReportBuilder: React.FC = () => {
         />
       </div>
 
+        </div>
+
+        <ReportAnalytics summary={summary} isLoading={isSummaryLoading} />
+      </div>
+
       {/* ── Saved Reports ────────────────────────────────────────────────── */}
       <div className="reporting-section-card">
         <div className="reporting-section-header">
@@ -1269,20 +1410,6 @@ const ColumnsField: React.FC<{
 }
 
 /** The "+ Add Column" button beside the selected-column chips. */
-const AddColumnButton: React.FC<{ renderMenu: ColumnsMenuRenderer }> = ({ renderMenu }) => {
-  const [isOpen, setIsOpen] = useState(false)
-
-  return renderMenu(
-    (props) => (
-      <button {...props} type="button" className="report-add-column-btn">
-        <Plus size={13} />
-        <span>Add Column</span>
-      </button>
-    ),
-    isOpen,
-    setIsOpen
-  )
-}
 
 /** The "Columns" button in the results header. */
 const ResultsColumnsButton: React.FC<{ renderMenu: ColumnsMenuRenderer }> = ({ renderMenu }) => {

@@ -293,3 +293,46 @@ export interface LoginAttemptPage<T> {
   pageSize: number
   totalPages: number
 }
+
+/**
+ * One headline figure on the reporting page.
+ *
+ * `previousValue` and `changePercent` are null when the request carried no date range — there is
+ * no preceding window to compare against, and the card shows no trend rather than a made-up one.
+ */
+export interface ReportKpi {
+  key: string
+  label: string
+  value: number
+  previousValue: number | null
+  changePercent: number | null
+  comparisonLabel: string | null
+}
+
+export interface ReportActivityPoint {
+  date: string
+  count: number
+}
+
+export interface ReportTypeSlice {
+  type: string
+  count: number
+  percent: number
+}
+
+export interface ReportTopCampaign {
+  campaignId: number
+  name: string
+  count: number
+}
+
+/**
+ * The cards and charts for one filter set, all counted from the same query as the results table.
+ */
+export interface ReportSummary {
+  kpis: ReportKpi[]
+  activity: ReportActivityPoint[]
+  byType: ReportTypeSlice[]
+  topCampaigns: ReportTopCampaign[]
+  total: number
+}

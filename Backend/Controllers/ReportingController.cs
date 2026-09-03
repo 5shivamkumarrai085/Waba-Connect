@@ -128,6 +128,20 @@ public class ReportingController : ControllerBase
     /// multi-select lists; encoding that into a query string would produce URLs long enough to be
     /// truncated by proxies, and would put contact identifiers in server access logs.
     /// </summary>
+    /// <summary>
+    /// Headline numbers and chart series for the current filters.
+    ///
+    /// Takes the same request body as the row query so the page can send one filter set and get
+    /// back cards, charts and rows that agree with each other.
+    /// </summary>
+    [HttpPost("report/summary")]
+    [RequiresPermission("Reporting.View")]
+    public async Task<IActionResult> GetReportSummary([FromBody] ReportQueryRequest request)
+    {
+        var data = await _reportQueryService.GetSummaryAsync(request ?? new ReportQueryRequest());
+        return Ok(new ApiResponse<ReportSummaryDto> { Success = true, Data = data });
+    }
+
     [HttpPost("report/query")]
     [RequiresPermission("Reporting.View")]
     public async Task<IActionResult> RunReport([FromBody] ReportQueryRequest request)

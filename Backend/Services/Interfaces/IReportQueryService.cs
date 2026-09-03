@@ -37,6 +37,14 @@ public interface IReportQueryService
     Task<List<ReportRowDto>> QueryAllAsync(ReportQueryRequest request);
 
     /// <summary>Filter options built from values actually present in the data.</summary>
+    /// <summary>
+    /// The headline numbers and chart series for one set of filters.
+    ///
+    /// Counted from the same filtered query the row listing uses, so the cards, the charts and the
+    /// table can never describe different sets of messages.
+    /// </summary>
+    Task<ReportSummaryDto> GetSummaryAsync(ReportQueryRequest request);
+
     Task<ReportFilterOptionsDto> GetFilterOptionsAsync();
 
     /// <summary>Saved reports the current user may see: their own, plus anything shared.</summary>

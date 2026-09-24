@@ -173,7 +173,8 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.Property<string>("ExternalUserId")
                         .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("ExternalSubjectId");
 
                     b.Property<string>("FirstName")
                         .IsRequired()
@@ -493,6 +494,13 @@ namespace WhatsAppCampaignApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("WhatsApp");
+
                     b.Property<int?>("ConnectionId")
                         .HasColumnType("integer");
 
@@ -511,6 +519,9 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<int>("DeliveredCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("EmailTemplateId")
                         .HasColumnType("integer");
 
                     b.Property<int>("FailedCount")
@@ -557,7 +568,7 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<int>("TemplateId")
+                    b.Property<int?>("TemplateId")
                         .HasColumnType("integer");
 
                     b.Property<int>("TotalRecipients")
@@ -568,15 +579,60 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Channel");
+
                     b.HasIndex("ConnectionId");
 
                     b.HasIndex("CreatedAt");
+
+                    b.HasIndex("EmailTemplateId");
 
                     b.HasIndex("Status");
 
                     b.HasIndex("TemplateId");
 
                     b.ToTable("Campaigns");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.CampaignApprovalState", b =>
+                {
+                    b.Property<int>("CampaignId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DecidedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ExternalReferenceId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("CampaignId");
+
+                    b.HasIndex("ExternalReferenceId");
+
+                    b.ToTable("CampaignApprovalStates");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.CampaignContact", b =>
@@ -600,7 +656,14 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
                     b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SendAttemptedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("SentAt")
@@ -618,6 +681,8 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ContactId");
+
+                    b.HasIndex("ProviderMessageId");
 
                     b.HasIndex("WhatsAppMessageId");
 
@@ -707,6 +772,13 @@ namespace WhatsAppCampaignApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("WhatsApp");
+
                     b.Property<int?>("ConnectionId")
                         .HasColumnType("integer");
 
@@ -743,7 +815,7 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("WabaPhoneNumberId");
 
-                    b.HasIndex("ContactId", "ConnectionId")
+                    b.HasIndex("ContactId", "ConnectionId", "Channel")
                         .IsUnique();
 
                     b.ToTable("ChatConversations");
@@ -762,6 +834,13 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.Property<int?>("CampaignId")
                         .HasColumnType("integer");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("WhatsApp");
 
                     b.Property<int?>("ConnectionId")
                         .HasColumnType("integer");
@@ -811,6 +890,10 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
                     b.Property<DateTime?>("ReadAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -845,6 +928,8 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasIndex("ContactId");
 
                     b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ProviderMessageId");
 
                     b.HasIndex("WhatsAppMessageId");
 
@@ -1336,6 +1421,527 @@ namespace WhatsAppCampaignApi.Migrations
                     b.ToTable("DepartmentConnections");
                 });
 
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailCampaignDetail", b =>
+                {
+                    b.Property<int>("CampaignId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AttachmentsJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReplyToOverride")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<int>("SenderIdentityId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SubjectOverride")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("TrackClicks")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("TrackOpens")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("CampaignId");
+
+                    b.HasIndex("SenderIdentityId");
+
+                    b.ToTable("EmailCampaignDetails");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailConfiguration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AccessKeyId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("AuthMode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ConfigurationSet")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("ConfiguredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("ConnectionId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DefaultFromEmail")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("DefaultFromName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("DefaultReplyTo")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("ImapHost")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("ImapPasswordEncrypted")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int?>("ImapPort")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ImapSecurity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ImapUsername")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastTestMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<bool?>("LastTestSucceeded")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastTestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("MaxSendRatePerSecond")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Region")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("SecretAccessKeyEncrypted")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("SmtpHost")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("SmtpPasswordEncrypted")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int?>("SmtpPort")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SmtpSecurity")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("SmtpUsername")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConnectionId")
+                        .IsUnique();
+
+                    b.ToTable("EmailConfigurations");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailDeliveryEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("BounceSubType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("BounceType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int?>("CampaignContactId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ChatMessageId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DiagnosticCode")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("LinkUrl")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PayloadJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ProviderMessageId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("RecipientAddress")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("SnsMessageId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChatMessageId");
+
+                    b.HasIndex("OccurredAt");
+
+                    b.HasIndex("ProviderMessageId");
+
+                    b.HasIndex("SnsMessageId")
+                        .IsUnique();
+
+                    b.HasIndex("CampaignContactId", "EventType");
+
+                    b.ToTable("EmailDeliveryEvents");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailMessageDetail", b =>
+                {
+                    b.Property<int>("ChatMessageId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AttachmentsJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("BccAddresses")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("CcAddresses")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FromAddress")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("FromName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("HasAttachments")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("HtmlBody")
+                        .HasColumnType("text");
+
+                    b.Property<string>("InReplyTo")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("MessageIdHeader")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ReferencesHeader")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("ReplyTo")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ToAddresses")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ChatMessageId");
+
+                    b.HasIndex("MessageIdHeader");
+
+                    b.ToTable("EmailMessageDetails");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailSendQuota", b =>
+                {
+                    b.Property<int>("ConnectionId")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("Capacity")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastRefillAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("RefillPerSecond")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("Tokens")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ConnectionId");
+
+                    b.ToTable("EmailSendQuotas");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailSenderIdentity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("EmailAddress")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<int>("EmailConfigurationId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastCheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReplyTo")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<int?>("SendingDomainId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerificationStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SendingDomainId");
+
+                    b.HasIndex("EmailConfigurationId", "EmailAddress")
+                        .IsUnique();
+
+                    b.ToTable("EmailSenderIdentities");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailSendingDomain", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DkimStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("DkimTokensJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("DomainName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<int>("EmailConfigurationId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastCheckMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("LastCheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MailFromDomain")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("MailFromStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerificationStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmailConfigurationId", "DomainName")
+                        .IsUnique();
+
+                    b.ToTable("EmailSendingDomains");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailSuppression", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("ConnectionId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("EmailAddressNormalized")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Source")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("SuppressedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConnectionId");
+
+                    b.HasIndex("EmailAddressNormalized")
+                        .IsUnique()
+                        .HasDatabaseName("UX_EmailSuppression_Global")
+                        .HasFilter("\"ConnectionId\" IS NULL");
+
+                    b.HasIndex("EmailAddressNormalized", "ConnectionId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_EmailSuppression_Connection")
+                        .HasFilter("\"ConnectionId\" IS NOT NULL");
+
+                    b.HasIndex("EmailAddressNormalized", "ExpiresAt");
+
+                    b.ToTable("EmailSuppressions");
+                });
+
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailTemplate", b =>
                 {
                     b.Property<int>("Id")
@@ -1355,6 +1961,10 @@ namespace WhatsAppCampaignApi.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean");
 
@@ -1366,15 +1976,26 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("Language")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("PreheaderText")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
                     b.Property<string>("Subject")
                         .IsRequired()
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
+
+                    b.Property<string>("TextBody")
+                        .HasColumnType("text");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1479,6 +2100,97 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("HealthLogs");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.JobQueueEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("AvailableAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeadLetteredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<DateTime?>("LastErrorAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LeaseToken")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LeasedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("MaxAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PartitionKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("QueueName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QueueName", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_JobQueue_Idempotency")
+                        .HasFilter("\"IdempotencyKey\" IS NOT NULL");
+
+                    b.HasIndex("Status", "LeaseExpiresAt")
+                        .HasDatabaseName("IX_JobQueue_Lease");
+
+                    b.HasIndex("QueueName", "PartitionKey", "Status")
+                        .HasDatabaseName("IX_JobQueue_Partition");
+
+                    b.HasIndex("QueueName", "Priority", "AvailableAt", "Id")
+                        .HasDatabaseName("IX_JobQueue_Claim")
+                        .HasFilter("\"Status\" IN ('Pending', 'Leased')");
+
+                    b.ToTable("JobQueue");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Language", b =>
@@ -1589,8 +2301,8 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("ContactPhone")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -2376,15 +3088,32 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasForeignKey("ConnectionId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.EmailTemplate", "EmailTemplate")
+                        .WithMany()
+                        .HasForeignKey("EmailTemplateId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("WhatsAppCampaignApi.Models.Entities.Template", "Template")
                         .WithMany("Campaigns")
                         .HasForeignKey("TemplateId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Connection");
 
+                    b.Navigation("EmailTemplate");
+
                     b.Navigation("Template");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.CampaignApprovalState", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Campaign", "Campaign")
+                        .WithOne()
+                        .HasForeignKey("WhatsAppCampaignApi.Models.Entities.CampaignApprovalState", "CampaignId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Campaign");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.CampaignContact", b =>
@@ -2534,6 +3263,113 @@ namespace WhatsAppCampaignApi.Migrations
                         .HasForeignKey("ConnectionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailCampaignDetail", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Campaign", "Campaign")
+                        .WithOne("EmailDetail")
+                        .HasForeignKey("WhatsAppCampaignApi.Models.Entities.EmailCampaignDetail", "CampaignId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.EmailSenderIdentity", "SenderIdentity")
+                        .WithMany()
+                        .HasForeignKey("SenderIdentityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Campaign");
+
+                    b.Navigation("SenderIdentity");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailConfiguration", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Connection", "Connection")
+                        .WithMany()
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailDeliveryEvent", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.CampaignContact", "CampaignContact")
+                        .WithMany()
+                        .HasForeignKey("CampaignContactId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.ChatMessage", "ChatMessage")
+                        .WithMany()
+                        .HasForeignKey("ChatMessageId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CampaignContact");
+
+                    b.Navigation("ChatMessage");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailMessageDetail", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.ChatMessage", "ChatMessage")
+                        .WithOne("EmailDetail")
+                        .HasForeignKey("WhatsAppCampaignApi.Models.Entities.EmailMessageDetail", "ChatMessageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ChatMessage");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailSendQuota", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Connection", "Connection")
+                        .WithMany()
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailSenderIdentity", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.EmailConfiguration", "EmailConfiguration")
+                        .WithMany("SenderIdentities")
+                        .HasForeignKey("EmailConfigurationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.EmailSendingDomain", "SendingDomain")
+                        .WithMany("SenderIdentities")
+                        .HasForeignKey("SendingDomainId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("EmailConfiguration");
+
+                    b.Navigation("SendingDomain");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailSendingDomain", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.EmailConfiguration", "EmailConfiguration")
+                        .WithMany("SendingDomains")
+                        .HasForeignKey("EmailConfigurationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("EmailConfiguration");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailSuppression", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Connection", "Connection")
+                        .WithMany()
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Connection");
                 });
@@ -2709,12 +3545,19 @@ namespace WhatsAppCampaignApi.Migrations
                 {
                     b.Navigation("CampaignContacts");
 
+                    b.Navigation("EmailDetail");
+
                     b.Navigation("Variables");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ChatConversation", b =>
                 {
                     b.Navigation("Messages");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ChatMessage", b =>
+                {
+                    b.Navigation("EmailDetail");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Connection", b =>
@@ -2748,6 +3591,18 @@ namespace WhatsAppCampaignApi.Migrations
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ContactGroup", b =>
                 {
                     b.Navigation("Members");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailConfiguration", b =>
+                {
+                    b.Navigation("SenderIdentities");
+
+                    b.Navigation("SendingDomains");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.EmailSendingDomain", b =>
+                {
+                    b.Navigation("SenderIdentities");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Language", b =>

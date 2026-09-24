@@ -36,7 +36,16 @@ public class MessageActivityLog
     /// <summary>No foreign key: the trail must outlive a deleted contact.</summary>
     public int? ContactId { get; set; }
 
-    [MaxLength(20)]
+    /// <summary>
+    /// How the message was addressed: a phone number on WhatsApp, an email address on email.
+    ///
+    /// <para>
+    /// Sized for an address rather than a phone number. At the original 20 characters every
+    /// recipient address longer than that was silently cut in half, which made the one column an
+    /// operator uses to answer "who did this go to" unable to answer it.
+    /// </para>
+    /// </summary>
+    [MaxLength(255)]
     public string? ContactPhone { get; set; }
 
     public int? ConnectionId { get; set; }

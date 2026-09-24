@@ -215,7 +215,7 @@
   flex-shrink: 0;
   border: 1.5px solid var(--border-color);
   border-radius: 4px;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .omni-checkbox.is-checked {
@@ -256,7 +256,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background-color: #fff;
+  background-color: var(--omni-color-surface);
   color: var(--text-light);
   transition: transform 0.18s var(--ease-out, ease);
 }
@@ -291,7 +291,7 @@
    reads as heavier than a subscription checkbox. */
 .omni-chip.is-solid {
   background-color: var(--primary);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .omni-chip-remove {
@@ -334,7 +334,7 @@
 .omni-settings-note.is-warning {
   border-color: var(--warning);
   background-color: var(--warning-light);
-  color: #92400e;
+  color: var(--omni-color-warning-text);
 }
 
 .omni-settings-note.is-info {
@@ -363,7 +363,7 @@
   border: none;
   border-radius: var(--radius-md);
   background-color: var(--primary);
-  color: #fff;
+  color: var(--text-on-accent);
   font-family: inherit;
   font-size: 14px;
   font-weight: 600;

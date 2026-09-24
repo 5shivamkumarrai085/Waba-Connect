@@ -39,7 +39,7 @@
 
 .wizard-badge.yellow {
   border: 1px solid #fbbf24;
-  color: #92400e;
+  color: var(--omni-color-warning-text);
   background-color: #fffbeb;
 }
 
@@ -117,8 +117,8 @@
 }
 
 .scheduling-card.active.blue {
-  border-color: #3b82f6;
-  background-color: #eff6ff;
+  border-color: var(--omni-color-primary-500);
+  background-color: var(--omni-color-primary-50);
 }
 
 .scheduling-card-radio {
@@ -156,13 +156,13 @@
 }
 
 .scheduling-card-badge.green {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: var(--omni-color-success-bg);
+  color: var(--omni-color-success-text);
 }
 
 .scheduling-card-badge.blue {
-  background-color: #dbeafe;
-  color: #1e40af;
+  background-color: var(--omni-color-primary-100);
+  color: var(--omni-color-info-text);
 }
 
 /* Contact selection layout */
@@ -191,7 +191,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   padding: 16px;
-  background-color: #f8fafc;
+  background-color: var(--bg-primary);
 }
 
 .wizard-label-spacer {
@@ -243,32 +243,32 @@
 
 /* Previous Button style */
 .btn-wizard-prev {
-  background-color: #f1f5f9 !important;
-  color: #475569 !important;
-  border: 1px solid #cbd5e1 !important;
+  background-color: var(--bg-hover) !important;
+  color: var(--text-muted) !important;
+  border: 1px solid var(--border-color) !important;
 }
 
 .btn-wizard-prev:hover:not(:disabled) {
-  background-color: #e2e8f0 !important;
-  color: #0f172a !important;
+  background-color: var(--border-color) !important;
+  color: var(--text-main) !important;
   transform: translateY(-1px);
 }
 
 .btn-wizard-prev:active:not(:disabled) {
-  background-color: #cbd5e1 !important;
+  background-color: var(--border-color) !important;
   transform: translateY(0);
 }
 
 /* Next and Save Buttons style */
 .btn-wizard-next, .btn-wizard-save {
-  background-color: #2563eb !important;
-  color: #ffffff !important;
+  background-color: var(--primary) !important;
+  color: var(--bg-secondary) !important;
   box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
 }
 
 .btn-wizard-next:hover:not(:disabled), .btn-wizard-save:hover:not(:disabled) {
   background-color: #3730a3 !important; /* Darkens to deep indigo on hover */
-  color: #ffffff !important;
+  color: var(--bg-secondary) !important;
   box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
   transform: translateY(-1px);
 }
@@ -402,7 +402,7 @@
 }
 
 .upload-file-remove-btn:hover {
-  color: #dc2626;
+  color: var(--omni-color-danger);
   background-color: rgba(239, 68, 68, 0.1);
 }
 
@@ -433,14 +433,164 @@
   display: block;
   margin-top: 6px;
   font-size: 12px;
-  color: #dc2626;
+  color: var(--omni-color-danger);
 }
 
 .form-control.is-invalid {
-  border-color: #dc2626;
+  border-color: var(--omni-color-danger);
 }
 
 .form-control.is-invalid:focus {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
-  border-color: #dc2626 !important;
+  border-color: var(--omni-color-danger) !important;
+}
+
+/* ── Multi-channel additions ──────────────────────────────────────────────────
+   Everything below arrived with the email channel. Tokens only: the pill buttons
+   this replaced hardcoded hex, which is why they were unreadable in dark mode. */
+
+/* The fifth header chip. Blue rather than reusing purple so Channel reads as its
+   own fact rather than a second Template badge. */
+.wizard-badge.blue {
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  background-color: rgba(var(--primary-rgb), 0.08);
+}
+
+/* A fifth chip needs a fifth stagger step, or it appears with no animation while
+   its neighbours slide in. */
+.wizard-badges-row > *:nth-child(5) { animation-delay: 0.25s; }
+
+/* The "Coming Soon" group under the selectable channels. */
+.channel-planned-section {
+  margin-top: var(--space-2xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border-light);
+}
+
+.channel-planned-title {
+  margin: 0;
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: var(--text-xs);
+}
+
+/* A select with an action button beside it — Sender Email plus "Add New Sender". */
+.wizard-inline-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-base);
+}
+
+.wizard-inline-field .form-control {
+  /* min-width:0 so a long address shrinks the select instead of pushing the button
+     out of the card. */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wizard-inline-action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  white-space: nowrap;
+}
+
+/* The required asterisk, previously an inline style="color:#dc2626". */
+.form-label-required {
+  color: var(--error);
+}
+
+/* The small (i) marker that carries a title tooltip. */
+.form-label-hint {
+  margin-left: var(--space-2xs);
+  color: var(--text-muted);
+  cursor: help;
+}
+
+.form-hint-loading {
+  display: block;
+  margin-top: var(--space-2xs);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--primary);
+}
+
+.form-hint-muted {
+  margin: var(--space-2xs) 0 0;
+  font-size: var(--text-body);
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* A contact with no address on an email campaign. Deliberately visible: this
+   recipient will be skipped, and the operator should see that before the campaign
+   reports it as a failure. */
+.contacts-missing-value {
+  font-size: var(--text-sm);
+  font-style: italic;
+  color: var(--warning);
+}
+
+/* Template variable chips, read from the template's own content. */
+.variable-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-base);
+}
+
+.variable-chip {
+  padding: var(--space-2xs) var(--space-base);
+  border: 1px solid rgba(var(--primary-rgb), 0.3);
+  border-radius: var(--radius-full);
+  background: rgba(var(--primary-rgb), 0.08);
+  color: var(--primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.variable-input-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-base);
+  margin-top: var(--space-lg);
+}
+
+.variable-input-grid .form-control:disabled {
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* The attachment list. Several are allowed on email, unlike the single WhatsApp
+   media header. */
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+@media (max-width: 640px) {
+  .wizard-inline-field {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .wizard-inline-action {
+    justify-content: center;
+  }
+}
+
+/* The unverified-sender warning carries a Re-check action, so it needs to lay out as a row
+   rather than as a bare line of text. */
+.wizard-sender-warning {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
 }

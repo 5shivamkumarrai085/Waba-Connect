@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WhatsAppCampaignApi.Models.Entities;
+using WhatsAppCampaignApi.Models.Enums;
 
 namespace WhatsAppCampaignApi.Data;
 
@@ -71,6 +72,26 @@ public class AppDbContext : DbContext
     public DbSet<EmailTemplate> EmailTemplates { get; set; } = null!;
     public DbSet<MessageActivityLog> MessageActivityLogs { get; set; } = null!;
 
+    // Email channel
+    public DbSet<EmailConfiguration> EmailConfigurations { get; set; } = null!;
+    public DbSet<EmailSendingDomain> EmailSendingDomains { get; set; } = null!;
+    public DbSet<EmailSenderIdentity> EmailSenderIdentities { get; set; } = null!;
+    public DbSet<EmailCampaignDetail> EmailCampaignDetails { get; set; } = null!;
+    public DbSet<EmailMessageDetail> EmailMessageDetails { get; set; } = null!;
+    public DbSet<EmailDeliveryEvent> EmailDeliveryEvents { get; set; } = null!;
+    public DbSet<EmailSuppression> EmailSuppressions { get; set; } = null!;
+    public DbSet<EmailSendQuota> EmailSendQuotas { get; set; } = null!;
+
+    /// <summary>
+    /// The background job queue. Exposed for migrations and the monitoring endpoint only — the
+    /// claim path is raw SQL in PostgresJobQueue, because FOR UPDATE SKIP LOCKED cannot be
+    /// expressed through the change tracker without racing between instances.
+    /// </summary>
+    public DbSet<JobQueueEntry> JobQueue { get; set; } = null!;
+
+    /// <summary>Written only when an external host owns campaign approval. See CampaignApprovalState.</summary>
+    public DbSet<CampaignApprovalState> CampaignApprovalStates { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -80,6 +101,27 @@ public class AppDbContext : DbContext
         {
             entity.ToTable("AppUsers");
             entity.HasIndex(e => e.Email).IsUnique();
+
+            // ───────────────────────────────────────────────────────────────────────────────
+            // TEMPORARY BRIDGE — REMOVE WHEN THE HOST BRANCH IS MERGED
+            //
+            // The shared database is ahead of this checkout. The host application's
+            // "LinkOmniCXIdentity" migration renamed AppUsers.ExternalUserId to
+            // ExternalSubjectId, and this branch does not have that migration, so every query
+            // that materialises an AppUser — including login — asks for a column that no longer
+            // exists and fails with "42703: column a.ExternalUserId does not exist".
+            //
+            // This maps the existing property onto the column the database actually has. It is
+            // a mapping only: no schema is created, altered or dropped, and the shared database
+            // is left exactly as the host left it.
+            //
+            // It is the sole mismatch on this table — the other 20 columns line up exactly.
+            //
+            // To remove: pull the host branch (which renames the property properly), delete
+            // this HasColumnName call, and restore `entity.HasIndex(e => e.ExternalUserId)`
+            // below to whatever the merged model names it.
+            // ───────────────────────────────────────────────────────────────────────────────
+            entity.Property(e => e.ExternalUserId).HasColumnName("ExternalSubjectId");
             entity.HasIndex(e => e.ExternalUserId);
 
             // SetNull rather than Cascade: deleting a role must not delete the people holding
@@ -343,6 +385,32 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasMany(e => e.Variables).WithOne(v => v.Campaign).HasForeignKey(v => v.CampaignId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Connection).WithMany(c => c.Campaigns).HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
+
+            // Channel: stored as a string like the other enums here, defaulted in the database so
+            // the column is backfilled to WhatsApp for every pre-existing row without a data
+            // migration step.
+            entity.Property(e => e.Channel).HasConversion<string>().HasMaxLength(50).HasDefaultValue(MessageChannel.WhatsApp);
+
+            // Campaign listings and the dashboard both slice by channel; without this they scan.
+            entity.HasIndex(e => e.Channel);
+
+            // Restrict, not SetNull: silently detaching a campaign from its template would leave
+            // a sent campaign that can no longer explain what it sent. EmailTemplate deletion is
+            // blocked while a campaign references it, and the service reports that as a conflict.
+            entity.HasOne(e => e.EmailTemplate).WithMany().HasForeignKey(e => e.EmailTemplateId).OnDelete(DeleteBehavior.Restrict);
+
+            // Stated explicitly to hold the pre-existing behaviour. TemplateId became nullable
+            // for the email channel, and EF's convention for an optional relationship is
+            // NoAction rather than the Cascade a required one gets — so leaving this to
+            // convention would quietly change what happens when a template is deleted.
+            //
+            // TemplateService.DeleteAsync already refuses to delete a template that any campaign
+            // uses, so this cascade is unreachable from the app for live campaigns. It still
+            // fires for soft-deleted ones, which that guard does not see (the Campaigns DbSet is
+            // filtered on !IsDeleted). Preserving Cascade keeps that path behaving exactly as it
+            // did. Worth revisiting: a template delete hard-deleting soft-deleted campaign rows
+            // destroys history that the soft delete was meant to keep.
+            entity.HasOne(e => e.Template).WithMany(t => t.Campaigns).HasForeignKey(e => e.TemplateId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // Dependents of the two soft-deleted entities carry matching filters — see the note on
@@ -372,6 +440,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<CampaignContact>(entity =>
         {
             entity.HasIndex(e => e.WhatsAppMessageId);
+
+            // The channel-neutral equivalent, and what the SES event webhook resolves a delivery
+            // or bounce notification back to a recipient with.
+            entity.HasIndex(e => e.ProviderMessageId);
+
             entity.HasIndex(e => new { e.CampaignId, e.ContactId }).IsUnique();
             entity.HasIndex(e => new { e.SentAt, e.Status });
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
@@ -387,10 +460,15 @@ public class AppDbContext : DbContext
             entity.HasQueryFilter(e => !e.Campaign.IsDeleted && !e.Contact.IsDeleted);
         });
 
-        // Chat conversations: UNIQUE ON {ContactId, ConnectionId} so one contact can have conversations across multiple connections!
+        // Chat conversations: UNIQUE ON {ContactId, ConnectionId, Channel} so one contact can have
+        // conversations across multiple connections — and, since the email channel, across
+        // channels too. Channel is part of the key because the previous two-column index would
+        // have merged a contact's WhatsApp thread and their email thread into one row whenever
+        // both arrived through the same connection.
         modelBuilder.Entity<ChatConversation>(entity =>
         {
-            entity.HasIndex(e => new { e.ContactId, e.ConnectionId }).IsUnique();
+            entity.Property(e => e.Channel).HasConversion<string>().HasMaxLength(50).HasDefaultValue(MessageChannel.WhatsApp);
+            entity.HasIndex(e => new { e.ContactId, e.ConnectionId, e.Channel }).IsUnique();
             entity.HasIndex(e => e.LastMessageAt);
             entity.HasOne(e => e.Contact).WithMany().HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(e => e.WabaPhoneNumber).WithMany().HasForeignKey(e => e.WabaPhoneNumberId).OnDelete(DeleteBehavior.SetNull);
@@ -418,12 +496,189 @@ public class AppDbContext : DbContext
             // middle so it is an equality seek before the range scan on CreatedAt.
             entity.HasIndex(e => new { e.ConversationId, e.Direction, e.CreatedAt });
 
+            // The email channel's equivalent of WhatsAppMessageId, and the key the SES event
+            // webhook correlates on.
+            entity.HasIndex(e => e.ProviderMessageId);
+
+            entity.Property(e => e.Channel).HasConversion<string>().HasMaxLength(50).HasDefaultValue(MessageChannel.WhatsApp);
             entity.Property(e => e.Direction).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasOne(e => e.Conversation).WithMany(c => c.Messages).HasForeignKey(e => e.ConversationId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Contact).WithMany().HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Campaign).WithMany().HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(e => e.CampaignContact).WithMany().HasForeignKey(e => e.CampaignContactId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ---- Email channel --------------------------------------------------------------------
+
+        modelBuilder.Entity<EmailConfiguration>(entity =>
+        {
+            entity.Property(e => e.Provider).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.AuthMode).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.SmtpSecurity).HasConversion<string>().HasMaxLength(50);
+
+            // One email configuration per connection. A connection is either a WhatsApp sender or
+            // an email sender; allowing two email configs on one connection would make "which
+            // credential did this campaign send with" unanswerable after the fact.
+            entity.HasIndex(e => e.ConnectionId).IsUnique();
+
+            // SetNull mirrors WabaConfiguration: releasing a connection must not silently destroy
+            // the credential history, it just detaches it.
+            entity.HasOne(e => e.Connection).WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<EmailSendingDomain>(entity =>
+        {
+            entity.Property(e => e.VerificationStatus).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.DkimStatus).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.MailFromStatus).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.DkimTokensJson).HasColumnType("jsonb");
+
+            entity.HasIndex(e => new { e.EmailConfigurationId, e.DomainName }).IsUnique();
+            entity.HasOne(e => e.EmailConfiguration).WithMany(c => c.SendingDomains)
+                  .HasForeignKey(e => e.EmailConfigurationId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<EmailSenderIdentity>(entity =>
+        {
+            entity.Property(e => e.VerificationStatus).HasConversion<string>().HasMaxLength(50);
+
+            // The same address may legitimately be configured on two different connections, so
+            // uniqueness is scoped to the configuration rather than global.
+            entity.HasIndex(e => new { e.EmailConfigurationId, e.EmailAddress }).IsUnique();
+
+            entity.HasOne(e => e.EmailConfiguration).WithMany(c => c.SenderIdentities)
+                  .HasForeignKey(e => e.EmailConfigurationId).OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict: a domain still backing a usable sender must not disappear underneath it.
+            entity.HasOne(e => e.SendingDomain).WithMany(d => d.SenderIdentities)
+                  .HasForeignKey(e => e.SendingDomainId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<EmailCampaignDetail>(entity =>
+        {
+            entity.HasKey(e => e.CampaignId);
+            entity.Property(e => e.AttachmentsJson).HasColumnType("jsonb");
+
+            entity.HasOne(e => e.Campaign).WithOne(c => c.EmailDetail)
+                  .HasForeignKey<EmailCampaignDetail>(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict: a sender identity a campaign has already sent from stays resolvable.
+            entity.HasOne(e => e.SenderIdentity).WithMany()
+                  .HasForeignKey(e => e.SenderIdentityId).OnDelete(DeleteBehavior.Restrict);
+
+            // Campaign carries a soft-delete filter, so its required dependent needs the matching
+            // one — same reasoning as CampaignVariable and CampaignContact above.
+            entity.HasQueryFilter(e => !e.Campaign.IsDeleted);
+        });
+
+        modelBuilder.Entity<EmailMessageDetail>(entity =>
+        {
+            entity.HasKey(e => e.ChatMessageId);
+
+            // The inbound path resolves a reply by matching its In-Reply-To against this column.
+            entity.HasIndex(e => e.MessageIdHeader);
+
+            entity.HasOne(e => e.ChatMessage).WithOne(m => m.EmailDetail)
+                  .HasForeignKey<EmailMessageDetail>(e => e.ChatMessageId).OnDelete(DeleteBehavior.Cascade);
+
+            // Matches the filter on ChatMessage's principal chain.
+            entity.HasQueryFilter(e => !e.ChatMessage.Conversation.Contact.IsDeleted);
+        });
+
+        modelBuilder.Entity<EmailDeliveryEvent>(entity =>
+        {
+            entity.Property(e => e.EventType).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.BounceType).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.PayloadJson).HasColumnType("jsonb");
+
+            // What makes the SNS handler idempotent: SNS redelivers freely, and a replayed
+            // notification must not be counted twice.
+            entity.HasIndex(e => e.SnsMessageId).IsUnique();
+
+            entity.HasIndex(e => e.ProviderMessageId);
+            entity.HasIndex(e => new { e.CampaignContactId, e.EventType });
+            entity.HasIndex(e => e.OccurredAt);
+
+            // SetNull, not Cascade: the event log is the audit trail for what a provider told us,
+            // and it stays true even once the recipient row is gone.
+            entity.HasOne(e => e.CampaignContact).WithMany()
+                  .HasForeignKey(e => e.CampaignContactId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(e => e.ChatMessage).WithMany()
+                  .HasForeignKey(e => e.ChatMessageId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<EmailSuppression>(entity =>
+        {
+            entity.Property(e => e.Scope).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.Reason).HasConversion<string>().HasMaxLength(50);
+
+            // Scoped uniqueness, as two partial indexes rather than one composite. A single
+            // unique index over {address, scope, connection} would not de-duplicate global rows:
+            // their ConnectionId is NULL, and Postgres treats distinct NULLs as unequal, so the
+            // same address could be suppressed globally any number of times.
+            entity.HasIndex(e => e.EmailAddressNormalized)
+                  .IsUnique()
+                  .HasDatabaseName("UX_EmailSuppression_Global")
+                  .HasFilter("\"ConnectionId\" IS NULL");
+
+            entity.HasIndex(e => new { e.EmailAddressNormalized, e.ConnectionId })
+                  .IsUnique()
+                  .HasDatabaseName("UX_EmailSuppression_Connection")
+                  .HasFilter("\"ConnectionId\" IS NOT NULL");
+
+            // The hot path: "is this address suppressed", asked once per recipient at expansion
+            // and again per message at dispatch.
+            entity.HasIndex(e => new { e.EmailAddressNormalized, e.ExpiresAt });
+
+            entity.HasOne(e => e.Connection).WithMany()
+                  .HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<EmailSendQuota>(entity =>
+        {
+            entity.HasKey(e => e.ConnectionId);
+            entity.HasOne(e => e.Connection).WithMany()
+                  .HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ---- Background job queue -------------------------------------------------------------
+
+        modelBuilder.Entity<JobQueueEntry>(entity =>
+        {
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.Payload).HasColumnType("jsonb");
+
+            // The claim index. Filtered to the two statuses the claim query can actually return,
+            // which keeps it small even once millions of completed rows have accumulated between
+            // maintenance sweeps. Column order matches the query's ORDER BY.
+            entity.HasIndex(e => new { e.QueueName, e.Priority, e.AvailableAt, e.Id })
+                  .HasDatabaseName("IX_JobQueue_Claim")
+                  .HasFilter("\"Status\" IN ('Pending', 'Leased')");
+
+            // Serves the fairness window in the claim CTE.
+            entity.HasIndex(e => new { e.QueueName, e.PartitionKey, e.Status })
+                  .HasDatabaseName("IX_JobQueue_Partition");
+
+            // Finds leases orphaned by a killed instance.
+            entity.HasIndex(e => new { e.Status, e.LeaseExpiresAt })
+                  .HasDatabaseName("IX_JobQueue_Lease");
+
+            // De-duplication. Partial, because most queues do not supply a key and Postgres would
+            // otherwise reject the second null-keyed row on some index configurations.
+            entity.HasIndex(e => new { e.QueueName, e.IdempotencyKey })
+                  .IsUnique()
+                  .HasDatabaseName("UX_JobQueue_Idempotency")
+                  .HasFilter("\"IdempotencyKey\" IS NOT NULL");
+        });
+
+        modelBuilder.Entity<CampaignApprovalState>(entity =>
+        {
+            entity.HasKey(e => e.CampaignId);
+            entity.HasIndex(e => e.ExternalReferenceId);
+            entity.HasOne(e => e.Campaign).WithOne()
+                  .HasForeignKey<CampaignApprovalState>(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasQueryFilter(e => !e.Campaign.IsDeleted);
         });
 
         // MessageBot configurations

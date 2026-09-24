@@ -5,6 +5,16 @@ export interface Conversation {
   contactId: number
   connectionId?: number | null
   connectionName?: string | null
+
+  /**
+   * 'WhatsApp' or 'Email', as the API spells it. Always present — threads that predate the
+   * email channel read as WhatsApp — so the inbox can show a per-row icon without a fallback.
+   */
+  channel?: string
+
+  /** The contact's email address. How an email thread identifies its correspondent. */
+  email?: string | null
+
   name: string
   status: 'lead' | 'customer' | 'guest' | string
   phone: string
@@ -23,6 +33,23 @@ export interface Conversation {
 }
 
 export interface Message {
+  /**
+   * 'WhatsApp' or 'Email', as the API spells it. Decides how the thread renders this message —
+   * a bubble or an email card.
+   */
+  channel?: string
+
+  // ── Email only ───────────────────────────────────────────────────────────────────────────
+  // Null on WhatsApp. Projected from EmailMessageDetails server-side.
+  subject?: string | null
+  fromAddress?: string | null
+  fromName?: string | null
+  toAddresses?: string | null
+  ccAddresses?: string | null
+  /** The body as sent. Sanitised server-side, and rendered in a sandboxed frame regardless. */
+  htmlBody?: string | null
+  hasAttachments?: boolean
+
   id: number
   type: 'incoming' | 'outgoing' | 'system'
   text: string

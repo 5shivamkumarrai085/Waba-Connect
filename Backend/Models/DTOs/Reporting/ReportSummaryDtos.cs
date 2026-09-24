@@ -28,6 +28,15 @@ public class ReportKpiDto
 
     /// <summary>Human-readable description of the comparison window, e.g. "vs Aug 26 - Sep 01".</summary>
     public string? ComparisonLabel { get; set; }
+
+    /// <summary>
+    /// This measure's own daily counts across the filtered window — the sparkline data.
+    ///
+    /// Counted from the same filtered query as <see cref="Value"/>, so a card's trend line and its
+    /// headline number can never disagree about what happened. Empty when the window has no useful
+    /// granularity (a single day, or no range at all) rather than a fabricated flat line.
+    /// </summary>
+    public List<int> Trend { get; set; } = [];
 }
 
 /// <summary>One point on the message-activity line.</summary>

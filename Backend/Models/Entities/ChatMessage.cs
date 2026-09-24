@@ -25,6 +25,23 @@ public class ChatMessage
     [MaxLength(200)]
     public string? WhatsAppMessageId { get; set; }
 
+    /// <summary>
+    /// Which channel carried this message. Defaults to WhatsApp so existing rows and the
+    /// existing chat queries (which do not filter on channel) are unaffected.
+    /// </summary>
+    public MessageChannel Channel { get; set; } = MessageChannel.WhatsApp;
+
+    /// <summary>
+    /// Channel-neutral provider id — an SES MessageId for email. See the note on
+    /// CampaignContact.ProviderMessageId for why this sits beside WhatsAppMessageId rather
+    /// than replacing it.
+    /// </summary>
+    [MaxLength(255)]
+    public string? ProviderMessageId { get; set; }
+
+    /// <summary>Email-specific envelope and body, present only for email messages.</summary>
+    public EmailMessageDetail? EmailDetail { get; set; }
+
     public ChatMessageDirection Direction { get; set; }
     public ChatMessageStatus Status { get; set; } = ChatMessageStatus.Pending;
 

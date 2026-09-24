@@ -5,6 +5,7 @@ using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Campaigns;
 using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Models.Enums;
+using WhatsAppCampaignApi.Services.Email;
 using WhatsAppCampaignApi.Services.Interfaces;
 
 namespace WhatsAppCampaignApi.Services;
@@ -18,23 +19,99 @@ public class CampaignService : ICampaignService
 
     private readonly IAuditService _auditService;
 
+    // Email-channel collaborators. Additive: the WhatsApp path never touches either of them, and
+    // campaign creation branches on channel before reaching them.
+    private readonly IEmailCampaignDispatcher _emailCampaignDispatcher;
+    private readonly IEmailDomainService _emailDomainService;
+
     public CampaignService(
         AppDbContext dbContext,
         IWhatsAppService whatsAppService,
         ILogger<CampaignService> logger,
         IServiceScopeFactory scopeFactory,
-        IAuditService auditService)
+        IAuditService auditService,
+        IEmailCampaignDispatcher emailCampaignDispatcher,
+        IEmailDomainService emailDomainService)
     {
         _dbContext = dbContext;
         _whatsAppService = whatsAppService;
         _logger = logger;
         _scopeFactory = scopeFactory;
         _auditService = auditService;
+        _emailCampaignDispatcher = emailCampaignDispatcher;
+        _emailDomainService = emailDomainService;
     }
+
+    /// <summary>
+    /// Parses the requested channel, defaulting to WhatsApp.
+    ///
+    /// <para>
+    /// Defaulting rather than rejecting an empty value is what keeps every pre-existing caller
+    /// working unchanged — the campaign wizard, the bulk CSV flow and any API client all omitted
+    /// this field until the email channel existed.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Resolves and validates everything an email campaign needs before it can be created:
+    /// the template, the sender, and the connection to send through.
+    ///
+    /// <para>
+    /// Shared by the wizard path and the bulk-CSV path. Both have to enforce the same rules — a
+    /// disabled template must not send, and an unverified sending domain must not send — and a
+    /// second copy of those checks is how one path quietly ends up more permissive than the other.
+    /// </para>
+    /// <para>
+    /// Everything is checked at creation, while the operator is looking at the screen, rather
+    /// than in a background worker where the failure surfaces as silent non-delivery.
+    /// </para>
+    /// </summary>
+    private async Task<(EmailTemplate Template, EmailSenderIdentity Sender, int ConnectionId)>
+        ResolveEmailTargetsAsync(int? emailTemplateId, int? senderIdentityId, int? connectionId)
+    {
+        if (emailTemplateId is not { } templateId)
+            throw new ArgumentException("An email template is required for an email campaign.");
+
+        var emailTemplate = await _dbContext.EmailTemplates.FindAsync(templateId)
+            ?? throw new KeyNotFoundException("Email template not found.");
+
+        // The email equivalent of the approved-template rule: a disabled template must not be
+        // sendable, or an operator turning one off would not actually stop it going out.
+        if (!emailTemplate.IsEnabled)
+            throw new InvalidOperationException($"Email template \"{emailTemplate.Name}\" is disabled.");
+
+        if (senderIdentityId is not { } senderId)
+            throw new ArgumentException("A sender identity is required for an email campaign.");
+
+        var senderIdentity = await _dbContext.EmailSenderIdentities
+            .Include(s => s.EmailConfiguration)
+            .FirstOrDefaultAsync(s => s.Id == senderId)
+            ?? throw new KeyNotFoundException("Sender identity not found.");
+
+        // Fall back to the sender's own connection when the caller did not name one, so the UI
+        // does not have to send the same fact twice.
+        var resolvedConnectionId = connectionId ?? senderIdentity.EmailConfiguration?.ConnectionId;
+
+        if (resolvedConnectionId is null)
+            throw new ArgumentException("The selected sender is not linked to an email connection.");
+
+        var (canSend, reason) = await _emailDomainService.CanSenderSendAsync(senderId);
+        if (!canSend)
+            throw new InvalidOperationException(reason ?? "The selected sender cannot send yet.");
+
+        return (emailTemplate, senderIdentity, resolvedConnectionId.Value);
+    }
+
+    private static MessageChannel ParseChannel(string? channel) =>
+        string.IsNullOrWhiteSpace(channel)
+            ? MessageChannel.WhatsApp
+            : Enum.TryParse<MessageChannel>(channel, true, out var parsed)
+                ? parsed
+                : throw new ArgumentException(
+                    $"Unknown channel '{channel}'. Valid values: {string.Join(", ", Enum.GetNames<MessageChannel>())}.");
 
     public async Task<PagedResponse<CampaignResponse>> GetAllAsync(PagedRequest request, string? status = null)
     {
-        var query = _dbContext.Campaigns.AsNoTracking().Include(c => c.Template).Include(c => c.Connection).AsQueryable();
+        var query = _dbContext.Campaigns.AsNoTracking().Include(c => c.Template).Include(c => c.EmailTemplate).Include(c => c.Connection).AsQueryable();
 
         if (!string.IsNullOrEmpty(status) && Enum.TryParse<CampaignStatus>(status, true, out var parsedStatus))
         {
@@ -55,7 +132,11 @@ public class CampaignService : ICampaignService
             query = query.Where(c =>
                 c.Name.ToLower().Contains(search) ||
                 // The template and the connection are both columns on the campaigns table.
-                c.Template.Name.ToLower().Contains(search) ||
+                // Both template navigations are checked, since a campaign carries exactly one of
+                // them depending on its channel. Null-guarded so the nullable FKs translate to a
+                // left join with an explicit predicate rather than relying on SQL null semantics.
+                (c.Template != null && c.Template.Name.ToLower().Contains(search)) ||
+                (c.EmailTemplate != null && c.EmailTemplate.Name.ToLower().Contains(search)) ||
                 (c.Connection != null && c.Connection.Name.ToLower().Contains(search)) ||
                 c.RelationType.ToLower().Contains(search) ||
                 (c.CreatedBy != null && c.CreatedBy.ToLower().Contains(search)) ||
@@ -83,7 +164,7 @@ public class CampaignService : ICampaignService
         var campaign = await _dbContext.Campaigns
             .AsNoTracking()
             .IgnoreQueryFilters()
-            .Include(c => c.Template).Include(c => c.Connection)
+            .Include(c => c.Template).Include(c => c.EmailTemplate).Include(c => c.Connection)
             .Include(c => c.Variables)
             .Include(c => c.CampaignContacts)
                 .ThenInclude(cc => cc.Contact)
@@ -99,7 +180,10 @@ public class CampaignService : ICampaignService
         {
             Id = campaign.Id,
             Name = campaign.Name,
-            TemplateName = campaign.Template.Name,
+            Channel = campaign.Channel.ToString(),
+            // Template is nullable since the email channel: a WhatsApp campaign has a Meta
+            // template, an email campaign has an EmailTemplate, and exactly one is set.
+            TemplateName = ResolveTemplateName(campaign),
             RelationType = campaign.RelationType.ToString(),
             ScheduleType = campaign.ScheduleType.ToString(),
             ScheduledAt = campaign.ScheduledAt,
@@ -164,11 +248,29 @@ public class CampaignService : ICampaignService
         if (exists)
             throw new InvalidOperationException("The campaign name has already been taken.");
 
-        var template = await _dbContext.Templates.FindAsync(request.TemplateId);
-        if (template == null)
-            throw new KeyNotFoundException("Template not found.");
-        if (template.Status != TemplateStatus.Approved)
-            throw new InvalidOperationException("Can only use APPROVED templates for campaigns.");
+        // Channel defaults to WhatsApp when a caller does not say otherwise, so every request
+        // written before the email channel existed still means what it meant before.
+        var channel = ParseChannel(request.Channel);
+
+        Template? template = null;
+        EmailTemplate? emailTemplate = null;
+        EmailSenderIdentity? senderIdentity = null;
+
+        if (channel == MessageChannel.WhatsApp)
+        {
+            // Unchanged from before the email channel: a WhatsApp campaign still requires a
+            // Meta-approved template, and still fails the same way without one.
+            template = await _dbContext.Templates.FindAsync(request.TemplateId);
+            if (template == null)
+                throw new KeyNotFoundException("Template not found.");
+            if (template.Status != TemplateStatus.Approved)
+                throw new InvalidOperationException("Can only use APPROVED templates for campaigns.");
+        }
+        else
+        {
+            (emailTemplate, senderIdentity, request.ConnectionId) = await ResolveEmailTargetsAsync(
+                request.EmailTemplateId, request.SenderIdentityId, request.ConnectionId);
+        }
 
         // Resolve Contacts
         var contactIds = new HashSet<int>();
@@ -202,7 +304,13 @@ public class CampaignService : ICampaignService
         var campaign = new Campaign
         {
             Name = request.Name,
-            TemplateId = request.TemplateId,
+            Channel = channel,
+
+            // Exactly one of the two template references is set, per channel. TemplateId became
+            // nullable for this; a WhatsApp campaign still stores it exactly as before.
+            TemplateId = channel == MessageChannel.WhatsApp ? request.TemplateId : null,
+            EmailTemplateId = channel == MessageChannel.Email ? request.EmailTemplateId : null,
+
             RelationType = NormalizeRelationTypes(request.RelationType),
             ScheduleType = Enum.Parse<ScheduleType>(request.ScheduleType, true),
             ScheduledAt = request.ScheduledAt,
@@ -210,6 +318,23 @@ public class CampaignService : ICampaignService
             TotalRecipients = contactIds.Count,
             ConnectionId = request.ConnectionId
         };
+
+        if (channel == MessageChannel.Email)
+        {
+            // Email-only settings live in a 1:1 side table rather than as mostly-null columns on
+            // the shared Campaign entity — see EmailCampaignDetail.
+            campaign.EmailDetail = new EmailCampaignDetail
+            {
+                SenderIdentityId = senderIdentity!.Id,
+                SubjectOverride = string.IsNullOrWhiteSpace(request.SubjectOverride) ? null : request.SubjectOverride.Trim(),
+                ReplyToOverride = string.IsNullOrWhiteSpace(request.ReplyToOverride) ? null : request.ReplyToOverride.Trim(),
+                TrackOpens = request.TrackOpens,
+                TrackClicks = request.TrackClicks,
+                AttachmentsJson = request.Attachments is { Count: > 0 }
+                    ? System.Text.Json.JsonSerializer.Serialize(request.Attachments)
+                    : null
+            };
+        }
 
         // Add variables
         if (request.Variables != null)
@@ -254,13 +379,23 @@ public class CampaignService : ICampaignService
             $"Created campaign \"{campaign.Name}\" ({campaign.ScheduleType}) with {campaign.CampaignContacts.Count} recipient(s).",
             "Campaign", campaign.Id.ToString());
 
-        // If Immediate, trigger sending asynchronously (in real app, use message queue)
-        if (campaign.ScheduleType == ScheduleType.Immediate)
+        if (channel == MessageChannel.Email)
         {
+            // The email channel goes through the durable queue: the dispatcher consults the
+            // execution gate and enqueues expansion, and the queue handles scheduling, retries
+            // and restart recovery. Awaited rather than fire-and-forget, so a rejected or parked
+            // campaign is reflected in the response the operator sees.
+            await _emailCampaignDispatcher.SubmitAsync(campaign.Id, requestedByUserId: null);
+        }
+        else if (campaign.ScheduleType == ScheduleType.Immediate)
+        {
+            // Unchanged WhatsApp path. Still fire-and-forget, still recovered by the existing
+            // scheduler — deliberately untouched, since migrating it onto the queue would change
+            // behaviour this work is required not to change.
             _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
         }
 
-        var created = await _dbContext.Campaigns.Include(c => c.Template).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == campaign.Id);
+        var created = await _dbContext.Campaigns.Include(c => c.Template).Include(c => c.EmailTemplate).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == campaign.Id);
         return MapToResponse(created!);
     }
 
@@ -274,7 +409,7 @@ public class CampaignService : ICampaignService
 
         var campaign = await _dbContext.Campaigns
             .IgnoreQueryFilters()
-            .Include(c => c.Template).Include(c => c.Connection)
+            .Include(c => c.Template).Include(c => c.EmailTemplate).Include(c => c.Connection)
             .Include(c => c.Variables)
             .Include(c => c.CampaignContacts)
             .FirstOrDefaultAsync(c => c.Id == id);
@@ -361,7 +496,7 @@ public class CampaignService : ICampaignService
             _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
         }
 
-        var updated = await _dbContext.Campaigns.Include(c => c.Template).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == campaign.Id);
+        var updated = await _dbContext.Campaigns.Include(c => c.Template).Include(c => c.EmailTemplate).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == campaign.Id);
         return MapToResponse(updated!);
     }
 
@@ -402,7 +537,7 @@ public class CampaignService : ICampaignService
 
     public async Task<CampaignResponse> CancelAsync(int id)
     {
-        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == id);
+        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).Include(c => c.EmailTemplate).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == id);
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
 
@@ -425,7 +560,7 @@ public class CampaignService : ICampaignService
 
     public async Task<CampaignResponse> PauseAsync(int id)
     {
-        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == id);
+        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).Include(c => c.EmailTemplate).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == id);
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
 
@@ -451,7 +586,7 @@ public class CampaignService : ICampaignService
 
     public async Task<CampaignResponse> ResumeAsync(int id)
     {
-        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == id);
+        var campaign = await _dbContext.Campaigns.IgnoreQueryFilters().Include(c => c.Template).Include(c => c.EmailTemplate).Include(c => c.Connection).FirstOrDefaultAsync(c => c.Id == id);
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
 
@@ -493,7 +628,7 @@ public class CampaignService : ICampaignService
     {
         var campaign = await _dbContext.Campaigns
             .AsNoTracking()
-            .Include(c => c.Template).Include(c => c.Connection)
+            .Include(c => c.Template).Include(c => c.EmailTemplate).Include(c => c.Connection)
             .Include(c => c.Variables)
             .FirstOrDefaultAsync(c => c.Id == campaignId);
 
@@ -569,6 +704,9 @@ public class CampaignService : ICampaignService
 
             var campaign = await dbContext.Campaigns
                 .IgnoreQueryFilters()
+                // No EmailTemplate include here, unlike the read paths: this is the WhatsApp
+                // sender, it rejects any other channel below, and an extra left join on the
+                // hottest query in the send loop buys nothing.
                 .Include(c => c.Template).Include(c => c.Connection)
                 .Include(c => c.Variables)
                 .Include(c => c.CampaignContacts)
@@ -579,6 +717,32 @@ public class CampaignService : ICampaignService
                 .FirstOrDefaultAsync(c => c.Id == campaignId);
 
             if (campaign == null || campaign.Status != CampaignStatus.Sending) return;
+
+            // This method is the WhatsApp sender and nothing else. Email campaigns are expanded
+            // into queued jobs and delivered by the email workers, so they must never reach here
+            // — and if one ever did, it has no Meta template to send. Guarding at the top keeps
+            // that a clear no-op instead of a null dereference three loops down.
+            if (campaign.Channel != MessageChannel.WhatsApp)
+            {
+                _logger.LogWarning(
+                    "Campaign {CampaignId} is on the {Channel} channel and was routed to the WhatsApp sender. Ignoring.",
+                    campaignId, campaign.Channel);
+                return;
+            }
+
+            // Captured once so the null-state survives the awaits inside the loop below. A
+            // WhatsApp campaign cannot be created without an approved template, so a null here
+            // means the template row was deleted underneath a sending campaign.
+            var template = campaign.Template;
+            if (template == null)
+            {
+                _logger.LogError(
+                    "Campaign {CampaignId} has no template and cannot be sent. Marking it failed.",
+                    campaignId);
+                campaign.Status = CampaignStatus.Failed;
+                await dbContext.SaveChangesAsync();
+                return;
+            }
 
             foreach (var cc in campaign.CampaignContacts)
             {
@@ -655,7 +819,7 @@ public class CampaignService : ICampaignService
                 var previewText = BuildRecipientMessagePreview(campaign, cc);
 
                 // Determine template header type
-                var hasMediaHeader = campaign.Template.HeaderType != HeaderType.None;
+                var hasMediaHeader = template.HeaderType != HeaderType.None;
 
                 // Create the campaign message log
                 // If the template has a media header, the media is part of the template, so log it with the template ChatMessage
@@ -671,8 +835,8 @@ public class CampaignService : ICampaignService
                 // Send via WhatsApp API
                 var sendResult = await whatsAppService.SendTemplateMessageWithResultAsync(
                     cc.Contact.Phone,
-                    campaign.Template.Name,
-                    campaign.Template.Language,
+                    template.Name,
+                    template.Language,
                     messageVars,
                     campaign.ConnectionId,
                     // Campaign sends run under CampaignSchedulerService, a hosted service with
@@ -837,7 +1001,10 @@ public class CampaignService : ICampaignService
             messageVars[variable.VariableName] = finalValue;
         }
 
-        var text = BuildCampaignMessagePreview(campaign.Template.BodyText, messageVars);
+        // Template is nullable since the email channel. This preview is WhatsApp's body text;
+        // the email equivalent is rendered by the email pipeline from the EmailTemplate, so an
+        // email campaign legitimately has nothing to substitute into here.
+        var text = BuildCampaignMessagePreview(campaign.Template?.BodyText ?? string.Empty, messageVars);
         if (!string.IsNullOrEmpty(attachmentUrl))
         {
             var fileName = System.IO.Path.GetFileName(attachmentUrl);
@@ -856,13 +1023,31 @@ public class CampaignService : ICampaignService
         return await query.AnyAsync(c => c.Name.ToLower() == name.Trim().ToLower());
     }
 
+    /// <summary>
+    /// The template name to show for a campaign on either channel.
+    ///
+    /// <para>
+    /// Campaign.Template became nullable when the email channel was added, so this is the single
+    /// place that decides what "the template" means per channel. Falls back to an empty string
+    /// rather than throwing: a campaign whose template row has since been removed should still be
+    /// listable, which is exactly when an operator most needs to see it.
+    /// </para>
+    /// </summary>
+    private static string ResolveTemplateName(Campaign c) =>
+        c.Channel == MessageChannel.Email
+            ? c.EmailTemplate?.Name ?? string.Empty
+            : c.Template?.Name ?? string.Empty;
+
     private static CampaignResponse MapToResponse(Campaign c)
     {
         return new CampaignResponse
         {
             Id = c.Id,
             Name = c.Name,
-            TemplateName = c.Template.Name,
+            // Always populated, so the campaigns list can render a channel column without a
+            // second lookup. Existing rows read as WhatsApp.
+            Channel = c.Channel.ToString(),
+            TemplateName = ResolveTemplateName(c),
             RelationType = c.RelationType.ToString(),
             ScheduleType = c.ScheduleType.ToString(),
             ScheduledAt = c.ScheduledAt,
@@ -938,9 +1123,23 @@ public class CampaignService : ICampaignService
             }
         }
 
-        var template = await _dbContext.Templates.FindAsync(request.TemplateId);
-        if (template == null)
-            throw new KeyNotFoundException("Template not found.");
+        var channel = ParseChannel(request.Channel);
+
+        Template? template = null;
+        EmailTemplate? emailTemplate = null;
+        EmailSenderIdentity? senderIdentity = null;
+
+        if (channel == MessageChannel.WhatsApp)
+        {
+            template = await _dbContext.Templates.FindAsync(request.TemplateId);
+            if (template == null)
+                throw new KeyNotFoundException("Template not found.");
+        }
+        else
+        {
+            (emailTemplate, senderIdentity, request.ConnectionId) = await ResolveEmailTargetsAsync(
+                request.EmailTemplateId, request.SenderIdentityId, request.ConnectionId);
+        }
 
         // ── Read ────────────────────────────────────────────────────────────────────────────────
         // Streamed, and judged by the same helper the validate endpoint used, so the recipient
@@ -955,13 +1154,15 @@ public class CampaignService : ICampaignService
             {
                 if (map == null)
                 {
-                    map = BulkCampaignCsv.MapColumns(fields);
+                    map = BulkCampaignCsv.MapColumns(fields, channel);
                     if (map == null)
-                        throw new ArgumentException("The file needs a phone column and a name column. Download the sample file to see the expected format.");
+                        throw new ArgumentException(channel == MessageChannel.Email
+                            ? "An email campaign's file needs a phone column, a name column and an email column. Download the sample file to see the expected format."
+                            : "The file needs a phone column and a name column. Download the sample file to see the expected format.");
                     continue;
                 }
 
-                if (!BulkCampaignCsv.TryReadRow(fields, rowNumber, map, out var row, out var rowErrors))
+                if (!BulkCampaignCsv.TryReadRow(fields, rowNumber, map, out var row, out var rowErrors, channel))
                 {
                     if (skippedRows.Count < BulkCampaignCsv.MaxReportedErrors)
                         skippedRows.AddRange(rowErrors.Take(BulkCampaignCsv.MaxReportedErrors - skippedRows.Count));
@@ -1058,13 +1259,18 @@ public class CampaignService : ICampaignService
         }
 
         // Clearing the tracker above detached the template, and the response reads its name.
-        var templateName = template.Name;
+        var templateName = channel == MessageChannel.WhatsApp ? template!.Name : emailTemplate!.Name;
 
         // ── Campaign ────────────────────────────────────────────────────────────────────────────
         var campaign = new Campaign
         {
             Name = request.Name,
-            TemplateId = request.TemplateId,
+            Channel = channel,
+
+            // Exactly one of the two template references is set, per channel — the same rule the
+            // wizard path follows. A WhatsApp bulk campaign still stores it exactly as before.
+            TemplateId = channel == MessageChannel.WhatsApp ? request.TemplateId : null,
+            EmailTemplateId = channel == MessageChannel.Email ? request.EmailTemplateId : null,
             // CSV path stays single-select (unlike CreateAsync/UpdateAsync above) — still validated
             // via Enum.Parse (throws on an invalid value), just converted to string to match
             // Campaign.RelationType's type.
@@ -1076,6 +1282,20 @@ public class CampaignService : ICampaignService
             ConnectionId = request.ConnectionId,
             IsBulkCampaign = true
         };
+
+        if (channel == MessageChannel.Email)
+        {
+            // Email-only settings live in a 1:1 side table rather than as mostly-null columns on
+            // the shared Campaign entity — the same shape the wizard path uses.
+            campaign.EmailDetail = new EmailCampaignDetail
+            {
+                SenderIdentityId = senderIdentity!.Id,
+                SubjectOverride = string.IsNullOrWhiteSpace(request.SubjectOverride) ? null : request.SubjectOverride.Trim(),
+                ReplyToOverride = string.IsNullOrWhiteSpace(request.ReplyToOverride) ? null : request.ReplyToOverride.Trim(),
+                TrackOpens = request.TrackOpens,
+                TrackClicks = request.TrackClicks
+            };
+        }
 
         if (request.Variables != null)
         {
@@ -1119,7 +1339,17 @@ public class CampaignService : ICampaignService
 
         if (campaign.Status == CampaignStatus.Sending)
         {
-            _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
+            if (channel == MessageChannel.Email)
+            {
+                // Email goes through the durable queue: the recipients are expanded and sent by
+                // workers with retries, backoff and a dead-letter path. The fire-and-forget
+                // Task.Run below is the pre-existing WhatsApp behaviour and is left as it was.
+                await _emailCampaignDispatcher.SubmitAsync(campaign.Id, requestedByUserId: null);
+            }
+            else
+            {
+                _ = Task.Run(() => SendCampaignMessagesAsync(campaign.Id));
+            }
         }
 
         var response = new CsvCampaignCreateResponse

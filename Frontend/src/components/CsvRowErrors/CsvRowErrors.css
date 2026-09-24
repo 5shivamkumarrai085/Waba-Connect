@@ -15,7 +15,7 @@
 /* Nothing imported and rows were rejected: green would misrepresent the outcome. */
 .csv-summary-box.is-empty {
   background-color: #fffbeb;
-  border-color: #fde68a;
+  border-color: var(--status-partial-border);
 }
 
 .csv-summary-box .csv-summary-icon {
@@ -25,7 +25,7 @@
 }
 
 .csv-summary-box.is-empty .csv-summary-icon {
-  color: #d97706;
+  color: var(--omni-color-warning);
 }
 
 .csv-summary-box .csv-summary-title {
@@ -35,7 +35,7 @@
 }
 
 .csv-summary-box.is-empty .csv-summary-title {
-  color: #92400e;
+  color: var(--omni-color-warning-text);
 }
 
 .csv-summary-box .csv-summary-text {
@@ -54,12 +54,12 @@
 }
 
 .csv-summary-box.is-empty .csv-summary-strong {
-  color: #92400e;
+  color: var(--omni-color-warning-text);
 }
 
 /* Same shape as the summary box, red palette, since this reports rejected rows. */
 .csv-errors-box {
-  background-color: #fee2e2;
+  background-color: var(--omni-color-danger-bg);
   border: 1px solid #fecaca;
   border-radius: 8px;
   padding: 16px;
@@ -68,7 +68,7 @@
 
 .csv-errors-box .csv-errors-title {
   font-weight: 700;
-  color: #991b1b;
+  color: var(--omni-color-danger-text);
   font-size: 13px;
 }
 

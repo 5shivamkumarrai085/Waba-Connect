@@ -1,0 +1,47 @@
+/*
+ * Additions for the email connection wizard.
+ *
+ * Deliberately small: the page reuses ConnectNewWabaPage.css wholesale, so the two channels look
+ * like the same product. Only what the email form genuinely needs extra lives here.
+ */
+
+/* The email header carries a subtitle, which the WABA one does not — so it needs to lay its
+   title block out as a column beside the close button. */
+.waba-wizard-header.email {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-lg);
+}
+
+.waba-wizard-subtitle {
+  margin: var(--space-2xs) 0 0;
+  font-size: var(--text-body);
+  /* On the coloured header band, matching what the WABA title does. */
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Two fields per row. The email form has four short paired fields where the WABA form has three
+   stacked ones, and stacking all four would push the footer below the fold on a laptop. */
+.email-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0 var(--space-2xl);
+}
+
+/* Replaces an inline style="resize: vertical" — a textarea that cannot be resized is a nuisance
+   for a description field people paste into. */
+.email-field-textarea {
+  resize: vertical;
+  min-height: 84px;
+}
+
+@media (max-width: 720px) {
+  .email-field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .waba-wizard-header.email {
+    flex-direction: column;
+  }
+}

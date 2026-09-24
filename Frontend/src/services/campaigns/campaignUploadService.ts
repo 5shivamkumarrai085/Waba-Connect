@@ -50,9 +50,21 @@ const describeCsvError = (err: any, fallback: string): string => {
 }
 
 export const campaignUploadService = {
-  validateCsv: async (file: File): Promise<{ success: boolean; data?: CsvValidationData; message: string }> => {
+  /**
+   * Validates an uploaded CSV and returns the preview the operator confirms.
+   *
+   * @param channel 'WhatsApp' (the default) or 'Email'. The server applies the channel's column
+   * rules — an email campaign's file needs a usable email address in every row — so the preview
+   * counts exactly what the campaign will end up sending to. Omitting it validates as WhatsApp,
+   * which is what every call written before the email channel meant.
+   */
+  validateCsv: async (
+    file: File,
+    channel?: string
+  ): Promise<{ success: boolean; data?: CsvValidationData; message: string }> => {
     const formData = new FormData()
     formData.append('file', file)
+    if (channel) formData.append('channel', channel)
 
     try {
       const res = await apiClient.post('/Campaigns/csv-validate', formData, {
@@ -106,11 +118,21 @@ export const campaignUploadService = {
   createCsvCampaign: async (payload: {
     name: string
     csvFileUrl: string
+    /** 'WhatsApp' (the default when absent) or 'Email'. */
+    channel?: string
+    /** The WhatsApp template. Ignored on the email channel. */
     templateId: number
+    /** The Setup-section email template. Required on the email channel. */
+    emailTemplateId?: number | null
+    /** The verified sender to send from. Required on the email channel. */
+    senderIdentityId?: number | null
+    replyToOverride?: string | null
+    subjectOverride?: string | null
     relationType: string
     scheduleType: string
     scheduledAt: string | null
     variables: any[]
+    connectionId?: number
   }): Promise<{ success: boolean; message: string; data?: any }> => {
     try {
       const res = await apiClient.post('/Campaigns/csv-create', payload, {

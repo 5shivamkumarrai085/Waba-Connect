@@ -103,8 +103,8 @@
 
 .conn-detail-status-pill--off {
   background-color: #fffbeb;
-  color: #92400e;
-  border: 1px solid #fde68a;
+  color: var(--omni-color-warning-text);
+  border: 1px solid var(--status-partial-border);
 }
 
 .conn-detail-status-dot {
@@ -180,7 +180,7 @@
   margin-bottom: 6px;
   font-size: 12px;
   font-weight: 700;
-  color: var(--primary-dark, var(--primary));
+  color: var(--primary-dark);
 }
 
 .conn-detail-note-body {

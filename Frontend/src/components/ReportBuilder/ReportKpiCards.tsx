@@ -19,6 +19,46 @@ const PRESENTATION: Record<string, { icon: React.ReactNode; tone: string }> = {
 
 const DEFAULT_PRESENTATION = { icon: <MessageSquare size={18} />, tone: 'primary' }
 
+/**
+ * A minimal inline sparkline.
+ *
+ * A dedicated charting library is not warranted for a 40x20 line with no axes, no tooltip and no
+ * interaction — recharts is already used for the three cards beside the table, and pulling its
+ * machinery in per KPI card would cost far more than this earns. Plain SVG, computed once per
+ * render from whatever `trend` the server sent; a series too short to be a trend (0 or 1 point)
+ * renders nothing; a flat series still draws a flat, honest line rather than being hidden.
+ */
+const Sparkline: React.FC<{ points: number[]; tone: string }> = ({ points, tone }) => {
+  if (points.length < 2) return null
+
+  const width = 64
+  const height = 24
+  const max = Math.max(...points)
+  const min = Math.min(...points)
+  const range = max - min || 1
+
+  const path = points
+    .map((value, index) => {
+      const x = (index / (points.length - 1)) * width
+      const y = height - ((value - min) / range) * height
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+
+  return (
+    <svg
+      className={`report-kpi-sparkline is-${tone}`}
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <path d={path} fill="none" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 interface ReportKpiCardsProps {
   summary: ReportSummary | null
   isLoading: boolean
@@ -90,6 +130,10 @@ export const ReportKpiCards: React.FC<ReportKpiCardsProps> = ({ summary, isLoadi
                 <span className="report-kpi-compare">{kpi.comparisonLabel}</span>
               )}
             </div>
+
+            {/* The card's own daily trend, from the same filtered window as the headline number —
+                never a different series, never a placeholder shape. */}
+            <Sparkline points={kpi.trend} tone={tone} />
           </article>
         )
       })}

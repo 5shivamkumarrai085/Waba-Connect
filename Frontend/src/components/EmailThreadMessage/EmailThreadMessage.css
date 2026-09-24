@@ -1,0 +1,212 @@
+/* EmailThreadMessage.css — card layout matching reference Image 2 */
+
+.email-msg-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md, 8px);
+  margin: 8px 0;
+  overflow: hidden;
+  transition: box-shadow 0.15s;
+}
+
+.email-msg-card:hover {
+  box-shadow: 0 1px 6px rgba(0,0,0,.06);
+}
+
+.email-msg-card.outgoing {
+  border-left: 3px solid var(--primary, #2563eb);
+}
+
+.email-msg-card.incoming {
+  border-left: 3px solid var(--channel-whatsapp, #25d366);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.email-msg-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px 10px;
+}
+
+.email-msg-card-sender {
+  flex: 1;
+  min-width: 0;
+}
+
+.email-msg-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.email-msg-sender-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.email-msg-sender-email {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.email-msg-status-pill {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  text-transform: capitalize;
+}
+
+.email-msg-status-pill.sent,
+.email-msg-status-pill.delivered {
+  background: var(--omni-color-success-bg, #d1fae5);
+  color: var(--omni-color-success-text, #065f46);
+}
+
+.email-msg-status-pill.pending,
+.email-msg-status-pill.sending {
+  background: var(--omni-color-warning-bg, #fef3c7);
+  color: var(--omni-color-warning-text, #92400e);
+}
+
+.email-msg-status-pill.failed {
+  background: var(--omni-color-danger-bg, #fee2e2);
+  color: var(--omni-color-danger-text, #991b1b);
+}
+
+.email-msg-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.email-msg-card-time {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.email-msg-card-attach {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.email-msg-card-more,
+.email-msg-card-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.email-msg-card-more:hover,
+.email-msg-card-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-body);
+}
+
+/* ── Addresses ─────────────────────────────────────────────────────────── */
+
+.email-msg-card-addresses {
+  padding: 0 14px 6px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.email-msg-addr-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.email-msg-addr-label {
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.email-msg-addr-value {
+  color: var(--text-body);
+  word-break: break-all;
+}
+
+/* ── Subject ────────────────────────────────────────────────────────────── */
+
+.email-msg-card-subject {
+  padding: 4px 14px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* ── Body ───────────────────────────────────────────────────────────────── */
+
+.email-msg-card-body {
+  padding: 0 14px 12px;
+}
+
+.email-msg-iframe {
+  width: 100%;
+  min-height: 80px;
+  max-height: 320px;
+  border: none;
+  display: block;
+  overflow: hidden;
+}
+
+.email-msg-plain {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-body);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Action buttons (Reply / Reply All / Forward) ──────────────────────── */
+
+.email-msg-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px 12px;
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-subtle);
+}
+
+.email-msg-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-body);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.email-msg-action-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--primary);
+}

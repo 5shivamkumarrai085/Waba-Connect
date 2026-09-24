@@ -1,0 +1,173 @@
+/*
+ * Channel selection cards.
+ *
+ * Tokens only — no literal colours. The existing wizard hardcodes hex in its pill buttons, which
+ * is why those pills are invisible in dark mode; new work here must not repeat that.
+ */
+
+.channel-card-grid {
+  display: grid;
+  /* Two across on desktop, stacking below ~640px. minmax with 1fr rather than a fixed width so
+     a long channel description cannot push the grid wider than its container. */
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-base);
+  margin-top: var(--space-lg);
+}
+
+.channel-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-base);
+  padding: var(--space-xl);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.channel-card:hover:not(.disabled) {
+  border-color: var(--primary);
+  background: var(--bg-hover);
+}
+
+.channel-card.selected {
+  border-color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.06);
+  box-shadow: 0 0 0 1px var(--primary) inset;
+}
+
+.channel-card.disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* The input stays in the accessibility tree and keeps focus, but is not drawn — the card is the
+   visible control. Not display:none, which would remove it from tab order entirely. */
+.channel-card-radio {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+/* Focus lands on the hidden input, so the ring is drawn on the card it labels. Without this,
+   keyboard users get no indication of where they are. */
+.channel-card:focus-within {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.channel-card-radio-dot {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-full);
+  transition: border-color var(--transition-fast);
+}
+
+.channel-card.selected .channel-card-radio-dot {
+  border-color: var(--primary);
+  /* The inner dot is a radial gradient rather than a pseudo-element, so the whole indicator is
+     one box and cannot drift out of alignment as the card resizes. */
+  background: radial-gradient(circle, var(--primary) 0 45%, transparent 50%);
+}
+
+.channel-card-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  /* Per-channel accent, defined in index.css and defaulted here so an unknown channel still
+     renders something sensible rather than a transparent box. */
+  background: var(--channel-accent-soft, var(--bg-subtle));
+  color: var(--channel-accent, var(--text-muted));
+}
+
+.channel-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.channel-card-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+}
+
+.channel-card-description {
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
+  color: var(--text-muted);
+}
+
+.channel-card-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  align-self: flex-start;
+  margin-top: var(--space-2xs);
+  padding: var(--space-3xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.channel-card-tag.configured {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.channel-card-tag.needs-setup {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+
+.channel-card-tag.coming-soon {
+  background: var(--bg-subtle);
+  color: var(--text-light);
+}
+
+/* Per-channel accents, set from the data rather than hardcoded per rule, so adding a channel to
+   CHANNELS needs one variable pair here and nothing else. */
+.channel-card[data-channel='whatsapp'] {
+  --channel-accent: var(--channel-whatsapp);
+  --channel-accent-soft: var(--channel-whatsapp-soft);
+}
+
+.channel-card[data-channel='email'] {
+  --channel-accent: var(--channel-email);
+  --channel-accent-soft: var(--channel-email-soft);
+}
+
+.channel-card[data-channel='sms'] {
+  --channel-accent: var(--channel-sms);
+  --channel-accent-soft: var(--channel-sms-soft);
+}
+
+.channel-card[data-channel='instagram'] {
+  --channel-accent: var(--channel-instagram);
+  --channel-accent-soft: var(--channel-instagram-soft);
+}
+
+.channel-card[data-channel='facebook'] {
+  --channel-accent: var(--channel-facebook);
+  --channel-accent-soft: var(--channel-facebook-soft);
+}
+
+@media (max-width: 640px) {
+  .channel-card {
+    padding: var(--space-lg);
+  }
+}

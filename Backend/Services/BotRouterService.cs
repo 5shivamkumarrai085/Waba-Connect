@@ -281,7 +281,7 @@ public class BotRouterService : IBotRouterService
 
                 if (hasAssistant)
                 {
-                    string assistantName = matchedBot.AssistantName;
+                    string assistantName = matchedBot.AssistantName ?? string.Empty;
                     
                     // Start a new AI session
                     var newSession = new AiSession

@@ -10,11 +10,33 @@ public class Campaign
     [Required, MaxLength(200)]
     public string Name { get; set; } = string.Empty;
     
-    public int TemplateId { get; set; }
-    public Template Template { get; set; } = null!;
-    
+    /// <summary>
+    /// Which channel this campaign sends on. Defaults to WhatsApp so every existing row and
+    /// every existing create path keeps its current meaning without being touched.
+    /// </summary>
+    public MessageChannel Channel { get; set; } = MessageChannel.WhatsApp;
+
+    // Nullable as of the email channel: a WhatsApp campaign points at a Meta-approved Template,
+    // an email campaign points at an EmailTemplate, and exactly one of the two is set. Making
+    // this nullable turns the generated join from INNER to LEFT, which changes nothing for
+    // existing rows because all of them have a template. The C# dereferences of Template in
+    // CampaignService are null-guarded accordingly.
+    public int? TemplateId { get; set; }
+    public Template? Template { get; set; }
+
+    /// <summary>
+    /// The email template this campaign renders, when <see cref="Channel"/> is Email. Points at
+    /// the same EmailTemplates the Setup section manages — there is deliberately no separate
+    /// campaign-template store.
+    /// </summary>
+    public int? EmailTemplateId { get; set; }
+    public EmailTemplate? EmailTemplate { get; set; }
+
     public int? ConnectionId { get; set; }
     public virtual Connection? Connection { get; set; }
+
+    /// <summary>Channel-specific settings, present only for email campaigns.</summary>
+    public EmailCampaignDetail? EmailDetail { get; set; }
     
     // Comma-separated list of ContactType names (e.g. "Lead,Customer"), not a single
     // enum — a campaign can now target multiple relation types at once. Still a plain

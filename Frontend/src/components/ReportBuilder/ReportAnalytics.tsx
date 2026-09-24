@@ -63,6 +63,67 @@ const shortDate = (iso: string): string => {
  * no data says so rather than drawing an empty axis.
  * </para>
  */
+/**
+ * Loading placeholders shaped like the thing that is coming.
+ *
+ * Each of the three cards previously rendered the words "Loading…" inside a 28px-tall block, while
+ * the content that replaced it is 150-190px tall. So every report run shoved the column down by
+ * roughly 150px per card at the moment the data landed — the exact layout shift a skeleton exists
+ * to prevent, caused by the loading state itself.
+ *
+ * These mirror the real geometry instead: the same heights, the same axis gutter, the same donut
+ * radius, the same number of list rows. They are aria-hidden because the live region that announces
+ * "loading" belongs to the control that started the run, not to three decorative shapes.
+ */
+const ActivitySkeleton: React.FC = () => (
+  // 190px to match the AreaChart's ResponsiveContainer, and a left gutter matching the Y axis width.
+  <div className="report-skeleton-chart" aria-hidden="true">
+    <div className="report-skeleton-axis">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <span key={i} className="skeleton-box variant-text skeleton-pulse" />
+      ))}
+    </div>
+    <div className="report-skeleton-plot">
+      {/* Varying heights: a flat row of identical bars reads as a rendered chart with no data,
+          which is a different and more alarming message than "still loading". */}
+      {[38, 62, 45, 78, 55, 88, 48, 70, 58, 82].map((h, i) => (
+        <span key={i} className="skeleton-box skeleton-pulse" style={{ height: `${h}%` }} />
+      ))}
+    </div>
+  </div>
+)
+
+const DonutSkeleton: React.FC = () => (
+  <div className="report-donut-row" aria-hidden="true">
+    <div className="report-skeleton-donut">
+      {/* 132px across, matching outerRadius 66, so the ring lands exactly where the real one does. */}
+      <span className="skeleton-box variant-circle skeleton-pulse" />
+    </div>
+    <ul className="report-skeleton-legend">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <li key={i}>
+          <span className="skeleton-box variant-circle skeleton-pulse" />
+          <span className="skeleton-box variant-text skeleton-pulse" />
+        </li>
+      ))}
+    </ul>
+  </div>
+)
+
+const CampaignsSkeleton: React.FC = () => (
+  <ol className="report-skeleton-campaigns" aria-hidden="true">
+    {Array.from({ length: 5 }).map((_, i) => (
+      <li key={i}>
+        <span className="skeleton-box variant-circle skeleton-pulse" />
+        <div>
+          <span className="skeleton-box variant-text skeleton-pulse" />
+          <span className="skeleton-box skeleton-pulse" />
+        </div>
+      </li>
+    ))}
+  </ol>
+)
+
 export const ReportAnalytics: React.FC<ReportAnalyticsProps> = ({ summary, isLoading }) => {
   const palette = useMemo(() => {
     const fromTheme = readPalette()
@@ -89,7 +150,7 @@ export const ReportAnalytics: React.FC<ReportAnalyticsProps> = ({ summary, isLoa
         </div>
 
         {isLoading ? (
-          <div className="report-analytics-empty">Loading…</div>
+          <ActivitySkeleton />
         ) : activityData.length === 0 ? (
           <div className="report-analytics-empty">No activity in this period.</div>
         ) : (
@@ -150,7 +211,7 @@ export const ReportAnalytics: React.FC<ReportAnalyticsProps> = ({ summary, isLoa
         </div>
 
         {isLoading ? (
-          <div className="report-analytics-empty">Loading…</div>
+          <DonutSkeleton />
         ) : byType.length === 0 ? (
           <div className="report-analytics-empty">Nothing to break down yet.</div>
         ) : (
@@ -215,7 +276,7 @@ export const ReportAnalytics: React.FC<ReportAnalyticsProps> = ({ summary, isLoa
         </div>
 
         {isLoading ? (
-          <div className="report-analytics-empty">Loading…</div>
+          <CampaignsSkeleton />
         ) : topCampaigns.length === 0 ? (
           <div className="report-analytics-empty">No campaign messages in this period.</div>
         ) : (

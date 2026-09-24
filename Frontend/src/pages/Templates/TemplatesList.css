@@ -8,14 +8,14 @@
 .templates-page-header h1 {
   font-size: 1.625rem;
   font-weight: 700;
-  color: var(--text-main, #0f172a);
+  color: var(--text-main);
   margin: 0 0 0.25rem 0;
   letter-spacing: -0.02em;
 }
 
 .templates-page-header p {
   font-size: 0.875rem;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted);
   margin: 0;
 }
 
@@ -40,9 +40,9 @@
   font-family: var(--font-family);
   font-size: 14px;
   font-weight: 600;
-  color: #475569;
-  background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  color: var(--text-muted);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   padding: 0 18px;
   height: 38px;
   border-radius: 8px;
@@ -55,23 +55,23 @@
 }
 
 .templates-toolbar .btn-toolbar:hover {
-  background-color: #f8fafc;
-  border-color: #94a3b8;
-  color: #0f172a;
+  background-color: var(--bg-primary);
+  border-color: var(--text-light);
+  color: var(--text-main);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
 }
 
 .templates-toolbar .btn-toolbar:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  background-color: #f1f5f9;
-  border-color: #e2e8f0;
+  background-color: var(--bg-hover);
+  border-color: var(--border-color);
 }
 
 /* Primary load button stands out — explicit class instead of :first-child so button order can change freely */
 .templates-toolbar .btn-toolbar-primary {
-  background-color: #2563eb;
-  color: #ffffff;
+  background-color: var(--primary);
+  color: var(--bg-secondary);
   border: none;
 }
 
@@ -81,7 +81,7 @@
 }
 
 .templates-toolbar .btn-toolbar-primary:disabled {
-  background-color: #60a5fa;
+  background-color: var(--omni-color-primary-400);
   opacity: 0.7;
 }
 
@@ -202,8 +202,8 @@
 }
 
 .btn-clear-filters:hover:not(:disabled) {
-  background-color: #fee2e2;
-  color: #dc2626;
+  background-color: var(--omni-color-danger-bg);
+  color: var(--omni-color-danger);
   border-color: #fca5a5;
 }
 
@@ -221,7 +221,7 @@
 .filter-label {
   font-size: 12px;
   font-weight: 600;
-  color: #475569;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -251,12 +251,12 @@
 }
 
 .templates-filter-grid .form-control:hover {
-  border-color: #94a3b8;
+  border-color: var(--text-light);
 }
 
 .templates-filter-grid .form-control:focus {
   outline: none;
-  border-color: #2563eb;
+  border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
 }
 
@@ -344,21 +344,21 @@
 }
 
 .status-badge.approved {
-  background-color: #d1fae5 !important;
-  color: #065f46 !important;
+  background-color: var(--omni-color-success-bg) !important;
+  color: var(--omni-color-success-text) !important;
   border: 1px solid #a7f3d0 !important;
 }
 
 .status-badge.rejected {
-  background-color: #fee2e2 !important;
-  color: #991b1b !important;
+  background-color: var(--omni-color-danger-bg) !important;
+  color: var(--omni-color-danger-text) !important;
   border: 1px solid #fca5a5 !important;
 }
 
 .status-badge.pending {
-  background-color: #fef3c7 !important;
-  color: #92400e !important;
-  border: 1px solid #fde68a !important;
+  background-color: var(--omni-color-warning-bg) !important;
+  color: var(--omni-color-warning-text) !important;
+  border: 1px solid var(--status-partial-border) !important;
 }
 
 /* Body text truncation */
@@ -368,7 +368,7 @@
   overflow: visible;
   text-overflow: clip;
   font-family: inherit;
-  color: #64748b;
+  color: var(--text-light);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -380,17 +380,17 @@
 }
 
 .templates-card .data-table-wrapper::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: var(--bg-hover);
   border-radius: 4px;
 }
 
 .templates-card .data-table-wrapper::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--border-color);
   border-radius: 4px;
 }
 
 .templates-card .data-table-wrapper::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--text-light);
 }
 
 /* Pagination Footer */
@@ -429,7 +429,7 @@
 
 .contacts-pager-info {
   font-size: 13px;
-  color: #64748b;
+  color: var(--text-light);
 }
 
 .contacts-table-footer .btn-control-icon {
@@ -447,8 +447,8 @@
 
 .template-reject-reason {
   font-size: 11px;
-  color: #dc2626;
-  background-color: #fee2e2;
+  color: var(--omni-color-danger);
+  background-color: var(--omni-color-danger-bg);
   border: 1px solid #fecaca;
   padding: 4px 8px;
   border-radius: 6px;
@@ -498,7 +498,7 @@
 .btn-show-more {
   background: none;
   border: none;
-  color: #2563eb;
+  color: var(--primary);
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;

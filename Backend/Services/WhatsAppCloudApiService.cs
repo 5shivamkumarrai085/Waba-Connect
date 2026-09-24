@@ -1637,7 +1637,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
             _logger.LogInformation("Using matched template bot '{BotName}' (Id: {BotId}), Template: '{TemplateName}'", matchedBot.Name, matchedBot.Id, matchedBot.Template?.Name ?? "null");
 
             // Find all variable names used in template body text
-            var templateBody = matchedBot.Template.BodyText ?? "";
+            var templateBody = matchedBot.Template?.BodyText ?? "";
             var varMatches = System.Text.RegularExpressions.Regex.Matches(templateBody, @"\{\{(\d+)\}\}");
             var allowedVarNames = varMatches.Cast<System.Text.RegularExpressions.Match>()
                 .Select(m => m.Groups[1].Value)
@@ -1688,8 +1688,8 @@ public class WhatsAppCloudApiService : IWhatsAppService
             // Send Template Message
             var sendResult = await SendTemplateMessageWithResultAsync(
                 normalizedPhone,
-                matchedBot.Template.Name,
-                matchedBot.Template.Language ?? "en",
+                matchedBot.Template?.Name ?? string.Empty,
+                matchedBot.Template?.Language ?? "en",
                 resolvedVariables,
                 connectionId,
                 // Triggered by inbound traffic on the Meta webhook, which is anonymous by
@@ -1707,14 +1707,14 @@ public class WhatsAppCloudApiService : IWhatsAppService
             if (sendResult.Success)
             {
                 // Sync outbound template message to ChatMessages
-                string bodyText = matchedBot.Template.BodyText ?? "";
+                string bodyText = matchedBot.Template?.BodyText ?? "";
                 foreach (var v in resolvedVariables)
                 {
                     bodyText = bodyText.Replace($"{{{{{v.Key}}}}}", v.Value);
                 }
 
                 var conversation = await _dbContext.ChatConversations
-                    .FirstOrDefaultAsync(c => c.ContactId == contact.Id && (connectionId == null || c.ConnectionId == connectionId));
+                    .FirstOrDefaultAsync(c => c.ContactId == contact!.Id && (connectionId == null || c.ConnectionId == connectionId));
 
                 if (conversation == null)
                 {
@@ -1724,7 +1724,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
                     conversation = new ChatConversation
                     {
-                        ContactId = contact.Id,
+                        ContactId = contact!.Id,
                         ConnectionId = connectionId,
                         WabaPhoneNumberId = account?.Id,
                         LastMessageText = bodyText,
@@ -1742,7 +1742,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 _dbContext.ChatMessages.Add(new ChatMessage
                 {
                     ConversationId = conversation.Id,
-                    ContactId = contact.Id,
+                    ContactId = contact!.Id,
                     ConnectionId = connectionId,
                     WhatsAppMessageId = sendResult.MessageId,
                     Direction = ChatMessageDirection.Outgoing,

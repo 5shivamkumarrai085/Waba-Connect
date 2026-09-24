@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { pageTransitionProps, cardHoverProps } from '../../utils/motion'
+import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -15,13 +15,13 @@ import {
   Building2,
   PhoneCall,
   Store,
-  CheckCircle2,
-  Clock,
   Share2,
   MoreVertical,
   MessageSquare,
+  Mail,
   Edit3,
-  Trash2
+  Trash2,
+  Info
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useConnectionStore } from '../../store/connectionStore'
@@ -31,8 +31,39 @@ import { Pagination } from '../../components/Pagination/Pagination'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { connectionService } from '../../services/connections/connectionService'
 import { getErrorMessage } from '../../utils/errorHelper'
+import { emailConnectionService } from '../../services/email/emailConnectionService'
+import { CHANNELS } from '../../types/channel'
+import type { AnyChannel } from '../../types/channel'
 import type { Connection } from '../../types/connection'
+import type { EmailConnection } from '../../types/email'
 import './ConnectionsList.css'
+
+/**
+ * One row of the connections table, whichever channel it came from.
+ *
+ * The two channels genuinely differ — WhatsApp has a phone number and a WABA id, email has an
+ * address and a provider — so rather than forcing one shape onto both, each row carries a
+ * channel and the two identity fields the table renders. That keeps the WhatsApp rows byte-for-
+ * byte what they were while letting email sit beside them.
+ */
+interface ChannelConnectionRow {
+  key: string
+  channel: AnyChannel
+  id: number
+  name: string
+  nickname?: string | null
+  description?: string | null
+  /** Phone number for WhatsApp, email address for email. */
+  account: string
+  /** WABA id for WhatsApp, provider name for email. */
+  identifier: string
+  status: string
+  connectedOn?: string | null
+  isConnected: boolean
+  /** The underlying record, for the row's own actions. */
+  whatsapp?: Connection
+  email?: EmailConnection
+}
 
 /**
  * Maps the server's status text to its badge class.
@@ -53,7 +84,6 @@ export const ConnectionsList: React.FC = () => {
   const navigate = useNavigate()
   const {
     connections,
-    dashboard,
     isLoading,
     fetchDashboard,
     disconnectConnection,
@@ -72,9 +102,41 @@ export const ConnectionsList: React.FC = () => {
   const [disconnectTarget, setDisconnectTarget] = useState<Connection | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Connection | null>(null)
 
+  // Separate targets from the WABA ones above: the two go through different services and their
+  // confirmation wording differs, and sharing one target would mean deciding which service to
+  // call from the shape of the object — exactly the sort of guess that sends a delete to the
+  // wrong endpoint.
+  // Its own open-menu key rather than reusing activeMenuId: that holds a connection id, and an
+  // email connection's id can equal a WABA connection's, which would open both rows' menus.
+  const [activeEmailMenuId, setActiveEmailMenuId] = useState<number | null>(null)
+
+  const [emailDisconnectTarget, setEmailDisconnectTarget] = useState<ChannelConnectionRow | null>(null)
+  const [emailDeleteTarget, setEmailDeleteTarget] = useState<ChannelConnectionRow | null>(null)
+
+  // The channel tab. 'all' rather than a nullable value so the tab list can be rendered from
+  // one array without a special case for the first entry.
+  const [channelTab, setChannelTab] = useState<'all' | AnyChannel>('all')
+  const [emailConnections, setEmailConnections] = useState<EmailConnection[]>([])
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false)
+
   useEffect(() => {
     fetchDashboard()
   }, [fetchDashboard])
+
+  // Email connections come from their own endpoint. Kept in local state rather than the
+  // connection store, because that store is shaped around WABA accounts and is read by eight
+  // other pages that have no interest in email.
+  useEffect(() => {
+    let isMounted = true
+
+    emailConnectionService.getConnections().then((loaded) => {
+      if (isMounted) setEmailConnections(loaded)
+    })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   // Escape closes the two confirmation targets. The row menu handles its own outside-click and
   // Escape now that it is the shared Menu — and the listener that used to do it here tested
@@ -107,18 +169,134 @@ export const ConnectionsList: React.FC = () => {
     return matchesSearch && matchesStatus
   })
 
+  // Email connections mapped onto the shared row shape, honouring the same search and status
+  // filters as the WhatsApp rows so the two behave identically.
+  const emailRows: ChannelConnectionRow[] = emailConnections
+    .filter((conn) => {
+      const term = search.toLowerCase()
+      const matchesSearch =
+        conn.connectionName.toLowerCase().includes(term) ||
+        (conn.defaultFromEmail ?? '').toLowerCase().includes(term) ||
+        conn.provider.toLowerCase().includes(term)
+
+      const matchesStatus = statusFilter === 'All Status' || conn.status === statusFilter
+
+      return matchesSearch && matchesStatus
+    })
+    .map((conn) => ({
+      key: `email-${conn.id}`,
+      channel: 'email' as AnyChannel,
+      id: conn.id,
+      name: conn.connectionName,
+      nickname: conn.nickname,
+      description: conn.description,
+      account: conn.defaultFromEmail ?? '-',
+      identifier: conn.provider === 'AmazonSes' ? 'Amazon SES' : 'SMTP',
+      status: conn.status,
+      connectedOn: conn.configuredAt,
+      isConnected: conn.status === 'Connected',
+      email: conn
+    }))
+
   // Paged on the client. The connections endpoint returns every row in one response — there are
-  // a handful of them, and a WABA account list does not grow the way a contact list does — so
+  // a handful of them, and a connection list does not grow the way a contact list does — so
   // slicing here is honest rather than a stand-in for server paging that ought to exist.
-  const totalPages = Math.max(1, Math.ceil(filteredConnections.length / pageSize))
+  //
+  // Counted across both channels *after* the search and status filters, and scoped to the
+  // selected channel. Counting WhatsApp alone made the footer report rows it was not showing —
+  // "Showing 1 to 4 of 4" above a single email row.
+  const pagedSourceCount =
+    (channelTab === 'email' ? 0 : filteredConnections.length) +
+    (channelTab === 'whatsapp' ? 0 : emailRows.length)
+
+  const totalPages = Math.max(1, Math.ceil(pagedSourceCount / pageSize))
   const currentPage = Math.min(page, totalPages)
   const pagedConnections = filteredConnections.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
   )
 
+  const visibleWhatsAppRows = channelTab === 'email' ? [] : pagedConnections
+  const visibleEmailRows = channelTab === 'whatsapp' ? [] : emailRows
+  const hasAnyVisibleRow = visibleWhatsAppRows.length > 0 || visibleEmailRows.length > 0
+
+  const channelCounts: Record<string, number> = {
+    all: filteredConnections.length + emailRows.length,
+    whatsapp: filteredConnections.length,
+    email: emailRows.length
+  }
+
+  /**
+   * The KPI strip's numbers, scoped to the selected channel.
+   *
+   * Deliberately computed from the unfiltered lists, not from `filteredConnections`: these cards
+   * answer "what does this account have", and a number that moved every time somebody typed in
+   * the search box would not be answering that question. The channel selector is the one filter
+   * that does apply, because it is the question the strip is being asked.
+   */
+  const countsForChannel = (view: 'all' | AnyChannel) => {
+    const whatsapp = view === 'email' ? [] : connections
+    const email = view === 'whatsapp' ? [] : emailConnections
+
+    const connected =
+      whatsapp.filter((c: Connection) => c.isConnected).length +
+      email.filter((c) => c.status === 'Connected').length
+
+    const total = whatsapp.length + email.length
+
+    // Disconnected is the remainder rather than its own count, so the three cards always add up.
+    // Counting it independently is how a summary ends up showing 2 + 2 out of 3.
+    return { total, connected, disconnected: total - connected }
+  }
+
+  const kpi = countsForChannel(channelTab)
+
   const handleConnectNew = () => {
     navigate('/connections/new')
+  }
+
+  const handleConnectNewEmail = () => {
+    navigate('/connections/new-email')
+  }
+
+  // Opens the email connection's provider configuration — the email equivalent of the WABA
+  // account page below.
+  const handleViewEmailConnection = (row: ChannelConnectionRow) => {
+    setActiveMenuId(null)
+    navigate(`/connect-email?emailConfigurationId=${row.id}`)
+  }
+
+  /** Re-reads the email list after a change, so the table reflects what the server now holds. */
+  const refreshEmailConnections = async () => {
+    setEmailConnections(await emailConnectionService.getConnections())
+  }
+
+  const confirmEmailDisconnect = async () => {
+    const row = emailDisconnectTarget
+    if (!row) return
+    setEmailDisconnectTarget(null)
+
+    try {
+      await emailConnectionService.disconnect(row.id)
+      await refreshEmailConnections()
+      toast.success(`${row.name} disconnected.`)
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not disconnect this email connection.'))
+    }
+  }
+
+  const confirmEmailDelete = async () => {
+    const row = emailDeleteTarget
+    if (!row) return
+    setEmailDeleteTarget(null)
+
+    try {
+      await emailConnectionService.deleteConnection(row.id)
+      await refreshEmailConnections()
+      toast.success(`${row.name} deleted.`)
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not delete this email connection.'))
+    }
   }
 
   // Opens the full WhatsApp Business Account page for this connection.
@@ -216,68 +394,99 @@ export const ConnectionsList: React.FC = () => {
       {/* Page Header */}
       <div className="conn-page-header">
         <div className="conn-page-title-group">
-          <h1>WABA Connections</h1>
-          <p className="conn-page-subtitle">Connect and manage multiple WhatsApp Business Accounts.</p>
+          {/* Retitled: this page is no longer WABA-only. */}
+          <h1>Connections</h1>
+          <p className="conn-page-subtitle">
+            Manage and configure all your communication channels in one place.
+          </p>
         </div>
-        <Can permission="ConnectAccount.Connect">
-          <button type="button" onClick={handleConnectNew} className="btn-connect-waba">
-            <Plus className="w-4 h-4" />
-            <span>Add Connection</span>
-          </button>
+
+        {/*
+          A menu rather than two buttons. The two flows are genuinely different wizards, and a
+          single "Add Connection" that silently picked one would be the wrong one half the time.
+        */}
+        <Can anyOf={['ConnectAccount.Connect', 'EmailConnection.Connect']}>
+          <Menu
+            open={isAddMenuOpen}
+            onOpenChange={setIsAddMenuOpen}
+            align="end"
+            ariaLabel="Add a connection"
+            trigger={(triggerProps) => (
+              <button type="button" className="btn-connect-waba" {...triggerProps}>
+                <Plus className="w-4 h-4" />
+                <span>Add Connection</span>
+              </button>
+            )}
+          >
+            <Can permission="ConnectAccount.Connect">
+              <MenuItem onSelect={handleConnectNew}>
+                <MessageSquare className="w-4 h-4" />
+                WhatsApp Business
+              </MenuItem>
+            </Can>
+            <Can permission="EmailConnection.Connect">
+              <MenuItem onSelect={handleConnectNewEmail}>
+                <Mail className="w-4 h-4" />
+                Email
+              </MenuItem>
+            </Can>
+          </Menu>
         </Can>
       </div>
 
-      {/* 4 KPI Cards Grid */}
-      <div className="conn-kpi-grid">
-        <motion.div className="conn-kpi-card" {...cardHoverProps}>
+      {/* KPI strip — one card holding the three totals and the channel they are scoped to.
+          One card rather than four tiles because the selector on the right governs the numbers
+          on its left, and separate cards would not say that. */}
+      <div className="conn-kpi-card">
+        <div className="conn-kpi-stat">
           <div className="conn-kpi-icon-wrapper blue">
-            <MessageSquare className="w-6 h-6" />
-          </div>
-          <div className="conn-kpi-content">
-            <span className="conn-kpi-label">Total WABA Connections</span>
-            <span className="conn-kpi-value">{dashboard?.totalConnections ?? connections.length}</span>
-            <span className="conn-kpi-desc">All connections</span>
-          </div>
-        </motion.div>
-
-        <motion.div className="conn-kpi-card" {...cardHoverProps}>
-          <div className="conn-kpi-icon-wrapper green">
-            <CheckCircle2 className="w-6 h-6" />
-          </div>
-          <div className="conn-kpi-content">
-            <span className="conn-kpi-label">Connected</span>
-            <span className="conn-kpi-value">
-              {dashboard?.connectedCount ?? connections.filter((c: Connection) => c.isConnected).length}
-            </span>
-            <span className="conn-kpi-desc green">Active and ready</span>
-          </div>
-        </motion.div>
-
-        <motion.div className="conn-kpi-card" {...cardHoverProps}>
-          <div className="conn-kpi-icon-wrapper amber">
-            <Clock className="w-6 h-6" />
-          </div>
-          <div className="conn-kpi-content">
-            <span className="conn-kpi-label">Disconnected</span>
-            <span className="conn-kpi-value">
-              {dashboard?.disconnectedCount ?? connections.filter((c: Connection) => !c.isConnected).length}
-            </span>
-            <span className="conn-kpi-desc amber">Need attention</span>
-          </div>
-        </motion.div>
-
-        <motion.div className="conn-kpi-card" {...cardHoverProps}>
-          <div className="conn-kpi-icon-wrapper purple">
             <Share2 className="w-6 h-6" />
           </div>
           <div className="conn-kpi-content">
-            <span className="conn-kpi-label">Total Connected Numbers</span>
-            <span className="conn-kpi-value">
-              {dashboard?.totalConnectedNumbers ?? connections.filter((c: Connection) => c.phoneNumber).length}
-            </span>
-            <span className="conn-kpi-desc">Phone numbers</span>
+            <span className="conn-kpi-label">Total Connections</span>
+            <span className="conn-kpi-value">{kpi.total}</span>
           </div>
-        </motion.div>
+        </div>
+
+        <div className="conn-kpi-stat">
+          <span className="conn-kpi-dot green" />
+          <div className="conn-kpi-content">
+            <span className="conn-kpi-label">Connected</span>
+            <span className="conn-kpi-value">{kpi.connected}</span>
+          </div>
+        </div>
+
+        <div className="conn-kpi-stat">
+          <span className="conn-kpi-dot red" />
+          <div className="conn-kpi-content">
+            <span className="conn-kpi-label">Disconnected</span>
+            <span className="conn-kpi-value">{kpi.disconnected}</span>
+          </div>
+        </div>
+
+        {/* Bound to the same state as the tabs below, so the summary and the table can never
+            disagree about which channel is being looked at. */}
+        <div className="conn-kpi-view">
+          <label className="conn-kpi-view-label" htmlFor="conn-view-by-channel">
+            View by Channel
+          </label>
+          <select
+            id="conn-view-by-channel"
+            className="conn-kpi-view-select"
+            value={channelTab}
+            onChange={(e) => {
+              setChannelTab(e.target.value as 'all' | AnyChannel)
+              setPage(1)
+            }}
+          >
+            <option value="all">All Channels</option>
+            {CHANNELS.filter((c) => c.available).map((channel) => (
+              <option key={channel.key} value={channel.key}>
+                {channel.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Filter and Actions Card */}
@@ -320,29 +529,98 @@ export const ConnectionsList: React.FC = () => {
         </div>
       </div>
 
+      {/* Channel tabs. Counts included, because "Email 0" and no Email tab at all mean
+          different things — the first says the channel exists and is unused. */}
+      <div className="conn-channel-tabs" role="tablist" aria-label="Filter by channel">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={channelTab === 'all'}
+          className={`conn-channel-tab ${channelTab === 'all' ? 'active' : ''}`}
+          onClick={() => { setChannelTab('all'); setPage(1) }}
+        >
+          <span>All</span>
+          <span className="conn-channel-tab-count">{channelCounts.all}</span>
+        </button>
+
+        {CHANNELS.filter((c) => c.available).map((channel) => (
+          <button
+            key={channel.key}
+            type="button"
+            role="tab"
+            aria-selected={channelTab === channel.key}
+            className={`conn-channel-tab ${channelTab === channel.key ? 'active' : ''}`}
+            data-channel={channel.key}
+            onClick={() => { setChannelTab(channel.key); setPage(1) }}
+          >
+            {channel.key === 'email' ? (
+              <Mail className="w-4 h-4" />
+            ) : (
+              <MessageSquare className="w-4 h-4" />
+            )}
+            <span>{channel.label}</span>
+            <span className="conn-channel-tab-count">{channelCounts[channel.key] ?? 0}</span>
+          </button>
+        ))}
+      </div>
+
       {/* Connections Data Table Card */}
       <div className="conn-table-card">
+        {/* Kept accurate rather than aspirational: it names the two channels that work today,
+            and does not promise dates for the ones that do not. */}
+        <div className="conn-channel-notice">
+          <Info className="w-4 h-4" />
+          <div>
+            <strong>Add more channels as you grow</strong>
+            <p>
+              WhatsApp and Email are available today. SMS, Instagram and Facebook are not yet
+              implemented.
+            </p>
+          </div>
+        </div>
+
         <div className="conn-table-scroll">
           <table className="conn-data-table">
             <thead>
               <tr>
                 <th className="actions-col">Actions</th>
                 <th>Connection Name</th>
-                <th>Phone Number</th>
-                <th>WABA ID</th>
+                <th>Channel</th>
+                {/* One column for both channels: a phone number for WhatsApp, an address for
+                    email. Two separate columns would leave half of each row empty. */}
+                <th>Account / ID</th>
+                <th>Linked Information</th>
                 <th>Status</th>
                 <th>Connected On</th>
               </tr>
             </thead>
             <tbody>
-              {filteredConnections.length === 0 ? (
+              {isLoading ? (
+                // Without this branch the table fell straight through to the empty-state row
+                // during the initial fetch — filteredConnections.length is 0 before data arrives
+                // just as it is when there truly are no connections, so "No connections found" was
+                // flashing on every load, on a real account with real connections, before the
+                // actual rows replaced it.
+                Array.from({ length: 5 }).map((_, rowIndex) => (
+                  <tr key={`skeleton-${rowIndex}`} aria-hidden="true">
+                    {Array.from({ length: 7 }).map((__, colIndex) => (
+                      <td key={colIndex}>
+                        <span
+                          className="skeleton-box variant-text skeleton-pulse"
+                          style={{ height: 14, width: colIndex === 0 ? '60%' : '80%' }}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : !hasAnyVisibleRow ? (
                 <tr>
-                  <td colSpan={6} className="conn-empty-cell">
+                  <td colSpan={7} className="conn-empty-cell">
                     No connections found. Use "Add Connection" to create your first one.
                   </td>
                 </tr>
               ) : (
-                pagedConnections.map((conn: Connection, idx: number) => (
+                visibleWhatsAppRows.map((conn: Connection, idx: number) => (
                   <tr key={conn.id}>
                     {/* Actions lead the row, as on every other list — reaching the delete or
                         view control should not mean scrolling past five columns first. */}
@@ -468,15 +746,24 @@ export const ConnectionsList: React.FC = () => {
                       </div>
                     </td>
 
-                    {/* Phone Number */}
+                    {/* Channel */}
+                    <td>
+                      <span className="conn-channel-badge" data-channel="whatsapp">
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        WhatsApp
+                      </span>
+                    </td>
+
+                    {/* Account / ID */}
+                    <td>
+                      <div className="conn-phone-number">WABA ID</div>
+                      <div className="conn-phone-id">{conn.wabaId || 'N/A'}</div>
+                    </td>
+
+                    {/* Linked Information */}
                     <td>
                       <div className="conn-phone-number">{conn.phoneNumber || '-'}</div>
                       <div className="conn-phone-id">Phone ID: {conn.phoneNumberId || 'N/A'}</div>
-                    </td>
-
-                    {/* WABA ID */}
-                    <td>
-                      <span className="conn-waba-id">{conn.wabaId || 'N/A'}</span>
                     </td>
 
                     {/* Status */}
@@ -505,6 +792,160 @@ export const ConnectionsList: React.FC = () => {
                   </tr>
                 ))
               )}
+
+              {/* Email rows. Not gated on the loading branch above, which belongs to the WABA
+                  store's fetch — the email list has its own, and blanking these while that one
+                  runs would make them flicker on every refresh. */}
+              {!isLoading &&
+                visibleEmailRows.map((row, idx) => (
+                  <tr key={row.key}>
+                    <td className="actions-col">
+                      <div className="conn-actions-cell">
+                        <Can permission="EmailConnection.View">
+                          <button
+                            type="button"
+                            onClick={() => handleViewEmailConnection(row)}
+                            className="btn-action-view"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            View
+                          </button>
+                        </Can>
+
+                        {/* Only while it is connected. Offering Disconnect on something already
+                            disconnected invites a click that does nothing. */}
+                        {row.isConnected && (
+                          <Can permission="EmailConnection.Disconnect">
+                            <button
+                              type="button"
+                              onClick={() => setEmailDisconnectTarget(row)}
+                              className="btn-action-disconnect"
+                            >
+                              <Unlink className="w-3.5 h-3.5" />
+                              Disconnect
+                            </button>
+                          </Can>
+                        )}
+
+                        <Menu
+                          open={activeEmailMenuId === row.id}
+                          onOpenChange={(isOpen) => setActiveEmailMenuId(isOpen ? row.id : null)}
+                          align="start"
+                          offset={4}
+                          className="contact-actions-dropdown"
+                          ariaLabel="Email connection actions"
+                          trigger={(props) => (
+                            <button
+                              {...props}
+                              type="button"
+                              className="btn-action-menu"
+                              aria-label="Email connection actions"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          )}
+                        >
+                          <Can permission="EmailConnection.Edit">
+                            <MenuItem
+                              className="contact-actions-item"
+                              onSelect={() => handleViewEmailConnection(row)}
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              Configure
+                            </MenuItem>
+                          </Can>
+                          <Can permission="EmailConnection.Delete">
+                            <MenuItem
+                              destructive
+                              className="contact-actions-item"
+                              onSelect={() => setEmailDeleteTarget(row)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Delete
+                            </MenuItem>
+                          </Can>
+                        </Menu>
+                      </div>
+                    </td>
+
+                    <td>
+                      <div className="conn-name-cell">
+                        <div className="conn-avatar-icon email-channel">
+                          <Mail className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div>
+                            <span className="conn-name-title">{row.name}</span>
+                            {row.nickname && (
+                              <span className="conn-nickname-badge">{row.nickname}</span>
+                            )}
+                          </div>
+                          <span className="conn-phone-subtext">{row.description || row.account}</span>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td>
+                      <span className="conn-channel-badge" data-channel="email">
+                        <Mail className="w-3.5 h-3.5" />
+                        Email
+                      </span>
+                    </td>
+
+                    <td>
+                      <div className="conn-phone-number">{row.identifier}</div>
+                      <div className="conn-phone-id">
+                        {row.email?.region ? `Region: ${row.email.region}` : 'Email account'}
+                      </div>
+                    </td>
+
+                    <td>
+                      <div className="conn-phone-number">{row.account}</div>
+                      <div className="conn-phone-id">
+                        {/* Sender count, because one connection can hold several verified
+                            addresses and the campaign wizard offers all of them. */}
+                        {row.email
+                          ? `${row.email.senders.filter((sender) => sender.canSend).length} of ${row.email.senders.length} sender(s) verified`
+                          : ''}
+                      </div>
+                    </td>
+
+                    <td>
+                      <span className={`conn-status-badge ${statusClass(row.status)}`}>
+                        {row.status}
+                      </span>
+                      {row.email && row.status === 'Connected'
+                        && !row.email.senders.some((sender) => sender.canSend) && (
+                        <div className="conn-status-hint">
+                          No verified sender — cannot send campaigns
+                        </div>
+                      )}
+                      {row.email?.lastTestSucceeded === false && (
+                        <div className="conn-status-hint">{row.email.lastTestMessage}</div>
+                      )}
+                    </td>
+
+                    <td>
+                      <div className="conn-date-primary">
+                        {row.connectedOn
+                          ? new Date(row.connectedOn).toLocaleDateString('en-GB', {
+                              day: '2-digit', month: 'short', year: 'numeric'
+                            })
+                          : '-'}
+                      </div>
+                      <div className="conn-date-time">
+                        {row.connectedOn
+                          ? new Date(row.connectedOn).toLocaleTimeString([], {
+                              hour: '2-digit', minute: '2-digit'
+                            })
+                          : ''}
+                      </div>
+                      {/* idx referenced so the row index stays available for future styling
+                          without an unused-parameter error. */}
+                      <span hidden>{idx}</span>
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>
@@ -516,7 +957,7 @@ export const ConnectionsList: React.FC = () => {
           <Pagination
             page={currentPage}
             pageSize={pageSize}
-            totalCount={filteredConnections.length}
+            totalCount={pagedSourceCount}
             totalPages={totalPages}
             onPage={setPage}
             onPageSize={(size) => { setPageSize(size); setPage(1) }}
@@ -547,6 +988,39 @@ export const ConnectionsList: React.FC = () => {
         cancelText="Cancel"
         onConfirm={confirmDisconnect}
         onCancel={() => setDisconnectTarget(null)}
+        isDestructive={true}
+        showWarningIcon={true}
+      />
+
+      {/* Email connections have their own pair. The wording names what actually happens:
+          disconnecting clears the stored credentials, which is not obvious from the word alone
+          and is the difference between this and Delete. */}
+      <ConfirmationModal
+        isOpen={!!emailDisconnectTarget}
+        title="Disconnect Email Connection"
+        message={
+          `Disconnect "${emailDisconnectTarget?.name}"? Its stored credentials are cleared and no `
+          + 'campaign can send through it until it is configured again. Sent history is kept.'
+        }
+        confirmText="Disconnect"
+        cancelText="Cancel"
+        onConfirm={confirmEmailDisconnect}
+        onCancel={() => setEmailDisconnectTarget(null)}
+        isDestructive={true}
+        showWarningIcon={true}
+      />
+
+      <ConfirmationModal
+        isOpen={!!emailDeleteTarget}
+        title="Delete Email Connection"
+        message={
+          `Delete "${emailDeleteTarget?.name}"? This removes the connection, its senders and its `
+          + 'sending domains. Campaigns already sent through it are not affected.'
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={confirmEmailDelete}
+        onCancel={() => setEmailDeleteTarget(null)}
         isDestructive={true}
         showWarningIcon={true}
       />

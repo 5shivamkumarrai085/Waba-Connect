@@ -1,0 +1,305 @@
+/* EmailComposer.css */
+
+.email-composer {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-primary);
+  flex-shrink: 0;
+}
+
+/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+
+.email-composer-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-subtle);
+}
+
+.email-composer-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  margin-bottom: -1px;
+}
+
+.email-composer-tab:hover {
+  color: var(--text-body);
+  background: var(--bg-hover);
+}
+
+.email-composer-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  background: var(--bg-primary);
+}
+
+.email-composer-close {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.email-composer-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-body);
+}
+
+/* ── Chip field ─────────────────────────────────────────────────────────── */
+
+.email-composer-fields {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ec-chip-field,
+.ec-field-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ec-field-row {
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ec-field-label {
+  flex: 0 0 52px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding-top: 7px;
+}
+
+.ec-chip-wrap {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 0;
+  min-height: 32px;
+  cursor: text;
+}
+
+.ec-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 10px;
+  background: var(--omni-color-primary-100, #dbeafe);
+  color: var(--omni-color-info-text, #1e40af);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ec-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.1s, background 0.1s;
+}
+
+.ec-chip-remove:hover {
+  opacity: 1;
+  background: rgba(37, 99, 235, 0.2);
+}
+
+.ec-chip-input {
+  flex: 1;
+  min-width: 120px;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  background: transparent;
+  color: var(--text-body);
+  padding: 2px 0;
+}
+
+/* Subject row */
+.ec-subject-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+}
+
+.ec-subject-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--text-body);
+  padding: 2px 0;
+}
+
+.ec-subject-input::placeholder {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* Bcc toggle */
+.email-composer-bcc-toggle {
+  align-self: center;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.email-composer-bcc-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-body);
+}
+
+/* ── Actions ────────────────────────────────────────────────────────────── */
+
+.email-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.email-composer-from {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.email-composer-action-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.email-composer-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  padding: 7px 18px;
+}
+
+/* -- Attachments ------------------------------------------------------------ */
+
+.ec-attachments-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.ec-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-body);
+  max-width: 220px;
+}
+
+.ec-attachment-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ec-attachment-size {
+  color: var(--text-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.ec-attachment-remove {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border-radius: 3px;
+  transition: color 0.15s;
+}
+
+.ec-attachment-remove:hover {
+  color: var(--omni-color-danger);
+}
+
+.email-composer-attach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.email-composer-attach-btn:hover {
+  background: var(--bg-hover);
+  color: var(--primary);
+  border-color: var(--primary);
+}

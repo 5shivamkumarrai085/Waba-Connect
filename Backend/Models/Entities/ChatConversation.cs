@@ -1,10 +1,19 @@
 using System.ComponentModel.DataAnnotations;
+using WhatsAppCampaignApi.Models.Enums;
 
 namespace WhatsAppCampaignApi.Models.Entities;
 
 public class ChatConversation
 {
     public int Id { get; set; }
+
+    /// <summary>
+    /// Which channel this thread belongs to. Defaults to WhatsApp, so existing rows keep their
+    /// meaning. This is also part of the uniqueness key: the old unique index on
+    /// {ContactId, ConnectionId} would have collided for a contact reachable on both WhatsApp
+    /// and email through the same connection, silently merging two unrelated threads.
+    /// </summary>
+    public MessageChannel Channel { get; set; } = MessageChannel.WhatsApp;
 
     public int ContactId { get; set; }
     public Contact Contact { get; set; } = null!;

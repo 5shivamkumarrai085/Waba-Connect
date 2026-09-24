@@ -32,18 +32,64 @@ export const chatService = {
     }
   },
 
-  getConversations: async (search?: string, filter?: string, connectionId?: number): Promise<Conversation[]> => {
+  /**
+   * @param channel 'WhatsApp' or 'Email'. Omitted means every channel.
+   *
+   * Filtered on the server rather than in the component: the response is already scoped to one
+   * connection, so a client-side channel predicate could only ever remove rows from a list that
+   * never contained the other channel's to begin with.
+   */
+  getConversations: async (
+    search?: string,
+    filter?: string,
+    connectionId?: number,
+    channel?: string
+  ): Promise<Conversation[]> => {
     try {
       const response = await apiClient.get('/Chat/conversations', {
         params: {
           search: search || undefined,
           filter: filter || undefined,
-          connectionId: connectionId || undefined
+          connectionId: connectionId || undefined,
+          channel: channel || undefined
         }
       })
       return response.data?.data || []
     } catch (error) {
       return []
+    }
+  },
+
+  /**
+   * Sends one email from a thread — reply, reply-all or forward.
+   *
+   * The three differ only in recipients and subject, which the composer decides, so they share
+   * one call. A refused send comes back as `success: false` with a reason rather than throwing:
+   * "that address has unsubscribed" is something the composer shows, not something it catches.
+   */
+  sendEmailReply: async (
+    conversationId: number,
+    payload: {
+      subject: string
+      bodyHtml: string
+      to: string[]
+      cc?: string[]
+      bcc?: string[]
+      inReplyToMessageId?: number | null
+      attachments?: Array<{ fileName: string; contentType: string; base64Data: string }>
+    }
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await apiClient.post(`/Chat/conversations/${conversationId}/email-reply`, payload)
+      return {
+        success: res.data?.success ?? false,
+        message: res.data?.message ?? 'Sent.'
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err?.response?.data?.message ?? 'Could not reach the server to send this email.'
+      }
     }
   },
 

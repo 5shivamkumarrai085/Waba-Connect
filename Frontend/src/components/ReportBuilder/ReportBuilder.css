@@ -78,7 +78,7 @@
   border: none;
   border-radius: var(--radius-md);
   background-color: var(--primary);
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -107,12 +107,12 @@
 }
 
 .report-export-icon.is-pdf {
-  color: #dc2626;
+  color: var(--omni-color-danger);
 }
 
 .report-export-icon.is-excel,
 .report-export-icon.is-csv {
-  color: #059669;
+  color: var(--omni-color-success);
 }
 
 /* ── Configuration row ────────────────────────────────────────────────────── */
@@ -302,7 +302,7 @@
   flex-shrink: 0;
   border: 1.5px solid var(--border-color);
   border-radius: 4px;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .report-columns-check.is-checked {
@@ -459,7 +459,7 @@
   border: none;
   border-radius: var(--radius-md);
   background-color: var(--primary);
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -509,8 +509,12 @@
 
 .report-table-scroll {
   /* The table is the only thing allowed to scroll sideways — the page body never does, however
-     many columns are selected. */
+     many columns are selected. Capped in height too: with 50 or 100 rows per page the table could
+     otherwise grow tall enough to push Saved Reports off screen entirely, so it scrolls internally
+     past this height with its own header staying put. */
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 620px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
 }
@@ -522,6 +526,9 @@
 }
 
 .report-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   padding: 11px 14px;
   text-align: left;
   white-space: nowrap;
@@ -589,8 +596,8 @@
 }
 
 .report-direction-incoming {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: var(--omni-color-success-bg);
+  color: var(--omni-color-success-text);
 }
 
 .report-direction-system {
@@ -696,7 +703,7 @@
   padding: 0 8px;
   border-radius: var(--radius-sm);
   background-color: var(--primary);
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 12px;
   font-weight: 600;
 }
@@ -772,10 +779,14 @@
 }
 
 .report-kpi-card {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 12px;
   padding: 16px;
+  /* Room on the right for the sparkline to sit in its own corner rather than crowding the number. */
+  padding-right: 84px;
+  overflow: hidden;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
@@ -804,8 +815,8 @@
    row rather than as five competing panels. */
 .report-kpi-card.is-info .report-kpi-icon { background-color: rgba(14, 165, 233, 0.12); color: #0ea5e9; }
 .report-kpi-card.is-success .report-kpi-icon { background-color: rgba(34, 197, 94, 0.12); color: #16a34a; }
-.report-kpi-card.is-warning .report-kpi-icon { background-color: rgba(245, 158, 11, 0.14); color: #d97706; }
-.report-kpi-card.is-danger .report-kpi-icon { background-color: rgba(239, 68, 68, 0.12); color: #dc2626; }
+.report-kpi-card.is-warning .report-kpi-icon { background-color: rgba(245, 158, 11, 0.14); color: var(--omni-color-warning); }
+.report-kpi-card.is-danger .report-kpi-icon { background-color: rgba(239, 68, 68, 0.12); color: var(--omni-color-danger); }
 
 .report-kpi-body {
   display: flex;
@@ -846,7 +857,7 @@
 /* Green is "the number moved the way you want", not "the number went up" — a rise in failures is
    shown in red. The component decides which; this only paints it. */
 .report-kpi-trend.is-up { color: #16a34a; }
-.report-kpi-trend.is-down { color: #dc2626; }
+.report-kpi-trend.is-down { color: var(--omni-color-danger); }
 
 .report-kpi-compare {
   font-size: 11px;
@@ -1175,7 +1186,7 @@
   border: none;
   border-radius: var(--radius-md);
   background-color: var(--primary);
-  color: #fff;
+  color: var(--text-on-accent);
   font-family: var(--font-family);
   font-size: 13px;
   font-weight: 600;
@@ -1200,7 +1211,7 @@
   width: 13px;
   height: 13px;
   border: 2px solid rgba(255, 255, 255, 0.45);
-  border-top-color: #fff;
+  border-top-color: var(--omni-color-surface);
   border-radius: 50%;
   animation: report-spin 0.7s linear infinite;
 }
@@ -1248,6 +1259,18 @@
    depends on the shell clipping overflow. */
 .main-content:has(.reporting-page) {
   overflow: visible;
+
+  /* Required *because* of the line above. .main-content is a flex item, and a flex
+     item's automatic minimum size only collapses to zero while its overflow is
+     something other than visible. Restoring `overflow: visible` for the sticky
+     column therefore also restored `min-width: auto`, which let the item size to
+     its widest content instead of to its container — the page overflowed
+     horizontally by 12px at 768px wide, with the whole shell scrolling sideways.
+
+     min-width: 0 lets the item shrink again and has no effect on sticky
+     positioning. The report table keeps its own horizontal scroller, so the
+     content that used to force the shell wider now scrolls where it should. */
+  min-width: 0;
 }
 
 @media (min-width: 1201px) {
@@ -1346,4 +1369,177 @@
 /* The surface is sized by its content now that the list carries its own cap. */
 .report-columns-dropdown {
   max-height: none;
+}
+
+
+/* -- KPI sparkline -----------------------------------------------------------
+   A quiet accent in the card's own corner, not a second focal point next to the number — this is
+   "does the shape look healthy at a glance", not a chart to be read in detail. Colour follows the
+   card's own tone token rather than a fixed hue, so Failed's line reads in the same red as its icon. */
+
+.report-kpi-sparkline {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  opacity: 0.85;
+}
+
+.report-kpi-sparkline path {
+  stroke: var(--primary);
+}
+
+.report-kpi-card.is-info .report-kpi-sparkline path { stroke: #0ea5e9; }
+.report-kpi-card.is-success .report-kpi-sparkline path { stroke: #16a34a; }
+.report-kpi-card.is-warning .report-kpi-sparkline path { stroke: var(--omni-color-warning); }
+.report-kpi-card.is-danger .report-kpi-sparkline path { stroke: var(--omni-color-danger); }
+
+@media (max-width: 420px) {
+  /* Not enough width for both the number and a corner accent without crowding; the figure wins. */
+  .report-kpi-card {
+    padding-right: 16px;
+  }
+
+  .report-kpi-sparkline {
+    display: none;
+  }
+}
+
+/* == Analytics loading skeletons ==============================================
+   Sized from the real components, not by eye: the AreaChart's ResponsiveContainer
+   is height 190, the donut's outerRadius is 66 (so 132 across) inside a 150-tall
+   container, and Top Campaigns renders five rows. Matching those numbers is the
+   entire point — a skeleton of the wrong height moves the page when it resolves,
+   which is the problem it was meant to solve.
+   ========================================================================== */
+
+.report-skeleton-chart {
+  display: flex;
+  gap: var(--space-sm);
+  height: 190px;
+  padding: var(--space-xs) 0;
+}
+
+/* Stands in for the Y axis, whose width prop is 46. */
+.report-skeleton-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 46px;
+  padding: var(--space-2xs) 0;
+}
+
+.report-skeleton-axis .skeleton-box {
+  height: 8px;
+  width: 60%;
+}
+
+/* Bars sit on a shared baseline, like the area they replace. */
+.report-skeleton-plot {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-xs);
+}
+
+.report-skeleton-plot .skeleton-box {
+  flex: 1;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.report-skeleton-donut {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 150px;
+}
+
+.report-skeleton-donut .skeleton-box {
+  width: 132px;
+  height: 132px;
+}
+
+/* 7px gap and 15px rows are the measured legend, not round numbers: three rows at
+   15 plus two gaps at 7 is the 59px the real legend occupies. */
+.report-skeleton-legend {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+}
+
+.report-skeleton-legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  height: 15px;
+}
+
+.report-skeleton-legend .variant-circle {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+}
+
+.report-skeleton-legend .variant-text {
+  height: 10px;
+  flex: 1;
+}
+
+.report-skeleton-campaigns {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+  margin: 0;
+  padding: 0;
+}
+
+.report-skeleton-campaigns li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+/* Matches the real row: an 18px rank badge beside a 15px name line, a 5px gap and
+   a 4px bar — 24px tall, five of them at a 12px gap, which is the measured 168px. */
+.report-skeleton-campaigns li {
+  height: 24px;
+}
+
+.report-skeleton-campaigns .variant-circle {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.report-skeleton-campaigns li > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.report-skeleton-campaigns .variant-text {
+  height: 15px;
+  width: 70%;
+}
+
+/* The relative-length bar under each campaign name. */
+.report-skeleton-campaigns li > div > .skeleton-box:last-child {
+  height: 4px;
+  width: 100%;
+  border-radius: var(--radius-full);
+}
+
+/* Motion is decorative here; users who ask for less should get a static block
+   rather than three shimmering panels. */
+@media (prefers-reduced-motion: reduce) {
+  .report-skeleton-chart .skeleton-pulse,
+  .report-skeleton-donut .skeleton-pulse,
+  .report-skeleton-legend .skeleton-pulse,
+  .report-skeleton-campaigns .skeleton-pulse {
+    animation: none;
+  }
 }

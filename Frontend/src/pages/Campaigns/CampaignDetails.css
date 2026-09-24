@@ -112,8 +112,8 @@
 }
 
 .campaign-stat-icon-wrapper.blue {
-  background-color: #eff6ff;
-  color: #3b82f6;
+  background-color: var(--omni-color-primary-50);
+  color: var(--omni-color-primary-500);
 }
 
 .campaign-stat-icon-wrapper.green {
@@ -122,8 +122,8 @@
 }
 
 .campaign-stat-icon-wrapper.red {
-  background-color: #fee2e2;
-  color: #dc2626;
+  background-color: var(--omni-color-danger-bg);
+  color: var(--omni-color-danger);
 }
 
 .campaign-stat-value {
@@ -142,8 +142,8 @@
   font-family: var(--font-family);
   font-size: 13px;
   font-weight: 600;
-  color: #ffffff;
-  background-color: #dc2626; /* red */
+  color: var(--bg-secondary);
+  background-color: var(--omni-color-danger); /* red */
   border: none;
   padding: 10px 18px;
   border-radius: var(--radius-sm);
@@ -152,14 +152,14 @@
 }
 
 .btn-pause-campaign:hover {
-  background-color: #dc2626;
+  background-color: var(--omni-color-danger);
 }
 
 .btn-resume-campaign {
   font-family: var(--font-family);
   font-size: 13px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--bg-secondary);
   background-color: #10b981; /* green */
   border: none;
   padding: 10px 18px;
@@ -169,5 +169,5 @@
 }
 
 .btn-resume-campaign:hover {
-  background-color: #059669;
+  background-color: var(--omni-color-success);
 }

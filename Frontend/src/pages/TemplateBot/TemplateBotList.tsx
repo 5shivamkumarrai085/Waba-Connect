@@ -251,11 +251,21 @@ export const TemplateBotList: React.FC = () => {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={8} className="text-center py-4">
-                    <div className="loader-spinner">Loading bots...</div>
-                  </td>
-                </tr>
+                // Five skeleton rows shaped like a real one — an actual row of cells, not a single
+                // spanning placeholder — so the table does not collapse to one line and then jump
+                // to full height the moment data arrives.
+                Array.from({ length: 5 }).map((_, rowIndex) => (
+                  <tr key={`skeleton-${rowIndex}`} aria-hidden="true">
+                    {Array.from({ length: 8 }).map((__, colIndex) => (
+                      <td key={colIndex}>
+                        <span
+                          className="skeleton-box variant-text skeleton-pulse"
+                          style={{ height: 14, width: colIndex === 0 ? '60%' : '80%' }}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))
               ) : bots.length === 0 ? (
                 <tr>
                   <td

@@ -188,11 +188,18 @@ export const BotFlowList: React.FC = () => {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={5} className="text-center py-4">
-                    <div className="loader-spinner">Loading flows...</div>
-                  </td>
-                </tr>
+                Array.from({ length: 5 }).map((_, rowIndex) => (
+                  <tr key={`skeleton-${rowIndex}`} aria-hidden="true">
+                    {Array.from({ length: 5 }).map((__, colIndex) => (
+                      <td key={colIndex}>
+                        <span
+                          className="skeleton-box variant-text skeleton-pulse"
+                          style={{ height: 14, width: colIndex === 0 ? '60%' : '80%' }}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))
               ) : flows.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="no-records-row">

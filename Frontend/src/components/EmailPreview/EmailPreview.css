@@ -1,0 +1,162 @@
+/*
+ * Email live preview. The envelope sits above the rendered body, matching how a mail client
+ * shows a message and how the reference designs lay it out.
+ */
+
+.email-preview {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.email-preview-envelope {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  padding: var(--space-lg);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.email-preview-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  font-size: var(--text-body);
+}
+
+.email-preview-label {
+  flex: 0 0 62px;
+  color: var(--text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.email-preview-value {
+  min-width: 0;
+  color: var(--text-main);
+  /* Long addresses wrap rather than widening the preview column, which would push the wizard
+     form out of alignment. */
+  overflow-wrap: anywhere;
+}
+
+.email-preview-muted {
+  color: var(--text-muted);
+}
+
+/* Placeholders read as placeholders, so nobody mistakes {{contact_email}} for a real recipient. */
+.email-preview-placeholder {
+  color: var(--text-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-sm);
+}
+
+.email-preview-subject-row {
+  margin-top: var(--space-2xs);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-light);
+}
+
+.email-preview-subject {
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+}
+
+.email-preview-body {
+  padding: var(--space-lg);
+  /* A cream surface, as in the reference designs: it reads as "this is the message" rather than
+     as another panel of the app. */
+  background: var(--bg-primary);
+}
+
+.email-preview-content {
+  padding: var(--space-xl);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  /* Always dark text on white, in both themes. The body is the customer's own HTML, written
+     against a white email background — inheriting the app's dark-mode text colour would render
+     it near-invisible. */
+  color: #1e293b;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  /* A template that sets a wide table must scroll inside the preview rather than stretching it. */
+  overflow-x: auto;
+}
+
+.email-preview-content :where(h1, h2, h3, h4) {
+  margin: 0 0 var(--space-sm);
+  color: #0f172a;
+}
+
+.email-preview-content p {
+  margin: 0 0 var(--space-base);
+}
+
+.email-preview-content :where(p, li, td):last-child {
+  margin-bottom: 0;
+}
+
+.email-preview-content a {
+  color: #2563eb;
+}
+
+.email-preview-content img {
+  /* Stops an image with explicit width attributes from overflowing the panel. */
+  max-width: 100%;
+  height: auto;
+}
+
+.email-preview-content table {
+  max-width: 100%;
+  border-collapse: collapse;
+}
+
+.email-preview-hint {
+  margin: 0;
+  padding: var(--space-2xl) var(--space-lg);
+  text-align: center;
+  font-size: var(--text-body);
+  color: var(--text-muted);
+}
+
+.email-preview-attachments {
+  padding: var(--space-base) var(--space-lg);
+  border-top: 1px solid var(--border-light);
+}
+
+.email-preview-attachments-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  margin-bottom: var(--space-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+}
+
+.email-preview-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.email-preview-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  max-width: 100%;
+  padding: var(--space-2xs) var(--space-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  font-size: var(--text-xs);
+  color: var(--text-body-strong);
+}
+
+.email-preview-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}

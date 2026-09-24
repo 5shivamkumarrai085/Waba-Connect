@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Integration tests for the email channel.
+
+    A console runner rather than a unit-test framework, because every one of these tests is an
+    integration test: they exercise the real services against the real PostgreSQL database and a
+    real SMTP conversation, since that is where this feature's risk actually lives — the
+    FOR UPDATE SKIP LOCKED claim query, credential encryption at rest, and what bytes end up on
+    the wire cannot be verified against mocks.
+
+    Run it from the repository root with "dotnet run" against this project directory.
+
+    Every test creates rows prefixed "zz-" and removes them afterwards. The exit code is non-zero
+    when anything fails, so this drops into CI unchanged.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>EmailChannel.Tests</RootNamespace>
+    <!-- Not shipped, and never part of a published build. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Backend\WhatsAppCampaignApi.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Pinned to match what the Backend project resolves. Npgsql pulls an older EF, and letting
+      the two disagree produces an assembly-version load failure rather than a clear error.
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+  </ItemGroup>
+
+</Project>

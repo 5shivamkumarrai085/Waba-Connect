@@ -74,6 +74,8 @@ export const Sidebar: React.FC = () => {
       '/reporting': () => import('../pages/Reporting'),
       '/activity-logs': () => import('../pages/ActivityLogs'),
       '/connect-waba': () => import('../pages/ConnectWABA/ConnectWABA'),
+      '/connect-email': () => import('../pages/ConnectEmail/ConnectEmail'),
+      '/connections/new-email': () => import('../pages/Connections/ConnectNewEmailPage'),
       '/contacts': () => import('../pages/Contacts/ContactsList'),
       '/templates': () => import('../pages/Templates/TemplatesList'),
       '/bulk-campaigns': () => import('../pages/BulkCampaign/BulkCampaign'),

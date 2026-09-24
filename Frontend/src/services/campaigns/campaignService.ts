@@ -1,10 +1,15 @@
 import { apiClient } from '../apiClient'
+import { toApiChannel } from '../../types/channel'
 import type { Campaign, CampaignStatistics, CampaignRecipient, CampaignWizardForm } from '../../types/campaigns'
 
 const mapCampaign = (c: any): Campaign => ({
   id: c.id,
   name: c.name,
   templateName: c.templateName,
+  // Defaulted rather than left undefined, so the campaigns list can render a channel column for
+  // rows created before the API carried this field.
+  channel: c.channel ?? 'WhatsApp',
+  emailStats: c.emailStats ?? undefined,
   relationType: c.relationType,
   total: c.totalRecipients || 0,
   deliveredTo: c.deliveredCount || 0,
@@ -150,13 +155,44 @@ export const campaignService = {
 }
 export default campaignService
 
-const buildCampaignPayload = (form: CampaignWizardForm, connectionId?: number) => ({
-  name: form.name,
-  templateId: form.templateId,
-  relationType: form.relationType.join(','),
-  scheduleType: form.sendImmediately ? 'Immediate' : 'Scheduled',
-  scheduledAt: form.sendImmediately || !form.scheduledTime ? null : new Date(form.scheduledTime).toISOString(),
-  contactIds: form.selectedContactIds,
-  variables: form.variables || [],
-  connectionId: connectionId || (form as any).connectionId || null
-})
+/**
+ * Builds the create/update body.
+ *
+ * The email fields are only included for an email campaign. Sending them as nulls on a WhatsApp
+ * campaign would work, but it would also mean every existing request body changed shape — and the
+ * point of defaulting `channel` to WhatsApp is that nothing about the previous behaviour moves.
+ */
+const buildCampaignPayload = (form: CampaignWizardForm, connectionId?: number) => {
+  const isEmail = form.channel === 'email'
+
+  const base = {
+    name: form.name,
+    // The API spells it 'WhatsApp' / 'Email'; the frontend keys are lowercase.
+    channel: toApiChannel(form.channel ?? 'whatsapp'),
+    relationType: form.relationType.join(','),
+    scheduleType: form.sendImmediately ? 'Immediate' : 'Scheduled',
+    scheduledAt:
+      form.sendImmediately || !form.scheduledTime ? null : new Date(form.scheduledTime).toISOString(),
+    contactIds: form.selectedContactIds,
+    variables: form.variables || [],
+    connectionId: connectionId ?? form.connectionIds?.[0] ?? null
+  }
+
+  if (!isEmail) {
+    return { ...base, templateId: form.templateId }
+  }
+
+  return {
+    ...base,
+    // Still sent, because the field is non-nullable on the request DTO — the server ignores it
+    // for an email campaign and stores null.
+    templateId: 0,
+    emailTemplateId: form.emailTemplateId,
+    senderIdentityId: form.senderIdentityId,
+    subjectOverride: form.subjectOverride?.trim() || undefined,
+    replyToOverride: form.replyToOverride?.trim() || undefined,
+    attachments: form.attachments?.length ? form.attachments : undefined,
+    trackOpens: form.trackOpens ?? true,
+    trackClicks: form.trackClicks ?? true
+  }
+}

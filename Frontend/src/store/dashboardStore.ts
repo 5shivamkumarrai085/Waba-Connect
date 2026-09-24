@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { dashboardService } from '../services/dashboard/dashboardService'
+import type { ChannelBreakdownRow } from '../components/ChannelInsights/ChannelInsightsCard'
 
 interface StatMetric {
   total: number
@@ -52,6 +53,7 @@ interface DashboardState {
   readBreakdown: RateBreakdown
   topCampaigns: TopCampaign[]
   recentActivity: ActivityItem[]
+  channelBreakdown: ChannelBreakdownRow[]
   businessName: string | null
   isLoading: boolean
   isBackgroundSyncing: boolean
@@ -84,6 +86,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   deliveryBreakdown: {},
   readBreakdown: {},
   topCampaigns: [],
+  channelBreakdown: [],
   recentActivity: [],
   businessName: null,
   isLoading: false,
@@ -135,6 +138,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         readBreakdown: sum.readBreakdown || {},
         topCampaigns: sum.topCampaigns || [],
         recentActivity: sum.recentActivity || [],
+        channelBreakdown: sum.channelBreakdown || [],
         businessName: sum.businessName || null,
         isLoading: false,
         isBackgroundSyncing: false

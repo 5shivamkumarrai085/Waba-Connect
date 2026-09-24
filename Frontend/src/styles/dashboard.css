@@ -365,7 +365,7 @@
 }
 
 .delivery-rate-toggle-btn.active {
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .delivery-rate-toggle-indicator {
@@ -544,10 +544,10 @@
   flex-shrink: 0;
 }
 
-.recent-activity-icon.blue { background-color: #e0f2fe; color: #2563eb; }
+.recent-activity-icon.blue { background-color: #e0f2fe; color: var(--primary); }
 .recent-activity-icon.purple { background-color: #f3e8ff; color: #6d28d9; }
-.recent-activity-icon.green { background-color: #d1fae5; color: #065f46; }
-.recent-activity-icon.orange { background-color: #ffedd5; color: #ea580c; }
+.recent-activity-icon.green { background-color: var(--omni-color-success-bg); color: var(--omni-color-success-text); }
+.recent-activity-icon.orange { background-color: #ffedd5; color: var(--rma-orange); }
 
 .recent-activity-content {
   flex: 1;
@@ -687,3 +687,66 @@ progress.app-progress.gray::-webkit-progress-value {
    Old CSS @keyframe animations removed to prevent conflicts with Motion.
    Motion provides GPU-accelerated, prefers-reduced-motion-aware animations.
 */
+
+/* Channel Distribution + Channel Performance row (reference image 14). Full width: the card
+   holds a donut and a table side by side and is cramped in a half-width column. */
+.dashboard-channel-row {
+  margin-bottom: 24px;
+}
+
+/* ── Dashboard filter tabs (Today / Week / Month / All) ───────────────────── */
+
+.dashboard-filter-tabs {
+  display: flex;
+  align-items: center;
+  background: var(--bg-hover);
+  border-radius: var(--radius-full);
+  padding: 3px;
+  gap: 2px;
+}
+
+.dashboard-filter-tab {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+
+.dashboard-filter-tab:hover {
+  color: var(--text-body);
+}
+
+.dashboard-filter-tab.active {
+  background: var(--bg-primary);
+  color: var(--text-heading);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+/* Date range label under the greeting */
+.dashboard-date-range {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  background: var(--bg-hover);
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+}
+
+/* Chart column in the main grid */
+.dashboard-chart-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-chart-col > .dashboard-main-chart {
+  flex: 1;
+}

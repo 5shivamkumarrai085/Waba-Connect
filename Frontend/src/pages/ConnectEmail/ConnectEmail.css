@@ -1,0 +1,317 @@
+/*
+ * Email provider configuration (step 2).
+ *
+ * Builds on ConnectNewWabaPage.css rather than restating it, so the two connect wizards stay
+ * visually identical where they do the same thing.
+ */
+
+/* Provider configuration is a longer form than the WABA one, with DNS records that need room to
+   be readable. */
+.waba-wizard-wrapper.wide .waba-wizard-card {
+  max-width: 1040px;
+}
+
+.email-config-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-base);
+  padding: var(--space-5xl);
+  color: var(--text-muted);
+}
+
+/* The provider wordmark in the header, standing in for the AWS logo in the reference design.
+   Text rather than an image: shipping a third-party logo asset is a trademark question, and the
+   information it carries is just "which provider is this". */
+.email-config-provider-mark {
+  align-self: center;
+  padding: var(--space-2xs) var(--space-base);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.email-config-section {
+  padding-bottom: var(--space-2xl);
+  margin-bottom: var(--space-2xl);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.email-config-section:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.email-config-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.email-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 0 var(--space-2xl);
+}
+
+/* Authentication method. Cards rather than bare radios, because the choice has real
+   consequences — one stores a long-lived credential and one does not. */
+.email-radio-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-base);
+  margin-top: var(--space-xs);
+}
+
+.email-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-base) var(--space-lg);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.email-radio:hover {
+  border-color: var(--primary);
+}
+
+.email-radio.selected {
+  border-color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.06);
+}
+
+.email-radio input {
+  margin-top: 3px;
+  accent-color: var(--primary);
+}
+
+.email-radio span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.email-radio strong {
+  font-size: var(--text-md);
+  color: var(--text-heading);
+}
+
+.email-radio em {
+  font-style: normal;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* A number input with a trailing unit, e.g. "emails/second". */
+.email-input-with-unit {
+  display: flex;
+  align-items: stretch;
+}
+
+.email-input-with-unit .waba-field-input {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.email-input-unit {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-base);
+  border: 1px solid var(--border-color);
+  border-left: none;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--bg-subtle);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.email-field-warning {
+  color: var(--warning);
+}
+
+.email-action-row {
+  display: flex;
+  gap: var(--space-base);
+  margin-top: var(--space-lg);
+}
+
+.email-test-send-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-base);
+}
+
+.email-test-send-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* The group already carries bottom margin; the row aligns the button to the input, so the
+     margin would push them apart. */
+  margin-bottom: 0;
+}
+
+/* Result banners. */
+.email-result-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-base);
+  margin-top: var(--space-lg);
+  padding: var(--space-lg);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+}
+
+.email-result-banner.success {
+  border-color: var(--success);
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.email-result-banner.error {
+  border-color: var(--error);
+  background: var(--error-light);
+  color: var(--error);
+}
+
+.email-result-banner strong {
+  display: block;
+  font-size: var(--text-md);
+}
+
+.email-result-banner p {
+  margin: var(--space-3xs) 0 0;
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
+  /* Provider messages can be long and contain identifiers that must not be truncated. */
+  overflow-wrap: anywhere;
+}
+
+.email-result-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-2xs) var(--space-lg);
+  margin: var(--space-base) 0 0;
+  font-size: var(--text-sm);
+}
+
+.email-result-details dt {
+  font-weight: var(--weight-semibold);
+  opacity: 0.8;
+}
+
+.email-result-details dd {
+  margin: 0 0 var(--space-2xs);
+}
+
+/* Sending domains and their DNS records. */
+.email-domain-card {
+  margin-top: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.email-domain-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-base);
+}
+
+.email-domain-status {
+  margin-left: var(--space-sm);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.email-domain-status.verified {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.email-domain-status.pending,
+.email-domain-status.notstarted,
+.email-domain-status.temporaryfailure {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+
+.email-domain-status.failed {
+  background: var(--error-light);
+  color: var(--error);
+}
+
+.email-dns-table {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+  margin-top: var(--space-base);
+}
+
+.email-dns-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 92px;
+  align-items: start;
+  gap: var(--space-base);
+  padding: var(--space-base);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.email-dns-type,
+.email-dns-purpose {
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.email-dns-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.email-dns-label {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-light);
+}
+
+@media (max-width: 720px) {
+  .email-field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .email-test-send-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .email-dns-row {
+    /* The type and purpose chips stack above the fields rather than squeezing them to
+       unreadable width. */
+    grid-template-columns: 1fr;
+  }
+}

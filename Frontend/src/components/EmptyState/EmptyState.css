@@ -48,7 +48,7 @@
   font-family: var(--font-family);
   font-size: 13px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text-on-accent);
 
   background-color: var(--primary);
   border: none;

@@ -82,8 +82,8 @@
   width: 32px;
   height: 32px;
   border-radius: var(--radius-sm);
-  background-color: #eff6ff; /* light blue */
-  color: #3b82f6;
+  background-color: var(--omni-color-primary-50); /* light blue */
+  color: var(--omni-color-primary-500);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -134,18 +134,18 @@
 
 .health-status-badge.available,
 .health-status-badge.approved {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: var(--omni-color-success-bg);
+  color: var(--omni-color-success-text);
 }
 
 .health-status-badge.partial {
-  background-color: #fef3c7;
-  color: #92400e;
+  background-color: var(--omni-color-warning-bg);
+  color: var(--omni-color-warning-text);
 }
 
 .health-status-badge.unavailable {
-  background-color: #fee2e2;
-  color: #991b1b;
+  background-color: var(--omni-color-danger-bg);
+  color: var(--omni-color-danger-text);
 }
 
 .health-card-footer {
@@ -160,7 +160,7 @@
   font-family: var(--font-family);
   font-size: 13px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text-on-accent);
   background-color: #10b981;
   border: none;
   padding: 8px 16px;
@@ -170,5 +170,5 @@
 }
 
 .health-refresh-btn:hover {
-  background-color: #059669;
+  background-color: var(--omni-color-success);
 }

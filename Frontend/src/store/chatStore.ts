@@ -5,6 +5,16 @@ import { chatService } from '../services/chat/chatService'
 import type { ChatAccount, Conversation, Message } from '../types/chat'
 
 const SELECTED_CONNECTION_STORAGE_KEY = 'chat_selected_connection_id'
+const SELECTED_CHANNEL_STORAGE_KEY = 'chat_channel_filter'
+
+/**
+ * The "no channel filter" selection.
+ *
+ * A sentinel rather than null so the picker renders from one list without a special case for the
+ * default, and so the value is readable wherever it appears. It is deliberately not a
+ * MessageChannel: the API takes a real channel name or nothing at all.
+ */
+export const ALL_CHANNELS = 'All Channels'
 
 const readPersistedConnectionId = (): number | null => {
   try {
@@ -14,6 +24,14 @@ const readPersistedConnectionId = (): number | null => {
     return Number.isFinite(parsed) ? parsed : null
   } catch {
     return null
+  }
+}
+
+const readPersistedChannelFilter = (): string => {
+  try {
+    return window.localStorage.getItem(SELECTED_CHANNEL_STORAGE_KEY) ?? ALL_CHANNELS
+  } catch {
+    return ALL_CHANNELS
   }
 }
 
@@ -29,10 +47,20 @@ const persistConnectionId = (id: number | null) => {
   }
 }
 
+const persistChannelFilter = (channel: string) => {
+  try {
+    window.localStorage.setItem(SELECTED_CHANNEL_STORAGE_KEY, channel)
+  } catch {}
+}
+
 interface ChatStoreState {
   accounts: ChatAccount[]
   conversations: Conversation[]
   activeConversationId: number | null
+  /**
+   * The selected connection for single-channel mode (WhatsApp or Email).
+   * NULL when ALL_CHANNELS is active — that mode uses no connection filter.
+   */
   selectedConnectionId: number | null
   messages: Message[]
   messagesCache: Record<number, Message[]>
@@ -42,10 +70,15 @@ interface ChatStoreState {
   isRefreshing: boolean
   fromNumber: string
   conversationsFilter: string
+  /** ALL_CHANNELS, or a channel key the API understands ('WhatsApp' | 'Email'). */
+  channelFilter: string
   sidebarSearchQuery: string
   activeAbortController: AbortController | null
+  /** Sequence counter for loadConversations — only the latest response is applied. */
+  _loadSeq: number
 
   setSelectedConnectionId: (id: number | null) => void
+  setChannelFilter: (channel: string) => void
   loadAccounts: () => Promise<void>
   loadConversations: () => Promise<void>
   refreshActiveMessages: () => Promise<void>
@@ -62,7 +95,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   accounts: [],
   conversations: [],
   activeConversationId: null,
-  selectedConnectionId: readPersistedConnectionId(),
+  // On ALL_CHANNELS start with null (no specific connection required)
+  selectedConnectionId: readPersistedChannelFilter() === ALL_CHANNELS ? null : readPersistedConnectionId(),
   messages: [],
   messagesCache: {},
   activeAbortController: null,
@@ -72,18 +106,51 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   isRefreshing: false,
   fromNumber: '',
   conversationsFilter: 'All Chats',
+  channelFilter: readPersistedChannelFilter(),
   sidebarSearchQuery: '',
+  _loadSeq: 0,
 
   setSelectedConnectionId: (id) => {
     persistConnectionId(id)
     set({
       selectedConnectionId: id,
+      // Do NOT clear conversations here when ALL_CHANNELS — this is only called for
+      // single-channel connection changes
       conversations: [],
       activeConversationId: null,
       messages: []
     })
     get().loadConversations()
     get().loadAccounts()
+  },
+
+  /**
+   * Changing channel filter.
+   *
+   * ALL_CHANNELS: keep no specific connection (null). The backend returns all channels.
+   * WhatsApp/Email: clear to null then let the auto-select pick the right connection.
+   *
+   * We do NOT clear the conversation list immediately — we keep the old list until new data
+   * arrives to prevent "flash of empty content".
+   */
+  setChannelFilter: (channel) => {
+    if (get().channelFilter === channel) return
+
+    persistChannelFilter(channel)
+    persistConnectionId(null)
+
+    set({
+      channelFilter: channel,
+      selectedConnectionId: null,
+      // Keep old conversations visible until new data loads (no flash of empty)
+      activeConversationId: null,
+      messages: [],
+      accounts: [],
+      fromNumber: ''
+    })
+
+    // Immediately trigger a load for the new filter
+    get().loadConversations()
   },
 
   loadAccounts: async () => {
@@ -98,20 +165,49 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   loadConversations: async () => {
-    const { sidebarSearchQuery, conversationsFilter, selectedConnectionId, isLoadingConversations } = get()
-    if (isLoadingConversations) return
-    // No connection resolved yet (fresh session before auto-select runs, or persisted id not restored) —
-    // skip rather than hitting the unfiltered endpoint, which would return every connection's chats mixed together.
-    if (!selectedConnectionId) return
+    const { sidebarSearchQuery, conversationsFilter, selectedConnectionId, channelFilter } = get()
 
-    set({ isLoadingConversations: true })
+    // ALL_CHANNELS: load with no connectionId (backend returns all channels)
+    // Single channel: load with connectionId if available, but DO NOT block if null
+    // — null simply means "no connection filter yet", which is valid for ALL_CHANNELS
+    const isAllChannels = channelFilter === ALL_CHANNELS
+
+    // For single-channel mode: if we have no connection yet, don't load
+    // (connection auto-select will fire and call loadConversations again)
+    if (!isAllChannels && !selectedConnectionId) return
+
+    // Increment sequence. Only the response for the LATEST sequence is applied.
+    const seq = get()._loadSeq + 1
+    set({ _loadSeq: seq, isLoadingConversations: true })
+
     try {
-      const list = await chatService.getConversations(sidebarSearchQuery, conversationsFilter, selectedConnectionId || undefined)
-      set({ conversations: list })
+      const list = await chatService.getConversations(
+        sidebarSearchQuery,
+        conversationsFilter,
+        // ALL_CHANNELS passes no connectionId — backend returns all
+        isAllChannels ? undefined : (selectedConnectionId || undefined),
+        // ALL_CHANNELS passes no channel — backend returns all channels
+        isAllChannels ? undefined : channelFilter
+      )
+
+      set((state) => {
+        if (state._loadSeq !== seq) return {}
+        // Never replace a valid list with [] from a background poll error.
+        // If the new list is empty but we had conversations before, keep the old ones
+        // unless the user explicitly changed filters/search.
+        if (list.length === 0 && state.conversations.length > 0 && !sidebarSearchQuery) {
+          // Empty response during polling — might be transient. Keep existing.
+          return {}
+        }
+        return { conversations: list }
+      })
     } catch {
-      // Error handled silently
+      // On error: keep existing conversations visible. Never show empty on error.
     } finally {
-      set({ isLoadingConversations: false })
+      set((state) => {
+        if (state._loadSeq !== seq) return {}
+        return { isLoadingConversations: false }
+      })
     }
   },
 
@@ -129,18 +225,24 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         set((state) => {
           // Preserve optimistic (temp) messages that haven't been confirmed by server yet
           const tempMessages = state.messages.filter(m => m.id < 0)
-          const mergedMessages = [...serverMessages, ...tempMessages]
+          // De-duplicate by id
+          const seen = new Set<number>()
+          const deduped = [...serverMessages, ...tempMessages].filter(m => {
+            if (seen.has(m.id)) return false
+            seen.add(m.id)
+            return true
+          })
           return {
-            messages: mergedMessages,
+            messages: deduped,
             messagesCache: {
               ...state.messagesCache,
-              [fetchId]: mergedMessages
+              [fetchId]: deduped
             }
           }
         })
       }
     } catch {
-      // Error handled silently
+      // Error handled silently — keep existing messages
     } finally {
       set({ isRefreshing: false })
     }
@@ -177,9 +279,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           )
         }))
 
-        // Tell the server once, here. Fetching messages no longer clears the unread count as a
-        // side effect, which is what let the message poll become a pure read. Fire-and-forget:
-        // the badge is already cleared locally and a failure only means it reappears later.
         void chatService.markConversationRead(id).catch(() => {})
       }
     } catch (err: any) {
@@ -258,8 +357,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         })
       }
 
-      const list = await chatService.getConversations(get().sidebarSearchQuery, get().conversationsFilter, get().selectedConnectionId || undefined)
-      set({ conversations: list })
+      // Refresh conversation list — use loadConversations which handles ALL_CHANNELS correctly
+      get().loadConversations()
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to send message.'
       toast.error(errorMessage)
@@ -317,8 +416,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
     await chatService.deleteMessages(activeConversationId, messageIds)
 
-    // Dropped locally rather than refetched: the server has already soft-deleted them, and a
-    // refetch would make the bubbles linger for a round-trip after the user confirmed.
     const removed = new Set(messageIds)
     set((state) => ({ messages: state.messages.filter((m) => !removed.has(m.id)) }))
   }

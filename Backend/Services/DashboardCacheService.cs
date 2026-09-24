@@ -105,6 +105,7 @@ public class DashboardCacheService : IDashboardCacheService
             var hourlyTask = GetHourlyChartAsync(currentCutoff);
             var topAndRecentCampaignsTask = GetTopAndRecentCampaignsAsync(currentCutoff);
             var recentActivityTask = GetRecentActivityAndBusinessNameAsync();
+        var channelBreakdownTask = GetChannelBreakdownAsync(currentCutoff);
 
             await Task.WhenAll(
                 coreCountsTask,
@@ -112,7 +113,8 @@ public class DashboardCacheService : IDashboardCacheService
                 sparklinesTask,
                 hourlyTask,
                 topAndRecentCampaignsTask,
-                recentActivityTask);
+                recentActivityTask,
+                channelBreakdownTask);
 
             var core = coreCountsTask.Result;
             var prev = previousPeriodTask.Result;
@@ -120,6 +122,7 @@ public class DashboardCacheService : IDashboardCacheService
             var hourly = hourlyTask.Result;
             var topAndRecent = topAndRecentCampaignsTask.Result;
             var recentActivityResult = recentActivityTask.Result;
+            var channelBreakdown = channelBreakdownTask.Result;
 
             // Previous-period comparison (null for "all", where there is no meaningful prior window).
             object? previousPeriod = null;
@@ -173,6 +176,7 @@ public class DashboardCacheService : IDashboardCacheService
                 messagesDelivered = core.MessagesDelivered,
                 messagesRead = core.MessagesRead,
                 messagesFailed = core.MessagesFailed,
+                messagesReplies = core.MessagesReplies,
                 messagesPending = core.MessagesPending,
                 previousPeriod,
                 messagesSparkline = sparklines.MessagesSparkline,
@@ -187,6 +191,7 @@ public class DashboardCacheService : IDashboardCacheService
                 deliveryBreakdown,
                 readBreakdown,
                 recentActivity = recentActivityResult.RecentActivity,
+                channelBreakdown,
                 businessName = recentActivityResult.BusinessName,
                 overallDeliveryRate = Math.Round(overallDeliveryRate, 2),
                 overallReadRate = Math.Round(overallReadRate, 2)
@@ -214,7 +219,8 @@ public class DashboardCacheService : IDashboardCacheService
         int TotalContacts, int ContactsActive,
         int TotalCampaigns, int CampaignsActive,
         int TemplatesTotal, int TemplatesApproved,
-        int MessagesSent, int MessagesDelivered, int MessagesRead, int MessagesFailed, int MessagesPending);
+        int MessagesSent, int MessagesDelivered, int MessagesRead, int MessagesFailed, int MessagesPending,
+        int MessagesReplies);
 
     private record PreviousPeriodCounts(int ContactsCount, int CampaignsCount, int TemplatesCount, int MessagesCount);
 
@@ -231,6 +237,116 @@ public class DashboardCacheService : IDashboardCacheService
     // Contacts/campaigns/templates totals + message status breakdown for the active period.
     // Campaign/template counts and the campaign-id filter used for message status are all done
     // SQL-side (CountAsync / subquery), never materializing full campaign or template tables.
+    /// <summary>One channel's totals for the dashboard's distribution and performance widgets.</summary>
+    /// <param name="Channel">"WhatsApp" or "Email".</param>
+    /// <param name="Messages">
+    /// Everything that left the system, whatever happened next. Excludes suppressed recipients:
+    /// those were never sent, and counting them would understate the delivery rate of a channel
+    /// that is behaving correctly.
+    /// </param>
+    /// <param name="SharePercent">Share of all channels' messages, for the distribution donut.</param>
+    private sealed record ChannelBreakdownRow(
+        string Channel,
+        int Messages,
+        int Delivered,
+        int Failed,
+        int Read,
+        int Pending,
+        int Suppressed,
+        int Replies,
+        double DeliveryRate,
+        /// <summary>Replies as a share of what was sent — how engaged this channel's audience is.</summary>
+        double ReplyRate,
+        double SharePercent);
+
+    /// <summary>
+    /// Per-channel message totals.
+    ///
+    /// <para>
+    /// Scoped by the same campaign-id subquery the core counts use, so the per-channel numbers
+    /// add up to the totals shown beside them — deriving them from a different filter is how a
+    /// dashboard ends up contradicting itself.
+    /// </para>
+    /// <para>
+    /// Every channel is returned, including ones with no traffic: an absent Email row and an
+    /// Email row reading zero mean different things, and only the second says "configured but
+    /// unused".
+    /// </para>
+    /// </summary>
+    private async Task<List<ChannelBreakdownRow>> GetChannelBreakdownAsync(DateTime? currentCutoff)
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+        var queryCampaigns = db.Campaigns.AsNoTracking();
+        if (currentCutoff.HasValue)
+        {
+            queryCampaigns = queryCampaigns.Where(c => c.CreatedAt >= currentCutoff.Value);
+        }
+
+        // One grouped round trip rather than a query per channel per status.
+        var campaignIdsInPeriod = queryCampaigns.Select(c => c.Id);
+        var rows = await db.CampaignContacts.AsNoTracking()
+            .Where(cc => campaignIdsInPeriod.Contains(cc.CampaignId))
+            .GroupBy(cc => new { cc.Campaign.Channel, cc.Status })
+            .Select(g => new { g.Key.Channel, g.Key.Status, Count = g.Count() })
+            .ToListAsync();
+
+        // Inbound messages per channel, in one grouped query rather than one per channel.
+        var repliesQuery = db.ChatMessages.AsNoTracking()
+            .Where(m => m.Direction == ChatMessageDirection.Incoming);
+
+        if (currentCutoff.HasValue)
+        {
+            repliesQuery = repliesQuery.Where(m => m.CreatedAt >= currentCutoff.Value);
+        }
+
+        var repliesByChannel = await repliesQuery
+            .GroupBy(m => m.Channel)
+            .Select(g => new { Channel = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Channel, g => g.Count);
+
+        var perChannel = new List<ChannelBreakdownRow>();
+
+        foreach (var channel in Enum.GetValues<MessageChannel>())
+        {
+            var forChannel = rows.Where(r => r.Channel == channel).ToList();
+            int CountOf(MessageStatus status) => forChannel.FirstOrDefault(r => r.Status == status)?.Count ?? 0;
+
+            var read = CountOf(MessageStatus.Read);
+            var delivered = CountOf(MessageStatus.Delivered) + read;
+            var failed = CountOf(MessageStatus.Failed)
+                       + CountOf(MessageStatus.Bounced)
+                       + CountOf(MessageStatus.Complained);
+            var suppressed = CountOf(MessageStatus.Suppressed);
+            var messages = forChannel.Where(r => r.Status != MessageStatus.Suppressed).Sum(r => r.Count);
+
+            var replies = repliesByChannel.TryGetValue(channel, out var replyCount) ? replyCount : 0;
+
+            perChannel.Add(new ChannelBreakdownRow(
+                Channel: channel.ToString(),
+                Messages: messages,
+                Delivered: delivered,
+                Failed: failed,
+                Read: read,
+                Pending: CountOf(MessageStatus.Pending),
+                Suppressed: suppressed,
+                Replies: replies,
+                DeliveryRate: messages > 0 ? Math.Round((double)delivered / messages * 100, 1) : 0,
+                ReplyRate: messages > 0 ? Math.Round((double)replies / messages * 100, 1) : 0,
+                // Filled in below: the share needs every channel's total, which is not known yet.
+                SharePercent: 0));
+        }
+
+        var grandTotal = perChannel.Sum(r => r.Messages);
+
+        return perChannel
+            .Select(r => r with
+            {
+                SharePercent = grandTotal > 0 ? Math.Round((double)r.Messages / grandTotal * 100, 1) : 0
+            })
+            .ToList();
+    }
+
     private async Task<CoreCounts> GetCoreCountsAsync(DateTime? currentCutoff)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
@@ -268,18 +384,41 @@ public class DashboardCacheService : IDashboardCacheService
 
         int CountByStatus(MessageStatus status) => statusCounts.TryGetValue(status, out var c) ? c : 0;
 
-        var messagesSent = statusCounts.Where(kv => kv.Key != MessageStatus.Pending).Sum(kv => kv.Value);
+        // Suppressed is excluded alongside Pending: a suppressed recipient was deliberately not
+        // sent to, and counting it as sent would depress the delivery rate of a channel that is
+        // behaving exactly as asked. No effect on existing data — only email produces the status.
+        var messagesSent = statusCounts
+            .Where(kv => kv.Key != MessageStatus.Pending && kv.Key != MessageStatus.Suppressed)
+            .Sum(kv => kv.Value);
         var messagesDelivered = CountByStatus(MessageStatus.Delivered) + CountByStatus(MessageStatus.Read);
         var messagesRead = CountByStatus(MessageStatus.Read);
-        var messagesFailed = CountByStatus(MessageStatus.Failed);
+        // A bounce and a complaint are both delivery failures. They are email-only statuses, so
+        // this leaves every WhatsApp number exactly as it was.
+        var messagesFailed = CountByStatus(MessageStatus.Failed)
+                           + CountByStatus(MessageStatus.Bounced)
+                           + CountByStatus(MessageStatus.Complained);
         // In-flight: dispatched but not yet resolved to Delivered/Read/Failed. delivered+failed+pending == messagesSent.
         var messagesPending = CountByStatus(MessageStatus.Sent);
+
+        // Replies are inbound chat messages, counted on their own timestamp rather than through
+        // the campaign-id subquery above: a reply to last month's campaign is this month's reply,
+        // and scoping it by the campaign's creation date would file it under the wrong period.
+        var queryReplies = db.ChatMessages.AsNoTracking()
+            .Where(m => m.Direction == ChatMessageDirection.Incoming);
+
+        if (currentCutoff.HasValue)
+        {
+            queryReplies = queryReplies.Where(m => m.CreatedAt >= currentCutoff.Value);
+        }
+
+        var messagesReplies = await queryReplies.CountAsync();
 
         return new CoreCounts(
             totalContacts, contactsActive,
             totalCampaigns, campaignsActive,
             templatesTotal, templatesApproved,
-            messagesSent, messagesDelivered, messagesRead, messagesFailed, messagesPending);
+            messagesSent, messagesDelivered, messagesRead, messagesFailed, messagesPending,
+            messagesReplies);
     }
 
     // Raw counts for the immediately preceding period of equal length, used to compute the change-percent shown per stat card.

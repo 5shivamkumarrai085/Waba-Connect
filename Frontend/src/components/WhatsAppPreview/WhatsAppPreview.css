@@ -25,7 +25,7 @@
   height: 32px;
   border-radius: var(--radius-full);
   background-color: #128c7e; /* WhatsApp dark green */
-  color: #ffffff;
+  color: var(--text-on-accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -80,7 +80,7 @@
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
-  background-color: #ffffff;
+  background-color: var(--omni-color-surface);
   padding: 24px 16px;
   border: 1px dashed var(--border-color);
   border-radius: var(--radius-md);

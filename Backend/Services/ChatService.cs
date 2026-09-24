@@ -109,7 +109,11 @@ public class ChatService : IChatService
         return query.Where(c => c.Contact.AssignedTo != null && c.Contact.AssignedTo == assignedToName);
     }
 
-    public async Task<List<ChatConversationResponse>> GetConversationsAsync(string? search = null, string? filter = null, int? connectionId = null)
+    public async Task<List<ChatConversationResponse>> GetConversationsAsync(
+        string? search = null,
+        string? filter = null,
+        int? connectionId = null,
+        string? channel = null)
     {
         // No reconciliation here. This is polled by every open Chat tab, and rebuilding the
         // contact × connection cross-product (with writes) on each poll was the single largest
@@ -133,6 +137,15 @@ public class ChatService : IChatService
             query = query.Where(c => c.ConnectionId == connectionId.Value);
         }
 
+        // Only when it parses. An unrecognised value narrows to nothing, which would look like an
+        // empty inbox rather than a bad request — so it is treated as "no channel filter", the
+        // same way an absent value is.
+        if (!string.IsNullOrWhiteSpace(channel)
+            && Enum.TryParse<MessageChannel>(channel, true, out var parsedChannel))
+        {
+            query = query.Where(c => c.Channel == parsedChannel);
+        }
+
         if (!string.IsNullOrWhiteSpace(search))
         {
             var normalizedSearch = search.Trim().ToLower();
@@ -148,7 +161,18 @@ public class ChatService : IChatService
                 || (c.LastMessageText != null && c.LastMessageText.ToLower().Contains(normalizedSearch))
                 || (c.Connection != null && c.Connection.Name.ToLower().Contains(normalizedSearch))
                 || c.Contact.GroupMemberships.Any(m =>
-                       m.Group != null && m.Group.Name.ToLower().Contains(normalizedSearch)));
+                       m.Group != null && m.Group.Name.ToLower().Contains(normalizedSearch))
+
+                // The subject of any email in the thread. On the email channel the subject is
+                // how a conversation is identified — "Re: Product Demo Request" is what an
+                // operator remembers, not the body — and the inbox offers to search on it.
+                //
+                // Translated to an EXISTS subquery, so it costs nothing on the WhatsApp rows
+                // that have no email detail to join.
+                || c.Messages.Any(m =>
+                       m.EmailDetail != null
+                       && m.EmailDetail.Subject != null
+                       && m.EmailDetail.Subject.ToLower().Contains(normalizedSearch)));
         }
 
         if (string.Equals(filter, "Unread Chats", StringComparison.OrdinalIgnoreCase))
@@ -206,6 +230,9 @@ public class ChatService : IChatService
 
         var messages = await _dbContext.ChatMessages
             .AsNoTracking()
+            // The email side-table, for threads on the email channel. A left join by navigation:
+            // WhatsApp messages simply have none, and pay only for the outer join.
+            .Include(m => m.EmailDetail)
             .Where(m => m.ConversationId == conversationId && !m.IsDeleted)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync();
@@ -729,6 +756,8 @@ public class ChatService : IChatService
             ContactId = conversation.ContactId,
             ConnectionId = conversation.ConnectionId,
             ConnectionName = conversation.Connection?.Name,
+            Channel = conversation.Channel.ToString(),
+            Email = conversation.Contact.Email,
             Name = conversation.Contact.Name,
             // The contact's Type, sent verbatim. It used to be lower-cased here, which meant the
             // client could not match it against the ContactTypes lookup to find its label and
@@ -771,7 +800,20 @@ public class ChatService : IChatService
             DeliveredAt = message.DeliveredAt,
             ReadAt = message.ReadAt,
             CampaignId = message.CampaignId,
-            WhatsAppMessageId = message.WhatsAppMessageId
+            WhatsAppMessageId = message.WhatsAppMessageId,
+
+            Channel = message.Channel.ToString(),
+
+            // Present only when the side-table row was loaded. Callers that do not Include it get
+            // nulls rather than a lazy-loading surprise, which is why the thread query above asks
+            // for it explicitly.
+            Subject = message.EmailDetail?.Subject,
+            FromAddress = message.EmailDetail?.FromAddress,
+            FromName = message.EmailDetail?.FromName,
+            ToAddresses = message.EmailDetail?.ToAddresses,
+            CcAddresses = message.EmailDetail?.CcAddresses,
+            HtmlBody = message.EmailDetail?.HtmlBody,
+            HasAttachments = message.EmailDetail?.HasAttachments ?? false
         };
     }
 

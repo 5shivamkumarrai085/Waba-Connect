@@ -14,6 +14,7 @@ import './MessageBotList.css'
 import Can from '../../components/Can/Can'
 import usePermission from '../../hooks/usePermission'
 import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
+import { Skeleton } from '../../components/Skeleton'
 
 export const MessageBotList: React.FC = () => {
   const navigate = useNavigate()
@@ -228,9 +229,7 @@ export const MessageBotList: React.FC = () => {
         {/* Datatable rows */}
         <div className="data-table-wrapper">
           {isLoading ? (
-            <div className="data-table-empty">
-              <p>Loading message bots...</p>
-            </div>
+            <Skeleton variant="table" />
           ) : (
             <table className="data-table">
               <thead>

@@ -6,7 +6,16 @@ namespace WhatsAppCampaignApi.Services.Interfaces;
 public interface IChatService
 {
     Task<List<ChatAccountResponse>> GetAccountsAsync(int? connectionId = null);
-    Task<List<ChatConversationResponse>> GetConversationsAsync(string? search = null, string? filter = null, int? connectionId = null);
+    /// <param name="channel">
+    /// "WhatsApp" or "Email". Null or unrecognised means every channel — filtering server-side
+    /// rather than in the client is what lets the inbox scope the list to one channel at all,
+    /// since the client only ever received one connection's worth of rows.
+    /// </param>
+    Task<List<ChatConversationResponse>> GetConversationsAsync(
+        string? search = null,
+        string? filter = null,
+        int? connectionId = null,
+        string? channel = null);
     Task<ChatConversationResponse> GetConversationAsync(int id);
     Task<List<ChatMessageResponse>> GetMessagesAsync(int conversationId);
     Task<ChatMessageResponse> SendMessageAsync(int conversationId, SendChatMessageRequest request);

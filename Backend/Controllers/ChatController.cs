@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WhatsAppCampaignApi.Models.DTOs.Chat;
 using WhatsAppCampaignApi.Models.DTOs.Common;
+using WhatsAppCampaignApi.Services.Email;
 using WhatsAppCampaignApi.Services.Interfaces;
 
 using WhatsAppCampaignApi.Helpers;
@@ -14,10 +15,12 @@ namespace WhatsAppCampaignApi.Controllers;
 public class ChatController : ControllerBase
 {
     private readonly IChatService _chatService;
+    private readonly IEmailReplyService _emailReply;
 
-    public ChatController(IChatService chatService)
+    public ChatController(IChatService chatService, IEmailReplyService emailReply)
     {
         _chatService = chatService;
+        _emailReply = emailReply;
     }
 
     [HttpGet("accounts")]
@@ -33,10 +36,63 @@ public class ChatController : ControllerBase
     public async Task<ActionResult<ApiResponse<List<ChatConversationResponse>>>> GetConversations(
         [FromQuery] string? search = null,
         [FromQuery] string? filter = null,
-        [FromQuery] int? connectionId = null)
+        [FromQuery] int? connectionId = null,
+        // Absent means every channel, so a caller written before the email channel existed still
+        // gets exactly what it got before.
+        [FromQuery] string? channel = null)
     {
-        var data = await _chatService.GetConversationsAsync(search, filter, connectionId);
+        var data = await _chatService.GetConversationsAsync(search, filter, connectionId, channel);
         return Ok(new ApiResponse<List<ChatConversationResponse>> { Success = true, Data = data });
+    }
+
+    /// <summary>
+    /// Sends one email from an email thread — a reply, a reply-all, or a forward.
+    /// </summary>
+    /// <remarks>
+    /// The three are the same operation with different recipients and subject, decided by the
+    /// composer: Reply addresses the sender, Reply All adds the other correspondents, Forward
+    /// takes a fresh address list. Three endpoints would be three ways to write the same row.
+    /// </remarks>
+    [HttpPost("conversations/{id:int}/email-reply")]
+    [RequiresPermission("Chat.Send")]
+    public async Task<IActionResult> SendEmailReply(
+        int id,
+        [FromBody] SendEmailReplyRequest request,
+        CancellationToken ct)
+    {
+        // Decode any base64 attachments from the composer before handing off to the service.
+        var attachments = (request.Attachments ?? [])
+            .Where(a => !string.IsNullOrWhiteSpace(a.Base64Data))
+            .Select(a =>
+            {
+                byte[] bytes;
+                try { bytes = Convert.FromBase64String(a.Base64Data); }
+                catch { bytes = []; }
+                return new EmailReplyAttachment(
+                    FileName: string.IsNullOrWhiteSpace(a.FileName) ? "attachment" : a.FileName,
+                    ContentType: string.IsNullOrWhiteSpace(a.ContentType) ? "application/octet-stream" : a.ContentType,
+                    Content: bytes);
+            })
+            .ToList();
+
+        var result = await _emailReply.SendAsync(id, new EmailReplyRequest(
+            Subject: request.Subject ?? string.Empty,
+            BodyHtml: request.BodyHtml ?? string.Empty,
+            To: request.To ?? [],
+            Cc: request.Cc,
+            Bcc: request.Bcc,
+            InReplyToMessageId: request.InReplyToMessageId,
+            Attachments: attachments.Count > 0 ? attachments : null), ct);
+
+        // A refused send is a 200 with Success=false, matching how the rest of this controller
+        // reports an outcome the caller asked for and did not get. The composer needs the reason
+        // to show, not an exception to catch.
+        return Ok(new ApiResponse<int?>
+        {
+            Success = result.Success,
+            Message = result.Message,
+            Data = result.ChatMessageId
+        });
     }
 
     [HttpGet("conversations/{id}")]

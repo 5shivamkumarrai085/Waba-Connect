@@ -19,12 +19,44 @@ using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Data.Seed;
 using WhatsAppCampaignApi.Helpers;
 using WhatsAppCampaignApi.Middleware;
+using WhatsAppCampaignApi.Models.Options;
 using WhatsAppCampaignApi.Services;
+using WhatsAppCampaignApi.Services.Email;
 using WhatsAppCampaignApi.Services.Interfaces;
+using WhatsAppCampaignApi.Services.Queue;
 using WhatsAppCampaignApi.Validators;
 using WhatsAppCampaignApi.Executors;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// The unsubscribe signing key, derived when nobody configured one.
+//
+// This key signs the one-click unsubscribe tokens in outgoing mail. It has to be secret, and it
+// has to be stable — regenerating it per process would invalidate every unsubscribe link already
+// sitting in somebody's inbox — but nothing requires a human to pick it.
+//
+// So it is derived from the encryption key this application already manages, with HKDF and a
+// purpose string. Domain separation means the derived key reveals nothing about the encryption
+// key and cannot be substituted for it. One managed secret instead of two, and a deployment can
+// no longer fail to boot over a value it never knew it had to set.
+//
+// An explicit Email:Unsubscribe:SigningKey still wins, for deployments that rotate the two
+// independently.
+if (string.IsNullOrWhiteSpace(builder.Configuration["Email:Unsubscribe:SigningKey"]))
+{
+    var rootKey = builder.Configuration["Encryption:Key"];
+
+    if (!string.IsNullOrWhiteSpace(rootKey))
+    {
+        var derived = System.Security.Cryptography.HKDF.DeriveKey(
+            System.Security.Cryptography.HashAlgorithmName.SHA256,
+            ikm: System.Text.Encoding.UTF8.GetBytes(rootKey),
+            outputLength: 32,
+            info: System.Text.Encoding.UTF8.GetBytes("WabaConnect.Email.Unsubscribe.v1"));
+
+        builder.Configuration["Email:Unsubscribe:SigningKey"] = Convert.ToBase64String(derived);
+    }
+}
 
 // 1. Serilog configuration
 // The file sink writes compact JSON (CLEF) rather than plain text so the Setup > System Logs
@@ -126,6 +158,136 @@ builder.Services.AddScoped<INodeExecutor, AIAssistantExecutor>();
 builder.Services.AddScoped<INodeExecutor, CallToActionExecutor>();
 
 builder.Services.AddScoped<IEncryptionService, EncryptionService>();
+
+// ---- Email channel configuration -------------------------------------------------------------
+// Bound and validated once at startup, unlike the inline IConfiguration reads used elsewhere in
+// this file. The email subsystem has knobs whose wrong values are silent rather than loud — a
+// visibility timeout shorter than a send produces duplicate mail, a missing signing key produces
+// unsubscribe links that no recipient can use — so they are worth failing the boot over.
+builder.Services.AddOptions<EmailOptions>()
+    .Bind(builder.Configuration.GetSection(EmailOptions.SectionName))
+    .ValidateDataAnnotations()
+    .Validate(options =>
+    {
+        // Everything below only matters once the channel is actually switched on, so a developer
+        // machine with no email configuration still starts.
+        if (!options.Enabled) return true;
+
+        if (options.Queue.MaxBackoffSeconds < options.Queue.BaseBackoffSeconds) return false;
+
+        // A per-partition cap above the batch size is not wrong, just inert — but it means
+        // somebody intended fairness and did not get it.
+        if (options.Queue.PerPartitionCap > options.Queue.ClaimBatchSize) return false;
+
+        // Unsubscribe is a legal requirement for bulk mail, not a feature: without a signing key
+        // and a reachable base URL there is no working opt-out, so refuse to start.
+        //
+        // SigningKey is derived above when unset, so reaching this means Encryption:Key is also
+        // missing — which would break far more than email.
+        if (string.IsNullOrWhiteSpace(options.Unsubscribe.SigningKey)) return false;
+        if (string.IsNullOrWhiteSpace(options.Unsubscribe.PublicBaseUrl)) return false;
+
+        // An anonymous webhook with no topic allowlist would accept any validly-signed SNS
+        // notification from any AWS account. Only required for SES — SMTP inbound uses IMAP
+        // polling and has no SNS dependency.
+        if (options.Inbound.Enabled
+            && options.DefaultProvider.Equals("AmazonSes", StringComparison.OrdinalIgnoreCase)
+            && options.Ses.AllowedSnsTopicArns.Length == 0) return false;
+
+        return true;
+    }, DescribeEmailConfigurationProblem(builder.Configuration))
+    .ValidateOnStart();
+
+// The queue transport. Singleton: it holds no per-request state, and it manages its own
+// connections rather than borrowing the request-scoped DbContext — see PostgresJobQueue for why.
+// Selected by Email:Queue:Transport, which is the seam an SQS implementation would plug into
+// without either worker changing.
+var queueTransport = builder.Configuration["Email:Queue:Transport"] ?? "Postgres";
+switch (queueTransport.ToLowerInvariant())
+{
+    case "postgres":
+        builder.Services.AddSingleton<IJobQueue, PostgresJobQueue>();
+        break;
+    default:
+        // Fail at startup rather than at the first enqueue. A typo here would otherwise look
+        // like a queue that accepts work and never runs it.
+        throw new InvalidOperationException(
+            $"Unsupported Email:Queue:Transport '{queueTransport}'. Supported values: Postgres.");
+}
+
+// Email background workers only run when the channel is switched on. A half-configured
+// deployment should do nothing rather than accept campaigns it cannot send.
+if (builder.Configuration.GetValue("Email:Enabled", false))
+{
+    builder.Services.AddHostedService<JobQueueMaintenanceWorker>();
+
+    // Two stages rather than one worker doing both: expansion is a database operation that
+    // either works or does not, while dispatch is hundreds of independent network calls each
+    // needing its own retry. Both are safe to run on every instance concurrently.
+    builder.Services.AddHostedService<CampaignExpansionWorker>();
+    builder.Services.AddHostedService<EmailDispatchWorker>();
+
+    // IMAP polling for inbound replies. Only when explicitly enabled — a connection with no
+    // IMAP settings configured simply has nothing to poll, but the worker itself must be running
+    // so it picks up newly-configured mailboxes without a restart.
+    if (builder.Configuration.GetValue("Email:Inbound:Enabled", false))
+    {
+        builder.Services.AddHostedService<ImapPollingWorker>();
+    }
+}
+
+// Both email providers are registered against IEmailProvider, and EmailProviderFactory picks by
+// ProviderName — the same arrangement as IAiProvider above. That is what makes the provider a
+// per-connection setting rather than a deployment decision, and what lets a third provider be
+// added later by registering it here and nowhere else.
+builder.Services.AddSingleton<IMimeMessageBuilder, MimeMessageBuilder>();
+builder.Services.AddScoped<IEmailProvider, SesEmailProvider>();
+builder.Services.AddScoped<IEmailProvider, SmtpEmailProvider>();
+builder.Services.AddScoped<IEmailProviderFactory, EmailProviderFactory>();
+builder.Services.AddScoped<IEmailConnectionService, EmailConnectionService>();
+builder.Services.AddScoped<IEmailTemplateService, EmailTemplateService>();
+builder.Services.AddScoped<IEmailDomainService, EmailDomainService>();
+builder.Services.AddScoped<IEmailEventProcessor, EmailEventProcessor>();
+
+// SNS signature verification. Its own named client with a short timeout: fetching the signing
+// certificate happens inline on a webhook request, and a slow AWS endpoint must not hold the
+// request open while SNS waits for an acknowledgement.
+builder.Services.AddScoped<ISnsMessageValidator, SnsMessageValidator>();
+builder.Services.AddHttpClient(SnsMessageValidator.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddScoped<IEmailSuppressionService, EmailSuppressionService>();
+builder.Services.AddScoped<IEmailSendRecorder, EmailSendRecorder>();
+
+// One-off email from the inbox — reply, reply-all, forward. Sent inline rather than queued: the
+// operator is watching, so the composer has to be able to tell them whether it went.
+builder.Services.AddScoped<IEmailReplyService, EmailReplyService>();
+builder.Services.AddScoped<IInboundEmailThreader, InboundEmailThreader>();
+builder.Services.AddScoped<IEmailCampaignDispatcher, EmailCampaignDispatcher>();
+builder.Services.AddSingleton<IUnsubscribeTokenService, UnsubscribeTokenService>();
+
+// The rate limiter keeps its state in the database rather than in memory, so the configured
+// send rate holds across every instance instead of being multiplied by however many are running.
+builder.Services.AddSingleton<IEmailRateLimiter, PostgresEmailRateLimiter>();
+
+// Who authorises a campaign to run. "none" is the built-in pass-through and this deployment's
+// setting; a host application that owns maker-checker replaces this one registration and the
+// campaign pipeline starts deferring to it, with no change to the workers or the queue.
+var executionGate = builder.Configuration["Email:ExecutionGate:Provider"] ?? "none";
+switch (executionGate.ToLowerInvariant())
+{
+    case "none":
+        builder.Services.AddScoped<ICampaignExecutionGate, AutoApproveCampaignExecutionGate>();
+        break;
+    default:
+        // Fails at startup rather than silently auto-approving. A deployment that believes it has
+        // approval enforcement must not discover otherwise from its outbound mail.
+        throw new InvalidOperationException(
+            $"Email:ExecutionGate:Provider is set to '{executionGate}', but no gate is registered for it. "
+          + "Register an ICampaignExecutionGate implementation with that GateName, or set the value to 'none'.");
+}
+
 // Webhook re-send. A short timeout because this is a best-effort side channel: a customer
 // endpoint that hangs must not tie up a worker while Meta waits for its acknowledgement.
 builder.Services.AddScoped<IWebhookForwarder, WebhookForwarder>();
@@ -230,13 +392,13 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     // Defaults trust the loopback proxy. Cleared so the trust list is exactly what was configured
     // and nothing that merely happens to work on a developer machine.
     options.KnownProxies.Clear();
-    options.KnownNetworks.Clear();
+    options.KnownIPNetworks.Clear();
 
     foreach (var address in trustedProxies) options.KnownProxies.Add(address);
 
     // Target-typed `new` because this list's element type differs between ASP.NET Core versions;
     // both spellings take (address, prefix length).
-    foreach (var (prefix, length) in trustedNetworks) options.KnownNetworks.Add(new(prefix, length));
+    foreach (var (prefix, length) in trustedNetworks) options.KnownIPNetworks.Add(new(prefix, length));
 });
 
 // 3c. Rate limiting.
@@ -577,3 +739,43 @@ app.Lifetime.ApplicationStarted.Register(() =>
 });
 
 app.Run();
+
+/// <summary>
+/// Names the specific email setting that is missing, for the startup validation message.
+/// </summary>
+/// <remarks>
+/// The message used to recite every rule the validator checks, which left whoever hit it reading
+/// five conditions to work out which one applied to them. Evaluated once, at startup, against the
+/// same configuration the options were bound from.
+/// </remarks>
+static string DescribeEmailConfigurationProblem(IConfiguration configuration)
+{
+    var problems = new List<string>();
+
+    if (string.IsNullOrWhiteSpace(configuration["Email:Unsubscribe:SigningKey"])
+        && string.IsNullOrWhiteSpace(configuration["Encryption:Key"]))
+    {
+        problems.Add("Email:Unsubscribe:SigningKey is not set and cannot be derived, because "
+                   + "Encryption:Key is also empty. Set one of them.");
+    }
+
+    if (string.IsNullOrWhiteSpace(configuration["Email:Unsubscribe:PublicBaseUrl"]))
+    {
+        problems.Add("Email:Unsubscribe:PublicBaseUrl is not set. It is the address recipients "
+                   + "reach to unsubscribe, so it has to be a URL that resolves from outside this "
+                   + "machine \u2014 for local development, http://localhost:5255.");
+    }
+
+    if (problems.Count == 0)
+    {
+        // The remaining rules are about the queue and inbound handling, and each is a relationship
+        // between two values rather than a missing one.
+        problems.Add("Check that Email:Queue:MaxBackoffSeconds is at least "
+                   + "Email:Queue:BaseBackoffSeconds, that Email:Queue:PerPartitionCap does not "
+                   + "exceed Email:Queue:ClaimBatchSize, and that SES inbound handling has at least "
+                   + "one entry in Email:Ses:AllowedSnsTopicArns (not required for SMTP/IMAP).");
+    }
+
+    return "Email:Enabled is true but the email configuration is incomplete. "
+         + string.Join(" ", problems);
+}

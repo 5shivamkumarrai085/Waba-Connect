@@ -9,6 +9,18 @@ import type { CsvValidationData, CsvRowError } from '../../services/campaigns/ca
 import { campaignService } from '../../services/campaigns/campaignService'
 import { templateService } from '../../services/templates/templateService'
 import { WhatsAppPreview } from '../../components/WhatsAppPreview/WhatsAppPreview'
+import { EmailPreview } from '../../components/EmailPreview/EmailPreview'
+import { ChannelCard } from '../../components/ChannelCard/ChannelCard'
+import { ChoicePills } from '../../components/ChoicePills/ChoicePills'
+import { AVAILABLE_CHANNELS, PLANNED_CHANNELS, toApiChannel } from '../../types/channel'
+import type { MessageChannel } from '../../types/channel'
+import { emailConnectionService } from '../../services/email/emailConnectionService'
+import { emailTemplateService } from '../../services/email/emailTemplateService'
+import type {
+  EmailConnection,
+  EmailTemplate,
+  EmailTemplatePreview
+} from '../../types/email'
 import type { Template } from '../../types/templates'
 import { 
   Play, 
@@ -32,6 +44,21 @@ export const BulkCampaign: React.FC = () => {
 
   // Wizard Step state: 1 (Details & Template), 2 (Variables & Send)
   const [step, setStep] = useState(1)
+
+  // ── Channel ───────────────────────────────────────────────────────────────────────────────
+  // WhatsApp by default, so this screen opens exactly as it always has.
+  const [channel, setChannel] = useState<MessageChannel>('whatsapp')
+  const isEmailChannel = channel === 'email'
+
+  const [emailConnections, setEmailConnections] = useState<EmailConnection[]>([])
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
+  const [isLoadingEmailOptions, setIsLoadingEmailOptions] = useState(false)
+  const [senderIdentityId, setSenderIdentityId] = useState<number | null>(null)
+  const [emailTemplateId, setEmailTemplateId] = useState<number | null>(null)
+  const [replyToOverride, setReplyToOverride] = useState('')
+  const [emailPreview, setEmailPreview] = useState<EmailTemplatePreview | null>(null)
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false)
+  const [emailVarValues, setEmailVarValues] = useState<Record<string, string>>({})
 
   // Form Basic Info states
   const [campaignName, setCampaignName] = useState('')
@@ -92,6 +119,92 @@ export const BulkCampaign: React.FC = () => {
   }, [campaignName])
 
   // Handle template selection change
+  // Loaded the first time the email channel is picked, not on mount: an operator who only ever
+  // sends WhatsApp should not pay for two requests they will never use.
+  useEffect(() => {
+    if (!isEmailChannel) return
+    if (emailConnections.length > 0 || emailTemplates.length > 0) return
+
+    let isMounted = true
+    setIsLoadingEmailOptions(true)
+
+    Promise.all([
+      emailConnectionService.getConnections(),
+      // enabledOnly: offering a disabled template would produce a campaign the dispatcher
+      // refuses, after the operator has already uploaded a file and finished the form.
+      emailTemplateService.getTemplates(true)
+    ])
+      .then(([conns, tpls]) => {
+        if (!isMounted) return
+        setEmailConnections(conns)
+        setEmailTemplates(tpls)
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingEmailOptions(false)
+      })
+
+    return () => { isMounted = false }
+  }, [isEmailChannel])
+
+  // Every usable sender across every active email connection, flattened for the picker.
+  const emailSenders = React.useMemo(
+    () =>
+      emailConnections
+        .filter(c => c.isActive)
+        .flatMap(c => c.senders.filter(sender => sender.isActive).map(sender => ({ sender, connection: c }))),
+    [emailConnections]
+  )
+
+  const selectedEmailSender = emailSenders.find(s => s.sender.id === senderIdentityId)
+  const selectedEmailTemplate = emailTemplates.find(t => t.id === emailTemplateId)
+
+  // The preview is rendered server-side, through the same renderer the send path uses, so what
+  // the operator approves is what actually goes out. Debounced because the variable inputs fire
+  // on every keystroke.
+  useEffect(() => {
+    if (!isEmailChannel || !emailTemplateId) {
+      setEmailPreview(null)
+      return
+    }
+
+    let isMounted = true
+    setIsPreviewLoading(true)
+
+    const timer = setTimeout(async () => {
+      const preview = await emailTemplateService.previewTemplate(emailTemplateId, emailVarValues)
+      if (!isMounted) return
+      setEmailPreview(preview)
+      setIsPreviewLoading(false)
+    }, 350)
+
+    return () => {
+      isMounted = false
+      clearTimeout(timer)
+    }
+  }, [isEmailChannel, emailTemplateId, emailVarValues])
+
+  // Switching channel resets what belongs to the other one. Without this, a template chosen for
+  // WhatsApp stays selected behind an email form and is silently submitted.
+  const handleChannelChange = (next: MessageChannel) => {
+    if (next === channel) return
+    setChannel(next)
+    setStep(1)
+    setSelectedTemplateId('')
+    setSelectedTemplate(null)
+    setTemplatesList([])
+    setSelectedConnectionIds([])
+    setEmailTemplateId(null)
+    setSenderIdentityId(null)
+    setVarValues({})
+    setEmailVarValues({})
+    setMediaUrl('')
+    setMediaFileName('')
+    // The uploaded file was judged against the old channel's column rules, so its preview no
+    // longer describes what would be sent. Re-validating is the honest thing to do.
+    setValidationData(null)
+    setCsvErrors([])
+  }
+
   const handleTemplateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const tplId = Number(e.target.value)
     setSelectedTemplateId(tplId)
@@ -142,7 +255,7 @@ export const BulkCampaign: React.FC = () => {
 
     setIsUploading(true)
     try {
-      const res = await campaignUploadService.validateCsv(selectedFile)
+      const res = await campaignUploadService.validateCsv(selectedFile, toApiChannel(channel))
       if (res.success && res.data) {
         setValidationData(res.data)
         setCsvErrors(res.data.errors || [])
@@ -182,6 +295,16 @@ export const BulkCampaign: React.FC = () => {
   // Compile variable requests payload
   const compileVariables = () => {
     const list: any[] = []
+
+    // Email placeholders are named ({{first_name}}), not positional ({{1}}), and carry no media
+    // attachment — so this branch cannot be folded into the WhatsApp one below.
+    if (isEmailChannel) {
+      Object.entries(emailVarValues).forEach(([name, value]) => {
+        list.push({ variableName: name, variableValue: value })
+      })
+      return list
+    }
+
     if (selectedTemplate && selectedTemplate.variables) {
       selectedTemplate.variables.forEach(v => {
         list.push({
@@ -211,13 +334,22 @@ export const BulkCampaign: React.FC = () => {
       toast.error('Please upload a CSV file with at least one valid record.')
       return
     }
-    if (!selectedTemplateId) {
+    if (isEmailChannel) {
+      if (!emailTemplateId) {
+        toast.error('Please select an Email Template.')
+        return
+      }
+      if (!senderIdentityId) {
+        toast.error('Please select a Sender Email.')
+        return
+      }
+    } else if (!selectedTemplateId) {
       toast.error('Please select a Template.')
       return
     }
 
     // Verify all template variables are filled
-    if (selectedTemplate && selectedTemplate.variables) {
+    if (!isEmailChannel && selectedTemplate && selectedTemplate.variables) {
       const missing = selectedTemplate.variables.some(v => !varValues[v.position]?.trim())
       if (missing) {
         toast.error('Please provide values for all variables.')
@@ -236,15 +368,27 @@ export const BulkCampaign: React.FC = () => {
       const basePayload = {
         name: campaignName,
         csvFileUrl: validationData.fileUrl,
-        templateId: Number(selectedTemplateId),
+        channel: toApiChannel(channel),
+
+        // Exactly one of these identifies the content, per channel. The server applies the same
+        // rule and ignores the other, so sending 0 for the unused one is harmless.
+        templateId: isEmailChannel ? 0 : Number(selectedTemplateId),
+        emailTemplateId: isEmailChannel ? emailTemplateId : null,
+        senderIdentityId: isEmailChannel ? senderIdentityId : null,
+        replyToOverride: isEmailChannel && replyToOverride.trim() ? replyToOverride.trim() : null,
+
         relationType,
         scheduleType: sendImmediately ? 'Immediate' : 'Scheduled',
         scheduledAt: sendImmediately ? null : new Date(scheduledTime).toISOString(),
         variables: compileVariables()
       }
 
-      // Handle multi-connection: create one campaign per connection
-      const connIds = selectedConnectionIds.length > 0 ? selectedConnectionIds : [undefined]
+      // Handle multi-connection: create one campaign per connection. Email sends once — the
+      // chosen sender already determines which connection carries it, so there is nothing to fan
+      // out across.
+      const connIds = isEmailChannel
+        ? [undefined]
+        : selectedConnectionIds.length > 0 ? selectedConnectionIds : [undefined]
       let lastRes: any = null
       for (const connId of connIds) {
         const payload = {
@@ -297,10 +441,35 @@ export const BulkCampaign: React.FC = () => {
     selectedTemplate.headerType !== 'Text'
 
   // Validation helper for Next button activation
-  const isDetailsValid = campaignName.trim() !== '' && 
-    !isNameDuplicate && 
-    validationData !== null && 
-    selectedTemplateId !== ''
+  /**
+   * Everything still stopping this campaign from moving to step 2, named.
+   *
+   * One list, used for both the button's disabled state and the message beside it, so the
+   * button can never be dead for a reason the screen does not give. Each entry names the field
+   * as the form labels it.
+   */
+  const outstanding: string[] = []
+
+  if (campaignName.trim() === '') outstanding.push('a campaign name')
+  else if (isNameDuplicate) outstanding.push('a campaign name that is not already taken')
+
+  if (validationData === null) outstanding.push('an uploaded CSV file')
+
+  if (isEmailChannel) {
+    // The sender is what the message is addressed from, and the server refuses one that cannot
+    // send — so it is required here rather than discovered at dispatch.
+    if (senderIdentityId === null) {
+      outstanding.push(
+        emailSenders.length === 0
+          ? 'an email sender — add one under Connections → Email'
+          : 'a Sender Email')
+    }
+    if (emailTemplateId === null) outstanding.push('an Email Template')
+  } else if (selectedTemplateId === '') {
+    outstanding.push('a Template')
+  }
+
+  const isDetailsValid = outstanding.length === 0
 
   return (
     <motion.div className="bulk-campaign-container" {...pageTransitionProps}>
@@ -327,7 +496,48 @@ export const BulkCampaign: React.FC = () => {
         /* STEP 1: CAMPAIGN DETAILS & CSV VALIDATION */
         <div className={`bulk-step-1-wrap ${selectedTemplate ? 'split-details-view' : 'centered-details-view'}`}>
           <div className="bulk-card details-card">
-            <h3 className="bulk-card-title">Campaign</h3>
+            {/* Channel first, exactly as in the campaign wizard: every field below it means
+                something different depending on this answer, so asking it afterwards would
+                invalidate what the operator had already filled in. */}
+            <h3 className="bulk-card-title">Channel</h3>
+            <div className="bulk-channel-grid">
+              {AVAILABLE_CHANNELS.map((definition) => (
+                <ChannelCard
+                  key={definition.key}
+                  channel={definition}
+                  selected={channel === definition.key}
+                  onSelect={(key) => handleChannelChange(key as MessageChannel)}
+                  configured={
+                    definition.key === 'email'
+                      ? emailSenders.some(s => s.sender.canSend)
+                      : connections.some(c => c.isConnected && c.phoneNumber)
+                  }
+                  unconfiguredHint={
+                    definition.key === 'email'
+                      ? 'No verified sender yet'
+                      : 'No connected number yet'
+                  }
+                />
+              ))}
+            </div>
+
+            {/* Listed but disabled. This answers "does this product do SMS?" without pretending
+                that it does. */}
+            <div className="bulk-channel-soon">
+              <span className="bulk-channel-soon-label">Coming Soon</span>
+              <div className="bulk-channel-grid">
+                {PLANNED_CHANNELS.map((definition) => (
+                  <ChannelCard
+                    key={definition.key}
+                    channel={definition}
+                    selected={false}
+                    onSelect={() => {}}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <h3 className="bulk-card-title margin-top-24">Campaign</h3>
 
             {/* Campaign Name */}
             <div className="form-group form-group-required">
@@ -345,7 +555,66 @@ export const BulkCampaign: React.FC = () => {
               )}
             </div>
 
-            {/* Sender Connection(s) */}
+            {/* Sender — an email connection's verified identity, or a WABA number. */}
+            {isEmailChannel ? (
+              <>
+                <div className="form-group form-group-required margin-top-20">
+                  <label className="form-label">Sender Email</label>
+                  <ChoicePills
+                    ariaLabel="Sender email"
+                    options={emailSenders.map(({ sender, connection }) => ({
+                      value: sender.id,
+                      label: sender.displayName,
+                      badge: connection.connectionName,
+                      hint: sender.emailAddress,
+                      // A sender whose sending domain is not verified is shown rather than
+                      // hidden, with the reason attached: "where did my sender go" is a worse
+                      // experience than "here is why you cannot use it yet".
+                      disabled: !sender.canSend,
+                      disabledReason: sender.canSend
+                        ? null
+                        : 'This sender cannot send yet. Verify its domain under Connections.'
+                    }))}
+                    selected={senderIdentityId === null ? [] : [senderIdentityId]}
+                    onChange={(next) => setSenderIdentityId(next.length > 0 ? Number(next[0]) : null)}
+                    emptyMessage={
+                      isLoadingEmailOptions
+                        ? 'Loading senders…'
+                        : 'No verified sender yet. Add one under Connections → Email.'
+                    }
+                  />
+                </div>
+
+                {/* From Name and From Email are the sender's own, shown read-only rather than as
+                    editable fields: SES will not send from an address it has not verified, so an
+                    editable box here would only invite a value the send path must reject. */}
+                {selectedEmailSender && (
+                  <div className="bulk-sender-summary">
+                    <div>
+                      <span className="bulk-sender-label">From Name</span>
+                      <span className="bulk-sender-value">{selectedEmailSender.sender.displayName}</span>
+                    </div>
+                    <div>
+                      <span className="bulk-sender-label">From Email</span>
+                      <span className="bulk-sender-value">{selectedEmailSender.sender.emailAddress}</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="form-group margin-top-20">
+                  <label className="form-label">Reply-To (optional)</label>
+                  <input
+                    type="email"
+                    className="form-control"
+                    placeholder={
+                      selectedEmailSender?.sender.replyTo || 'Replies go to the sender address'
+                    }
+                    value={replyToOverride}
+                    onChange={(e) => setReplyToOverride(e.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
             <div className="form-group margin-top-20">
               <label className="form-label">Sender Connection(s) <span style={{ color: '#dc2626' }}>*</span></label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
@@ -402,6 +671,7 @@ export const BulkCampaign: React.FC = () => {
                 )}
               </div>
             </div>
+            )}
 
             {/* Relation Type */}
             <div className="form-group form-group-required margin-top-20">
@@ -468,7 +738,41 @@ export const BulkCampaign: React.FC = () => {
             )}
 
             {/* Template selector dropdown */}
-            {validationData && selectedConnectionIds.length > 0 ? (
+            {isEmailChannel ? (
+              validationData ? (
+                <div className="form-group form-group-required margin-top-20 fade-in">
+                  <label className="form-label">Email Template</label>
+                  <select
+                    className="form-control"
+                    value={emailTemplateId ?? ''}
+                    onChange={(e) => {
+                      const next = e.target.value === '' ? null : Number(e.target.value)
+                      setEmailTemplateId(next)
+                      // Values belong to the template that declared them; carrying them across
+                      // would leave inputs labelled for placeholders the new body never uses.
+                      setEmailVarValues({})
+                    }}
+                    disabled={isLoadingEmailOptions}
+                    required
+                  >
+                    <option value="">Nothing Selected</option>
+                    {emailTemplates.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}{t.language ? ` (${t.language})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {isLoadingEmailOptions && (
+                    <div className="bulk-inline-hint">Loading email templates…</div>
+                  )}
+                  {!isLoadingEmailOptions && emailTemplates.length === 0 && (
+                    <div className="bulk-inline-hint">
+                      No enabled email templates. Create one under Setup → Email Templates.
+                    </div>
+                  )}
+                </div>
+              ) : null
+            ) : validationData && selectedConnectionIds.length > 0 ? (
               <div className="form-group form-group-required margin-top-20 fade-in">
                 <label className="form-label">Template</label>
                 <select
@@ -521,19 +825,39 @@ export const BulkCampaign: React.FC = () => {
                 className="btn-wizard-nav btn-wizard-next"
                 disabled={!isDetailsValid}
                 onClick={() => setStep(2)}
+                title={isDetailsValid ? undefined : `Still needed: ${outstanding.join(', ')}`}
               >
                 <span>Next</span>
                 <ChevronRight size={16} />
               </button>
             </div>
+
+            {/* Beside the button, not only in a tooltip: the field in question is often scrolled
+                off the top of the form by the time the operator reaches Next. */}
+            {!isDetailsValid && (
+              <p className="bulk-inline-hint bulk-outstanding">
+                Still needed: {outstanding.join(', ')}.
+              </p>
+            )}
           </div>
 
           {/* Conditional Template Preview pane in Step 1 */}
-          {selectedTemplate && (
+          {(isEmailChannel ? selectedEmailTemplate : selectedTemplate) && (
             <div className="bulk-card preview-card-step-1 fade-in">
               <h3 className="bulk-card-title">Preview</h3>
               <div className="preview-bubble-wrapper">
-                <WhatsAppPreview bodyText={getPreviewBody()} />
+                {isEmailChannel ? (
+                  <EmailPreview
+                    fromName={selectedEmailSender?.sender.displayName}
+                    fromAddress={selectedEmailSender?.sender.emailAddress}
+                    replyTo={replyToOverride || selectedEmailSender?.sender.replyTo}
+                    subject={emailPreview?.subject ?? selectedEmailTemplate?.subject}
+                    bodyHtml={emailPreview?.bodyHtml ?? selectedEmailTemplate?.bodyHtml}
+                    isLoading={isPreviewLoading}
+                  />
+                ) : (
+                  <WhatsAppPreview bodyText={getPreviewBody()} />
+                )}
               </div>
             </div>
           )}
@@ -546,8 +870,12 @@ export const BulkCampaign: React.FC = () => {
           <div className="bulk-card">
             <h3 className="bulk-card-title">Variables</h3>
 
-            {/* Upload Area for header attachment */}
-            <div className="contacts-selection-card margin-bottom-20">
+            {/* Upload Area for header attachment — a WhatsApp template header. Email
+                attachments are a different concept entirely and are not offered here. */}
+            <div
+              className="contacts-selection-card margin-bottom-20"
+              hidden={isEmailChannel}
+            >
               <div className="upload-area-header">
                 <span className="upload-area-label">Template Media / Document Attachment</span>
               </div>
@@ -605,7 +933,41 @@ export const BulkCampaign: React.FC = () => {
             </div>
 
             {/* Template Body Variables List */}
-            {selectedTemplate?.variables && selectedTemplate.variables.length > 0 ? (
+            {isEmailChannel ? (
+              // Driven by what the body actually references, extracted server-side — the
+              // template's declared variable list goes stale the moment somebody edits the body.
+              (selectedEmailTemplate?.detectedVariables ?? []).length > 0 ? (
+                <div className="contacts-selection-card">
+                  {selectedEmailTemplate!.detectedVariables.map(name => (
+                    <div key={name} className="form-group margin-bottom-15">
+                      <label className="form-label">{name}</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder={`Enter value for {{${name}}}`}
+                        value={emailVarValues[name] ?? ''}
+                        onChange={(e) =>
+                          setEmailVarValues(prev => ({ ...prev, [name]: e.target.value }))
+                        }
+                      />
+                    </div>
+                  ))}
+                  {(emailPreview?.unresolvedVariables ?? []).length > 0 && (
+                    // Surfaced rather than hidden: an unresolved placeholder ships to the
+                    // recipient as literal braces, and the operator should see that before
+                    // sending, not after.
+                    <p className="bulk-inline-hint">
+                      Still unresolved: {emailPreview!.unresolvedVariables.join(', ')}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="bulk-empty-state">
+                  <CheckCircle size={28} className="text-green" />
+                  <span>This template has no variables to customize.</span>
+                </div>
+              )
+            ) : selectedTemplate?.variables && selectedTemplate.variables.length > 0 ? (
               <div className="contacts-selection-card">
                 {selectedTemplate.variables?.map(v => (
                   <div key={v.position} className="form-group margin-bottom-15">
@@ -645,14 +1007,25 @@ export const BulkCampaign: React.FC = () => {
             </div>
           </div>
 
-          {/* Column 2: Live WhatsApp Message Preview & Campaign Submission */}
+          {/* Column 2: Live message preview & campaign submission */}
           <div className="step-2-right-column">
-            
+
             {/* Live Preview Card */}
             <div className="bulk-card">
               <h3 className="bulk-card-title">Preview</h3>
               <div className="preview-bubble-wrapper">
-                <WhatsAppPreview bodyText={getPreviewBody()} />
+                {isEmailChannel ? (
+                  <EmailPreview
+                    fromName={selectedEmailSender?.sender.displayName}
+                    fromAddress={selectedEmailSender?.sender.emailAddress}
+                    replyTo={replyToOverride || selectedEmailSender?.sender.replyTo}
+                    subject={emailPreview?.subject ?? selectedEmailTemplate?.subject}
+                    bodyHtml={emailPreview?.bodyHtml ?? selectedEmailTemplate?.bodyHtml}
+                    isLoading={isPreviewLoading}
+                  />
+                ) : (
+                  <WhatsAppPreview bodyText={getPreviewBody()} />
+                )}
               </div>
             </div>
 
@@ -740,7 +1113,15 @@ export const BulkCampaign: React.FC = () => {
                     <button
                       type="submit"
                       className="btn-wizard-nav btn-wizard-save"
-                      disabled={isSubmitting || !validationData || !selectedTemplateId}
+                      // Per channel. selectedTemplateId is the WhatsApp template and is always '' on the
+            // email path, so this gate disabled the button permanently for every email campaign
+            // — handleSendCampaign and isDetailsValid were both made channel-aware and this was
+            // missed. Checking emailTemplateId/senderIdentityId mirrors what the handler itself
+            // validates, so the button is enabled exactly when submitting would succeed.
+            disabled={
+              isSubmitting || !validationData ||
+              (isEmailChannel ? !emailTemplateId || !senderIdentityId : !selectedTemplateId)
+            }
                     >
                       {isSubmitting ? (
                         <>

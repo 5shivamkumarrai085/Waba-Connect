@@ -1,127 +1,109 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Helpers;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Setup;
-using WhatsAppCampaignApi.Models.Entities;
-using WhatsAppCampaignApi.Services.Interfaces;
+using WhatsAppCampaignApi.Services.Email;
 
 namespace WhatsAppCampaignApi.Controllers;
 
 /// <summary>
 /// Email template content and on/off state.
 ///
-/// There is deliberately no send endpoint: this build ships template management only, with no
-/// SMTP configured anywhere. Adding one would need a mail service and credentials.
+/// <para>
+/// These templates are the single source of truth for every outgoing email — both the seeded
+/// system notifications and the campaigns authored in the marketing section render from them.
+/// Create, delete and preview were added with the email channel; the existing view, edit and
+/// toggle endpoints are unchanged, so anything already calling them keeps working.
+/// </para>
 /// </summary>
 [ApiController]
 [Route("api/setup/email-templates")]
 [Authorize]
 public class EmailTemplatesController : ControllerBase
 {
-    private readonly AppDbContext _dbContext;
-    private readonly IAuditService _auditService;
+    private readonly IEmailTemplateService _service;
 
-    public EmailTemplatesController(AppDbContext dbContext, IAuditService auditService)
+    public EmailTemplatesController(IEmailTemplateService service)
     {
-        _dbContext = dbContext;
-        _auditService = auditService;
+        _service = service;
     }
 
+    /// <param name="enabledOnly">
+    /// True for the campaign template picker, which must not offer a disabled template.
+    /// </param>
     [HttpGet]
     [RequiresPermission("EmailTemplate.View")]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll([FromQuery] bool enabledOnly = false, CancellationToken ct = default)
     {
-        var data = await _dbContext.EmailTemplates
-            .AsNoTracking()
-            .OrderBy(t => t.Id)
-            .Select(t => new EmailTemplateResponse
-            {
-                Id = t.Id,
-                Key = t.Key,
-                Name = t.Name,
-                Subject = t.Subject,
-                BodyHtml = t.BodyHtml,
-                IsEnabled = t.IsEnabled,
-                IsSystem = t.IsSystem,
-                AvailableVariables = t.AvailableVariables
-            })
-            .ToListAsync();
-
+        var data = await _service.GetAllAsync(enabledOnly, ct);
         return Ok(new ApiResponse<List<EmailTemplateResponse>> { Success = true, Data = data });
     }
 
     [HttpGet("{id:int}")]
     [RequiresPermission("EmailTemplate.View")]
-    public async Task<IActionResult> GetById(int id)
+    public async Task<IActionResult> GetById(int id, CancellationToken ct)
     {
-        var template = await _dbContext.EmailTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id);
-        if (template is null) return NotFound(new ApiResponse { Success = false, Message = "Email template not found." });
+        var data = await _service.GetByIdAsync(id, ct);
+        return Ok(new ApiResponse<EmailTemplateResponse> { Success = true, Data = data });
+    }
 
+    [HttpPost]
+    [RequiresPermission("EmailTemplate.Create")]
+    public async Task<IActionResult> Create([FromBody] SaveEmailTemplateRequest request, CancellationToken ct)
+    {
+        var data = await _service.CreateAsync(request, ct);
         return Ok(new ApiResponse<EmailTemplateResponse>
         {
             Success = true,
-            Data = new EmailTemplateResponse
-            {
-                Id = template.Id,
-                Key = template.Key,
-                Name = template.Name,
-                Subject = template.Subject,
-                BodyHtml = template.BodyHtml,
-                IsEnabled = template.IsEnabled,
-                IsSystem = template.IsSystem,
-                AvailableVariables = template.AvailableVariables
-            }
+            Message = "Email template created.",
+            Data = data
         });
     }
 
     [HttpPut("{id:int}")]
     [RequiresPermission("EmailTemplate.Edit")]
-    public async Task<IActionResult> Update(int id, [FromBody] SaveEmailTemplateRequest request)
+    public async Task<IActionResult> Update(int id, [FromBody] SaveEmailTemplateRequest request, CancellationToken ct)
     {
-        var template = await _dbContext.EmailTemplates.FirstOrDefaultAsync(t => t.Id == id);
-        if (template is null) return NotFound(new ApiResponse { Success = false, Message = "Email template not found." });
-
-        if (string.IsNullOrWhiteSpace(request.Subject) || string.IsNullOrWhiteSpace(request.BodyHtml))
-            return BadRequest(new ApiResponse { Success = false, Message = "Subject and body are required." });
-
-        template.Name = request.Name.Trim();
-        template.Subject = request.Subject.Trim();
-        // Sanitized deliberately here rather than by the global filter: SanitizeHtml keeps a
-        // safe tag allowlist, whereas the global SanitizeString would strip every tag and
-        // leave the template as plain text.
-        template.BodyHtml = SanitizationHelper.SanitizeHtml(request.BodyHtml) ?? string.Empty;
-        template.IsEnabled = request.IsEnabled;
-        template.UpdatedAt = DateTime.UtcNow;
-
-        await _dbContext.SaveChangesAsync();
-        await _auditService.LogAsync("EmailTemplate.Updated", "Settings", $"Updated email template '{template.Name}'.", nameof(EmailTemplate), id.ToString());
-
-        return Ok(new ApiResponse { Success = true, Message = "Email template saved." });
+        var data = await _service.UpdateAsync(id, request, ct);
+        return Ok(new ApiResponse<EmailTemplateResponse>
+        {
+            Success = true,
+            Message = "Email template saved.",
+            Data = data
+        });
     }
 
     [HttpPatch("{id:int}/toggle")]
     [RequiresPermission("EmailTemplate.Toggle")]
-    public async Task<IActionResult> Toggle(int id)
+    public async Task<IActionResult> Toggle(int id, CancellationToken ct)
     {
-        var template = await _dbContext.EmailTemplates.FirstOrDefaultAsync(t => t.Id == id);
-        if (template is null) return NotFound(new ApiResponse { Success = false, Message = "Email template not found." });
-
-        template.IsEnabled = !template.IsEnabled;
-        template.UpdatedAt = DateTime.UtcNow;
-        await _dbContext.SaveChangesAsync();
-
-        await _auditService.LogAsync(
-            template.IsEnabled ? "EmailTemplate.Enabled" : "EmailTemplate.Disabled", "Settings",
-            $"{(template.IsEnabled ? "Enabled" : "Disabled")} email template '{template.Name}'.",
-            nameof(EmailTemplate), id.ToString());
-
-        return Ok(new ApiResponse
+        var data = await _service.ToggleAsync(id, ct);
+        return Ok(new ApiResponse<EmailTemplateResponse>
         {
             Success = true,
-            Message = template.IsEnabled ? $"'{template.Name}' enabled." : $"'{template.Name}' disabled."
+            Message = data.IsEnabled ? $"'{data.Name}' enabled." : $"'{data.Name}' disabled.",
+            Data = data
         });
+    }
+
+    [HttpDelete("{id:int}")]
+    [RequiresPermission("EmailTemplate.Delete")]
+    public async Task<IActionResult> Delete(int id, CancellationToken ct)
+    {
+        await _service.DeleteAsync(id, ct);
+        return Ok(new ApiResponse { Success = true, Message = "Email template deleted." });
+    }
+
+    /// <summary>Renders the template with sample or supplied values, for the editor's preview.</summary>
+    [HttpPost("{id:int}/preview")]
+    [RequiresPermission("EmailTemplate.View")]
+    public async Task<IActionResult> Preview(
+        int id,
+        [FromBody] EmailTemplatePreviewRequest? request,
+        CancellationToken ct)
+    {
+        var data = await _service.PreviewAsync(id, request?.Values, request?.UseSampleData ?? false, ct);
+        return Ok(new ApiResponse<EmailTemplatePreviewResponse> { Success = true, Data = data });
     }
 }

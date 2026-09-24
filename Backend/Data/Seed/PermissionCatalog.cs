@@ -110,6 +110,36 @@ public static class PermissionCatalog
             (View, "View"), ("Assign", "Assign"), (Delete, "Delete")
         }),
 
+        // Mirrors ConnectAccount's shape rather than plain CRUD, for the same reason: configuring
+        // a sending provider is not a "create", and Test is called out separately because sending
+        // a test email costs real send quota and reputation against the account.
+        new("EmailConnection", "Email Connection", "Connections", new[]
+        {
+            (View, "View"), ("Connect", "Connect"), (Edit, "Edit"),
+            ("Disconnect", "Disconnect"), (Delete, "Delete"), ("Test", "Test connection / send test")
+        }),
+
+        // Domain authentication. Separate from the connection because publishing DNS records is
+        // usually somebody else's job, and granting it should not also grant credential access.
+        new("EmailDomain", "Email Domain", "Connections", new[]
+        {
+            (View, "View"), ("Manage", "Add and verify domains")
+        }),
+
+        // Suppression is a compliance surface: removing an address that unsubscribed means mailing
+        // somebody who asked not to be, so Manage is deliberately a distinct grant from View.
+        new("EmailSuppression", "Email Suppression", "Connections", new[]
+        {
+            (View, "View"), ("Manage", "Add and remove entries")
+        }),
+
+        // Operational visibility into the send queue. Requeue is separate because replaying
+        // dead-lettered jobs re-attempts real sends.
+        new("EmailQueue", "Email Queue", "Connections", new[]
+        {
+            (View, "View"), ("Requeue", "Requeue dead-lettered jobs")
+        }),
+
         // ---- Setup ----------------------------------------------------------------
         new("Setup",         "Setup",          "Setup", ViewOnly),
         new("User",          "User",           "Setup", Crud),
@@ -122,9 +152,14 @@ public static class PermissionCatalog
             (View, "View"), (Create, "Create"), (Edit, "Edit"), (Delete, "Delete"),
             ("Translate", "Translate")
         }),
+        // Create and Delete arrived with the email channel: the templates were previously a fixed
+        // set of seeded system notifications, and are now also the source of truth for campaign
+        // content, which operators need to author. View/Edit/Toggle are unchanged, so existing
+        // role grants keep working exactly as before.
         new("EmailTemplate", "Email Template", "Setup", new[]
         {
-            (View, "View"), (Edit, "Edit"), ("Toggle", "Enable/Disable")
+            (View, "View"), (Create, "Create"), (Edit, "Edit"), (Delete, "Delete"),
+            ("Toggle", "Enable/Disable")
         }),
         new("ActivityLog",   "Activity Log",   "Setup", new[]
         {

@@ -57,7 +57,7 @@
 
 .bulk-step.active .step-num {
   background-color: var(--primary);
-  color: #ffffff;
+  color: var(--bg-secondary);
   border-color: var(--primary);
 }
 
@@ -147,15 +147,15 @@
 }
 
 .btn-wizard-next {
-  background-color: #2563eb !important;
-  color: #ffffff !important;
+  background-color: var(--primary) !important;
+  color: var(--bg-secondary) !important;
   border: none !important;
   box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
 }
 
 .btn-wizard-next:hover:not(:disabled) {
   background-color: #3730a3 !important;
-  color: #ffffff !important;
+  color: var(--bg-secondary) !important;
   box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
   transform: translateY(-1px);
 }
@@ -166,8 +166,8 @@
 }
 
 .btn-wizard-next:disabled {
-  background-color: #cbd5e1 !important;
-  color: #64748b !important;
+  background-color: var(--border-color) !important;
+  color: var(--text-light) !important;
   cursor: not-allowed !important;
   opacity: 0.6;
   box-shadow: none !important;
@@ -175,25 +175,25 @@
 }
 
 .btn-wizard-cancel, .btn-wizard-back {
-  background-color: #f1f5f9 !important;
-  color: #475569 !important;
-  border: 1px solid #cbd5e1 !important;
+  background-color: var(--bg-hover) !important;
+  color: var(--text-muted) !important;
+  border: 1px solid var(--border-color) !important;
 }
 
 .btn-wizard-cancel:hover, .btn-wizard-back:hover {
-  background-color: #e2e8f0 !important;
-  color: #0f172a !important;
+  background-color: var(--border-color) !important;
+  color: var(--text-main) !important;
   transform: translateY(-1px);
 }
 
 .btn-wizard-cancel:active, .btn-wizard-back:active {
-  background-color: #cbd5e1 !important;
+  background-color: var(--border-color) !important;
   transform: translateY(0);
 }
 
 .btn-wizard-save {
-  background-color: #2563eb !important;
-  color: #ffffff !important;
+  background-color: var(--primary) !important;
+  color: var(--bg-secondary) !important;
   border: none !important;
   font-size: 14px;
   font-weight: 700;
@@ -204,7 +204,7 @@
 
 .btn-wizard-save:hover:not(:disabled) {
   background-color: #3730a3 !important;
-  color: #ffffff !important;
+  color: var(--bg-secondary) !important;
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
 }
@@ -215,8 +215,8 @@
 }
 
 .btn-wizard-save:disabled {
-  background-color: #cbd5e1 !important;
-  color: #64748b !important;
+  background-color: var(--border-color) !important;
+  color: var(--text-light) !important;
   cursor: not-allowed !important;
   box-shadow: none !important;
   transform: none !important;
@@ -249,8 +249,8 @@
   font-family: var(--font-family);
   font-size: 13px;
   font-weight: 600;
-  color: #ffffff !important;
-  background-color: #2563eb !important;
+  color: var(--bg-secondary) !important;
+  background-color: var(--primary) !important;
   border: none !important;
   padding: 10px 24px;
   border-radius: var(--radius-sm);
@@ -261,7 +261,7 @@
 
 .btn-bulk-upload:hover:not(:disabled) {
   background-color: #3730a3 !important;
-  color: #ffffff !important;
+  color: var(--bg-secondary) !important;
   box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
   transform: translateY(-1px);
 }
@@ -272,8 +272,8 @@
 }
 
 .btn-bulk-upload:disabled {
-  background-color: #cbd5e1 !important;
-  color: #64748b !important;
+  background-color: var(--border-color) !important;
+  color: var(--text-light) !important;
   cursor: not-allowed !important;
   box-shadow: none !important;
   transform: none !important;
@@ -322,7 +322,7 @@
 /* Row-level CSV validation errors — same shape as .bulk-validation-note-box,
    red palette instead of green, since this reports rejected rows. */
 .bulk-validation-errors-box {
-  background-color: #fee2e2;
+  background-color: var(--omni-color-danger-bg);
   border: 1px solid #fecaca;
   border-radius: 8px;
   padding: 16px;
@@ -331,7 +331,7 @@
 
 .bulk-validation-errors-box .note-box-title {
   font-weight: 700;
-  color: #991b1b;
+  color: var(--omni-color-danger-text);
   font-size: 13px;
 }
 
@@ -407,7 +407,7 @@
 /* Duplication Warning alert */
 .error-text-warning {
   font-size: 12px;
-  color: #dc2626;
+  color: var(--omni-color-danger);
   margin-top: 6px;
   display: block;
 }
@@ -426,14 +426,14 @@
 .modal-rule-box.blue-alert {
   background-color: #f0f9ff;
   border: 1px solid #bae6fd;
-  border-left: 4px solid #2563eb;
+  border-left: 4px solid var(--primary);
   border-radius: 6px;
   padding: 16px;
 }
 
 .rule-text-row {
   font-size: 13px;
-  color: #1d4ed8;
+  color: var(--omni-color-primary-700);
   line-height: 1.6;
   margin: 0;
 }
@@ -443,7 +443,7 @@
 }
 
 .modal-table-section {
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--border-color);
   padding-top: 20px;
 }
 
@@ -456,7 +456,7 @@
 .table-header-title {
   font-size: 15px;
   font-weight: 700;
-  color: #334155;
+  color: var(--text-body-strong);
 }
 
 .btn-download-sample-modal {
@@ -464,7 +464,7 @@
   align-items: center;
   gap: 8px;
   background-color: #10b981;
-  color: #ffffff;
+  color: var(--bg-secondary);
   border: none;
   padding: 8px 16px;
   border-radius: 6px;
@@ -475,13 +475,13 @@
 }
 
 .btn-download-sample-modal:hover {
-  background-color: #059669;
+  background-color: var(--omni-color-success);
 }
 
 .table-responsive-custom {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
 }
 
@@ -493,17 +493,17 @@
 }
 
 .sample-csv-table th {
-  background-color: #f8fafc;
-  color: #475569;
+  background-color: var(--bg-primary);
+  color: var(--text-muted);
   font-weight: 600;
   padding: 10px 16px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .sample-csv-table td {
-  color: #0f172a;
+  color: var(--text-main);
   padding: 12px 16px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .sample-csv-table tr:last-child td {
@@ -511,7 +511,7 @@
 }
 
 .required-star {
-  color: #dc2626;
+  color: var(--omni-color-danger);
 }
 
 
@@ -529,3 +529,69 @@
 .wizard-badges-row > *:nth-child(3) { animation-delay: 0.15s; }
 .wizard-badges-row > *:nth-child(4) { animation-delay: 0.2s; }
 .form-group { animation: fadeIn 0.35s ease-out forwards; }
+
+/* ── Channel selection (reference image 6) ──────────────────────────────────────────────────── */
+
+.bulk-channel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-base);
+  margin-top: var(--space-sm);
+}
+
+.bulk-channel-soon {
+  margin-top: var(--space-lg);
+}
+
+.bulk-channel-soon-label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-light);
+}
+
+/* The sender's own name and address, shown as facts rather than as editable fields: SES refuses
+   to send from an address it has not verified, so an input here would only invite a value the
+   send path must reject. */
+.bulk-sender-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-base);
+  margin-top: var(--space-base);
+  padding: var(--space-base);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.bulk-sender-label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.bulk-sender-value {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-body);
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+
+/* Replaces the inline-styled hints that used hardcoded hex and were unreadable in dark mode. */
+.bulk-inline-hint {
+  margin-top: var(--space-2xs);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* The "still needed" line under the step's nav buttons. Amber rather than red: nothing has gone
+   wrong, the form is simply not finished yet. */
+.bulk-outstanding {
+  margin-top: var(--space-sm);
+  color: var(--warning, #b45309);
+}

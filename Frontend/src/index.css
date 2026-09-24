@@ -395,6 +395,38 @@
   --omni-color-info-bg: #dbeafe;
   --omni-color-info-text: #1e40af;
 
+  /* ---- Message delivery states ----
+     Aliases, not new colours. A message's life — accepted, arrived, opened, or
+     failed — maps onto meanings the product already has, so these point at the
+     status tokens above rather than introducing a second palette.
+
+     The important line is `read`: it resolves to the SAME green as approved,
+     verified and success. Before this, delivery states carried their own hex
+     greens, so "Read" and "Approved" were two different greens for one idea and
+     green had no single meaning. Anything that should read as "this worked"
+     must point here; nothing should restate the colour.
+
+     Sent is deliberately neutral, not blue — the message has been accepted and
+     nothing has actually happened yet, and colouring it as progress overstates
+     what is known. It earns its colour when the webhook says delivered. */
+  --status-sent-bg: var(--bg-subtle, #f1f5f9);
+  --status-sent-text: var(--text-secondary, #475569);
+  --status-delivered-bg: var(--omni-color-info-bg);
+  --status-delivered-text: var(--omni-color-info-text);
+  --status-read-bg: var(--omni-color-success-bg);
+  --status-read-text: var(--omni-color-success-text);
+  --status-failed-bg: var(--omni-color-danger-bg);
+  --status-failed-text: var(--omni-color-danger-text);
+
+  /* Partial is the one delivery-adjacent state that is genuinely its own idea:
+     a campaign that ran and came back mixed. It is not warning (paused, amber)
+     and not danger (failed, red), so it gets its own gold rather than being
+     forced into a meaning it does not have. Named here so the exception is
+     visible in the theme instead of hidden as three literals in a component. */
+  --status-partial-bg: #fefce8;
+  --status-partial-text: #a16207;
+  --status-partial-border: #fde68a;
+
   /* ---- Host sidebar ---- */
   --omni-sidebar-bg: #ffffff;
   --omni-sidebar-border: #eaecf0;
@@ -425,13 +457,38 @@
   --bg-hover: #f1f5f9;
 
   --primary: #2563eb;          /* Host brand blue */
+  /* The same blue as channels, for the alpha compositing that rgba() needs and
+     a hex cannot express. Kept adjacent so the two can never drift apart. */
+  --primary-rgb: 37, 99, 235;
   --primary-hover: #1d4ed8;
   --primary-dark: #1d4ed8;     /* alias of --primary-hover, used by hover states in Chat/InfoCard/ConfirmationModal/ImportContacts */
   --primary-light: #eff6ff;
 
   --text-main: #0f172a;
+  /* Two steps the ramp was missing, which is why 39 call sites hardcoded them.
+     #1e293b and #334155 are both in constant use as heading and strong-body
+     colours, but the only tokens that happened to equal them were --bg-secondary
+     and --border-color from the DARK theme — same number, unrelated meaning. Any
+     tool matching purely on value would have "tokenised" a light-mode heading
+     into a dark-mode border. Naming them is what makes those call sites
+     convertible at all. */
+  --text-heading: #1e293b;      /* Section and card headings */
+  --text-body-strong: #334155;  /* Emphasised body, table headers */
   --text-muted: #475569;
   --text-light: #94a3b8;
+
+  /* Text sitting on a filled brand/status surface. Not --omni-color-surface:
+     that is a white *background*, and a white *foreground* is a different idea
+     that must stay white when the surface under it stays coloured — including
+     in dark mode, where a plain white background would be wrong but white text
+     on the brand blue is still correct. */
+  --text-on-accent: #ffffff;
+
+  /* Referenced across the app but never actually defined — every call site was
+     surviving on its var() fallback, so the "token" was decorative and the real
+     value was whatever each file happened to inline. Defining them here is what
+     makes those references mean something. */
+  --bg-subtle: #f1f5f9;   /* Row hover, inset panels — one step off the surface */
 
   --border-color: #e2e8f0;
   --border-light: #f1f3f7;
@@ -447,12 +504,35 @@
   --warning: #d97706;
   --warning-light: #fef3c7;
 
+  /* Channel accents.
+     Each channel's brand colour, plus a soft tint for icon backgrounds. Defined once here so a
+     channel looks the same in the campaign wizard, the connections list, the inbox and the
+     dashboard — rather than being re-picked slightly differently on each screen.
+
+     The soft variants are rgba rather than a solid tint, so they sit correctly on both the light
+     and dark surface without needing a second set of values. */
+  --channel-whatsapp: #25d366;
+  --channel-whatsapp-soft: rgba(37, 211, 102, 0.12);
+  --channel-email: #6366f1;
+  --channel-email-soft: rgba(99, 102, 241, 0.12);
+  --channel-sms: #0ea5e9;
+  --channel-sms-soft: rgba(14, 165, 233, 0.12);
+  --channel-instagram: #e1306c;
+  --channel-instagram-soft: rgba(225, 48, 108, 0.12);
+  --channel-facebook: #1877f2;
+  --channel-facebook-soft: rgba(24, 119, 242, 0.12);
+
   /* Fonts.
      The host sets Inter everywhere and leans on weight and negative tracking for
      hierarchy rather than a second family, so --font-title now resolves to the
      same stack — every `font-family: var(--font-title)` call site keeps working. */
   --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-title: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* --font-body was referenced with no fallback in AuditEventDetails, which meant
+     that rule silently produced no font-family at all. An alias, so there is one
+     stack and three names for it rather than three stacks. */
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
   /* Layout and Spacing */
   --sidebar-width: 240px;      /* Host rail width */
@@ -481,6 +561,63 @@
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 
+  /* ─── Type scale ──────────────────────────────────────────────────
+     Derived from what the product already renders, not invented: an audit of
+     every `font-size` in the stylesheets found 13px used 174 times, 12px 129,
+     11px 87 and 14px 64 — a dense, information-first UI that had simply never
+     named its own steps. These are those steps, so adopting a token is a
+     rename rather than a redesign and nothing shifts on screen.
+
+     Named by role rather than by size (--text-body, not --text-13) so a future
+     density change is one edit here instead of a search for "13px". The few
+     one-off sizes in the wild (9.5px, 12.5px, 13.5px) are drift and should
+     resolve to their nearest step as files are touched. */
+  --text-2xs: 10px;   /* Dense table meta, timestamps */
+  --text-xs: 11px;    /* Badges, chips, helper text */
+  --text-sm: 12px;    /* Secondary labels, captions */
+  --text-body: 13px;  /* Default body — the workhorse */
+  --text-md: 14px;    /* Inputs, buttons, emphasised body */
+  --text-lg: 16px;    /* Card and section headings */
+  --text-xl: 18px;    /* Page sub-headings */
+  --text-2xl: 20px;   /* Page titles */
+  --text-3xl: 24px;   /* Hero figures, KPI values */
+
+  /* Weights — three steps, because a fourth never earns its place. */
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* Line heights are unitless so they scale with whatever font-size inherits. */
+  --leading-tight: 1.25;  /* Headings, KPI numbers */
+  --leading-normal: 1.5;  /* Body copy */
+
+  /* ─── Spacing scale ───────────────────────────────────────────────
+     Same approach: measured, not chosen. The existing padding/margin/gap
+     values cluster hard on a 4px rhythm (8px x156, 12px x105, 6px x102,
+     16px x99, 24px x63, 4px x62), with 10px and 14px as the half-steps that
+     dense rows need. Naming them makes the rhythm enforceable; the odd 5px,
+     7px and 9px in the codebase are drift, not intent. */
+  --space-3xs: 2px;
+  --space-2xs: 4px;
+  --space-xs: 6px;
+  --space-sm: 8px;
+  --space-md: 10px;
+  --space-base: 12px;  /* The default gap between related controls */
+  --space-lg: 14px;
+  --space-xl: 16px;    /* Card padding, section gutters */
+  --space-2xl: 20px;
+  --space-3xl: 24px;   /* Between major page sections */
+  --space-4xl: 32px;
+  --space-5xl: 48px;   /* Page-level top/bottom breathing room */
+
+  /* ─── Focus ring ──────────────────────────────────────────────────
+     One definition for every focusable thing in the product. Applied through
+     :focus-visible (below) so pointer users never see it and keyboard users
+     always do — an audit found only 13 of the stylesheets defined any focus
+     style at all, which left most of the app unnavigable by keyboard. */
+  --focus-ring: 0 0 0 3px rgba(var(--primary-rgb), 0.35);
+  --focus-ring-offset: 2px;
+
   /* ─── Z-index scale ───────────────────────────────────────────────
      Replaces the ad-hoc 50 / 1050 / 9999 / 99999 / 999999 values that
      accumulated across modals. Existing in-page chrome (popovers at 100,
@@ -499,6 +636,26 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* ─── Keyboard focus, everywhere ────────────────────────────────────
+   An audit found focus styling in only 13 stylesheets, which meant most of the
+   product could be tabbed through with no visible indication of where you were
+   — a WCAG 2.4.7 failure and, in practice, an app unusable without a mouse.
+
+   :focus-visible rather than :focus is the whole point: the browser shows the
+   ring for keyboard and assistive navigation and withholds it for pointer
+   clicks, so this costs mouse users nothing. Deliberately low specificity (one
+   pseudo-class, no ids, no !important) so it is a floor rather than a ceiling —
+   the components that already style their own focus keep winning the cascade,
+   and everything else stops being invisible.
+
+   outline: none is paired with a ring in the same rule, never on its own. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: var(--focus-ring-offset) solid transparent; /* Honours forced-colors mode */
+  outline-offset: var(--focus-ring-offset);
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
 }
 
 /* Set on the root as well as body.
@@ -647,15 +804,23 @@ a {
   --bg-hover: #334155;         /* Hover background */
   
   --primary: #60a5fa;          /* Lifted off the host blue for contrast on dark surfaces */
+  --primary-rgb: 96, 165, 250; /* Matches the lifted blue, so the focus ring lifts with it */
   --primary-hover: #3b82f6;
   --primary-dark: #3b82f6;     /* alias of --primary-hover, used by hover states in Chat/InfoCard/ConfirmationModal/ImportContacts */
   --primary-light: rgba(96, 165, 250, 0.16);
 
   --text-main: #f8fafc;        /* White text */
+  --text-heading: #f1f5f9;     /* Inverted with the ramp, so headings stay the strongest step */
+  --text-body-strong: #cbd5e1; /* Still above --text-muted, one step below headings */
   --text-muted: #94a3b8;       /* Slate text */
   --text-light: #64748b;       /* Muted grey text */
   --text-dark: #f8fafc;
+  /* Not inverted: the surface underneath is the brand colour in both themes, so
+     the text on it stays white. */
+  --text-on-accent: #ffffff;
   
+  --bg-subtle: #1e293b;        /* One step off the dark surface, mirroring the light ramp */
+
   --border-color: #334155;     /* Dark slate border color */
   --border-light: #1e293b;     /* Secondary border color */
   

@@ -40,7 +40,7 @@
   margin-bottom: 16px;
   border-radius: var(--radius-md);
   background-color: var(--primary);
-  color: #fff;
+  color: var(--text-on-accent);
   font-family: var(--font-title);
   font-size: 17px;
   font-weight: 700;
@@ -165,7 +165,7 @@
   border: none;
   border-radius: var(--radius-sm);
   background-color: var(--primary);
-  color: #fff;
+  color: var(--text-on-accent);
   font-family: inherit;
   font-size: 14px;
   font-weight: 500;
@@ -220,14 +220,14 @@
 .auth-error {
   border: 1px solid #fecaca;
   background-color: var(--error-light);
-  color: #991b1b;
+  color: var(--omni-color-danger-text);
 }
 
 .auth-notice {
   margin-bottom: 18px;
-  border: 1px solid #fde68a;
+  border: 1px solid var(--status-partial-border);
   background-color: var(--warning-light);
-  color: #a16207;
+  color: var(--status-partial-text);
 }
 
 .auth-error svg,

@@ -9,6 +9,8 @@ import {
   AlertTriangle,
   Check,
   CheckCheck,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Clock3,
   FileText,
@@ -16,6 +18,7 @@ import {
   Info,
   Link2,
   MessageCircle,
+  Mail,
   MessageSquare,
   MoreVertical,
   Paperclip,
@@ -33,8 +36,15 @@ import {
 } from 'lucide-react'
 import { Avatar } from '../../components/Avatar/Avatar'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
+import { CHANNELS, normalizeChannel } from '../../types/channel'
+import { emailConnectionService } from '../../services/email/emailConnectionService'
+import { EmailThreadMessage } from '../../components/EmailThreadMessage/EmailThreadMessage'
+import { EmailComposer } from '../../components/EmailComposer/EmailComposer'
+import type { EmailComposeMode } from '../../components/EmailComposer/EmailComposer'
+import { Pagination } from '../../components/Pagination/Pagination'
+import type { EmailConnection } from '../../types/email'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
-import { useChatStore } from '../../store/chatStore'
+import { useChatStore, ALL_CHANNELS } from '../../store/chatStore'
 import { useConnectionStore } from '../../store/connectionStore'
 import { campaignService } from '../../services/campaigns/campaignService'
 import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
@@ -108,8 +118,10 @@ export const Chat: React.FC = () => {
     isSending,
     fromNumber,
     conversationsFilter,
+    channelFilter,
     sidebarSearchQuery,
     setSelectedConnectionId,
+    setChannelFilter,
     loadAccounts,
     loadConversations,
     refreshActiveMessages,
@@ -122,6 +134,118 @@ export const Chat: React.FC = () => {
     setSidebarSearchQuery
   } = useChatStore()
 
+
+  // Email connections come from their own endpoint: the WhatsApp connection store is shaped
+  // around WABA accounts — its Connection type has no channel at all — so it can never describe
+  // one. Kept in local state for the same reason ConnectionsList does: eight other pages read
+  // that store and have no interest in email.
+  const [emailConnections, setEmailConnections] = useState<EmailConnection[]>([])
+
+  /**
+   * The selected channel, or null for "All Channels".
+   *
+   * Compared through normalizeChannel because the picker writes the frontend's own key, which is
+   * lowercase ('email'), while the API spells it 'Email'. A direct === against either spelling is
+   * false half the time — which is exactly what went wrong: the comparison never matched, so the
+   * pickers below stayed on the WhatsApp lists whatever was chosen.
+   */
+  const selectedChannel = channelFilter === ALL_CHANNELS ? null : normalizeChannel(channelFilter)
+
+  // "All Channels" means both, so each is in scope unless the other was named specifically.
+  const showsWhatsApp = selectedChannel !== 'email'
+  const showsEmail = selectedChannel !== 'whatsapp'
+
+  // Kept for the places that ask "is this an email-only view", e.g. the search placeholder.
+  const isEmailChannel = selectedChannel === 'email'
+
+  useEffect(() => {
+    if (!showsEmail) return
+
+    let isMounted = true
+    emailConnectionService.getConnections().then((loaded) => {
+      if (isMounted) setEmailConnections(loaded)
+    })
+
+    return () => { isMounted = false }
+  }, [showsEmail])
+
+  /**
+   * The connections the Active Connection picker offers, for whichever channel is selected.
+   *
+   * Both channels are projected onto one shape so the picker itself does not branch. An email
+   * connection is keyed by its parent `connectionId` — the Connection row that
+   * ChatConversation.ConnectionId points at — not by its own EmailConfiguration id, which would
+   * silently select the wrong thread set.
+   */
+  const channelConnections = React.useMemo(() => {
+    const whatsapp = showsWhatsApp
+      ? connections.map(conn => ({
+          id: conn.id,
+          channel: 'whatsapp' as const,
+          label: `${conn.name} (${conn.phoneNumber || 'Setup pending'})`,
+          keywords: conn.phoneNumber ?? '',
+          usable: Boolean(conn.isConnected && conn.phoneNumber),
+          /** Has something to send as. Distinct from `usable`, which also requires connectivity. */
+          hasIdentity: Boolean(conn.phoneNumber)
+        }))
+      : []
+
+    const email = showsEmail
+      ? emailConnections
+          // Keyed by the parent Connection row, which is what ChatConversation.ConnectionId
+          // points at — its own EmailConfiguration id would select the wrong thread set.
+          .filter(conn => conn.connectionId != null)
+          .map(conn => ({
+            id: conn.connectionId as number,
+            channel: 'email' as const,
+            label: `${conn.connectionName} (${conn.defaultFromEmail || 'Setup pending'})`,
+            keywords: conn.defaultFromEmail ?? '',
+            usable: conn.isActive && Boolean(conn.defaultFromEmail),
+            hasIdentity: Boolean(conn.defaultFromEmail)
+          }))
+      : []
+
+    return [...whatsapp, ...email]
+  }, [showsWhatsApp, showsEmail, connections, emailConnections])
+
+  /** Which channel the currently selected connection belongs to. */
+  const selectedConnectionChannel =
+    channelConnections.find(c => c.id === selectedConnectionId)?.channel ?? null
+
+  /**
+   * The Sender Line options.
+   *
+   * On email these are the connection's verified sender identities, which is the email analogue
+   * of a WABA phone number — the address the recipient sees in the From line.
+   */
+  /**
+   * The Sender Line options.
+   *
+   * Driven by the selected connection's own channel rather than the header filter, so on
+   * "All Channels" — where the list holds both kinds — the sender line matches whichever
+   * connection is actually selected instead of guessing from the header.
+   */
+  const senderOptions = React.useMemo(() => {
+    if (selectedConnectionChannel === 'email') {
+      return emailConnections
+        .filter(conn => conn.connectionId === selectedConnectionId)
+        .flatMap(conn => conn.senders
+          .filter(sender => sender.isActive)
+          .map(sender => ({
+            value: sender.emailAddress,
+            label: sender.emailAddress,
+            keywords: sender.displayName ?? ''
+          })))
+    }
+
+    return accounts.map(account => ({
+      value: account.phoneNumberId,
+      label: account.phoneNumber || account.verifiedName || account.phoneNumberId,
+      keywords: account.verifiedName ?? ''
+    }))
+  }, [selectedConnectionChannel, accounts, emailConnections, selectedConnectionId])
+
+  const isEmailConnectionSelected = selectedConnectionChannel === 'email'
 
   const [messageText, setMessageText] = useState('')
   const [showTimeBanner, setShowTimeBanner] = useState(false)
@@ -183,29 +307,39 @@ export const Chat: React.FC = () => {
   // Auto-select the first connected connection on load
   useEffect(() => {
     fetchConnectionDashboard()
-    loadAccounts()
+    // On ALL_CHANNELS startup, loadConversations works without selectedConnectionId.
+    // loadAccounts only makes sense for single-channel (it fetches WABA phone accounts).
     loadConversations()
+    if (channelFilter !== ALL_CHANNELS) {
+      loadAccounts()
+    }
   }, [fetchConnectionDashboard, loadAccounts, loadConversations])
 
   useEffect(() => {
-    if (connections.length === 0) return
+    // ALL_CHANNELS mode intentionally uses no specific connection — selecting one would
+    // scope the conversation list to a single connection's channel, turning "All Channels"
+    // into "this connection's channel only". Skip the auto-select in this mode.
+    if (channelFilter === ALL_CHANNELS) return
+    if (channelConnections.length === 0) return
 
-    const current = connections.find(c => c.id === selectedConnectionId)
-    const firstUsable = connections.find(c => c.isConnected && c.phoneNumber)
+    const current = channelConnections.find(c => c.id === selectedConnectionId)
+    const firstUsable = channelConnections.find(c => c.usable)
 
     // A selection is only worth keeping if it can actually carry a message. The check used to be
     // "does this connection still exist", which meant a remembered connection that had lost its
     // sender number kept the whole screen in "Setup pending" — with a working line sitting one
     // item down the dropdown, unselected. Existing-but-unusable is not a selection worth honouring.
-    const currentIsUsable = Boolean(current?.isConnected && current?.phoneNumber)
-    if (currentIsUsable) return
+    //
+    // Now driven by channelConnections rather than the WhatsApp list, so switching to Email picks
+    // an email connection instead of leaving a phone number selected above an empty inbox.
+    if (current?.usable) return
 
     // Only moved when there is somewhere better to go: if nothing can send, the remembered choice
     // stays put rather than shuffling between equally broken lines on every render.
     if (current && !firstUsable) return
 
-    setSelectedConnectionId(firstUsable ? firstUsable.id : connections[0].id)
-  }, [connections, selectedConnectionId, setSelectedConnectionId])
+    setSelectedConnectionId(firstUsable ? firstUsable.id : channelConnections[0].id)
+  }, [channelFilter, channelConnections, selectedConnectionId, setSelectedConnectionId])
 
   // Accounts change only when someone connects or disconnects a WABA, which the connection
   // store already triggers a reload for. Retry a few times on a cold start, then stop —
@@ -234,6 +368,17 @@ export const Chat: React.FC = () => {
     return () => window.clearTimeout(timeout)
   }, [sidebarSearchQuery, conversationsFilter, loadConversations])
 
+  // Auto-select the first sender whenever the available options change and the current value is
+  // not in the list. This covers: switching to a new email connection (no fromNumber yet),
+  // returning to a connection after a refresh, and the initial load where fromNumber is ''.
+  useEffect(() => {
+    if (senderOptions.length === 0) return
+    const currentInList = senderOptions.some(o => o.value === fromNumber)
+    if (!currentInList) {
+      setFromNumber(senderOptions[0].value)
+    }
+  }, [senderOptions, fromNumber, setFromNumber])
+
   // Two independent streams at different cadences, replacing a single 2-second timer that
   // refreshed whichever was in front. The open conversation is small and cheap, so it stays
   // near-live; the conversation list is the expensive one, so it ticks slowly.
@@ -241,8 +386,8 @@ export const Chat: React.FC = () => {
   // Both pause when the tab is hidden — a background tab polling every 2 seconds was a large
   // share of the load for no one's benefit — and catch up immediately on return.
   useEffect(() => {
-    const selectedConn = connections.find(c => c.id === selectedConnectionId)
-    if (selectedConn && !selectedConn.phoneNumber) return
+    // Email threads have no phoneNumber check — polling must work for both channels.
+    // The old guard blocked all email thread refresh: email connections never have a phoneNumber.
     if (!activeConversationId) return
 
     const tick = () => {
@@ -256,12 +401,11 @@ export const Chat: React.FC = () => {
       window.clearInterval(interval)
       document.removeEventListener('visibilitychange', tick)
     }
-  }, [activeConversationId, refreshActiveMessages, connections, selectedConnectionId])
+  }, [activeConversationId, refreshActiveMessages])
 
   useEffect(() => {
-    const selectedConn = connections.find(c => c.id === selectedConnectionId)
-    if (selectedConn && !selectedConn.phoneNumber) return
-
+    // Inbox polling works for all channels — the phoneNumber guard was
+    // skipping email-connection inbox refreshes entirely.
     const tick = () => {
       if (document.visibilityState === 'visible') loadConversations()
     }
@@ -273,7 +417,7 @@ export const Chat: React.FC = () => {
       window.clearInterval(interval)
       document.removeEventListener('visibilitychange', tick)
     }
-  }, [loadConversations, connections, selectedConnectionId])
+  }, [loadConversations])
 
   // "Latest requested contact wins, exactly once" guard. Without this, since the
   // ?contactId= param was never cleared, ANY change to activeConversationId (including
@@ -326,6 +470,51 @@ export const Chat: React.FC = () => {
     }
   }, [showTimeBanner])
 
+  // Paged in the client. The endpoint returns one connection-and-channel's conversations in a
+  // single response — a few dozen rows, not a contact list — so slicing here is honest rather
+  // than standing in for server paging that ought to exist.
+  /** How many emails stay expanded before the rest collapse behind a "show previous" control. */
+  const EMAIL_THREAD_VISIBLE = 3
+  const [showAllEmails, setShowAllEmails] = useState(false)
+
+  /**
+   * The message the composer is responding to, and how.
+   *
+   * Held here rather than in the composer so the per-message Reply buttons further up the thread
+   * can open it — replying to the third message from the bottom is a normal thing to do.
+   */
+  const [emailCompose, setEmailCompose] =
+    useState<{ messageId: number; mode: EmailComposeMode } | null>(null)
+
+  /** The message the composer is responding to, resolved from the open thread. */
+  const activeEmailSource = useMemo(
+    () => messages.find(m => m.id === emailCompose?.messageId) ?? null,
+    [messages, emailCompose])
+
+  /**
+   * The address this thread sends as.
+   *
+   * Priority:
+   *   1. The sidebar From: picker (fromNumber, when it's a valid email)
+   *   2. The last outgoing message's fromAddress
+   *   3. The selected email connection's defaultFromEmail
+   *
+   * Taken from the sidebar picker first: the user may have changed it after the thread opened.
+   */
+  const emailThreadFromAddress = useMemo(() => {
+    // fromNumber holds the selected sender for email connections
+    if (fromNumber && fromNumber.includes('@')) return fromNumber
+    // Fall back to the last outgoing message's recorded from address
+    const lastOutgoing = [...messages].reverse().find(m => m.type === 'outgoing' && m.fromAddress)
+    if (lastOutgoing?.fromAddress) return lastOutgoing.fromAddress
+    // Last resort: the connection's default
+    const conn = emailConnections.find(c => c.connectionId === selectedConnectionId)
+    return conn?.defaultFromEmail ?? null
+  }, [fromNumber, messages, emailConnections, selectedConnectionId])
+
+  const [conversationPage, setConversationPage] = useState(1)
+  const [conversationPageSize, setConversationPageSize] = useState(8)
+
   const filteredConversations = useMemo(() => {
     return conversations.filter((conversation) => {
       if (sidebarSearchQuery) {
@@ -337,9 +526,33 @@ export const Chat: React.FC = () => {
         return false
       }
 
+      // No channel predicate here any more. The server scopes the fetch by channel, so a
+      // second filter over the response could only ever remove rows the response never had —
+      // which is exactly how selecting Email used to empty an inbox that had email in it.
       return true
     })
   }, [conversations, conversationsFilter, sidebarSearchQuery])
+
+  const conversationPageCount = Math.max(
+    1, Math.ceil(filteredConversations.length / conversationPageSize))
+  const currentConversationPage = Math.min(conversationPage, conversationPageCount)
+
+  const pagedConversations = filteredConversations.slice(
+    (currentConversationPage - 1) * conversationPageSize,
+    currentConversationPage * conversationPageSize)
+
+  // Back to page one whenever the list underneath changes shape. Without this the footer can
+  // describe a page that no longer exists — "showing 17 to 24 of 6".
+  useEffect(() => {
+    setConversationPage(1)
+  }, [channelFilter, selectedConnectionId, conversationsFilter, sidebarSearchQuery])
+
+  // Each thread opens collapsed. Carrying "expanded" across to the next one would show a
+  // different conversation's full history without being asked.
+  useEffect(() => {
+    setShowAllEmails(false)
+    setEmailCompose(null)
+  }, [activeConversationId])
 
   // The daily message-limit cache is no longer warmed here. This effect fired on every
   // connection change and made blocking Meta Graph calls that nothing on this page consumed;
@@ -790,49 +1003,105 @@ export const Chat: React.FC = () => {
     </svg>
   )
 
+
+  // Taken from the conversation, not from the header filter: on "All Channels" both kinds of
+  // thread are in the list, and how a thread renders is a property of the thread.
+  const isEmailThread =
+    activeConversation != null && normalizeChannel(activeConversation.channel) === 'email'
+
   return (
-    <motion.div className="chat-container-layout" {...pageTransitionProps}>
+    <motion.div className="chat-page" {...pageTransitionProps}>
+      {/*
+        The channel selector belongs to the page, not to the conversation list. It governs both
+        panes — which threads are listed *and* which composer the thread shows — so presenting it
+        as one more sidebar filter understated what it does.
+
+        Unavailable channels are listed but disabled, which is deliberate: it answers "does this
+        product do SMS?" without pretending that it does.
+      */}
+      <div className="chat-page-header">
+        <div className="chat-page-heading">
+          <h1>Omnichannel Inbox</h1>
+          <p>Manage customer conversations across all your communication channels in one place.</p>
+        </div>
+
+        <div className="chat-page-channel">
+          <label className="chat-page-channel-label">Channel</label>
+          <ChannelPicker
+            value={channelFilter}
+            onChange={(value) => {
+              setChannelFilter(value.startsWith('__unavailable_') ? 'All Channels' : value)
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="chat-container-layout">
       <div className="chat-sidebar">
         <div className="chat-sidebar-header">
-          {/* Connection Filter Dropdown (matching Image 2) */}
+
+          {/* Connection picker — hidden in ALL_CHANNELS mode where the list spans all connections */}
+          {channelFilter === ALL_CHANNELS ? (
+            <div className="chat-connection-select-wrapper">
+              <label className="chat-sidebar-field-label">Active Connection</label>
+              <div className="chat-all-connections-badge">
+                <span className="chat-all-connections-label">All Connections</span>
+              </div>
+            </div>
+          ) : (
           <div className="chat-connection-select-wrapper">
             <label className="chat-sidebar-field-label">
               Active Connection
             </label>
             <SearchableSelect
               label="Active connection"
-              placeholder="Select a connection"
+              placeholder={
+                channelConnections.length === 0
+                  ? (isEmailChannel ? 'No email connections' : 'Select a connection')
+                  : 'Select a connection'
+              }
               hideAllOption
               className="chat-connection-select"
               value={selectedConnectionId != null ? String(selectedConnectionId) : ''}
-              options={connections.map((conn) => ({
+              options={channelConnections.map((conn) => ({
                 value: String(conn.id),
-                label: `${conn.name} (${conn.phoneNumber || 'Setup pending'})`,
-                keywords: conn.phoneNumber ?? ''
+                label: conn.label,
+                keywords: conn.keywords
               }))}
               onChange={(val) => setSelectedConnectionId(val ? Number(val) : null)}
             />
           </div>
+          )}
 
+          {/* From/Sender row — only shown when a specific connection is selected */}
+          {channelFilter !== ALL_CHANNELS && (
           <div className="chat-account-display-row">
-            <Avatar name={selectedAccount?.verifiedName || selectedAccount?.phoneNumber || 'From Account'} size="small" />
+            <Avatar
+              name={
+                isEmailConnectionSelected
+                  ? (fromNumber || 'From Address')
+                  : (selectedAccount?.verifiedName || selectedAccount?.phoneNumber || 'From Account')
+              }
+              size="small"
+            />
             <div className="chat-dropdown-full">
-              <span className="upload-sub-text">Sender Line:</span>
+              <span className="upload-sub-text">{isEmailConnectionSelected ? 'From:' : 'Sender Line:'}</span>
               <SearchableSelect
-                label="Sender line"
-                placeholder={accounts.length === 0 ? 'No WABA numbers connected' : 'Select a sender line'}
+                label={isEmailConnectionSelected ? 'From address' : 'Sender line'}
+                placeholder={
+                  senderOptions.length === 0
+                    ? (isEmailConnectionSelected ? 'No verified senders' : 'No WABA numbers connected')
+                    : (isEmailConnectionSelected ? 'Select a from address' : 'Select a sender line')
+                }
                 hideAllOption
-                disabled={accounts.length === 0}
+                disabled={senderOptions.length === 0}
                 value={fromNumber}
-                options={accounts.map((account) => ({
-                  value: account.phoneNumberId,
-                  label: account.phoneNumber || account.verifiedName || account.phoneNumberId,
-                  keywords: account.verifiedName ?? ''
-                }))}
+                options={senderOptions}
                 onChange={setFromNumber}
               />
             </div>
           </div>
+          )}
 
           <SearchableSelect
             label="Chat filter"
@@ -852,19 +1121,34 @@ export const Chat: React.FC = () => {
           <SearchBar
             value={sidebarSearchQuery}
             onChange={setSidebarSearchQuery}
-            placeholder="Search name, phone, message, group..."
+            placeholder={
+              channelFilter === ALL_CHANNELS
+                ? 'Search name, phone, email, message...'
+                : isEmailChannel
+                  ? 'Search name, email, subject...'
+                  : 'Search name, phone, message, group...'
+            }
           />
         </div>
 
         <div className="conversation-list-scroll">
           {(() => {
-            const selectedConn = connections.find(c => c.id === selectedConnectionId);
-            if (selectedConn && !selectedConn.phoneNumber) {
+            // Judged against the selected channel's own connections. This used to test the
+            // WhatsApp list unconditionally, so choosing Email put a "No WABA number connected"
+            // error over a fully configured email account.
+            const selectedConn = channelConnections.find(c => c.id === selectedConnectionId);
+            if (selectedConn && !selectedConn.hasIdentity) {
               return (
                 <div className="chat-sidebar-empty-state">
-                  <MessageSquare size={36} className="chat-sidebar-empty-icon" />
+                  {isEmailChannel
+                    ? <Mail size={36} className="chat-sidebar-empty-icon" />
+                    : <MessageSquare size={36} className="chat-sidebar-empty-icon" />}
                   <span className="chat-sidebar-empty-title">Setup pending</span>
-                  <p className="chat-sidebar-empty-desc">No WABA number connected</p>
+                  <p className="chat-sidebar-empty-desc">
+                    {isEmailChannel
+                      ? 'This email connection has no sender address yet'
+                      : 'No WABA number connected'}
+                  </p>
                 </div>
               );
             }
@@ -883,7 +1167,7 @@ export const Chat: React.FC = () => {
               </p>
             </div>
           ) : (
-            filteredConversations.map((conversation) => {
+            pagedConversations.map((conversation) => {
               const isActive = conversation.id === activeConversationId
               return (
                 <button
@@ -892,7 +1176,27 @@ export const Chat: React.FC = () => {
                   className={`conversation-item ${isActive ? 'active' : ''}`}
                   onClick={() => selectConversation(conversation.id)}
                 >
-                  <Avatar name={conversation.name} size="medium" />
+                  {/*
+                    The avatar carries a small channel marker, as in the reference designs. It
+                    sits on the avatar rather than beside the name because the name row already
+                    competes with the relation badge, and the channel is something an operator
+                    scans down the list for rather than reads.
+                  */}
+                  <span
+                    className="conversation-avatar-wrap"
+                    data-channel={normalizeChannel(conversation.channel)}
+                  >
+                    <Avatar name={conversation.name} size="medium" />
+                    <span className="conversation-channel-dot" aria-hidden="true">
+                      {normalizeChannel(conversation.channel) === 'email'
+                        ? <Mail size={10} />
+                        : <MessageCircle size={10} />}
+                    </span>
+                    <span className="sr-only">
+                      {normalizeChannel(conversation.channel) === 'email' ? 'Email' : 'WhatsApp'}
+                    </span>
+                  </span>
+
                   <div className="conversation-info-row">
                     <div className="conversation-name-badge-row">
                       <div className="conversation-name-wrap">
@@ -915,6 +1219,55 @@ export const Chat: React.FC = () => {
             })
           )})()}
         </div>
+
+        {/* Compact single-row pagination footer — always visible once there are results */}
+        {filteredConversations.length > 0 && (
+          <div className="chat-sidebar-footer">
+            <span className="chat-sidebar-footer-count">
+              {((currentConversationPage - 1) * conversationPageSize + 1).toLocaleString()}–
+              {Math.min(currentConversationPage * conversationPageSize, filteredConversations.length).toLocaleString()}
+              {' '}of{' '}
+              {filteredConversations.length.toLocaleString()}
+            </span>
+
+            <div className="chat-sidebar-footer-nav">
+              <button
+                type="button"
+                className="chat-sidebar-footer-nav-btn"
+                onClick={() => setConversationPage(currentConversationPage - 1)}
+                disabled={currentConversationPage <= 1}
+                aria-label="Previous page"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="chat-sidebar-footer-page">
+                {currentConversationPage}/{conversationPageCount}
+              </span>
+              <button
+                type="button"
+                className="chat-sidebar-footer-nav-btn"
+                onClick={() => setConversationPage(currentConversationPage + 1)}
+                disabled={currentConversationPage >= conversationPageCount}
+                aria-label="Next page"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+
+            <div className="chat-sidebar-footer-rows">
+              <span className="chat-sidebar-footer-rows-label">Rows</span>
+              <select
+                value={conversationPageSize}
+                onChange={(e) => { setConversationPageSize(Number(e.target.value)); setConversationPage(1) }}
+                aria-label="Rows per page"
+              >
+                {[8, 15, 25, 50].map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="chat-window">
@@ -947,7 +1300,11 @@ export const Chat: React.FC = () => {
                     <span className="conversation-contact-name">{activeConversation.name}</span>
                     <ContactTypeBadge value={activeConversation.status} typeMap={typeMap} />
                   </div>
-                  <p className="upload-sub-text margin-zero">{activeConversation.phone}</p>
+                  <p className="upload-sub-text margin-zero">
+                    {isEmailThread
+                      ? (activeConversation.email || activeConversation.phone)
+                      : activeConversation.phone}
+                  </p>
                 </div>
               </div>
 
@@ -962,7 +1319,8 @@ export const Chat: React.FC = () => {
                   <Search size={18} />
                 </button>
 
-                {windowStatus.active && (
+                {/* 24h window indicator — WhatsApp only */}
+                {!isEmailThread && windowStatus.active && (
                   <button
                     type="button"
                     className="chat-header-window-dot active"
@@ -971,7 +1329,7 @@ export const Chat: React.FC = () => {
                     onClick={() => setShowTimeBanner(true)}
                   />
                 )}
-                {!windowStatus.active && (
+                {!isEmailThread && !windowStatus.active && (
                   <div
                     className="chat-header-window-dot expired"
                     title={windowStatus.text}
@@ -993,17 +1351,20 @@ export const Chat: React.FC = () => {
                 >
                   <Info size={18} />
                 </button>
-                <Can permission="Chat.InitiateChat">
-                  <button
-                    type="button"
-                    className="chat-icon-btn whatsapp-green"
-                    title="Initiate Chat"
-                    aria-label="Initiate chat with a template"
-                    onClick={handleOpenTemplateModal}
-                  >
-                    <MessageSquare size={18} />
-                  </button>
-                </Can>
+                {/* Initiate Chat (WhatsApp templates) — only for WhatsApp threads */}
+                {!isEmailThread && (
+                  <Can permission="Chat.InitiateChat">
+                    <button
+                      type="button"
+                      className="chat-icon-btn whatsapp-green"
+                      title="Initiate Chat"
+                      aria-label="Initiate chat with a template"
+                      onClick={handleOpenTemplateModal}
+                    >
+                      <MessageSquare size={18} />
+                    </button>
+                  </Can>
+                )}
 
                 <div className="chat-header-more-menu-wrapper">
                   <button
@@ -1066,7 +1427,7 @@ export const Chat: React.FC = () => {
                   </div>
                 )}
 
-                <div className="chat-messages-container">
+                <div className={`chat-messages-container${isEmailThread ? ' email-mode' : ''}`}>
                   {isLoading ? (
                     <div className="chat-thread-loader">
                       <div className="chat-spinner" />
@@ -1080,6 +1441,28 @@ export const Chat: React.FC = () => {
                   ) : (
                     searchedMessages.map((message, index) => {
                       const previous = searchedMessages[index - 1]
+
+                      // Emails are documents, not a running conversation: a campaign contact can
+                      // accumulate many, and showing every one expanded buries the newest under
+                      // months of older sends. Collapsed to the last few, expandable in place.
+                      //
+                      // Not applied to WhatsApp, where hiding the middle of a conversation breaks
+                      // the sequence the operator is reading.
+                      if (isEmailThread && !showAllEmails
+                          && index < searchedMessages.length - EMAIL_THREAD_VISIBLE) {
+                        if (index > 0) return null
+                        return (
+                          <button
+                            key="email-thread-expand"
+                            type="button"
+                            className="email-thread-expand"
+                            onClick={() => setShowAllEmails(true)}
+                          >
+                            ··· Show previous messages (
+                            {searchedMessages.length - EMAIL_THREAD_VISIBLE})
+                          </button>
+                        )
+                      }
                       const showDateDivider = shouldShowDateDivider(message, previous)
 
                       const isSelected = selectedMessageIds.includes(message.id)
@@ -1104,6 +1487,12 @@ export const Chat: React.FC = () => {
                             </span>
                           )}
 
+                          {normalizeChannel(message.channel) === 'email' ? (
+                            <EmailThreadMessage
+                              message={message}
+                              onRespond={(mode) => setEmailCompose({ messageId: message.id, mode })}
+                            />
+                          ) : (
                           <div className={getBubbleClass(message)}>
                             {message.mediaUrl && (
                               <div className="chat-bubble-media-wrapper">
@@ -1161,6 +1550,7 @@ export const Chat: React.FC = () => {
                               )}
                             </div>
                           </div>
+                          )}
 
                           {message.errorMessage && (
                             <div className="chat-system-error-text">
@@ -1174,7 +1564,75 @@ export const Chat: React.FC = () => {
                   <div ref={messagesEndRef} />
                 </div>
 
-                {!windowStatus.active ? (
+                {isEmailThread ? (
+                  emailCompose && (activeEmailSource || emailCompose.mode === 'newEmail') ? (
+                    <EmailComposer
+                      conversationId={activeConversationId!}
+                      source={activeEmailSource ?? messages[messages.length - 1] ?? ({} as Message)}
+                      fromAddress={emailThreadFromAddress}
+                      mode={emailCompose.mode}
+                      onModeChange={(mode) => setEmailCompose({ ...emailCompose, mode })}
+                      onSent={() => {
+                        setEmailCompose(null)
+                        refreshActiveMessages()
+                        // Also refresh the inbox so the preview + timestamp update immediately
+                        void loadConversations()
+                      }}
+                      onCancel={() => setEmailCompose(null)}
+                    />
+                  ) : (
+                    /*
+                     * Closed by default. An email thread is read far more often than it is replied
+                     * to, and a composer permanently occupying a third of the pane pushes the mail
+                     * itself off screen — so it opens from the Reply/New Email buttons.
+                     */
+                    <div className="chat-composer-readonly email">
+                      <div className="chat-composer-readonly-actions">
+                        <button
+                          type="button"
+                          className="chat-composer-readonly-btn"
+                          onClick={() => {
+                            const lastMsg = messages[messages.length - 1]
+                            if (lastMsg) setEmailCompose({ messageId: lastMsg.id, mode: 'reply' })
+                          }}
+                        >
+                          <Mail size={14} />
+                          Reply
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-composer-readonly-btn"
+                          onClick={() => {
+                            const lastMsg = messages[messages.length - 1]
+                            if (lastMsg) setEmailCompose({ messageId: lastMsg.id, mode: 'replyAll' })
+                          }}
+                        >
+                          <Mail size={14} />
+                          Reply All
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-composer-readonly-btn"
+                          onClick={() => {
+                            const lastMsg = messages[messages.length - 1]
+                            if (lastMsg) setEmailCompose({ messageId: lastMsg.id, mode: 'forward' })
+                          }}
+                        >
+                          <Mail size={14} />
+                          Forward
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-composer-readonly-btn new-email"
+                          onClick={() => setEmailCompose({ messageId: -1, mode: 'newEmail' })}
+                        >
+                          <Plus size={14} />
+                          New Email
+                        </button>
+                      </div>
+                    </div>
+                  )
+                ) : !isEmailThread && !windowStatus.active ? (
                   <div className="chat-window-limit-banner">
                     <div className="chat-window-limit-left">
                       <AlertTriangle size={20} className="chat-window-limit-icon" />
@@ -1196,7 +1654,7 @@ export const Chat: React.FC = () => {
                       </button>
                     </Can>
                   </div>
-                ) : !canSend ? (
+                ) : !isEmailThread && !canSend ? (
                   // Read-only viewer: say so rather than showing a composer that 403s on send.
                   <div className="chat-composer-readonly">
                     <Lock size={15} />
@@ -1576,6 +2034,8 @@ export const Chat: React.FC = () => {
         isDestructive={true}
         showWarningIcon={true}
       />
+      </div>
+
     </motion.div>
   )
 }
@@ -1583,16 +2043,13 @@ export const Chat: React.FC = () => {
 /**
  * Polling cadences, named rather than sprinkled as literals.
  *
- * The open conversation is a small indexed read, so it can stay near-live. The conversation
- * list is the expensive one — it joins contacts, groups and connections for every row — so it
- * ticks far more slowly. Both were previously a single 2000ms timer, which meant the expensive
- * query ran thirty times a minute per open tab.
- *
- * These are the seam for real-time push: replacing the timers with a subscription is a change
- * to this file only.
+ * The open conversation is a small indexed read, so it can stay near-live (1 s). The
+ * conversation list joins contacts, groups and connections for every row, so it ticks at 5 s.
+ * The old 15 s inbox cadence meant a sent email could take 15 s to appear — tightened to 5 s
+ * here so the inbox preview updates quickly without hammering the server.
  */
-const ACTIVE_THREAD_POLL_MS = 3000
-const INBOX_POLL_MS = 15000
+const ACTIVE_THREAD_POLL_MS = 1000
+const INBOX_POLL_MS = 5000
 const ACCOUNT_RETRY_MS = 5000
 const ACCOUNT_RETRY_LIMIT = 6
 
@@ -1683,3 +2140,130 @@ const formatDateDivider = (value: string) => {
 }
 
 export default Chat
+
+/* ──────────────────────────────────────────────────────────────────────────────
+   ChannelPicker — custom dropdown matching Image 3.
+
+   Shows "All Channels" on top (with a checkmark when active), then each available
+   channel with its icon, then a divider + "Coming Soon" section for planned ones.
+   ────────────────────────────────────────────────────────────────────────────── */
+
+const CHANNEL_ICON_MAP: Record<string, React.ReactNode> = {
+  whatsapp: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" fill="#25D366"/>
+      <path d="M12 0C5.373 0 0 5.373 0 12c0 2.128.557 4.122 1.528 5.855L0 24l6.345-1.498A11.956 11.956 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.92 0-3.722-.497-5.28-1.37l-.379-.215-3.766.888.934-3.65-.248-.396A9.935 9.935 0 012 12c0-5.514 4.486-10 10-10s10 4.486 10 10-4.486 10-10 10z" fill="#25D366"/>
+    </svg>
+  ),
+  email: <Mail size={15} color="#f97316" />,
+  sms: <MessageSquare size={15} color="#8b5cf6" />,
+  instagram: <span style={{ fontSize: 13 }}>📷</span>,
+  facebook: <span style={{ fontSize: 13 }}>👍</span>,
+}
+
+const ChannelPicker: React.FC<{
+  value: string
+  onChange: (value: string) => void
+}> = ({ value, onChange }) => {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const activeLabel = value === ALL_CHANNELS
+    ? 'All Channels'
+    : CHANNELS.find(c => c.key === value)?.label ?? value
+
+  const activeIcon = value !== ALL_CHANNELS && CHANNEL_ICON_MAP[value]
+    ? CHANNEL_ICON_MAP[value]
+    : null
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const available = CHANNELS.filter(c => c.available)
+  const planned = CHANNELS.filter(c => !c.available)
+
+  const select = (v: string) => {
+    onChange(v)
+    setOpen(false)
+  }
+
+  return (
+    <div className="channel-picker" ref={ref}>
+      <button
+        type="button"
+        className={`channel-picker-trigger${open ? ' open' : ''}`}
+        onClick={() => setOpen(o => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className="channel-picker-icon-wrap">
+          {activeIcon ?? <MessageCircle size={15} color="#64748b" />}
+        </span>
+        <span className="channel-picker-label">{activeLabel}</span>
+        <svg className="channel-picker-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+
+      {open && (
+        <div className="channel-picker-menu" role="listbox">
+          {/* All Channels */}
+          <button
+            type="button"
+            role="option"
+            aria-selected={value === ALL_CHANNELS}
+            className={`channel-picker-item${value === ALL_CHANNELS ? ' selected' : ''}`}
+            onClick={() => select(ALL_CHANNELS)}
+          >
+            <span className="channel-picker-item-icon"><MessageCircle size={15} color="#64748b" /></span>
+            <span className="channel-picker-item-label">All Channels</span>
+            {value === ALL_CHANNELS && <Check size={14} className="channel-picker-check" />}
+          </button>
+
+          {/* Available channels */}
+          {available.map(ch => (
+            <button
+              key={ch.key}
+              type="button"
+              role="option"
+              aria-selected={value === ch.key}
+              className={`channel-picker-item${value === ch.key ? ' selected' : ''}`}
+              onClick={() => select(ch.key)}
+            >
+              <span className="channel-picker-item-icon">{CHANNEL_ICON_MAP[ch.key]}</span>
+              <span className="channel-picker-item-label">{ch.label}</span>
+              {value === ch.key && <Check size={14} className="channel-picker-check" />}
+            </button>
+          ))}
+
+          {/* Coming Soon divider + planned channels */}
+          {planned.length > 0 && (
+            <>
+              <div className="channel-picker-divider">
+                <span>Coming Soon</span>
+              </div>
+              {planned.map(ch => (
+                <button
+                  key={ch.key}
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  className="channel-picker-item disabled"
+                  disabled
+                >
+                  <span className="channel-picker-item-icon">{CHANNEL_ICON_MAP[ch.key]}</span>
+                  <span className="channel-picker-item-label">{ch.label}</span>
+                  <span className="channel-picker-coming-soon">Soon</span>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

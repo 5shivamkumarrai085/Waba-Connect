@@ -93,7 +93,7 @@ tr:hover .message-bot-hover-actions {
 }
 
 .message-bot-action-btn.destructive:hover {
-  color: #dc2626;
+  color: var(--omni-color-danger);
 }
 
 .action-divider {

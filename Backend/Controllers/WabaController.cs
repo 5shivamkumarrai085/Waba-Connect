@@ -120,7 +120,7 @@ namespace WhatsAppCampaignApi.Controllers
             var allConfigs = await _dbContext.WabaConfigurations.ToListAsync();
             var config = allConfigs.FirstOrDefault(c => c.ConnectionId == conn.Id);
 
-            string verifyToken = config?.VerifyToken;
+            string verifyToken = config?.VerifyToken ?? string.Empty;
             if (string.IsNullOrWhiteSpace(verifyToken))
             {
                 verifyToken = "waba_verify_token_" + Guid.NewGuid().ToString("N").Substring(0, 16);

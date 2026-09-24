@@ -5,6 +5,7 @@ using WhatsAppCampaignApi.Models.DTOs.Campaigns;
 using WhatsAppCampaignApi.Services.Interfaces;
 
 using WhatsAppCampaignApi.Helpers;
+using WhatsAppCampaignApi.Models.Enums;
 
 namespace WhatsAppCampaignApi.Controllers;
 
@@ -206,7 +207,13 @@ public class CampaignsController : ControllerBase
     [RequiresPermission("BulkCampaign.Create")]
     [RequestSizeLimit(CsvUploadLimits.MaxBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = CsvUploadLimits.MaxBytes)]
-    public async Task<ActionResult<ApiResponse<CsvValidationResponse>>> ValidateCsv(IFormFile file, CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<CsvValidationResponse>>> ValidateCsv(
+        IFormFile file,
+        CancellationToken cancellationToken,
+        // Form field rather than a route or query value: the file and the channel it is being
+        // validated for arrive in the same multipart body. Absent means WhatsApp, so every
+        // caller written before the email channel existed still validates exactly as before.
+        [FromForm] string? channel = null)
     {
         if (file == null || file.Length == 0)
         {
@@ -229,6 +236,11 @@ public class CampaignsController : ControllerBase
             await file.CopyToAsync(fileStream, cancellationToken);
         }
 
+        if (!Enum.TryParse<MessageChannel>(channel, true, out var parsedChannel))
+        {
+            parsedChannel = MessageChannel.WhatsApp;
+        }
+
         int totalRecords = 0, validCount = 0, invalidCount = 0;
         var errors = new List<CsvRowError>();
         CsvColumnMap? map = null;
@@ -241,14 +253,16 @@ public class CampaignsController : ControllerBase
             {
                 if (map == null)
                 {
-                    map = BulkCampaignCsv.MapColumns(fields);
+                    map = BulkCampaignCsv.MapColumns(fields, parsedChannel);
                     if (map == null)
                     {
                         System.IO.File.Delete(filePath);
                         return BadRequest(new ApiResponse<CsvValidationResponse>
                         {
                             Success = false,
-                            Message = "The file needs a phone column and a name column. Download the sample file to see the expected format."
+                            Message = parsedChannel == MessageChannel.Email
+                                ? "An email campaign's file needs a phone column, a name column and an email column. Download the sample file to see the expected format."
+                                : "The file needs a phone column and a name column. Download the sample file to see the expected format."
                         });
                     }
 
@@ -257,7 +271,7 @@ public class CampaignsController : ControllerBase
 
                 totalRecords++;
 
-                if (BulkCampaignCsv.TryReadRow(fields, rowNumber, map, out _, out var rowErrors))
+                if (BulkCampaignCsv.TryReadRow(fields, rowNumber, map, out _, out var rowErrors, parsedChannel))
                 {
                     validCount++;
                 }

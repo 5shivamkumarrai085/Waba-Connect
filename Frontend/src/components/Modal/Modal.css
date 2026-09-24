@@ -222,7 +222,7 @@ body.is-modal-open {
 
 .oc-dialog-btn-primary {
   background-color: var(--primary);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 
 .oc-dialog-btn-primary:hover:not(:disabled) {
@@ -241,12 +241,12 @@ body.is-modal-open {
 }
 
 .oc-dialog-btn-destructive {
-  background-color: #dc2626;
-  color: #ffffff;
+  background-color: var(--omni-color-danger);
+  color: var(--text-on-accent);
 }
 
 .oc-dialog-btn-destructive:hover:not(:disabled) {
-  background-color: #991b1b;
+  background-color: var(--omni-color-danger-text);
 }
 
 /* ─── Mobile ─────────────────────────────────────────────────────── */
@@ -371,7 +371,7 @@ body.is-modal-open {
   overflow: hidden;
   padding: 22px 28px 20px;
   border-bottom: none;
-  background: linear-gradient(120deg, #1e3a8a 0%, #1e40af 30%, #2563eb 65%, #3b82f6 100%);
+  background: linear-gradient(120deg, var(--omni-color-primary-800) 0%, var(--omni-color-info-text) 30%, var(--primary) 65%, var(--omni-color-primary-500) 100%);
   flex-shrink: 0;
 }
 
@@ -409,7 +409,7 @@ body.is-modal-open {
   font-weight: 700;
   letter-spacing: -0.025em;
   line-height: 1.2;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .oc-dialog-panel--place-right .oc-dialog-subtitle {
@@ -425,13 +425,13 @@ body.is-modal-open {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.16);
   border: 1px solid rgba(255, 255, 255, 0.28);
-  color: #fff;
+  color: var(--text-on-accent);
   backdrop-filter: blur(8px);
 }
 
 .oc-dialog-panel--place-right .oc-dialog-close:hover {
   background: rgba(255, 255, 255, 0.28);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .oc-dialog-panel--place-right .oc-dialog-body {

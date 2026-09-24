@@ -1,0 +1,143 @@
+/* Formatting editor for email template bodies. Tokens only, so it works in dark mode. */
+
+.rich-editor {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.rich-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3xs);
+  padding: var(--space-2xs) var(--space-xs);
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-subtle);
+  /* Wraps rather than scrolling: a hidden formatting button is a button nobody finds. */
+  flex-wrap: wrap;
+}
+
+.rich-editor-block {
+  height: 28px;
+  padding: 0 var(--space-xs);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: var(--text-sm);
+}
+
+.rich-editor-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.rich-editor-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-heading);
+}
+
+.rich-editor-btn.active {
+  border-color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary);
+}
+
+.rich-editor-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.rich-editor-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.rich-editor-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 var(--space-3xs);
+  background: var(--border-color);
+}
+
+.rich-editor-spacer {
+  flex: 1 1 auto;
+}
+
+.rich-editor-surface {
+  min-height: 200px;
+  max-height: 420px;
+  padding: var(--space-lg);
+  overflow-y: auto;
+  /* Always light: the body is email HTML written against a white background, and inheriting the
+     app's dark-mode text colour would render an operator's own copy near-invisible. */
+  background: #ffffff;
+  color: #1e293b;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+}
+
+.rich-editor-surface:focus {
+  outline: none;
+}
+
+/* A CSS-only placeholder: contentEditable has no placeholder attribute, and an empty editor with
+   no prompt reads as broken. */
+.rich-editor-surface:empty::before {
+  content: attr(data-placeholder);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.rich-editor-surface :where(h1, h2, h3) {
+  margin: 0 0 var(--space-sm);
+  color: #0f172a;
+}
+
+.rich-editor-surface p {
+  margin: 0 0 var(--space-base);
+}
+
+.rich-editor-surface a {
+  color: #2563eb;
+}
+
+.rich-editor-surface img {
+  max-width: 100%;
+  height: auto;
+}
+
+.rich-editor-surface table {
+  max-width: 100%;
+  border-collapse: collapse;
+}
+
+.rich-editor-source {
+  display: block;
+  width: 100%;
+  min-height: 240px;
+  max-height: 420px;
+  padding: var(--space-lg);
+  border: none;
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  resize: vertical;
+}
+
+.rich-editor-source:focus {
+  outline: none;
+}

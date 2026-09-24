@@ -491,6 +491,33 @@ public class ReportQueryService : IReportQueryService
         var failed = CountWhere((s, _) => s == ChatMessageStatus.Failed);
         var responses = CountWhere((_, d) => d == ChatMessageDirection.Incoming);
 
+        // ── Per-KPI sparklines ──────────────────────────────────────────────────────────────────
+        // One extra grouped scan — by day, status and direction together — gives every card's
+        // trend line from the same filtered rows as its headline number, so a card's sparkline
+        // can never depict a different set of messages than the figure above it.
+        var dailyByStatus = await query
+            .GroupBy(m => new { m.CreatedAt.Year, m.CreatedAt.Month, m.CreatedAt.Day, m.Status, m.Direction })
+            .Select(g => new { g.Key.Year, g.Key.Month, g.Key.Day, g.Key.Status, g.Key.Direction, Count = g.Count() })
+            .ToListAsync();
+
+        var trendDates = dailyByStatus
+            .Select(d => new DateTime(d.Year, d.Month, d.Day, 0, 0, 0, DateTimeKind.Utc))
+            .Distinct()
+            .OrderBy(d => d)
+            .ToList();
+
+        // A single point is a number, not a trend — the card shows the figure alone rather than a
+        // line with nowhere to go.
+        List<int> TrendFor(Func<ChatMessageStatus, ChatMessageDirection, bool> predicate) =>
+            trendDates.Count < 2
+                ? []
+                : trendDates
+                    .Select(date => dailyByStatus
+                        .Where(d => d.Year == date.Year && d.Month == date.Month && d.Day == date.Day
+                                    && predicate(d.Status, d.Direction))
+                        .Sum(d => d.Count))
+                    .ToList();
+
         var summary = new ReportSummaryDto { Total = total };
 
         // ── Comparison with the preceding window ────────────────────────────────────────────────
@@ -532,23 +559,29 @@ public class ReportQueryService : IReportQueryService
             comparisonLabel = $"vs {previousFrom:MMM dd} - {previousTo:MMM dd}";
         }
 
-        ReportKpiDto Kpi(string key, string label, int value) => new()
+        ReportKpiDto Kpi(string key, string label, int value, List<int> trend) => new()
         {
             Key = key,
             Label = label,
             Value = value,
             PreviousValue = previous?.GetValueOrDefault(key),
             ChangePercent = PercentChange(previous?.GetValueOrDefault(key), value),
-            ComparisonLabel = previous is null ? null : comparisonLabel
+            ComparisonLabel = previous is null ? null : comparisonLabel,
+            Trend = trend
         };
 
         summary.Kpis =
         [
-            Kpi("total", "Total Messages", total),
-            Kpi("delivered", "Delivered", delivered),
-            Kpi("read", "Read", read),
-            Kpi("responses", "Responses", responses),
-            Kpi("failed", "Failed", failed)
+            Kpi("total", "Total Messages", total,
+                TrendFor((_, _) => true)),
+            Kpi("delivered", "Delivered", delivered,
+                TrendFor((st, _) => st is ChatMessageStatus.Delivered or ChatMessageStatus.Read)),
+            Kpi("read", "Read", read,
+                TrendFor((st, _) => st == ChatMessageStatus.Read)),
+            Kpi("responses", "Responses", responses,
+                TrendFor((_, d) => d == ChatMessageDirection.Incoming)),
+            Kpi("failed", "Failed", failed,
+                TrendFor((st, _) => st == ChatMessageStatus.Failed))
         ];
 
         // ── Activity over time ──────────────────────────────────────────────────────────────────

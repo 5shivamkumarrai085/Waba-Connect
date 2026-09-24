@@ -7,14 +7,14 @@
 .contacts-page-header h1 {
   font-size: 1.625rem;
   font-weight: 700;
-  color: var(--text-main, #0f172a);
+  color: var(--text-main);
   margin: 0 0 0.25rem 0;
   letter-spacing: -0.02em;
 }
 
 .contacts-page-header p {
   font-size: 0.875rem;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted);
   margin: 0;
 }
 
@@ -64,7 +64,7 @@
 }
 
 .btn-toolbar-primary {
-  color: #ffffff;
+  color: var(--bg-secondary);
   background-color: var(--primary);
 }
 
@@ -219,7 +219,7 @@
   padding: 0 4px;
   border-radius: var(--radius-full, 9999px);
   background-color: var(--primary);
-  color: #ffffff;
+  color: var(--bg-secondary);
   font-size: 10px;
   font-weight: 700;
 }
@@ -248,7 +248,7 @@
   font-family: var(--font-family);
   font-size: 12px;
   font-weight: 500;
-  color: #ffffff;
+  color: var(--bg-secondary);
   border: none;
   padding: 0 16px;
   height: 36px;
@@ -275,11 +275,11 @@
 }
 
 .btn-bulk-delete {
-  background-color: #dc2626;
+  background-color: var(--omni-color-danger);
 }
 
 .btn-bulk-delete:hover:not(:disabled) {
-  background-color: #dc2626;
+  background-color: var(--omni-color-danger);
 }
 
 .btn-bulk-chat {
@@ -333,7 +333,7 @@
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background-color: #ffffff;
+  background-color: var(--bg-secondary);
   border: 1.5px solid #25d366; /* Official WhatsApp green */
   color: #25d366;
   cursor: pointer;
@@ -342,7 +342,7 @@
 
 .contact-whatsapp-badge:hover {
   background-color: #25d366;
-  color: #ffffff;
+  color: var(--bg-secondary);
 }
 
 .group-badges-row {
@@ -492,7 +492,7 @@
 }
 
 .contact-actions-trigger:hover {
-  background-color: var(--bg-hover, #f1f5f9);
+  background-color: var(--bg-hover);
   color: var(--primary);
 }
 
@@ -520,7 +520,7 @@
 .export-format {
   font-size: 13px;
   font-weight: 700;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   width: 40px;
 }
 
@@ -537,12 +537,12 @@
 }
 
 .export-action:hover:not(:disabled) {
-  background-color: var(--bg-hover, #f1f5f9);
+  background-color: var(--bg-hover);
   color: var(--primary, #3b82f6);
 }
 
 .export-action:disabled {
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   cursor: not-allowed;
   opacity: 0.5;
 }
@@ -627,8 +627,8 @@
 }
 
 .btn-clear-filters:hover:not(:disabled) {
-  background-color: #fee2e2;
-  color: #dc2626;
+  background-color: var(--omni-color-danger-bg);
+  color: var(--omni-color-danger);
   border-color: #fca5a5;
 }
 
@@ -785,8 +785,8 @@
 }
 
 .group-badge-purple { background-color: #f3e8ff; color: #6d28d9; border-color: #e9d5ff; }
-.group-badge-green { background-color: #d1fae5; color: #065f46; border-color: #a7f3d0; }
-.group-badge-orange { background-color: #fef3c7; color: #d97706; border-color: #fde68a; }
+.group-badge-green { background-color: var(--omni-color-success-bg); color: var(--omni-color-success-text); border-color: #a7f3d0; }
+.group-badge-orange { background-color: var(--omni-color-warning-bg); color: var(--omni-color-warning); border-color: var(--status-partial-border); }
 .group-badge-pink { background-color: #fce7f3; color: #be185d; border-color: #fbcfe8; }
-.group-badge-blue { background-color: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+.group-badge-blue { background-color: var(--omni-color-primary-100); color: var(--omni-color-primary-700); border-color: var(--omni-color-primary-200); }
 .group-badge-teal { background-color: #ccfbf1; color: #0f766e; border-color: #99f6e4; }

@@ -65,8 +65,20 @@ interface CampaignStoreState {
 const initialWizardForm: CampaignWizardForm = {
   name: '',
   relationType: [],
+  // WhatsApp by default, so opening the wizard and ignoring the new first step produces exactly
+  // the campaign it produced before the email channel existed.
+  channel: 'whatsapp',
+  connectionIds: [],
   templateName: '',
   templateId: 0,
+  emailTemplateId: undefined,
+  emailTemplateName: '',
+  senderIdentityId: undefined,
+  subjectOverride: '',
+  replyToOverride: '',
+  attachments: [],
+  trackOpens: true,
+  trackClicks: true,
   recipientsCount: 0,
   contactsFilterStatus: 'All',
   contactsFilterSource: 'All',
@@ -186,7 +198,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
       }
 
       // Handle multi-connection: create one campaign per connection
-      const connectionIds: number[] = (wizardForm as any).connectionIds || []
+      const connectionIds: number[] = wizardForm.connectionIds ?? []
       if (connectionIds.length > 1) {
         let lastRes: any = null
         for (const connId of connectionIds) {
@@ -206,7 +218,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
       // Single connection or default
       const singleForm = {
         ...wizardForm,
-        connectionId: connectionIds.length === 1 ? connectionIds[0] : (wizardForm as any).connectionId
+        connectionId: connectionIds.length === 1 ? connectionIds[0] : undefined
       }
       const res = await campaignService.createCampaign(singleForm)
       const fetched = await campaignService.getCampaigns()

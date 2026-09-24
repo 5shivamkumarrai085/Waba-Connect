@@ -10,7 +10,7 @@
   left: 10px;
   top: 50%;
   transform: translateY(-50%);
-  color: #94a3b8;
+  color: var(--omni-color-text-muted);
   pointer-events: none;
 }
 
@@ -33,5 +33,5 @@
 }
 
 .search-bar-input::placeholder {
-  color: #94a3b8;
+  color: var(--omni-color-text-muted);
 }

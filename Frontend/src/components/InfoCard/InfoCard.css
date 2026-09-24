@@ -13,13 +13,13 @@
 .info-card.theme-blue {
   background-color: #f0f9ff;
   border-color: #bae6fd;
-  color: #1d4ed8;
+  color: var(--omni-color-primary-700);
 }
 
 .info-card.theme-orange {
   background-color: #fffbeb;
-  border-color: #fde68a;
-  color: #92400e;
+  border-color: var(--status-partial-border);
+  color: var(--omni-color-warning-text);
 }
 
 .info-card-header {
@@ -37,11 +37,11 @@
 }
 
 .info-card.theme-blue .info-card-title {
-  color: #1d4ed8;
+  color: var(--omni-color-primary-700);
 }
 
 .info-card.theme-orange .info-card-title {
-  color: #92400e;
+  color: var(--omni-color-warning-text);
 }
 
 .info-card-body {

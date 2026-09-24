@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using WhatsAppCampaignApi.Models.DTOs.Common;
+using WhatsAppCampaignApi.Models.Enums;
 
 namespace WhatsAppCampaignApi.Helpers;
 
@@ -181,7 +182,15 @@ public static class BulkCampaignCsv
     /// Locates the columns in a header row. Returns null when the file lacks a phone or a name
     /// column, which are the two the importer cannot proceed without.
     /// </summary>
-    public static CsvColumnMap? MapColumns(IReadOnlyList<string> headerFields)
+    /// <param name="channel">
+    /// Which column set the file has to satisfy. Phone and name are required on every channel —
+    /// a Contact is identified by its phone number, so a row without one cannot become a contact
+    /// whatever the campaign sends. An email campaign additionally requires the email column,
+    /// because that is what the message is actually addressed to.
+    /// </param>
+    public static CsvColumnMap? MapColumns(
+        IReadOnlyList<string> headerFields,
+        MessageChannel channel = MessageChannel.WhatsApp)
     {
         var headers = headerFields
             .Select(h => h.Trim().Trim('"').ToLowerInvariant())
@@ -198,7 +207,10 @@ public static class BulkCampaignCsv
             Country = Find(CountryNames)
         };
 
-        return map.Phone == -1 || map.FirstName == -1 ? null : map;
+        if (map.Phone == -1 || map.FirstName == -1) return null;
+        if (channel == MessageChannel.Email && map.Email == -1) return null;
+
+        return map;
     }
 
     /// <summary>
@@ -212,7 +224,8 @@ public static class BulkCampaignCsv
         int rowNumber,
         CsvColumnMap map,
         out CsvContactRow row,
-        out List<CsvRowError> errors)
+        out List<CsvRowError> errors,
+        MessageChannel channel = MessageChannel.WhatsApp)
     {
         row = null!;
         errors = [];
@@ -260,6 +273,23 @@ public static class BulkCampaignCsv
             });
         }
 
+        // An email campaign's recipient address is not optional the way it is for WhatsApp.
+        // Judged here rather than at send time so the operator sees the bad rows in the preview,
+        // next to the file they can still fix, instead of as silent non-delivery afterwards.
+        var emailVal = At(map.Email);
+        if (channel == MessageChannel.Email && !IsPlausibleEmail(emailVal))
+        {
+            errors.Add(new CsvRowError
+            {
+                RowNumber = rowNumber,
+                Column = "email",
+                Value = emailVal,
+                Reason = emailVal.Length == 0
+                    ? "An email campaign needs an email address in every row."
+                    : "Email address is not valid."
+            });
+        }
+
         if (errors.Count > 0) return false;
 
         var lastName = At(map.LastName);
@@ -270,7 +300,7 @@ public static class BulkCampaignCsv
             RowNumber = rowNumber,
             Phone = normalizedPhone,
             FullName = fullName.Length < 2 ? "CSV User" : fullName,
-            Email = At(map.Email),
+            Email = emailVal,
             Country = At(map.Country)
         };
 
@@ -284,4 +314,31 @@ public static class BulkCampaignCsv
     /// larger than the upload that caused it. The count is always exact; the list is a sample.
     /// </summary>
     public const int MaxReportedErrors = 500;
+
+    /// <summary>
+    /// A deliberately permissive address check: one @, something either side, a dot in the
+    /// domain, no whitespace.
+    ///
+    /// <para>
+    /// It is not RFC 5322 and does not try to be. The only authority on whether an address exists
+    /// is the receiving mail server, so a stricter local rule cannot add correctness — it can only
+    /// reject deliverable addresses. This catches the mistakes a spreadsheet actually produces
+    /// (an empty cell, a name in the wrong column, a missing domain) and leaves the rest to the
+    /// bounce handling that already exists.
+    /// </para>
+    /// </summary>
+    private static bool IsPlausibleEmail(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        if (value.Any(char.IsWhiteSpace)) return false;
+
+        var at = value.IndexOf('@');
+        if (at <= 0 || at != value.LastIndexOf('@')) return false;
+
+        var domain = value[(at + 1)..];
+        var dot = domain.IndexOf('.');
+
+        // The dot must have something on both sides: "a@b." and "a@.b" are both malformed.
+        return dot > 0 && dot < domain.Length - 1;
+    }
 }

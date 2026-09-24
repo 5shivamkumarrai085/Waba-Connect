@@ -79,8 +79,8 @@
 
 .oc-menu-item--destructive:hover:not(:disabled),
 .oc-menu-item--destructive:focus-visible:not(:disabled) {
-  background-color: #fee2e2;
-  color: #dc2626;
+  background-color: var(--omni-color-danger-bg);
+  color: var(--omni-color-danger);
 }
 
 .oc-menu-separator {

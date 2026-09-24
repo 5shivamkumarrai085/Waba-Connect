@@ -307,6 +307,8 @@ export interface ReportKpi {
   previousValue: number | null
   changePercent: number | null
   comparisonLabel: string | null
+  /** This measure's own daily counts across the filtered window — the sparkline data. */
+  trend: number[]
 }
 
 export interface ReportActivityPoint {

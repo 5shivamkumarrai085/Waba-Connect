@@ -99,14 +99,14 @@
   flex-shrink: 0;
 }
 
-.permission-kpi-icon.blue { background-color: #eff6ff; color: #2563eb; }
-.permission-kpi-icon.green { background-color: #ecfdf5; color: #059669; }
-.permission-kpi-icon.amber { background-color: #fffbeb; color: #d97706; }
-.permission-kpi-icon.emerald { background-color: #ecfdf5; color: #059669; }
+.permission-kpi-icon.blue { background-color: var(--omni-color-primary-50); color: var(--primary); }
+.permission-kpi-icon.green { background-color: #ecfdf5; color: var(--omni-color-success); }
+.permission-kpi-icon.amber { background-color: #fffbeb; color: var(--omni-color-warning); }
+.permission-kpi-icon.emerald { background-color: #ecfdf5; color: var(--omni-color-success); }
 
 .permission-kpi-label {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-light);
   font-weight: 500;
   margin-bottom: 0.25rem;
 }
@@ -114,19 +114,19 @@
 .permission-kpi-value {
   font-size: 1.375rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-main);
   line-height: 1.2;
 }
 
 .permission-kpi-desc {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-light);
   margin-top: 0.125rem;
 }
 
 .permission-filter-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 0.75rem;
   padding: 1rem 1.25rem;
   margin-bottom: 1.25rem;
@@ -153,9 +153,9 @@
   width: 100%;
   padding: 0.5rem 0.75rem 0.5rem 2.25rem;
   font-size: 0.8125rem;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-color);
   border-radius: 0.5rem;
-  background-color: #f8fafc;
+  background-color: var(--bg-primary);
 }
 
 .permission-search-icon {
@@ -163,22 +163,22 @@
   left: 0.75rem;
   top: 50%;
   transform: translateY(-50%);
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 .permission-select {
   padding: 0.5rem 0.75rem;
   font-size: 0.8125rem;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-color);
   border-radius: 0.5rem;
-  background-color: #ffffff;
-  color: #334155;
+  background-color: var(--bg-secondary);
+  color: var(--text-body-strong);
   font-weight: 500;
 }
 
 .btn-assign-permission {
   background-color: var(--primary);
-  color: #ffffff;
+  color: var(--bg-secondary);
   font-size: 0.8125rem;
   font-weight: 600;
   padding: 0 1rem;
@@ -209,8 +209,8 @@
 }
 
 .permission-table-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 0.75rem;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0,0,0,0.02);
@@ -223,26 +223,26 @@
 }
 
 .permission-table th {
-  background-color: #f8fafc;
+  background-color: var(--bg-primary);
   padding: 0.875rem 1.25rem;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #64748b;
+  color: var(--text-light);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .permission-table td {
   padding: 1rem 1.25rem;
   font-size: 0.875rem;
-  color: #334155;
-  border-bottom: 1px solid #f1f5f9;
+  color: var(--text-body-strong);
+  border-bottom: 1px solid var(--bg-hover);
   vertical-align: middle;
 }
 
 .permission-table tbody tr:hover {
-  background-color: #f8fafc;
+  background-color: var(--bg-primary);
 }
 
 .user-cell {
@@ -255,8 +255,8 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background-color: #eff6ff;
-  color: #2563eb;
+  background-color: var(--omni-color-primary-50);
+  color: var(--primary);
   font-weight: 600;
   font-size: 0.875rem;
   display: flex;
@@ -266,13 +266,13 @@
 
 .user-name-text {
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-main);
   display: block;
 }
 
 .user-email-text {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-light);
 }
 
 .conn-badges-wrapper {
@@ -285,8 +285,8 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background-color: #d1fae5;
-  color: #059669;
+  background-color: var(--omni-color-success-bg);
+  color: var(--omni-color-success);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -295,8 +295,8 @@
 
 .conn-more-pill {
   font-size: 0.75rem;
-  color: #64748b;
-  background-color: #f1f5f9;
+  color: var(--text-light);
+  background-color: var(--bg-hover);
   padding: 0.125rem 0.5rem;
   border-radius: 1rem;
   font-weight: 500;
@@ -305,8 +305,8 @@
 .scope-pill {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #2563eb;
-  background-color: #eff6ff;
+  color: var(--primary);
+  background-color: var(--omni-color-primary-50);
   padding: 0.25rem 0.625rem;
   border-radius: 1rem;
   display: inline-block;
@@ -324,12 +324,12 @@
 
 .status-pill.active {
   background-color: #ecfdf5;
-  color: #059669;
+  color: var(--omni-color-success);
 }
 
 .status-pill.inactive {
-  background-color: #fee2e2;
-  color: #dc2626;
+  background-color: var(--omni-color-danger-bg);
+  color: var(--omni-color-danger);
 }
 
 .status-dot {
@@ -338,8 +338,8 @@
   border-radius: 50%;
 }
 
-.status-pill.active .status-dot { background-color: #059669; }
-.status-pill.inactive .status-dot { background-color: #dc2626; }
+.status-pill.active .status-dot { background-color: var(--omni-color-success); }
+.status-pill.inactive .status-dot { background-color: var(--omni-color-danger); }
 
 .action-buttons {
   display: flex;
@@ -354,13 +354,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #e2e8f0;
-  background-color: #ffffff;
-  color: #64748b;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  color: var(--text-light);
   cursor: pointer;
 }
 
 .icon-btn:hover {
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: var(--bg-primary);
+  color: var(--text-main);
 }

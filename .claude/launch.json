@@ -19,9 +19,13 @@
       "runtimeArgs": [
         "run",
         "--project",
-        "Backend"
+        "Backend",
+        "--no-launch-profile",
+        "--urls",
+        "http://localhost:5255"
       ],
-      "port": 5155
+      "port": 5255,
+      "autoPort": false
     }
   ]
 }

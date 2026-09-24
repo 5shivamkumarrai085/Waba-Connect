@@ -30,6 +30,8 @@ const BotFlowList = lazy(() => import('./pages/BotFlow/BotFlowList').then(m => (
 const BotFlowDesigner = lazy(() => import('./pages/BotFlow/BotFlowDesigner').then(m => ({ default: m.BotFlowDesigner })))
 const ConnectionsList = lazy(() => import('./pages/Connections/ConnectionsList').then(m => ({ default: m.ConnectionsList })))
 const ConnectNewWabaPage = lazy(() => import('./pages/Connections/ConnectNewWabaPage').then(m => ({ default: m.ConnectNewWabaPage })))
+const ConnectNewEmailPage = lazy(() => import('./pages/Connections/ConnectNewEmailPage').then(m => ({ default: m.ConnectNewEmailPage })))
+const ConnectEmail = lazy(() => import('./pages/ConnectEmail/ConnectEmail').then(m => ({ default: m.ConnectEmail })))
 const UserPermissionsList = lazy(() => import('./pages/Permissions/UserPermissionsList').then(m => ({ default: m.UserPermissionsList })))
 const DepartmentPermissionsList = lazy(() => import('./pages/Permissions/DepartmentPermissionsList').then(m => ({ default: m.DepartmentPermissionsList })))
 const Login = lazy(() => import('./pages/Auth/Login').then(m => ({ default: m.Login })))
@@ -141,6 +143,7 @@ const App: React.FC = () => {
             <Route path="/activity-logs" element={<Guarded permission="ActivityLog.View"><ActivityLogs /></Guarded>} />
             <Route path="/connections" element={<Guarded permission="ConnectAccount.View"><ConnectionsList /></Guarded>} />
             <Route path="/connections/new" element={<Guarded permission="ConnectAccount.Connect"><ConnectNewWabaPage /></Guarded>} />
+            <Route path="/connections/new-email" element={<Guarded permission="EmailConnection.Connect"><ConnectNewEmailPage /></Guarded>} />
 
             {/* The section is part of the path so a settings page is linkable and survives a
                 refresh. The bare path renders the first section rather than redirecting, which
@@ -157,6 +160,7 @@ const App: React.FC = () => {
                 visitors do — the endpoint behind it is already ConnectAccount.View, and the
                 wizard steps and every mutating control inside carry their own stricter gate. */}
             <Route path="/connect-waba" element={<Guarded permission="ConnectAccount.View"><ConnectWABA /></Guarded>} />
+            <Route path="/connect-email" element={<Guarded permission="EmailConnection.View"><ConnectEmail /></Guarded>} />
             <Route path="/contacts" element={<Guarded permission="Contact.View"><ContactsList /></Guarded>} />
             <Route path="/contacts/contact" element={<Guarded permission="Contact.Create"><AddContact /></Guarded>} />
             <Route path="/contacts/contact/edit/:id" element={<Guarded permission="Contact.Edit"><AddContact /></Guarded>} />

@@ -32,8 +32,8 @@
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #2f72f5 0%, #1d4ed8 100%);
-  color: #fff;
+  background: linear-gradient(135deg, #2f72f5 0%, var(--omni-color-primary-700) 100%);
+  color: var(--text-on-accent);
   box-shadow:
     0 1px 2px rgba(15, 23, 42, 0.18),
     0 4px 12px rgba(37, 99, 235, 0.32),
@@ -58,7 +58,7 @@
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--omni-color-info-text) 100%);
   box-shadow:
     0 2px 4px rgba(15, 23, 42, 0.2),
     0 8px 20px rgba(37, 99, 235, 0.42),
@@ -86,7 +86,9 @@
 /* Stat Cards Layout */
 .stat-cards-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* auto-fit rather than a fixed count: the dashboard went from four cards to six, and a hard
+     repeat(4) left the last two orphaned on their own row at desktop width. */
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 24px;
   margin-bottom: 24px;
 }
@@ -131,12 +133,12 @@
   left: 0;
   right: 0;
   height: 3.5px;
-  background: linear-gradient(90deg, #2563eb, #60a5fa);
+  background: linear-gradient(90deg, var(--primary), var(--omni-color-primary-400));
 }
 
 .stat-cards-grid > *:nth-child(4n + 1) .stat-card::before,
 .stat-cards-grid > .stat-card:nth-child(4n + 1)::before {
-  background: linear-gradient(90deg, #2563eb, #60a5fa);
+  background: linear-gradient(90deg, var(--primary), var(--omni-color-primary-400));
 }
 
 .stat-cards-grid > *:nth-child(4n + 2) .stat-card::before,
@@ -146,12 +148,12 @@
 
 .stat-cards-grid > *:nth-child(4n + 3) .stat-card::before,
 .stat-cards-grid > .stat-card:nth-child(4n + 3)::before {
-  background: linear-gradient(90deg, #059669, #34d399);
+  background: linear-gradient(90deg, var(--omni-color-success), #34d399);
 }
 
 .stat-cards-grid > *:nth-child(4n + 4) .stat-card::before,
 .stat-cards-grid > .stat-card:nth-child(4n + 4)::before {
-  background: linear-gradient(90deg, #d97706, #fbbf24);
+  background: linear-gradient(90deg, var(--omni-color-warning), #fbbf24);
 }
 
 .stat-card:hover {
@@ -187,7 +189,7 @@
 /* Colors for specific icons */
 .stat-card-icon-wrapper.blue {
   background-color: #e0f2fe;
-  color: #2563eb;
+  color: var(--primary);
 }
 
 .stat-card-icon-wrapper.purple {
@@ -196,13 +198,13 @@
 }
 
 .stat-card-icon-wrapper.green {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: var(--omni-color-success-bg);
+  color: var(--omni-color-success-text);
 }
 
 .stat-card-icon-wrapper.orange {
   background-color: #ffedd5;
-  color: #ea580c;
+  color: var(--rma-orange);
 }
 
 .stat-card-info {
@@ -605,7 +607,7 @@ input:checked + .slider:before {
     border-color 0.15s ease,
     color 0.15s ease,
     transform 0.16s var(--ease-out);
-  color: #ffffff;
+  color: var(--text-on-accent);
   background-color: var(--primary);
 }
 
@@ -664,4 +666,56 @@ td.actions-col {
   /* Left, not centred. Centring made sense against a right-hand edge; at the
      start of the row it just floats the button away from the rows below it. */
   text-align: left;
+}
+
+/* ── Channel-aware stat cards (reference image 24) ─────────────────────────────────────────── */
+
+/* A single line under the value — "89.0% delivery rate" — where the card has one fact to add
+   rather than a second labelled number. */
+.stat-card-footnote {
+  margin-top: 6px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Where the headline number came from, per channel. Rendered only when more than one channel
+   contributed, so a WhatsApp-only account does not get a breakdown that repeats the total. */
+.stat-card-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+
+.stat-card-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.stat-card-channel-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.stat-card-channel-label {
+  color: var(--text-muted);
+}
+
+.stat-card-channel-value {
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-heading);
+}
+
+/* Failed needs its own accent — the four existing ones are all positive or neutral. */
+.stat-card-icon-wrapper.red {
+  background-color: var(--error-light, #fef2f2);
+  color: var(--error, #dc2626);
 }

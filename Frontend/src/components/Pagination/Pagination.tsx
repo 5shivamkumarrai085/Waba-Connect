@@ -9,6 +9,13 @@ interface PaginationProps {
   onPage: (page: number) => void
   onPageSize: (pageSize: number) => void
   pageSizeOptions?: number[]
+  /**
+   * What the rows are, for the "of N <label>" summary. Defaults to "results".
+   *
+   * Optional so every existing caller is unchanged, but worth naming where the caller knows:
+   * "of 24 conversations" tells an operator more than "of 24 results".
+   */
+  itemLabel?: string
 }
 
 /**
@@ -28,6 +35,7 @@ export const Pagination: React.FC<PaginationProps> = ({
   totalPages,
   onPage,
   onPageSize,
+  itemLabel = 'results',
   pageSizeOptions = [10, 25, 50, 100]
 }) => {
   // An empty table has nothing to page through, and "Showing 1 to 0 of 0" reads like a bug.
@@ -40,7 +48,7 @@ export const Pagination: React.FC<PaginationProps> = ({
     <div className="activity-pagination">
       <div className="activity-pagination-summary">
         Showing {firstRow.toLocaleString()} to {lastRow.toLocaleString()} of{' '}
-        {totalCount.toLocaleString()} results
+        {totalCount.toLocaleString()} {itemLabel}
       </div>
       <div className="activity-pagination-controls">
         <button

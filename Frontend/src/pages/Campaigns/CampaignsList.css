@@ -114,22 +114,22 @@
 
 .relation-badge.lead {
   background-color: #e0f2fe; /* blue */
-  color: #1d4ed8;
+  color: var(--omni-color-primary-700);
 }
 
 .relation-badge.customer {
-  background-color: #d1fae5; /* green */
-  color: #065f46;
+  background-color: var(--omni-color-success-bg); /* green */
+  color: var(--omni-color-success-text);
 }
 
 .relation-badge.csv {
-  background-color: #fef3c7; /* yellow */
-  color: #92400e;
+  background-color: var(--omni-color-warning-bg); /* yellow */
+  color: var(--omni-color-warning-text);
 }
 
 .relation-badge.vendor {
   background-color: #ede9fe; /* violet — distinct from lead/customer/csv */
-  color: #1d4ed8;
+  color: var(--omni-color-primary-700);
 }
 
 /* Campaigns List Datatable styling */
@@ -215,8 +215,8 @@
 }
 
 .date-filter-inputs input[type="date"] {
-  background-color: #ffffff !important;
-  border: 1px solid var(--border-color, #e2e8f0) !important;
+  background-color: var(--bg-secondary) !important;
+  border: 1px solid var(--border-color) !important;
   border-radius: var(--radius-md, 8px) !important;
   padding: 8px 10px !important;
   font-size: 13px !important;
@@ -229,14 +229,14 @@
 }
 
 .date-filter-inputs input[type="date"]:hover {
-  border-color: #3b82f6 !important;
+  border-color: var(--omni-color-primary-500) !important;
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.12);
   transform: translateY(-1px);
 }
 
 .date-filter-inputs input[type="date"]:focus {
   outline: none;
-  border-color: #3b82f6 !important;
+  border-color: var(--omni-color-primary-500) !important;
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 

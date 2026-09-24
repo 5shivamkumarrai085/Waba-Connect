@@ -37,7 +37,7 @@
 
 /* Footer buttons area */
 .import-card-footer {
-  background-color: #f8fafc;
+  background-color: var(--bg-primary);
   border-top: 1px solid var(--border-light);
   padding: 16px 24px;
   display: flex;
@@ -49,7 +49,7 @@
   font-family: var(--font-family);
   font-size: 13px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--bg-secondary);
   background-color: var(--primary);
   border: none;
   padding: 10px 24px;
@@ -103,7 +103,7 @@
 /* Warnings and Instructions Box */
 .sample-rules-alert {
   background-color: #e0f2fe;
-  border-left: 4px solid #2563eb;
+  border-left: 4px solid var(--primary);
   border-radius: 6px;
   padding: 16px;
 }
@@ -111,7 +111,7 @@
 .rule-item {
   font-size: 13.5px;
   line-height: 1.6;
-  color: #1d4ed8;
+  color: var(--omni-color-primary-700);
   margin: 0;
 }
 
@@ -129,7 +129,7 @@
 .modal-table-title {
   font-size: 16px;
   font-weight: 600;
-  color: #334155;
+  color: var(--text-body-strong);
 }
 
 .btn-download-sample-modal {
@@ -138,7 +138,7 @@
   justify-content: center;
   gap: 8px;
   background-color: #10b981; /* bright green */
-  color: #ffffff;
+  color: var(--bg-secondary);
   border: none;
   border-radius: 6px;
   font-size: 13px;
@@ -149,7 +149,7 @@
 }
 
 .btn-download-sample-modal:hover {
-  background-color: #059669;
+  background-color: var(--omni-color-success);
 }
 
 /* CSV Sample Table layout */
@@ -163,22 +163,22 @@
 .sample-csv-table th,
 .sample-csv-table td {
   padding: 10px 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-color);
 }
 
 .sample-csv-table th {
-  background-color: #f8fafc;
-  color: #475569;
+  background-color: var(--bg-primary);
+  color: var(--text-muted);
   font-weight: 600;
 }
 
 .sample-csv-table td {
-  color: #64748b;
-  background-color: #ffffff;
+  color: var(--text-light);
+  background-color: var(--bg-secondary);
 }
 
 .required-asterisk {
-  color: #dc2626; /* red */
+  color: var(--omni-color-danger); /* red */
   font-weight: bold;
 }
 
@@ -195,5 +195,5 @@
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: 6px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-color);
 }

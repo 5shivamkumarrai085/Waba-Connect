@@ -6,12 +6,12 @@ export interface Campaign {
   id: number
   name: string
   templateName: string
-  relationType: string // e.g. 'Lead', 'Customer', 'Csv_campaign'
+  relationType: string
   total: number
   deliveredTo: number
   readBy: number
   failedCount: number
-  status: string // e.g. 'Success', 'Paused', 'draft'
+  status: string
   createdAt: string
   scheduledAt?: string
   isDeleted?: boolean
@@ -30,10 +30,20 @@ export interface Campaign {
 
   /** Email-only counters, absent on WhatsApp campaigns. */
   emailStats?: EmailCampaignStats
+
+  // ── Engagement counters (Email campaigns, from CampaignEmailEventProcessor) ──────────────
+  // Kept on the root Campaign (not nested in emailStats) so the list and detail views
+  // can apply SignalR deltas to a single flat object without deep-merging.
+  sentCount?: number
+  openedCount?: number
+  clickedCount?: number
+  repliedCount?: number
+  unsubscribedCount?: number
+  complainedCount?: number
 }
 
 /**
- * Email outcome counters.
+ * Email outcome counters — driven by normalized EmailEvents on the backend.
  *
  * Separate from the shared delivered/read/failed numbers because the vocabularies genuinely
  * differ: WhatsApp has "read", email has opens, clicks, bounces and complaints, and a bounce is
@@ -47,6 +57,8 @@ export interface EmailCampaignStats {
   suppressed: number
   opened: number
   clicked: number
+  replied: number
+  unsubscribed: number
   pending: number
   failed: number
 }
@@ -67,8 +79,12 @@ export interface CampaignRecipient {
   contactId: number
   name: string
   phone: string
+  email?: string
   message: string
   sentStatus: string // e.g. 'Sent', 'Failed', 'Pending'
+  deliveredAt?: string
+  readAt?: string
+  openedAt?: string
   failedReason?: string | null
 }
 

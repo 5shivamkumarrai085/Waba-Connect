@@ -42,4 +42,19 @@ public class CampaignContact
     public DateTime? SentAt { get; set; }
     public DateTime? DeliveredAt { get; set; }
     public DateTime? ReadAt { get; set; }
+
+    // ── Open / click tracking ─────────────────────────────────────────────────────────────
+    /// <summary>
+    /// A random, opaque token that identifies this recipient in tracking URLs.
+    /// Generated at expansion time. Never exposes CampaignContactId or ContactId in the URL,
+    /// so scanning tracking links reveals nothing about the underlying data model.
+    /// </summary>
+    [MaxLength(64)]
+    public string? TrackingId { get; set; }
+
+    // Engagement timestamps. Set on first occurrence; not overwritten by later events.
+    // These are engagement data, not delivery state — they never change CampaignContact.Status.
+    public DateTime? OpenedAt { get; set; }
+    public DateTime? ClickedAt { get; set; }
+    public DateTime? RepliedAt { get; set; }
 }

@@ -26,6 +26,7 @@ using WhatsAppCampaignApi.Services.Interfaces;
 using WhatsAppCampaignApi.Services.Queue;
 using WhatsAppCampaignApi.Validators;
 using WhatsAppCampaignApi.Executors;
+using WhatsAppCampaignApi.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -259,6 +260,27 @@ builder.Services.AddHttpClient(SnsMessageValidator.HttpClientName, client =>
 });
 builder.Services.AddScoped<IEmailSuppressionService, EmailSuppressionService>();
 builder.Services.AddScoped<IEmailSendRecorder, EmailSendRecorder>();
+
+// ── Normalized email event pipeline ───────────────────────────────────────────────────────
+// These three are the backbone of the production-ready architecture:
+// - IEmailEventStore: append-only event history with idempotency
+// - ICampaignEmailEventProcessor: atomic counter increments, state machine, suppression, finalization
+// - IEventPublisher / InProcessEventPublisher: decoupled real-time notification channel
+builder.Services.AddScoped<IEmailEventStore, EmailEventStore>();
+builder.Services.AddScoped<ICampaignEmailEventProcessor, CampaignEmailEventProcessor>();
+
+// InProcessEventPublisher is Singleton because it holds the Channel<T> that bridges
+// the dispatch workers (scoped) to the SignalR consumer (hosted service).
+// Registered under both its concrete type (for the consumer) and the interface (for callers).
+builder.Services.AddSingleton<InProcessEventPublisher>();
+builder.Services.AddSingleton<IEventPublisher>(sp => sp.GetRequiredService<InProcessEventPublisher>());
+builder.Services.AddHostedService<EventPublisherConsumer>();
+
+// SMTP connection pool manager — Singleton: pools must outlive request scopes
+builder.Services.AddSingleton<SmtpConnectionPoolManager>();
+
+// Open/click tracking token service
+builder.Services.AddSingleton<IEmailTrackingService, EmailTrackingService>();
 
 // One-off email from the inbox — reply, reply-all, forward. Sent inline rather than queued: the
 // operator is watching, so the composer has to be able to tell them whether it went.
@@ -586,6 +608,17 @@ builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<CreateContactValidator>();
 builder.Services.AddScoped<ContactLookupValidatorCache>();
 
+// SignalR — real-time campaign progress updates.
+// No Redis backplane now; add one here when horizontal scaling requires it:
+// .AddStackExchangeRedis(connectionString)
+// No code changes to CampaignHub or EventPublisherConsumer are needed when that happens.
+builder.Services.AddSignalR(options =>
+{
+    // Keep-alive: detect dead connections faster than the default 15s interval.
+    options.KeepAliveInterval = TimeSpan.FromSeconds(10);
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+});
+
 // 5. Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -696,6 +729,10 @@ app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks
 });
 
 app.MapControllers();
+
+// Real-time campaign event updates via SignalR.
+// Clients connect at /hubs/campaign and call JoinCampaign(campaignId) to subscribe.
+app.MapHub<CampaignHub>("/hubs/campaign");
 
 app.Lifetime.ApplicationStarted.Register(() =>
 {

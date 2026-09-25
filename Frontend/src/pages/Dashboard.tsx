@@ -291,7 +291,7 @@ export const Dashboard: React.FC = () => {
             viewport={{ once: true, margin: '-40px' }}
             transition={{ ...transitions.normal, delay: 0.1 }}
           >
-            <ChartCard data={summary?.hourlyChartData} />
+            <ChartCard data={summary?.hourlyChartData} dailyData={summary?.dailyChartData} />
           </motion.div>
         </Suspense>
 
@@ -305,7 +305,11 @@ export const Dashboard: React.FC = () => {
               viewport={{ once: true, margin: '-40px' }}
               transition={{ ...transitions.normal, delay: 0.1 }}
             >
-              <DeliveryRateCard deliveryBreakdown={deliveryBreakdown} readBreakdown={readBreakdown} />
+              <DeliveryRateCard
+                deliveryBreakdown={deliveryBreakdown}
+                readBreakdown={readBreakdown}
+                channelBreakdown={channelBreakdown}
+              />
             </motion.div>
           </Suspense>
         </div>

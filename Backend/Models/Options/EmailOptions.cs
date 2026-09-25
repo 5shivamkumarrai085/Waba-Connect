@@ -53,6 +53,13 @@ public class EmailOptions
 
     [Required]
     public ExecutionGateOptions ExecutionGate { get; set; } = new();
+
+    /// <summary>
+    /// Open-pixel and click-tracking URL configuration.
+    /// Set TrackingOptions.Enabled = false to disable tracking entirely (no pixels, no wrapped links).
+    /// </summary>
+    [Required]
+    public TrackingOptions Tracking { get; set; } = new();
 }
 
 /// <summary>Queue transport and retry behaviour.</summary>
@@ -258,4 +265,36 @@ public class ExecutionGateOptions
     /// </summary>
     [Required]
     public string Provider { get; set; } = "none";
+}
+
+/// <summary>
+/// Open-pixel and click-tracking URL configuration.
+///
+/// <para>
+/// BaseUrl is the public URL of this application (e.g. https://app.example.com). Tracking
+/// URLs are built as BaseUrl + /api/t/o/{token} and BaseUrl + /api/t/c/{token}.
+/// </para>
+/// <para>
+/// SigningSecret is an HMAC-SHA256 key used to sign tokens. Never the same as
+/// Unsubscribe.SigningKey — each URL type uses an independent key so a compromised
+/// unsubscribe token cannot be repurposed as a tracking token.
+/// </para>
+/// </summary>
+public class TrackingOptions
+{
+    /// <summary>Master switch. False = no pixels injected, no links wrapped.</summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// The public base URL of this application. Must be publicly reachable — a localhost
+    /// value produces pixels that email clients cannot load.
+    /// Set via environment variable Email__Tracking__BaseUrl.
+    /// </summary>
+    public string BaseUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// HMAC-SHA256 signing secret for tracking tokens.
+    /// Set via environment variable Email__Tracking__SigningSecret. Never committed.
+    /// </summary>
+    public string SigningSecret { get; set; } = "change-me-in-production-tracking-secret";
 }

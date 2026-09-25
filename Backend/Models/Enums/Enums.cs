@@ -43,6 +43,38 @@ public enum EmailIdentityStatus { NotStarted, Pending, Verified, Failed, Tempora
 
 public enum EmailEventType { Send, Delivery, Bounce, Complaint, Reject, Open, Click, DeliveryDelay, RenderingFailure, Subscription }
 
+/// <summary>
+/// Normalized, channel-agnostic email event kinds.
+///
+/// These are the events the application's business logic understands, regardless of which
+/// provider or channel produced them. EmailEventType is SES-specific; EmailEventKind is not.
+///
+/// OPENED means a tracking pixel was loaded — not a guaranteed human reading.
+/// DELIVERED means the receiving server accepted the message — not end-user reading.
+/// Do not claim DELIVERED for SMTP sends; SMTP only tells us the next hop accepted the message.
+/// </summary>
+public enum EmailEventKind
+{
+    /// <summary>SMTP/provider accepted the message for delivery.</summary>
+    Sent,
+    /// <summary>Terminal: the message could not be sent (authentication, no-such-user, template error, etc.).</summary>
+    Failed,
+    /// <summary>Remote server confirmed delivery. Only available from providers that support delivery receipts.</summary>
+    Delivered,
+    /// <summary>Message was permanently rejected by the recipient's server. Triggers suppression.</summary>
+    Bounced,
+    /// <summary>Tracking pixel was loaded. Engagement, not delivery — does NOT change delivery state.</summary>
+    Opened,
+    /// <summary>A tracked link was clicked. Engagement, not delivery.</summary>
+    Clicked,
+    /// <summary>The recipient replied to the message (detected via IMAP).</summary>
+    Replied,
+    /// <summary>The recipient clicked the unsubscribe link or endpoint. Triggers suppression.</summary>
+    Unsubscribed,
+    /// <summary>The recipient marked the message as spam. Triggers suppression.</summary>
+    Complained
+}
+
 public enum EmailBounceType { Undetermined, Permanent, Transient }
 
 public enum SuppressionReason { Bounce, Complaint, Unsubscribe, Manual, ListImport }

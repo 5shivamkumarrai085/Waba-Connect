@@ -53,13 +53,26 @@ public class EmailConnectionsController : ControllerBase
     [RequiresPermission("EmailConnection.Connect")]
     public async Task<IActionResult> Create([FromBody] CreateEmailConnectionRequest request, CancellationToken ct)
     {
-        var data = await _service.CreateAsync(request, ct);
-        return Ok(new ApiResponse<EmailConnectionResponse>
+        try
         {
-            Success = true,
-            Message = "Email connection created. Configure a provider to start sending.",
-            Data = data
-        });
+            var data = await _service.CreateAsync(request, ct);
+            return Ok(new ApiResponse<EmailConnectionResponse>
+            {
+                Success = true,
+                Message = "Email connection created. Configure a provider to start sending.",
+                Data = data
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Duplicate connection name — 409 Conflict so the client can distinguish it from
+            // a 500 and show a targeted inline message rather than a generic failure toast.
+            return Conflict(new ApiResponse<object>
+            {
+                Success = false,
+                Message = ex.Message
+            });
+        }
     }
 
     /// <summary>Step 2: store provider credentials. Blank secrets keep their stored values.</summary>

@@ -93,19 +93,19 @@ public class CampaignResponse
     /// </summary>
     public string Channel { get; set; } = "WhatsApp";
 
+    public int SentCount { get; set; }
+    public int OpenedCount { get; set; }
+    public int ClickedCount { get; set; }
+    public int RepliedCount { get; set; }
+    public int UnsubscribedCount { get; set; }
+    public int ComplainedCount { get; set; }
+
     /// <summary>Email-only counters, null for WhatsApp campaigns.</summary>
     public EmailCampaignStatsResponse? EmailStats { get; set; }
 }
 
 /// <summary>
 /// Email-specific outcome counters.
-///
-/// <para>
-/// Separate from the shared <c>DeliveredCount</c>/<c>ReadCount</c>/<c>FailedCount</c> because the
-/// vocabularies genuinely differ: WhatsApp has "read", email has opens, clicks, bounces and
-/// complaints, and a bounce is not the same kind of failure as a rejected send. Folding them
-/// together would make both channels' numbers misleading.
-/// </para>
 /// </summary>
 public class EmailCampaignStatsResponse
 {
@@ -116,6 +116,8 @@ public class EmailCampaignStatsResponse
     public int Suppressed { get; set; }
     public int Opened { get; set; }
     public int Clicked { get; set; }
+    public int Replied { get; set; }
+    public int Unsubscribed { get; set; }
     public int Pending { get; set; }
     public int Failed { get; set; }
 }
@@ -144,11 +146,13 @@ public class CampaignRecipientResponse
     public int ContactId { get; set; }
     public string ContactName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
+    public string? Email { get; set; }
     public string Message { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public DateTime? SentAt { get; set; }
     public DateTime? DeliveredAt { get; set; }
     public DateTime? ReadAt { get; set; }
+    public DateTime? OpenedAt { get; set; }
     public string? ErrorMessage { get; set; }
 }
 

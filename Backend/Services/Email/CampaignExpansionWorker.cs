@@ -43,9 +43,6 @@ public class CampaignExpansionWorker : BackgroundService
         _options = options;
         _logger = logger;
 
-        // Machine name plus a short random suffix: several instances on one host would otherwise
-        // be indistinguishable in the LeasedBy column, which is the first thing anyone looks at
-        // when diagnosing a stuck job.
         _workerId = $"{Environment.MachineName}-expand-{Guid.NewGuid().ToString("N")[..6]}";
     }
 
@@ -244,9 +241,13 @@ public class CampaignExpansionWorker : BackgroundService
         QueueLease lease,
         CancellationToken ct)
     {
-        var options = _options.CurrentValue;
-        var pageSize = options.Expansion.RecipientPageSize;
+        var options   = _options.CurrentValue;
+        var pageSize  = options.Expansion.RecipientPageSize;
         var batchSize = options.Expansion.JobBatchSize;
+
+        // Resolve the tracking service for generating per-recipient tracking IDs
+        using var trackingScope = _scopeFactory.CreateScope();
+        var trackingService = trackingScope.ServiceProvider.GetRequiredService<IEmailTrackingService>();
 
         var totalEnqueued = 0;
         var lastId = 0;
@@ -318,15 +319,21 @@ public class CampaignExpansionWorker : BackgroundService
                 {
                     QueueName = QueueNames.EmailSend,
                     Payload = JsonSerializer.Serialize(new EmailSendJob(campaign.Id, recipient.Id)),
-
-                    // One job per recipient, ever. This is what makes re-expansion — after a
-                    // crash, or a duplicate submission — a no-op rather than a double send.
                     IdempotencyKey = $"send:campaign:{campaign.Id}:recipient:{recipient.Id}",
-
-                    // Partitioned by campaign so the queue's fairness cap stops one large
-                    // campaign monopolising the dispatch workers.
                     PartitionKey = campaign.Id.ToString()
                 });
+
+                // Generate a tracking ID for this recipient if not already set.
+                // This is done at expansion time (not send time) so the tracking URL is stable
+                // across retries — the same URL regardless of how many times the job is retried.
+                // The page query above is a projection (no TrackingId), so we load the entity to update it.
+                var recipientRow = await dbContext.CampaignContacts
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(cc => cc.Id == recipient.Id, ct);
+                if (recipientRow is not null && string.IsNullOrEmpty(recipientRow.TrackingId))
+                {
+                    recipientRow.TrackingId = trackingService.GenerateTrackingId();
+                }
 
                 if (messages.Count >= batchSize)
                 {
@@ -346,6 +353,9 @@ public class CampaignExpansionWorker : BackgroundService
                     }
                 }
             }
+
+            // Save any generated TrackingIds for the batch
+            await dbContext.SaveChangesAsync(ct);
 
             if (messages.Count > 0)
             {

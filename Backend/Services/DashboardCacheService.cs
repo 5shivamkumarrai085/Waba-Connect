@@ -185,6 +185,7 @@ public class DashboardCacheService : IDashboardCacheService
                 templatesSparkline = sparklines.TemplatesSparkline,
                 recentCampaigns = topAndRecent.RecentCampaigns,
                 hourlyChartData = hourly.HourlyChartData,
+                dailyChartData = hourly.DailyChartData,
                 deliveryTrend = hourly.DeliveryTrend,
                 readTrend = hourly.ReadTrend,
                 topCampaigns = topAndRecent.TopCampaigns,
@@ -228,7 +229,7 @@ public class DashboardCacheService : IDashboardCacheService
         List<object> MessagesSparkline, List<object> ContactsSparkline,
         List<object> CampaignsSparkline, List<object> TemplatesSparkline);
 
-    private record HourlyChartResult(List<object> HourlyChartData, List<object> DeliveryTrend, List<object> ReadTrend);
+    private record HourlyChartResult(List<object> HourlyChartData, List<object> DailyChartData, List<object> DeliveryTrend, List<object> ReadTrend);
 
     private record TopAndRecentCampaigns(List<object> RecentCampaigns, List<object> TopCampaigns);
 
@@ -287,8 +288,8 @@ public class DashboardCacheService : IDashboardCacheService
         var campaignIdsInPeriod = queryCampaigns.Select(c => c.Id);
         var rows = await db.CampaignContacts.AsNoTracking()
             .Where(cc => campaignIdsInPeriod.Contains(cc.CampaignId))
-            .GroupBy(cc => new { cc.Campaign.Channel, cc.Status })
-            .Select(g => new { g.Key.Channel, g.Key.Status, Count = g.Count() })
+            .GroupBy(cc => new { cc.Campaign.Channel, cc.Status, IsOpened = cc.OpenedAt != null })
+            .Select(g => new { g.Key.Channel, g.Key.Status, g.Key.IsOpened, Count = g.Count() })
             .ToListAsync();
 
         // Inbound messages per channel, in one grouped query rather than one per channel.
@@ -310,14 +311,20 @@ public class DashboardCacheService : IDashboardCacheService
         foreach (var channel in Enum.GetValues<MessageChannel>())
         {
             var forChannel = rows.Where(r => r.Channel == channel).ToList();
-            int CountOf(MessageStatus status) => forChannel.FirstOrDefault(r => r.Status == status)?.Count ?? 0;
+            int CountOf(MessageStatus status) => forChannel.Where(r => r.Status == status).Sum(r => r.Count);
 
-            var read = CountOf(MessageStatus.Read);
-            var delivered = CountOf(MessageStatus.Delivered) + read;
+            var isEmail = channel == MessageChannel.Email;
+            var read = isEmail
+                ? forChannel.Where(r => r.IsOpened || r.Status == MessageStatus.Read).Sum(r => r.Count)
+                : CountOf(MessageStatus.Read);
+            var delivered = isEmail
+                ? (CountOf(MessageStatus.Sent) + CountOf(MessageStatus.Delivered) + read)
+                : (CountOf(MessageStatus.Delivered) + read);
             var failed = CountOf(MessageStatus.Failed)
                        + CountOf(MessageStatus.Bounced)
                        + CountOf(MessageStatus.Complained);
             var suppressed = CountOf(MessageStatus.Suppressed);
+            var pending = CountOf(MessageStatus.Pending);
             var messages = forChannel.Where(r => r.Status != MessageStatus.Suppressed).Sum(r => r.Count);
 
             var replies = repliesByChannel.TryGetValue(channel, out var replyCount) ? replyCount : 0;
@@ -328,12 +335,11 @@ public class DashboardCacheService : IDashboardCacheService
                 Delivered: delivered,
                 Failed: failed,
                 Read: read,
-                Pending: CountOf(MessageStatus.Pending),
+                Pending: pending,
                 Suppressed: suppressed,
                 Replies: replies,
                 DeliveryRate: messages > 0 ? Math.Round((double)delivered / messages * 100, 1) : 0,
                 ReplyRate: messages > 0 ? Math.Round((double)replies / messages * 100, 1) : 0,
-                // Filled in below: the share needs every channel's total, which is not known yet.
                 SharePercent: 0));
         }
 
@@ -371,38 +377,39 @@ public class DashboardCacheService : IDashboardCacheService
         var templatesTotal = await queryTemplates.CountAsync();
         var templatesApproved = await queryTemplates.CountAsync(t => t.Status == TemplateStatus.Approved);
 
-        // Message aggregates are scoped by the *campaign's* CreatedAt (via campaign id), not CampaignContact.SentAt —
-        // some historical rows have Status set (Sent/Delivered/...) without SentAt ever being populated, so a
-        // SentAt-based filter would silently drop real messages. Status is the reliable source of truth here.
-        // The campaign-id filter is a correlated SQL subquery (queryCampaigns.Select(Id)), never materialized client-side.
         var campaignIdsInPeriod = queryCampaigns.Select(c => c.Id);
-        var statusCounts = await db.CampaignContacts.AsNoTracking()
+        var statusRows = await db.CampaignContacts.AsNoTracking()
             .Where(cc => campaignIdsInPeriod.Contains(cc.CampaignId))
-            .GroupBy(cc => cc.Status)
-            .Select(g => new { Status = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(g => g.Status, g => g.Count);
+            .GroupBy(cc => new { cc.Campaign.Channel, cc.Status, IsOpened = cc.OpenedAt != null })
+            .Select(g => new { g.Key.Channel, g.Key.Status, g.Key.IsOpened, Count = g.Count() })
+            .ToListAsync();
 
-        int CountByStatus(MessageStatus status) => statusCounts.TryGetValue(status, out var c) ? c : 0;
+        var messagesSent = statusRows
+            .Where(r => r.Status != MessageStatus.Pending && r.Status != MessageStatus.Suppressed)
+            .Sum(r => r.Count);
 
-        // Suppressed is excluded alongside Pending: a suppressed recipient was deliberately not
-        // sent to, and counting it as sent would depress the delivery rate of a channel that is
-        // behaving exactly as asked. No effect on existing data — only email produces the status.
-        var messagesSent = statusCounts
-            .Where(kv => kv.Key != MessageStatus.Pending && kv.Key != MessageStatus.Suppressed)
-            .Sum(kv => kv.Value);
-        var messagesDelivered = CountByStatus(MessageStatus.Delivered) + CountByStatus(MessageStatus.Read);
-        var messagesRead = CountByStatus(MessageStatus.Read);
-        // A bounce and a complaint are both delivery failures. They are email-only statuses, so
-        // this leaves every WhatsApp number exactly as it was.
-        var messagesFailed = CountByStatus(MessageStatus.Failed)
-                           + CountByStatus(MessageStatus.Bounced)
-                           + CountByStatus(MessageStatus.Complained);
-        // In-flight: dispatched but not yet resolved to Delivered/Read/Failed. delivered+failed+pending == messagesSent.
-        var messagesPending = CountByStatus(MessageStatus.Sent);
+        var messagesDelivered = statusRows
+            .Where(r => r.Channel == MessageChannel.Email
+                ? (r.Status == MessageStatus.Sent || r.Status == MessageStatus.Delivered || r.Status == MessageStatus.Read)
+                : (r.Status == MessageStatus.Delivered || r.Status == MessageStatus.Read))
+            .Sum(r => r.Count);
 
-        // Replies are inbound chat messages, counted on their own timestamp rather than through
-        // the campaign-id subquery above: a reply to last month's campaign is this month's reply,
-        // and scoping it by the campaign's creation date would file it under the wrong period.
+        var messagesRead = statusRows
+            .Where(r => r.Channel == MessageChannel.Email
+                ? (r.IsOpened || r.Status == MessageStatus.Read)
+                : (r.Status == MessageStatus.Read))
+            .Sum(r => r.Count);
+
+        var messagesFailed = statusRows
+            .Where(r => r.Status == MessageStatus.Failed || r.Status == MessageStatus.Bounced || r.Status == MessageStatus.Complained)
+            .Sum(r => r.Count);
+
+        var messagesPending = statusRows
+            .Where(r => r.Channel == MessageChannel.Email
+                ? r.Status == MessageStatus.Pending
+                : (r.Status == MessageStatus.Pending || r.Status == MessageStatus.Sent))
+            .Sum(r => r.Count);
+
         var queryReplies = db.ChatMessages.AsNoTracking()
             .Where(m => m.Direction == ChatMessageDirection.Incoming);
 
@@ -525,7 +532,7 @@ public class DashboardCacheService : IDashboardCacheService
 
         var dayRows = await hourlyBaseQuery
             .Where(cc => cc.SentAt >= dayStartUtc && cc.SentAt < dayEndUtc)
-            .Select(cc => new { cc.SentAt, cc.Status })
+            .Select(cc => new { cc.Campaign.Channel, cc.SentAt, cc.Status, IsOpened = cc.OpenedAt != null })
             .ToListAsync();
 
         // Bucket by IST hour in memory — trivial LINQ-to-Objects, zero SQL-translation risk.
@@ -534,9 +541,17 @@ public class DashboardCacheService : IDashboardCacheService
             .ToDictionary(g => g.Key, g => new
             {
                 Sent = g.Count(),
-                Errors = g.Count(cc => cc.Status == MessageStatus.Failed),
-                Delivered = g.Count(cc => cc.Status == MessageStatus.Delivered || cc.Status == MessageStatus.Read),
-                Read = g.Count(cc => cc.Status == MessageStatus.Read)
+                WhatsAppSent = g.Count(cc => cc.Channel == MessageChannel.WhatsApp),
+                EmailSent = g.Count(cc => cc.Channel == MessageChannel.Email),
+                Errors = g.Count(cc => cc.Status == MessageStatus.Failed || cc.Status == MessageStatus.Bounced || cc.Status == MessageStatus.Complained),
+                WhatsAppErrors = g.Count(cc => cc.Channel == MessageChannel.WhatsApp && (cc.Status == MessageStatus.Failed || cc.Status == MessageStatus.Bounced || cc.Status == MessageStatus.Complained)),
+                EmailErrors = g.Count(cc => cc.Channel == MessageChannel.Email && (cc.Status == MessageStatus.Failed || cc.Status == MessageStatus.Bounced || cc.Status == MessageStatus.Complained)),
+                Delivered = g.Count(cc => cc.Channel == MessageChannel.Email
+                    ? (cc.Status == MessageStatus.Sent || cc.Status == MessageStatus.Delivered || cc.Status == MessageStatus.Read)
+                    : (cc.Status == MessageStatus.Delivered || cc.Status == MessageStatus.Read)),
+                Read = g.Count(cc => cc.Channel == MessageChannel.Email
+                    ? (cc.IsOpened || cc.Status == MessageStatus.Read)
+                    : (cc.Status == MessageStatus.Read))
             });
 
         var hourlyChartData = new List<object>();
@@ -550,10 +565,21 @@ public class DashboardCacheService : IDashboardCacheService
 
             var sent = agg?.Sent ?? 0;
             var errors = agg?.Errors ?? 0;
+            var wa = agg?.WhatsAppSent ?? 0;
+            var em = agg?.EmailSent ?? 0;
             var delivered = agg?.Delivered ?? 0;
             var read = agg?.Read ?? 0;
 
-            hourlyChartData.Add(new { name = hourStr, sent, errors });
+            hourlyChartData.Add(new
+            {
+                name = hourStr,
+                sent,
+                errors,
+                whatsapp = wa,
+                email = em,
+                whatsappErrors = agg?.WhatsAppErrors ?? 0,
+                emailErrors = agg?.EmailErrors ?? 0
+            });
 
             double delRate = sent > 0 ? ((double)delivered / sent) * 100 : 0;
             double rdRate = delivered > 0 ? ((double)read / delivered) * 100 : 0;
@@ -562,7 +588,39 @@ public class DashboardCacheService : IDashboardCacheService
             readTrend.Add(new { name = hourStr, value = Math.Round(rdRate, 2) });
         }
 
-        return new HourlyChartResult(hourlyChartData, deliveryTrend, readTrend);
+        // Also build 7-day daily volume trend for multi-channel line/area chart view
+        var sevenDaysAgoIst = DateTime.UtcNow.Add(IstOffset).Date.AddDays(-6);
+        var sevenDaysStartUtc = sevenDaysAgoIst.Subtract(IstOffset);
+
+        var dailyTrendRows = await db.CampaignContacts.AsNoTracking()
+            .Where(cc => cc.SentAt != null && cc.SentAt >= sevenDaysStartUtc)
+            .Select(cc => new { cc.Campaign.Channel, cc.SentAt, cc.Status })
+            .ToListAsync();
+
+        var dailyChartData = new List<object>();
+        for (int d = 0; d < 7; d++)
+        {
+            var targetDayIst = sevenDaysAgoIst.AddDays(d);
+            var dayRangeStartUtc = targetDayIst.Subtract(IstOffset);
+            var dayRangeEndUtc = dayRangeStartUtc.AddDays(1);
+
+            var rowsForDay = dailyTrendRows.Where(r => r.SentAt >= dayRangeStartUtc && r.SentAt < dayRangeEndUtc).ToList();
+            var waCount = rowsForDay.Count(r => r.Channel == MessageChannel.WhatsApp);
+            var emCount = rowsForDay.Count(r => r.Channel == MessageChannel.Email);
+            var errCount = rowsForDay.Count(r => r.Status == MessageStatus.Failed || r.Status == MessageStatus.Bounced || r.Status == MessageStatus.Complained);
+
+            dailyChartData.Add(new
+            {
+                name = targetDayIst.ToString("MMM d"),
+                fullDate = targetDayIst.ToString("MMM d, yyyy"),
+                whatsapp = waCount,
+                email = emCount,
+                sent = waCount + emCount,
+                errors = errCount
+            });
+        }
+
+        return new HourlyChartResult(hourlyChartData, dailyChartData, deliveryTrend, readTrend);
     }
 
     // Top-N campaign lists (most recent, and top-by-created-date with delivery/read rates) fetched
@@ -585,8 +643,9 @@ public class DashboardCacheService : IDashboardCacheService
                 id = c.Id,
                 name = c.Name,
                 status = c.Status.ToString(),
+                channel = c.Channel.ToString().ToLower(),
                 totalRecipients = c.TotalRecipients,
-                deliveredCount = c.DeliveredCount
+                deliveredCount = c.Channel == MessageChannel.Email ? c.SentCount : c.DeliveredCount
             })
             .ToListAsync();
 
@@ -599,25 +658,34 @@ public class DashboardCacheService : IDashboardCacheService
                 c.Name,
                 c.CreatedAt,
                 c.Status,
+                c.Channel,
                 c.TotalRecipients,
+                c.SentCount,
                 c.DeliveredCount,
-                c.ReadCount
+                c.ReadCount,
+                c.OpenedCount
             })
             .ToListAsync();
 
         // Delivery/read rates are percentages derived from the raw counts above — computed here rather
         // than in the SQL projection to keep the query itself trivially translatable.
         var topCampaigns = topCampaignsRaw
-            .Select(c => new
+            .Select(c =>
             {
-                id = c.Id,
-                name = c.Name,
-                createdAt = c.CreatedAt,
-                status = c.Status.ToString(),
-                messages = c.TotalRecipients,
-                delivered = c.DeliveredCount,
-                deliveryRate = c.TotalRecipients > 0 ? Math.Round((double)c.DeliveredCount / c.TotalRecipients * 100, 2) : 0,
-                readRate = c.TotalRecipients > 0 ? Math.Round((double)c.ReadCount / c.TotalRecipients * 100, 2) : 0
+                var delivered = c.Channel == MessageChannel.Email ? c.SentCount : c.DeliveredCount;
+                var read = c.Channel == MessageChannel.Email ? c.OpenedCount : c.ReadCount;
+                return new
+                {
+                    id = c.Id,
+                    name = c.Name,
+                    createdAt = c.CreatedAt,
+                    status = c.Status.ToString(),
+                    channel = c.Channel.ToString().ToLower(),
+                    messages = c.TotalRecipients,
+                    delivered = delivered,
+                    deliveryRate = c.TotalRecipients > 0 ? Math.Round((double)delivered / c.TotalRecipients * 100, 2) : 0,
+                    readRate = delivered > 0 ? Math.Round((double)read / delivered * 100, 2) : 0
+                };
             })
             .ToList();
 

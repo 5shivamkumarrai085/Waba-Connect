@@ -41,7 +41,6 @@ import { emailConnectionService } from '../../services/email/emailConnectionServ
 import { EmailThreadMessage } from '../../components/EmailThreadMessage/EmailThreadMessage'
 import { EmailComposer } from '../../components/EmailComposer/EmailComposer'
 import type { EmailComposeMode } from '../../components/EmailComposer/EmailComposer'
-import { Pagination } from '../../components/Pagination/Pagination'
 import type { EmailConnection } from '../../types/email'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { useChatStore, ALL_CHANNELS } from '../../store/chatStore'

@@ -17,9 +17,13 @@ import { contactService } from '../../services/contacts/contactService'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import Can from '../../components/Can/Can'
 import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
+import { useCampaignEvents } from '../../hooks/useCampaignEvents'
 
 export const CampaignsList: React.FC = () => {
   const navigate = useNavigate()
+  // Subscribe to real-time campaign updates globally
+  useCampaignEvents()
+
   const {
     campaigns,
     isLoading,
@@ -201,8 +205,8 @@ export const CampaignsList: React.FC = () => {
     { key: 'template', label: 'Template' },
     { key: 'relation', label: 'Relation Type' },
     { key: 'total', label: 'Total' },
-    { key: 'delivered', label: 'Delivered To' },
-    { key: 'read', label: 'Read By' },
+    { key: 'delivered', label: 'Sent / Delivered' },
+    { key: 'read', label: 'Opened / Read' },
     { key: 'createdAt', label: 'Created At' }
   ]
 
@@ -480,14 +484,22 @@ export const CampaignsList: React.FC = () => {
                         <td>{camp.total}</td>
                       )}
 
-                      {/* Delivered Column */}
+                      {/* Sent / Delivered Column — Email uses emailStats.sent, WhatsApp uses deliveredTo */}
                       {visibleColumns.delivered !== false && (
-                        <td>{camp.deliveredTo}</td>
+                        <td>
+                          {camp.channel?.toLowerCase() === 'email'
+                            ? (camp.emailStats?.sent ?? camp.sentCount ?? camp.deliveredTo ?? 0)
+                            : camp.deliveredTo}
+                        </td>
                       )}
 
-                      {/* Read Column */}
+                      {/* Opened / Read Column — Email uses emailStats.opened, WhatsApp uses readBy */}
                       {visibleColumns.read !== false && (
-                        <td>{camp.readBy}</td>
+                        <td>
+                          {camp.channel?.toLowerCase() === 'email'
+                            ? (camp.emailStats?.opened ?? camp.openedCount ?? camp.readBy ?? 0)
+                            : camp.readBy}
+                        </td>
                       )}
 
                       {/* Created At Column */}

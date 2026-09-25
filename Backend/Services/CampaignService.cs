@@ -176,6 +176,8 @@ public class CampaignService : ICampaignService
         if (campaign == null)
             throw new KeyNotFoundException($"Campaign with ID {id} not found.");
 
+        var isEmail = campaign.Channel == MessageChannel.Email;
+
         var response = new CampaignDetailResponse
         {
             Id = campaign.Id,
@@ -189,26 +191,51 @@ public class CampaignService : ICampaignService
             ScheduledAt = campaign.ScheduledAt,
             Status = campaign.Status.ToString(),
             TotalRecipients = campaign.TotalRecipients,
-            DeliveredCount = campaign.DeliveredCount,
-            ReadCount = campaign.ReadCount,
+            DeliveredCount = isEmail ? campaign.SentCount : campaign.DeliveredCount,
+            ReadCount = isEmail ? campaign.OpenedCount : campaign.ReadCount,
             FailedCount = campaign.FailedCount,
+            SentCount = campaign.SentCount,
+            OpenedCount = campaign.OpenedCount,
+            ClickedCount = campaign.ClickedCount,
+            RepliedCount = campaign.RepliedCount,
+            UnsubscribedCount = campaign.UnsubscribedCount,
+            ComplainedCount = campaign.ComplainedCount,
             CreatedBy = campaign.CreatedBy,
             IsDeleted = campaign.IsDeleted,
             DeletedAt = campaign.DeletedAt,
             DeletedBy = campaign.DeletedBy,
             CreatedAt = campaign.CreatedAt,
             UpdatedAt = campaign.UpdatedAt,
+            ConnectionId = campaign.ConnectionId,
+            ConnectionName = campaign.Connection?.Name,
+            ConnectionNickname = campaign.Connection?.Nickname,
+            EmailStats = isEmail ? new EmailCampaignStatsResponse
+            {
+                Sent         = campaign.SentCount,
+                Delivered    = campaign.DeliveredCount,
+                Failed       = campaign.FailedCount,
+                Bounced      = 0,
+                Complained   = campaign.ComplainedCount,
+                Suppressed   = 0,
+                Opened       = campaign.OpenedCount,
+                Clicked      = campaign.ClickedCount,
+                Replied      = campaign.RepliedCount,
+                Unsubscribed = campaign.UnsubscribedCount,
+                Pending      = Math.Max(0, campaign.TotalRecipients - campaign.SentCount - campaign.FailedCount)
+            } : null,
             Recipients = campaign.CampaignContacts.Select(cc => new CampaignRecipientResponse
             {
                 Id = cc.Id,
                 ContactId = cc.ContactId,
                 ContactName = cc.Contact.Name,
                 Phone = cc.Contact.Phone,
+                Email = cc.Contact.Email,
                 Message = BuildRecipientMessagePreview(campaign, cc),
                 Status = cc.Status.ToString(),
                 SentAt = cc.SentAt,
                 DeliveredAt = cc.DeliveredAt,
-                ReadAt = cc.ReadAt,
+                ReadAt = isEmail ? (cc.OpenedAt ?? cc.ReadAt) : cc.ReadAt,
+                OpenedAt = cc.OpenedAt,
                 ErrorMessage = cc.ErrorMessage
             }).ToList(),
             Variables = campaign.Variables.Select(v => new CampaignVariableResponse
@@ -665,13 +692,15 @@ public class CampaignService : ICampaignService
                 ContactId = cc.ContactId,
                 ContactName = cc.Contact.Name,
                 Phone = cc.Contact.Phone,
+                Email = cc.Contact.Email,
                 Message = chatMessageTextByContact.TryGetValue(cc.Id, out var messageText) && !string.IsNullOrWhiteSpace(messageText)
                     ? messageText
                     : BuildRecipientMessagePreview(campaign, cc),
                 Status = cc.Status.ToString(),
                 SentAt = cc.SentAt,
                 DeliveredAt = cc.DeliveredAt,
-                ReadAt = cc.ReadAt,
+                ReadAt = campaign.Channel == MessageChannel.Email ? (cc.OpenedAt ?? cc.ReadAt) : cc.ReadAt,
+                OpenedAt = cc.OpenedAt,
                 ErrorMessage = cc.ErrorMessage
             }).ToList()
         };
@@ -1040,6 +1069,8 @@ public class CampaignService : ICampaignService
 
     private static CampaignResponse MapToResponse(Campaign c)
     {
+        var isEmail = c.Channel == MessageChannel.Email;
+
         return new CampaignResponse
         {
             Id = c.Id,
@@ -1053,9 +1084,17 @@ public class CampaignService : ICampaignService
             ScheduledAt = c.ScheduledAt,
             Status = c.Status.ToString(),
             TotalRecipients = c.TotalRecipients,
-            DeliveredCount = c.DeliveredCount,
-            ReadCount = c.ReadCount,
-            FailedCount = c.FailedCount,
+            // Shared delivery counters — for WhatsApp these come from the WA delivery webhook;
+            // for Email they mirror the email-specific counters so shared reports still work.
+            DeliveredCount = isEmail ? c.SentCount    : c.DeliveredCount,
+            ReadCount      = isEmail ? c.OpenedCount  : c.ReadCount,
+            FailedCount    = isEmail ? c.FailedCount  : c.FailedCount,
+            SentCount      = c.SentCount,
+            OpenedCount    = c.OpenedCount,
+            ClickedCount   = c.ClickedCount,
+            RepliedCount   = c.RepliedCount,
+            UnsubscribedCount = c.UnsubscribedCount,
+            ComplainedCount = c.ComplainedCount,
             CreatedBy = c.CreatedBy,
             IsDeleted = c.IsDeleted,
             DeletedAt = c.DeletedAt,
@@ -1065,7 +1104,23 @@ public class CampaignService : ICampaignService
             IsBulkCampaign = c.IsBulkCampaign,
             ConnectionId = c.ConnectionId,
             ConnectionName = c.Connection?.Name,
-            ConnectionNickname = c.Connection?.Nickname
+            ConnectionNickname = c.Connection?.Nickname,
+
+            // Email-only engagement counters. Null for WhatsApp so the client can branch on it.
+            EmailStats = isEmail ? new EmailCampaignStatsResponse
+            {
+                Sent         = c.SentCount,
+                Delivered    = c.DeliveredCount,   // future: from DSN/webhook
+                Failed       = c.FailedCount,
+                Bounced      = 0,                  // future: from bounce events
+                Complained   = c.ComplainedCount,
+                Suppressed   = 0,
+                Opened       = c.OpenedCount,
+                Clicked      = c.ClickedCount,
+                Replied      = c.RepliedCount,
+                Unsubscribed = c.UnsubscribedCount,
+                Pending      = Math.Max(0, c.TotalRecipients - c.SentCount - c.FailedCount)
+            } : null
         };
     }
 

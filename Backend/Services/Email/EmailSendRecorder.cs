@@ -65,12 +65,17 @@ public interface IEmailSendRecorder
 public class EmailSendRecorder : IEmailSendRecorder
 {
     private readonly AppDbContext _dbContext;
+    private readonly ICampaignEmailEventProcessor _eventProcessor;
     private readonly ILogger<EmailSendRecorder> _logger;
 
-    public EmailSendRecorder(AppDbContext dbContext, ILogger<EmailSendRecorder> logger)
+    public EmailSendRecorder(
+        AppDbContext dbContext,
+        ICampaignEmailEventProcessor eventProcessor,
+        ILogger<EmailSendRecorder> logger)
     {
-        _dbContext = dbContext;
-        _logger = logger;
+        _dbContext      = dbContext;
+        _eventProcessor = eventProcessor;
+        _logger         = logger;
     }
 
     public async Task RecordSentAsync(
@@ -81,11 +86,9 @@ public class EmailSendRecorder : IEmailSendRecorder
         string providerName,
         CancellationToken ct = default)
     {
+        // ── 1. Conversation thread + activity log (existing responsibilities) ──────────────
         recipient.Status = MessageStatus.Sent;
         recipient.SentAt ??= DateTime.UtcNow;
-
-        // Only the channel-neutral column is written. WhatsAppMessageId is left alone so nothing
-        // on the WhatsApp correlation path can ever match an email's id.
         recipient.ProviderMessageId = result.ProviderMessageId;
         recipient.ErrorMessage = null;
 
@@ -93,8 +96,21 @@ public class EmailSendRecorder : IEmailSendRecorder
         chatMessage.ProviderMessageId = result.ProviderMessageId;
 
         await WriteActivityLogAsync(campaign, recipient, message, result, providerName, isSuccess: true, ct);
-
         await _dbContext.SaveChangesAsync(ct);
+
+        // ── 2. Normalized SENT event (counter increment + real-time) ─────────────────────
+        // Idempotency key: smtp:send:{campaignContactId} — stable, exactly one per recipient send
+        await _eventProcessor.ProcessAsync(
+            kind:              EmailEventKind.Sent,
+            idempotencyKey:    $"smtp:send:{recipient.Id}",
+            source:            providerName,
+            campaignId:        campaign.Id,
+            campaignContactId: recipient.Id,
+            messageId:         message.MessageId,
+            providerMessageId: result.ProviderMessageId,
+            recipientAddress:  message.To.FirstOrDefault()?.Address,
+            occurredAt:        DateTime.UtcNow,
+            ct:                ct);
     }
 
     public async Task RecordFailedAsync(
@@ -105,19 +121,28 @@ public class EmailSendRecorder : IEmailSendRecorder
         string providerName,
         CancellationToken ct = default)
     {
+        // ── 1. Conversation thread + activity log ──────────────────────────────────────────
         recipient.Status = MessageStatus.Failed;
         recipient.ErrorMessage = Truncate(result.ErrorMessage ?? "The send failed.", 500);
-
-        // Cleared, because the provider explicitly refused the message — there is no in-flight
-        // send for the duplicate-protection guard to be cautious about.
         recipient.SendAttemptedAt = null;
 
         var chatMessage = await WriteChatMessageAsync(campaign, recipient, message, ChatMessageStatus.Failed, ct);
         chatMessage.ErrorMessage = Truncate(result.ErrorMessage, 1000);
 
         await WriteActivityLogAsync(campaign, recipient, message, result, providerName, isSuccess: false, ct);
-
         await _dbContext.SaveChangesAsync(ct);
+
+        // ── 2. Normalized FAILED event ────────────────────────────────────────────────────
+        await _eventProcessor.ProcessAsync(
+            kind:              EmailEventKind.Failed,
+            idempotencyKey:    $"smtp:fail:{recipient.Id}",
+            source:            providerName,
+            campaignId:        campaign.Id,
+            campaignContactId: recipient.Id,
+            messageId:         message.MessageId,
+            recipientAddress:  message.To.FirstOrDefault()?.Address,
+            occurredAt:        DateTime.UtcNow,
+            ct:                ct);
     }
 
     /// <summary>
@@ -341,15 +366,11 @@ public class EmailSendRecorder : IEmailSendRecorder
     /// <inheritdoc />
     public async Task TryFinalizeCampaignAsync(int campaignId, CancellationToken ct = default)
     {
-        // One statement, deliberately.
-        //
-        // Recipients are sent by independent workers, so "am I the last one" is a race: two
-        // workers finishing together would both read zero pending and both write a status. Doing
-        // the test and the write in a single conditional UPDATE lets Postgres settle it — the
-        // second one matches no rows because the first already moved the status off 'Sending'.
-        //
-        // Counters are recomputed from the recipients rather than incremented, so they are
-        // correct even if a worker died between sending and recording.
+        // This is now called only after terminal events (SENT, FAILED, BOUNCED).
+        // The event processor's CampaignEmailEventProcessor.TryFinalizeCampaignAsync already
+        // does the same conditional UPDATE — this recorder-side method is kept for backward
+        // compat (EmailDispatchWorker still calls it for build-failure paths that bypass the
+        // event processor). It performs a single conditional UPDATE, never a GROUP BY scan.
         const string sql = """
             UPDATE "Campaigns" c SET
                 "Status" = CASE
@@ -357,17 +378,12 @@ public class EmailSendRecorder : IEmailSendRecorder
                     WHEN s.failed = 0 THEN 'Sent'
                     ELSE 'PartiallyFailed'
                 END,
-                "DeliveredCount" = s.delivered,
-                "ReadCount" = s.read_count,
-                "FailedCount" = s.failed,
                 "UpdatedAt" = now()
             FROM (
                 SELECT
-                    count(*) FILTER (WHERE "Status" = 'Pending')                         AS pending,
-                    count(*) FILTER (WHERE "Status" IN ('Sent','Delivered','Read'))      AS sent,
-                    count(*) FILTER (WHERE "Status" IN ('Delivered','Read'))             AS delivered,
-                    count(*) FILTER (WHERE "Status" = 'Read')                            AS read_count,
-                    count(*) FILTER (WHERE "Status" IN ('Failed','Bounced','Complained')) AS failed
+                    count(*) FILTER (WHERE "Status" = 'Pending')                          AS pending,
+                    count(*) FILTER (WHERE "Status" IN ('Sent','Delivered','Read'))        AS sent,
+                    count(*) FILTER (WHERE "Status" IN ('Failed','Bounced','Complained'))  AS failed
                 FROM "CampaignContacts" WHERE "CampaignId" = {0}
             ) s
             WHERE c."Id" = {0}
@@ -380,7 +396,7 @@ public class EmailSendRecorder : IEmailSendRecorder
 
         if (affected > 0)
         {
-            _logger.LogInformation("Campaign {CampaignId} finished; status and counters updated.", campaignId);
+            _logger.LogInformation("Campaign {CampaignId} finished; status updated.", campaignId);
         }
     }
 

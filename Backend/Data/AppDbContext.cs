@@ -83,6 +83,12 @@ public class AppDbContext : DbContext
     public DbSet<EmailSendQuota> EmailSendQuotas { get; set; } = null!;
 
     /// <summary>
+    /// Normalized, channel-agnostic email event history. Append-only by design.
+    /// See <see cref="Models.Entities.EmailEvent"/> for the full schema rationale.
+    /// </summary>
+    public DbSet<EmailEvent> EmailEvents { get; set; } = null!;
+
+    /// <summary>
     /// The background job queue. Exposed for migrations and the monitoring endpoint only — the
     /// claim path is raw SQL in PostgresJobQueue, because FOR UPDATE SKIP LOCKED cannot be
     /// expressed through the change tracker without racing between instances.
@@ -750,10 +756,57 @@ public class AppDbContext : DbContext
             entity.ToTable("BotSuppressions");
             entity.Property(e => e.PhoneNumber).HasMaxLength(32).IsRequired();
             entity.Property(e => e.MatchedKeyword).HasMaxLength(100);
-            // Every read is "is this caller silenced right now", so the lookup is by number and
-            // expiry together.
             entity.HasIndex(e => new { e.PhoneNumber, e.ResumeAt });
             entity.HasOne(e => e.Connection).WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ---- Normalized email event history -------------------------------------------
+
+        modelBuilder.Entity<EmailEvent>(entity =>
+        {
+            entity.ToTable("EmailEvents");
+
+            // Idempotency: the unique index on IdempotencyKey is the authoritative guard.
+            // All INSERT attempts for the same event will hit this and fail with 23505,
+            // which the event store catches and converts to a "duplicate, skip" result.
+            entity.HasIndex(e => e.IdempotencyKey)
+                .IsUnique()
+                .HasDatabaseName("ix_email_events_idempotency_key");
+
+            // Campaign-level reporting queries — filter to all events for a campaign
+            entity.HasIndex(e => new { e.CampaignId, e.EventKind, e.OccurredAt })
+                .HasDatabaseName("ix_email_events_campaign_kind_occurred");
+
+            // Recipient-level reporting — all events for a specific recipient
+            entity.HasIndex(e => new { e.CampaignContactId, e.EventKind })
+                .HasDatabaseName("ix_email_events_contact_kind");
+
+            // MessageId correlation — find events by RFC 5322 Message-ID
+            entity.HasIndex(e => e.MessageId)
+                .HasDatabaseName("ix_email_events_message_id")
+                .HasFilter("\"MessageId\" IS NOT NULL");
+
+            entity.HasOne(e => e.Campaign)
+                .WithMany()
+                .HasForeignKey(e => e.CampaignId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.CampaignContact)
+                .WithMany()
+                .HasForeignKey(e => e.CampaignContactId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.Property(e => e.EventKind).HasConversion<string>();
+            entity.Property(e => e.BounceType).HasConversion<string>();
+        });
+
+        // TrackingId index on CampaignContacts — used by the tracking pixel and click redirect
+        modelBuilder.Entity<CampaignContact>(entity =>
+        {
+            entity.HasIndex(e => e.TrackingId)
+                .HasDatabaseName("ix_campaign_contacts_tracking_id")
+                .HasFilter("\"TrackingId\" IS NOT NULL")
+                .IsUnique();
         });
     }
 

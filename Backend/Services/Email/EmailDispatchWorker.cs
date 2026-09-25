@@ -145,6 +145,7 @@ public class EmailDispatchWorker : BackgroundService
         var mimeBuilder = services.GetRequiredService<IMimeMessageBuilder>();
         var unsubscribe = services.GetRequiredService<IUnsubscribeTokenService>();
         var recorder = services.GetRequiredService<IEmailSendRecorder>();
+        var trackingService = services.GetRequiredService<IEmailTrackingService>();
 
         // Declared out here so the catch blocks below can report against the right recipient and
         // give back a token they may have reserved. Inside the try they were invisible to the
@@ -166,6 +167,13 @@ public class EmailDispatchWorker : BackgroundService
 
             var (campaign, recipient, detail, template) = context.Value;
             failingRecipient = recipient;
+
+            // Ensure recipient has a tracking ID for open/click tracking
+            if (string.IsNullOrEmpty(recipient.TrackingId))
+            {
+                recipient.TrackingId = trackingService.GenerateTrackingId();
+                await dbContext.SaveChangesAsync(ct);
+            }
 
             // The idempotency guard. A redelivered job — after a lease lapsed, or a crash between
             // sending and committing — must not send again. Anything other than Pending means
@@ -255,7 +263,7 @@ public class EmailDispatchWorker : BackgroundService
 
             var message = BuildMessage(
                 campaign, recipient, detail, template, emailAddress!,
-                providerContext, mimeBuilder, unsubscribe, out var buildFailure);
+                providerContext, mimeBuilder, unsubscribe, trackingService, out var buildFailure);
 
             if (message is null)
             {
@@ -450,6 +458,7 @@ public class EmailDispatchWorker : BackgroundService
         EmailProviderContext providerContext,
         IMimeMessageBuilder mimeBuilder,
         IUnsubscribeTokenService unsubscribe,
+        IEmailTrackingService trackingService,
         out string? failureReason)
     {
         failureReason = null;
@@ -564,6 +573,68 @@ public class EmailDispatchWorker : BackgroundService
                  + $"{System.Net.WebUtility.HtmlEncode(preheader)}</div>{body}";
         }
 
+        // Inject click-tracking redirect URLs if enabled
+        if (detail.TrackClicks && !string.IsNullOrEmpty(recipient.TrackingId) && !string.IsNullOrWhiteSpace(body))
+        {
+            body = RewriteLinks(body, recipient.TrackingId, trackingService);
+        }
+
+        // Inject open-tracking 1x1 transparent pixel if enabled
+        if (detail.TrackOpens && !string.IsNullOrEmpty(recipient.TrackingId))
+        {
+            var openUrl = trackingService.BuildOpenUrl(recipient.TrackingId);
+            var pixelTag = $"<img src=\"{openUrl}\" width=\"1\" height=\"1\" alt=\"\" style=\"display:none;max-height:0;overflow:hidden;mso-hide:all;\" />";
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                body = body.Contains("</body>", StringComparison.OrdinalIgnoreCase)
+                    ? body.Replace("</body>", $"{pixelTag}</body>", StringComparison.OrdinalIgnoreCase)
+                    : $"{body}{pixelTag}";
+            }
+        }
+
+        // Resolve email attachments
+        var emailAttachments = new List<EmailAttachment>();
+        if (!string.IsNullOrWhiteSpace(detail.AttachmentsJson))
+        {
+            try
+            {
+                var attachmentRequests = System.Text.Json.JsonSerializer.Deserialize<List<WhatsAppCampaignApi.Models.DTOs.Campaigns.CampaignAttachmentRequest>>(detail.AttachmentsJson);
+                if (attachmentRequests != null)
+                {
+                    foreach (var att in attachmentRequests)
+                    {
+                        var bytes = LoadAttachmentBytes(att.Url);
+                        if (bytes != null && bytes.Length > 0)
+                        {
+                            var ct = !string.IsNullOrWhiteSpace(att.ContentType) ? att.ContentType : GetMimeType(att.FileName);
+                            emailAttachments.Add(new EmailAttachment(att.FileName, ct, bytes));
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load campaign attachments for campaign {CampaignId}", campaign.Id);
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(campaign.FileUrl))
+        {
+            try
+            {
+                var bytes = LoadAttachmentBytes(campaign.FileUrl);
+                if (bytes != null && bytes.Length > 0)
+                {
+                    var fileName = !string.IsNullOrWhiteSpace(campaign.FileName) ? campaign.FileName : Path.GetFileName(campaign.FileUrl);
+                    var ct = GetMimeType(fileName);
+                    emailAttachments.Add(new EmailAttachment(fileName, ct, bytes));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load campaign file attachment for campaign {CampaignId}", campaign.Id);
+            }
+        }
+
         return new EmailMessage
         {
             From = new EmailAddress(sender.EmailAddress, sender.DisplayName),
@@ -572,7 +643,7 @@ public class EmailDispatchWorker : BackgroundService
             Subject = subject,
             HtmlBody = body,
             TextBody = string.IsNullOrWhiteSpace(text) ? null : text,
-            Attachments = [],
+            Attachments = emailAttachments,
             Headers = headers,
             MessageId = mimeBuilder.NewMessageId(fromDomain),
             ConfigurationSet = providerContext.ConfigurationSet,
@@ -582,6 +653,91 @@ public class EmailDispatchWorker : BackgroundService
                 ["channel"] = "email"
             }
         };
+    }
+
+    private static byte[]? LoadAttachmentBytes(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+
+        try
+        {
+            // 1. If it's a relative or absolute URL containing /uploads/
+            if (url.Contains("/uploads/", StringComparison.OrdinalIgnoreCase))
+            {
+                var relativePath = url.Substring(url.IndexOf("/uploads/", StringComparison.OrdinalIgnoreCase)).TrimStart('/');
+                var localPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", relativePath.Replace('/', Path.DirectorySeparatorChar));
+                if (File.Exists(localPath))
+                {
+                    return File.ReadAllBytes(localPath);
+                }
+            }
+
+            // 2. Direct file path
+            if (File.Exists(url))
+            {
+                return File.ReadAllBytes(url);
+            }
+
+            // 3. Remote URL fallback
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+                return http.GetByteArrayAsync(uri).GetAwaiter().GetResult();
+            }
+        }
+        catch
+        {
+            // Handled by caller
+        }
+
+        return null;
+    }
+
+    private static string GetMimeType(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".pdf" => "application/pdf",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            ".webp" => "image/webp",
+            ".svg" => "image/svg+xml",
+            ".csv" => "text/csv",
+            ".txt" => "text/plain",
+            ".doc" => "application/msword",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".xls" => "application/vnd.ms-excel",
+            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".zip" => "application/zip",
+            _ => "application/octet-stream"
+        };
+    }
+
+    private static string RewriteLinks(string html, string trackingId, IEmailTrackingService tracking)
+    {
+        var linkIndex = 0;
+        return System.Text.RegularExpressions.Regex.Replace(
+            html,
+            @"(<a\b[^>]*?\bhref\s*=\s*[""'])(https?://[^""'>\s]+)([""'][^>]*>)",
+            match =>
+            {
+                var prefix = match.Groups[1].Value;
+                var originalUrl = match.Groups[2].Value;
+                var suffix = match.Groups[3].Value;
+
+                // Skip unsubscribe links or existing tracking URLs
+                if (originalUrl.Contains("/api/unsubscribe", StringComparison.OrdinalIgnoreCase) ||
+                    originalUrl.Contains("/api/t/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return match.Value;
+                }
+
+                var clickUrl = tracking.BuildClickUrl(trackingId, originalUrl, linkIndex++);
+                return $"{prefix}{clickUrl}{suffix}";
+            },
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 
     private static EmailAddress? ResolveReplyTo(

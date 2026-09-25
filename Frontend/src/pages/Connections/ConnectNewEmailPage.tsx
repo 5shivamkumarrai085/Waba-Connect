@@ -26,6 +26,8 @@ export const ConnectNewEmailPage: React.FC = () => {
   const [replyToEmail, setReplyToEmail] = useState('')
   const [description, setDescription] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // Inline error shown under the name field when the server returns 409 Conflict
+  const [nameError, setNameError] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,6 +48,7 @@ export const ConnectNewEmailPage: React.FC = () => {
     }
 
     setIsSubmitting(true)
+    setNameError(null)
     try {
       const created = await emailConnectionService.createConnection({
         name: name.trim(),
@@ -57,10 +60,16 @@ export const ConnectNewEmailPage: React.FC = () => {
 
       toast.success(`Connection "${created.connectionName}" created. Now configure a provider.`)
       navigate(`/connect-email?emailConfigurationId=${created.id}`)
-    } catch (err) {
-      // The server's message explains the refusal — a duplicate connection name, most often —
-      // and a generic "failed" would leave the operator guessing at it.
-      toast.error(getErrorMessage(err, 'Could not create the email connection.'))
+    } catch (err: any) {
+      // 409 Conflict = duplicate name — surface as inline field error, not a floating toast.
+      // Any other status gets the toast so unexpected failures are still visible.
+      const status = err?.response?.status
+      const msg = getErrorMessage(err, 'Could not create the email connection.')
+      if (status === 409) {
+        setNameError(msg)
+      } else {
+        toast.error(msg)
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -120,13 +129,19 @@ export const ConnectNewEmailPage: React.FC = () => {
                 required
                 placeholder="e.g. Marketing Email"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="waba-field-input"
+                onChange={(e) => {
+                  setName(e.target.value)
+                  // Clear the inline error as soon as the user edits the name
+                  if (nameError) setNameError(null)
+                }}
+                className={`waba-field-input${nameError ? ' field-input-error' : ''}`}
                 autoFocus
               />
-              <p className="waba-field-hint">
-                This name will help you identify this connection in the future.
-              </p>
+              {nameError ? (
+                <p className="waba-field-error">{nameError} Use a different name, or go to <button type="button" className="btn-inline-link" onClick={() => navigate('/connections')}>Connections</button> to configure the existing one.</p>
+              ) : (
+                <p className="waba-field-hint">This name will help you identify this connection in the future.</p>
+              )}
             </div>
 
             <div className="waba-field-group">

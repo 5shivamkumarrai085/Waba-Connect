@@ -2,7 +2,8 @@
 import { create } from 'zustand'
 import { campaignService } from '../services/campaigns/campaignService'
 import { contactService } from '../services/contacts/contactService'
-import type { Campaign, CampaignStatistics, CampaignRecipient, CampaignWizardForm } from '../types/campaigns'
+import type { Campaign, CampaignStatistics, CampaignRecipient, CampaignWizardForm, EmailCampaignStats } from '../types/campaigns'
+import type { CampaignEventPayload } from '../services/campaigns/campaignHubService'
 import { useDashboardStore } from './dashboardStore'
 import { useReportingStore } from './zustand'
 
@@ -60,6 +61,15 @@ interface CampaignStoreState {
   deleteCampaign: (id: number) => Promise<void>
   toggleCampaignPause: (id: number) => Promise<void>
   setSelectedTab: (tab: 'queue' | 'executed') => void
+
+  /**
+   * Applies a real-time SignalR counter delta to the currently-viewed campaign.
+   * Called by useCampaignEvents — never triggers a network request.
+   *
+   * The delta values arrive from CampaignEmailEventProcessor and are signed ints:
+   * +1 for a new event, 0 when the event was a duplicate (idempotency guard fired).
+   */
+  applyEventDelta: (event: CampaignEventPayload) => void
 }
 
 const initialWizardForm: CampaignWizardForm = {
@@ -288,6 +298,141 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
     }
   },
 
-  setSelectedTab: (currentDetailsTab) => set({ currentDetailsTab })
+  setSelectedTab: (currentDetailsTab) => set({ currentDetailsTab }),
+
+  applyEventDelta: (event) => set((state) => {
+    // 1. Update the campaign in the main list
+    const updatedList = state.campaigns.map((cam) => {
+      if (cam.id !== event.campaignId) return cam
+
+      const isEmail = cam.channel?.toLowerCase() === 'email'
+      const newDelivered = cam.deliveredTo + (isEmail ? event.sentDelta : event.deliveredDelta)
+      const newRead = cam.readBy + (isEmail ? event.openedDelta : 0)
+      const newFailed = cam.failedCount + event.failedDelta
+      const newSent = (cam.sentCount ?? 0) + event.sentDelta
+      const newOpened = (cam.openedCount ?? 0) + event.openedDelta
+      const newClicked = (cam.clickedCount ?? 0) + event.clickedDelta
+      const newReplied = (cam.repliedCount ?? 0) + event.repliedDelta
+      const newUnsubscribed = (cam.unsubscribedCount ?? 0) + event.unsubscribedDelta
+      const newComplained = (cam.complainedCount ?? 0) + event.complainedDelta
+
+      const newEmailStats: EmailCampaignStats | undefined = cam.emailStats ? {
+        ...cam.emailStats,
+        sent: (cam.emailStats.sent ?? 0) + event.sentDelta,
+        bounced: (cam.emailStats.bounced ?? 0) + event.bouncedDelta,
+        opened: (cam.emailStats.opened ?? 0) + event.openedDelta,
+        clicked: (cam.emailStats.clicked ?? 0) + event.clickedDelta,
+        replied: (cam.emailStats.replied ?? 0) + event.repliedDelta,
+        unsubscribed: (cam.emailStats.unsubscribed ?? 0) + event.unsubscribedDelta,
+        complained: (cam.emailStats.complained ?? 0) + event.complainedDelta,
+        failed: (cam.emailStats.failed ?? 0) + event.failedDelta,
+        pending: Math.max(0, (cam.total || 0) - newSent - newFailed),
+      } : (isEmail ? {
+        sent: newSent,
+        delivered: newDelivered,
+        bounced: 0,
+        complained: newComplained,
+        suppressed: 0,
+        opened: newOpened,
+        clicked: newClicked,
+        replied: newReplied,
+        unsubscribed: newUnsubscribed,
+        pending: Math.max(0, (cam.total || 0) - newSent - newFailed),
+        failed: newFailed,
+      } : undefined)
+
+      return {
+        ...cam,
+        status: event.newCampaignStatus ?? cam.status,
+        deliveredTo: newDelivered,
+        readBy: newRead,
+        failedCount: newFailed,
+        sentCount: newSent,
+        openedCount: newOpened,
+        clickedCount: newClicked,
+        repliedCount: newReplied,
+        unsubscribedCount: newUnsubscribed,
+        complainedCount: newComplained,
+        emailStats: newEmailStats,
+      }
+    })
+
+    // 2. If the currently selected campaign matches, update it too
+    let updatedSelected = state.selectedCampaign
+    let updatedStats = state.selectedStats
+
+    if (state.selectedCampaign && state.selectedCampaign.id === event.campaignId) {
+      const c = state.selectedCampaign
+      const isEmail = c.channel?.toLowerCase() === 'email'
+      const newDelivered = c.deliveredTo + (isEmail ? event.sentDelta : event.deliveredDelta)
+      const newRead = c.readBy + (isEmail ? event.openedDelta : 0)
+      const newFailed = c.failedCount + event.failedDelta
+      const newSent = (c.sentCount ?? 0) + event.sentDelta
+      const newOpened = (c.openedCount ?? 0) + event.openedDelta
+      const newClicked = (c.clickedCount ?? 0) + event.clickedDelta
+      const newReplied = (c.repliedCount ?? 0) + event.repliedDelta
+      const newUnsubscribed = (c.unsubscribedCount ?? 0) + event.unsubscribedDelta
+      const newComplained = (c.complainedCount ?? 0) + event.complainedDelta
+
+      const newEmailStats: EmailCampaignStats | undefined = c.emailStats ? {
+        ...c.emailStats,
+        sent: (c.emailStats.sent ?? 0) + event.sentDelta,
+        bounced: (c.emailStats.bounced ?? 0) + event.bouncedDelta,
+        opened: (c.emailStats.opened ?? 0) + event.openedDelta,
+        clicked: (c.emailStats.clicked ?? 0) + event.clickedDelta,
+        replied: (c.emailStats.replied ?? 0) + event.repliedDelta,
+        unsubscribed: (c.emailStats.unsubscribed ?? 0) + event.unsubscribedDelta,
+        complained: (c.emailStats.complained ?? 0) + event.complainedDelta,
+        failed: (c.emailStats.failed ?? 0) + event.failedDelta,
+        pending: Math.max(0, (c.total || 0) - newSent - newFailed),
+      } : (isEmail ? {
+        sent: newSent,
+        delivered: newDelivered,
+        bounced: 0,
+        complained: newComplained,
+        suppressed: 0,
+        opened: newOpened,
+        clicked: newClicked,
+        replied: newReplied,
+        unsubscribed: newUnsubscribed,
+        pending: Math.max(0, (c.total || 0) - newSent - newFailed),
+        failed: newFailed,
+      } : undefined)
+
+      updatedSelected = {
+        ...c,
+        status: event.newCampaignStatus ?? c.status,
+        deliveredTo: newDelivered,
+        readBy: newRead,
+        failedCount: newFailed,
+        sentCount: newSent,
+        openedCount: newOpened,
+        clickedCount: newClicked,
+        repliedCount: newReplied,
+        unsubscribedCount: newUnsubscribed,
+        complainedCount: newComplained,
+        emailStats: newEmailStats,
+      }
+
+      if (updatedStats) {
+        const total = updatedStats.totalLeads || c.total || 1
+        updatedStats = {
+          ...updatedStats,
+          deliveredCount: newDelivered,
+          deliveredPercent: `${((newDelivered / total) * 100).toFixed(0)}%`,
+          readCount: newRead,
+          readPercent: `${((newRead / total) * 100).toFixed(0)}%`,
+          failedCount: newFailed,
+          failedPercent: `${((newFailed / total) * 100).toFixed(0)}%`,
+        }
+      }
+    }
+
+    return {
+      campaigns: updatedList,
+      selectedCampaign: updatedSelected,
+      selectedStats: updatedStats,
+    }
+  }),
 }))
 export default useCampaignStore

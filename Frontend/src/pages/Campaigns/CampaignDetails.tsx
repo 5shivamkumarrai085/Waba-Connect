@@ -5,14 +5,19 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useCampaignStore } from '../../store/campaignStore'
 import { StatusBadge } from '../../components/StatusBadge/StatusBadge'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
-import { 
-  Users, 
-  CheckCircle, 
-  Eye, 
-  AlertTriangle, 
+import { useCampaignEvents } from '../../hooks/useCampaignEvents'
+import {
+  Users,
+  CheckCircle,
+  Eye,
+  AlertTriangle,
   FileSpreadsheet,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  MousePointerClick,
+  Reply,
+  ShieldX,
+  Wifi,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import './CampaignDetails.css'
@@ -46,6 +51,20 @@ export const CampaignDetails: React.FC = () => {
     }
   }, [campaignId])
 
+  // Auto-switch to Executed tab if campaign already completed and queue is empty
+  useEffect(() => {
+    if (selectedRecipients && selectedRecipients.length > 0) {
+      const queueCount = selectedRecipients.filter((r) => isQueuedRecipient(r.sentStatus)).length
+      const executedCount = selectedRecipients.filter((r) => !isQueuedRecipient(r.sentStatus)).length
+      if (queueCount === 0 && executedCount > 0 && currentDetailsTab === 'queue') {
+        setSelectedTab('executed')
+      }
+    }
+  }, [selectedRecipients, currentDetailsTab, setSelectedTab])
+
+  // Real-time SignalR updates — no-op for WhatsApp campaigns and terminal statuses
+  useCampaignEvents(campaignId)
+
   if (isLoading && !selectedCampaign) {
     return (
       <div className="page-loader">
@@ -65,6 +84,10 @@ export const CampaignDetails: React.FC = () => {
     )
   }
 
+  const isEmail = selectedCampaign.channel?.toLowerCase() === 'email' || Boolean(selectedCampaign.emailStats)
+  const queueCount = (selectedRecipients || []).filter((r) => isQueuedRecipient(r.sentStatus)).length
+  const executedCount = (selectedRecipients || []).filter((r) => !isQueuedRecipient(r.sentStatus)).length
+
   // Filter recipients based on Active tab (Queue vs Executed)
   const activeRecipients = (selectedRecipients || []).filter((r) => {
     // 1. Tab check
@@ -80,6 +103,7 @@ export const CampaignDetails: React.FC = () => {
       const matches = 
         r.name.toLowerCase().includes(q) ||
         r.phone.includes(q) ||
+        (r.email && r.email.toLowerCase().includes(q)) ||
         r.message.toLowerCase().includes(q)
       if (!matches) return false
     }
@@ -109,6 +133,10 @@ export const CampaignDetails: React.FC = () => {
     }
   }
 
+  const totalSent = selectedCampaign.sentCount ?? selectedCampaign.emailStats?.sent ?? selectedCampaign.deliveredTo ?? 0
+  const totalOpened = selectedCampaign.openedCount ?? selectedCampaign.emailStats?.opened ?? selectedCampaign.readBy ?? 0
+  const openRatePercent = totalSent > 0 ? ((totalOpened / totalSent) * 100).toFixed(1) : '0.0'
+
   return (
     <motion.div {...pageTransitionProps}>
       {/* Top action buttons */}
@@ -122,8 +150,6 @@ export const CampaignDetails: React.FC = () => {
         </button>
         
         {!selectedCampaign.isDeleted && (
-          // Pause/resume changes what actually goes out over WhatsApp, so it sits behind
-          // Campaign.Send rather than Campaign.Edit.
           <Can permission="Campaign.Send">
             <button
               type="button"
@@ -163,8 +189,72 @@ export const CampaignDetails: React.FC = () => {
         </div>
       </div>
 
-      {/* Statistics Cards Row */}
-      {selectedStats && (
+      {/* Email engagement stats — visible only for email campaigns, replaces the WhatsApp stats panel */}
+      {isEmail && (
+        <div className="email-engagement-section">
+          <div className="email-engagement-header">
+            <h3 className="email-engagement-title">Email Engagement</h3>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span className="rate-badge" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '3px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: 600 }}>
+                Open Rate: {openRatePercent}%
+              </span>
+              {selectedCampaign.status === 'Sending' && (
+                <span className="live-badge">
+                  <Wifi size={11} />
+                  Live
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="email-engagement-grid">
+            <div className="email-eng-card">
+              <div className="email-eng-icon blue"><CheckCircle size={15} /></div>
+              <div className="email-eng-info">
+                <span className="email-eng-value">{totalSent}</span>
+                <span className="email-eng-label">Sent</span>
+              </div>
+            </div>
+            <div className="email-eng-card">
+              <div className="email-eng-icon green"><Eye size={15} /></div>
+              <div className="email-eng-info">
+                <span className="email-eng-value">{totalOpened}</span>
+                <span className="email-eng-label">Opened</span>
+              </div>
+            </div>
+            <div className="email-eng-card">
+              <div className="email-eng-icon purple"><MousePointerClick size={15} /></div>
+              <div className="email-eng-info">
+                <span className="email-eng-value">{selectedCampaign.clickedCount ?? selectedCampaign.emailStats?.clicked ?? 0}</span>
+                <span className="email-eng-label">Clicked</span>
+              </div>
+            </div>
+            <div className="email-eng-card">
+              <div className="email-eng-icon cyan"><Reply size={15} /></div>
+              <div className="email-eng-info">
+                <span className="email-eng-value">{selectedCampaign.repliedCount ?? selectedCampaign.emailStats?.replied ?? 0}</span>
+                <span className="email-eng-label">Replied</span>
+              </div>
+            </div>
+            <div className="email-eng-card">
+              <div className="email-eng-icon red"><AlertTriangle size={15} /></div>
+              <div className="email-eng-info">
+                <span className="email-eng-value">{selectedCampaign.emailStats?.bounced ?? 0}</span>
+                <span className="email-eng-label">Bounced</span>
+              </div>
+            </div>
+            <div className="email-eng-card">
+              <div className="email-eng-icon orange"><ShieldX size={15} /></div>
+              <div className="email-eng-info">
+                <span className="email-eng-value">{selectedCampaign.unsubscribedCount ?? selectedCampaign.emailStats?.unsubscribed ?? 0}</span>
+                <span className="email-eng-label">Unsubscribed</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp statistics cards — only for non-email campaigns */}
+      {!isEmail && selectedStats && (
         <div className="campaign-stats-grid">
           {/* Total Leads Card */}
           <div className="campaign-stat-card">
@@ -228,7 +318,7 @@ export const CampaignDetails: React.FC = () => {
               setCurrentPage(1)
             }}
           >
-            Queue
+            Queue ({queueCount})
           </button>
           <button
             type="button"
@@ -238,7 +328,7 @@ export const CampaignDetails: React.FC = () => {
               setCurrentPage(1)
             }}
           >
-            Executed
+            Executed ({executedCount})
           </button>
         </div>
 
@@ -277,9 +367,10 @@ export const CampaignDetails: React.FC = () => {
                 <tr>
                   <th>ID</th>
                   <th>Name</th>
-                  <th>Phone</th>
+                  <th>{isEmail ? 'Email / Phone' : 'Phone'}</th>
                   <th>Message</th>
                   <th>Sent Status</th>
+                  {isEmail && <th>Engagement / Time</th>}
                 </tr>
               </thead>
               <tbody>
@@ -287,7 +378,7 @@ export const CampaignDetails: React.FC = () => {
                   <tr key={recipient.id}>
                     <td>{recipient.id}</td>
                     <td>{recipient.name}</td>
-                    <td>{recipient.phone}</td>
+                    <td>{isEmail ? (recipient.email || recipient.phone) : recipient.phone}</td>
                     <td className="body-data-cell">{recipient.message}</td>
                     <td>
                       <StatusBadge 
@@ -298,6 +389,23 @@ export const CampaignDetails: React.FC = () => {
                         <div className="campaign-recipient-error">{recipient.failedReason}</div>
                       )}
                     </td>
+                    {isEmail && (
+                      <td style={{ fontSize: '12px', color: '#64748b' }}>
+                        {recipient.openedAt && recipient.openedAt !== '-' ? (
+                          <span style={{ color: '#10b981', fontWeight: 600 }}>
+                            Opened: {new Date(recipient.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        ) : recipient.readAt && recipient.readAt !== '-' ? (
+                          <span style={{ color: '#10b981', fontWeight: 600 }}>
+                            Opened: {new Date(recipient.readAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        ) : recipient.deliveredAt && recipient.deliveredAt !== '-' ? (
+                          <span>Sent: {new Date(recipient.deliveredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

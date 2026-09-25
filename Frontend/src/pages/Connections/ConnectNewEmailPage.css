@@ -45,3 +45,35 @@
     flex-direction: column;
   }
 }
+
+/* ── Field validation ─────────────────────────────────────────────────────────── */
+
+/* Red border on the input when there's a conflict error */
+.field-input-error {
+  border-color: var(--omni-color-danger, #ef4444) !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15) !important;
+}
+
+/* Inline error text that replaces the hint */
+.waba-field-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--omni-color-danger, #ef4444);
+  line-height: 1.45;
+}
+
+/* Inline text-button — "go to Connections" inside the error message */
+.btn-inline-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--omni-color-danger, #ef4444);
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-inline-link:hover {
+  opacity: 0.8;
+}

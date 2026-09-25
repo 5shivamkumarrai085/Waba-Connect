@@ -28,6 +28,7 @@ interface TopCampaign {
   name: string
   createdAt: string
   status: string
+  channel?: string
   messages: number
   delivered: number
   deliveryRate: number

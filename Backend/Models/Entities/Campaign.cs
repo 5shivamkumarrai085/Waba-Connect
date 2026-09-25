@@ -50,9 +50,25 @@ public class Campaign
     public CampaignStatus Status { get; set; } = CampaignStatus.Draft;
     
     public int TotalRecipients { get; set; }
+
+    // ── Delivery counters ─────────────────────────────────────────────────────────────────────
+    // Incremented atomically (UPDATE SET count = count + 1) by the event processor after each
+    // event, guarded by idempotency. Never recomputed with a full GROUP BY on every event —
+    // that approach was an O(N) query per event at scale.
+    public int SentCount { get; set; }
     public int DeliveredCount { get; set; }
     public int ReadCount { get; set; }
     public int FailedCount { get; set; }
+
+    // ── Engagement counters ───────────────────────────────────────────────────────────────────
+    // OPENED = tracking pixel loaded (engagement, not guaranteed delivery).
+    // These are absent from MessageStatus deliberately: engagement is not a delivery state and
+    // must not retroactively change a recipient's status (e.g. an Open must not overwrite Bounced).
+    public int OpenedCount { get; set; }
+    public int ClickedCount { get; set; }
+    public int RepliedCount { get; set; }
+    public int UnsubscribedCount { get; set; }
+    public int ComplainedCount { get; set; }
     
     [MaxLength(100)]
     public string? CreatedBy { get; set; }

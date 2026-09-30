@@ -19,7 +19,7 @@ namespace WhatsAppCampaignApi.Services.Email;
 /// </summary>
 public interface IEmailProvider
 {
-    /// <summary>Matches <c>EmailConfiguration.Provider</c>, e.g. "AmazonSes" or "Smtp".</summary>
+    /// <summary>Matches <c>EmailConfiguration.Provider</c>, e.g. "Smtp".</summary>
     string ProviderName { get; }
 
     EmailProviderCapabilities Capabilities { get; }

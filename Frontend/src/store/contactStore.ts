@@ -1,15 +1,13 @@
 // src/store/contactStore.ts
 import { create } from 'zustand'
 import { contactService } from '../services/contacts/contactService'
-import type { ContactImportResult } from '../services/contacts/contactService'
+import type { ContactImportResult, ContactListQuery } from '../services/contacts/contactService'
 import type { Contact, ContactFormModel } from '../types/contacts'
 import { getErrorMessage } from '../utils/errorHelper'
 import toast from 'react-hot-toast'
 import { useDashboardStore } from './dashboardStore'
 import { useChatStore } from './chatStore'
 import { isRequestCancelled } from '../services/apiClient'
-import { contactFields } from '../utils/contactSearchFields'
-import { matchesSearch } from '../utils/smartSearch'
 
 /**
  * Cross-module edges for contact writes, declared here rather than through a global event bus so
@@ -26,8 +24,16 @@ const propagateContactChange = () => {
   }
 }
 
+/** Filters owned by the list page; search, sort and paging live alongside in the store. */
+export type ContactFilters = Pick<ContactListQuery,
+  'type' | 'status' | 'source' | 'assignedTo' | 'group' | 'tag' | 'startDate' | 'endDate'>
+
 interface ContactStoreState {
+  /** The current page of contacts, as returned by the server. */
   contacts: Contact[]
+  /** Contacts matching the current filters, across all pages. */
+  totalCount: number
+  filters: ContactFilters
   isLoading: boolean
   searchQuery: string
   selectedIds: number[]
@@ -46,6 +52,7 @@ interface ContactStoreState {
   setCurrentPage: (page: number) => void
   setPageSize: (size: number) => void
   setSort: (column: string, order: 'asc' | 'desc') => void
+  setFilters: (filters: ContactFilters) => void
 
   loadContacts: () => Promise<void>
   addContact: (form: ContactFormModel) => Promise<Contact>
@@ -56,6 +63,8 @@ interface ContactStoreState {
 
 export const useContactStore = create<ContactStoreState>((set, get) => ({
   contacts: [],
+  totalCount: 0,
+  filters: {},
   isLoading: false,
   searchQuery: '',
   selectedIds: [],
@@ -91,19 +100,10 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
   },
 
   toggleAllRowSelection: () => {
-    const { selectedIds, searchQuery } = get()
+    const { selectedIds } = get()
 
-    // Filter contacts based on search query first.
-    //
-    // Shares its field list with the Contacts table via contactFields. These two had drifted --
-    // the table searched five fields and this searched three -- so with a search active the header
-    // checkbox could select a different set of rows than the one on screen.
-    const filtered = get().contacts.filter(c => {
-      const cName = c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim()
-      return matchesSearch(searchQuery, contactFields(c as unknown as Record<string, unknown>, cName))
-    })
-
-    const filteredIds = filtered.map(c => c.id)
+    // The rows on screen: the list is already the filtered, searched page from the server.
+    const filteredIds = get().contacts.map(c => c.id)
     const allSelected = filteredIds.every(id => selectedIds.includes(id))
 
     if (allSelected) {
@@ -129,7 +129,8 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
   setCurrentPage: (currentPage) => set({ currentPage }),
   setPageSize: (pageSize) => set({ pageSize, currentPage: 1 }),
 
-  setSort: (sortColumn, sortOrder) => set({ sortColumn, sortOrder }),
+  setSort: (sortColumn, sortOrder) => set({ sortColumn, sortOrder, currentPage: 1 }),
+  setFilters: (filters) => set({ filters, currentPage: 1 }),
 
   loadContacts: async () => {
     const hasCache = get().contacts.length > 0
@@ -137,12 +138,21 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
       set({ isLoading: true })
     }
     try {
-      const [fetched, settings] = await Promise.all([
-        contactService.getContacts(),
+      const { currentPage, pageSize, searchQuery, sortColumn, sortOrder, filters } = get()
+      const [page, settings] = await Promise.all([
+        contactService.getContactsPage({
+          ...filters,
+          page: currentPage,
+          pageSize,
+          search: searchQuery,
+          sortBy: sortColumn,
+          sortDescending: sortOrder === 'desc'
+        }),
         contactService.getSettings()
       ])
       set({
-        contacts: fetched,
+        contacts: page.items,
+        totalCount: page.totalCount,
         groupNotAssignedText: settings?.groupNotAssignedText || 'Group not assigned',
         isLoading: false
       })
@@ -173,12 +183,8 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
     set({ isLoading: true })
     try {
       await contactService.bulkDeleteContacts(selectedIds)
-      const fetched = await contactService.getContacts()
-      set({
-        contacts: fetched,
-        selectedIds: [],
-        isLoading: false
-      })
+      set({ selectedIds: [], isLoading: false })
+      await get().loadContacts()
       propagateContactChange()
     } catch (err) {
       console.error(err)
@@ -219,8 +225,7 @@ export const useContactStore = create<ContactStoreState>((set, get) => ({
     try {
       const res = await contactService.importContacts(file)
       // Reload even on a partial import — some rows may have been saved.
-      const fetched = await contactService.getContacts()
-      set({ contacts: fetched })
+      await get().loadContacts()
       propagateContactChange()
       return res
     } catch (err: any) {

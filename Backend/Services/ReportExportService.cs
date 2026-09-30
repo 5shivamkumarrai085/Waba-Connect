@@ -312,6 +312,7 @@ public class ReportExportService : IReportExportService
     {
         "timestamp" => row.Timestamp,
         "contactName" => row.ContactName,
+        "adSource" => row.AdSource,
         "contactPhone" => row.ContactPhone,
         "campaignName" => row.CampaignName,
         "templateName" => row.TemplateName,

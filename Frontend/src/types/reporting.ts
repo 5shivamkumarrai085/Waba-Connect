@@ -10,34 +10,6 @@ export interface MetricCardModel {
   iconName: string // maps to lucide icons
 }
 
-export interface AccuracyRecord {
-  id: string
-  entity: string
-  expectedCount: number
-  verifiedCount: number
-  status: 'verified' | 'unverified'
-}
-
-export interface FreshnessRecord {
-  id: string
-  entity: string
-  latestRecord: string
-  freshnessValue: string
-  freshnessType: 'fresh' | 'warning' | 'stale'
-}
-
-export interface ExportItemModel {
-  id: string
-  title: string
-  description: string
-  iconName: string
-  actionType: 'download' | 'external'
-  /** API path to download from, supplied by the server. Empty for 'external' items. */
-  endpoint?: string
-  /** True when the endpoint honours the page's time filter (metrics only). */
-  acceptsFilter?: boolean
-}
-
 // ── Report builder ───────────────────────────────────────────────────────────
 // Mirrors Backend/Models/DTOs/Reporting/ReportQueryDtos.cs.
 
@@ -117,6 +89,8 @@ export interface ReportRow {
   timestamp: string
   contactName?: string | null
   contactPhone?: string | null
+  /** The Click-to-WhatsApp ad that first brought the contact in. */
+  adSource?: string | null
   campaignName?: string | null
   templateName?: string | null
   connectionName?: string | null

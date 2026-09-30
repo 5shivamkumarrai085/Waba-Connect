@@ -8,3 +8,25 @@
 # Environment files
 .env
 .env.*
+# Templates with placeholder values are meant to be shared.
+!.env.example
+
+# Frontend build output
+Frontend/dist/
+
+# User uploads and private data: customer files never belong in source control
+Backend/wwwroot/uploads/
+Backend/App_Data/
+
+# Runtime logs and local run output
+**/Logs/
+Backend/run_output.txt
+
+# Local secrets (use dotnet user-secrets or environment variables instead)
+appsettings.*.local.json
+*.pfx
+*.pem
+secrets.json
+
+# Data exports taken before destructive maintenance (contain personal data).
+Backend/backups/

@@ -2,44 +2,54 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using WhatsAppCampaignApi.Data;
+using WhatsAppCampaignApi.Models.Enums;
 using WhatsAppCampaignApi.Models.Options;
+using WhatsAppCampaignApi.Services.Email;
 
 namespace WhatsAppCampaignApi.Services.Queue;
 
 /// <summary>
-/// Housekeeping for the job queue: prunes completed rows and reports depth.
+/// Housekeeping for the job queue and the campaigns it drives.
 ///
 /// <para>
-/// Both halves matter operationally. Completed rows are kept for a while so an operator can
-/// answer "did this job run, and when" after an incident, but kept forever they turn the queue
-/// table into an archive whose indexes no longer fit in cache. And a queue with no depth metric
-/// fails silently — nobody notices a stalled worker until customers report missing mail, which is
-/// why the age of the oldest pending job is logged rather than just the count.
+/// Two cadences. Every minute: dead-letter jobs whose final attempt lost its lease, finish email
+/// campaigns that have nothing left pending (including ones where every recipient was skipped, which
+/// no send event ever finalises), and reconcile active campaigns' KPI counters against their
+/// recipient rows. Every ten minutes: log queue depth and age, and prune old completed and
+/// dead-lettered rows so the table's indexes stay in cache.
+/// </para>
+///
+/// <para>
+/// Every step is idempotent and safe on any number of instances at once.
 /// </para>
 /// </summary>
 public class JobQueueMaintenanceWorker : BackgroundService
 {
-    /// <summary>
-    /// Long, because neither job is urgent, and a sweep that competes with the dispatch workers
-    /// for connections costs throughput for no benefit.
-    /// </summary>
-    private static readonly TimeSpan Interval = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan FastInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan SlowInterval = TimeSpan.FromMinutes(10);
 
     /// <summary>Deleted in slices so a large backlog cannot hold a long transaction open.</summary>
     private const int PruneBatchSize = 5000;
 
+    /// <summary>Recently finished campaigns keep being reconciled for this long, because opens,
+    /// clicks and replies go on arriving after the last send.</summary>
+    private static readonly TimeSpan ReconcileWindow = TimeSpan.FromHours(6);
+
     private readonly IJobQueue _queue;
+    private readonly NpgsqlDataSource _dataSource;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly IOptionsMonitor<EmailOptions> _options;
     private readonly ILogger<JobQueueMaintenanceWorker> _logger;
 
     public JobQueueMaintenanceWorker(
         IJobQueue queue,
+        NpgsqlDataSource dataSource,
         IDbContextFactory<AppDbContext> contextFactory,
         IOptionsMonitor<EmailOptions> options,
         ILogger<JobQueueMaintenanceWorker> logger)
     {
         _queue = queue;
+        _dataSource = dataSource;
         _contextFactory = contextFactory;
         _options = options;
         _logger = logger;
@@ -47,41 +57,90 @@ public class JobQueueMaintenanceWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Let the app finish starting before adding database work to the mix.
+        var lastSlowSweep = DateTime.MinValue;
+
         try
         {
+            // Let the app finish starting before adding database work to the mix.
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
 
-        while (!stoppingToken.IsCancellationRequested)
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                await RunStepAsync("dead-letter exhausted leases", () => _queue.DeadLetterExhaustedLeasesAsync(stoppingToken), stoppingToken);
+                await RunStepAsync("campaign sweep", () => SweepCampaignsAsync(stoppingToken), stoppingToken);
+
+                if (DateTime.UtcNow - lastSlowSweep >= SlowInterval)
+                {
+                    await RunStepAsync("queue depth report", () => ReportDepthAsync(stoppingToken), stoppingToken);
+                    await RunStepAsync("prune completed", () => PruneAsync("Completed", "CompletedAt", _options.CurrentValue.Queue.CompletedRetentionDays, stoppingToken), stoppingToken);
+                    await RunStepAsync("prune dead-lettered", () => PruneAsync("DeadLettered", "DeadLetteredAt", _options.CurrentValue.Queue.DeadLetterRetentionDays, stoppingToken), stoppingToken);
+                    lastSlowSweep = DateTime.UtcNow;
+                }
+
+                await Task.Delay(FastInterval, stoppingToken);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            try
+            // Normal shutdown.
+        }
+    }
+
+    /// <summary>Never lets one failing step stop the others or take the host down.</summary>
+    private async Task RunStepAsync(string name, Func<Task> step, CancellationToken ct)
+    {
+        try
+        {
+            await step();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Job queue maintenance step '{Step}' failed.", name);
+        }
+    }
+
+    /// <summary>
+    /// Finalises campaigns with nothing pending (either channel) and reconciles email counters for
+    /// active and recently finished email campaigns.
+    /// </summary>
+    private async Task SweepCampaignsAsync(CancellationToken ct)
+    {
+        await using var db = await _contextFactory.CreateDbContextAsync(ct);
+        var since = DateTime.UtcNow - ReconcileWindow;
+
+        var campaigns = await db.Campaigns
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(c => !c.IsDeleted
+                     && (c.Status == CampaignStatus.Sending
+                         || (c.Channel == MessageChannel.Email && c.UpdatedAt >= since)))
+            .OrderBy(c => c.Id)
+            .Select(c => new { c.Id, c.Status, c.Channel })
+            .Take(500)
+            .ToListAsync(ct);
+
+        foreach (var campaign in campaigns)
+        {
+            if (ct.IsCancellationRequested) break;
+
+            // Counters are reconciled for email only: WhatsApp counters are moved by exact
+            // per-transition deltas in the status webhook and the send worker.
+            if (campaign.Channel == MessageChannel.Email)
             {
-                await ReportDepthAsync(stoppingToken);
-                await PruneCompletedAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                // Never let housekeeping take the host down, and never let one bad sweep stop
-                // all future ones.
-                _logger.LogError(ex, "Job queue maintenance sweep failed.");
+                await CampaignFinalizer.ReconcileEmailCountersAsync(db, campaign.Id, ct);
             }
 
-            try
+            if (campaign.Status == CampaignStatus.Sending)
             {
-                await Task.Delay(Interval, stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
+                var status = await CampaignFinalizer.TryFinalizeAsync(db, campaign.Id, ct);
+                if (status is not null)
+                {
+                    _logger.LogInformation("Campaign {CampaignId} finished as {Status} (maintenance sweep).", campaign.Id, status);
+                }
             }
         }
     }
@@ -125,36 +184,31 @@ public class JobQueueMaintenanceWorker : BackgroundService
         }
     }
 
-    private async Task PruneCompletedAsync(CancellationToken ct)
+    private async Task PruneAsync(string status, string timestampColumn, int retentionDays, CancellationToken ct)
     {
-        var retentionDays = _options.CurrentValue.Queue.CompletedRetentionDays;
-
         // Zero is a legitimate choice meaning "keep nothing", but it is also what an unbound
         // configuration section would produce, so it is treated as "not configured" instead of
-        // silently deleting every completed row the moment it lands.
+        // silently deleting every row the moment it lands.
         if (retentionDays <= 0) return;
 
-        const string sql = """
+        // status and timestampColumn are compile-time constants from this class, never input.
+        var sql = $"""
             DELETE FROM "JobQueue"
              WHERE "Id" IN (
                  SELECT "Id" FROM "JobQueue"
-                  WHERE "Status" = 'Completed'
-                    AND "CompletedAt" < now() - make_interval(days => @retention_days)
+                  WHERE "Status" = @status
+                    AND "{timestampColumn}" < now() - make_interval(days => @retention_days)
                   LIMIT @batch_size
              )
             """;
 
-        await using var context = await _contextFactory.CreateDbContextAsync(ct);
-        var connectionString = context.Database.GetConnectionString();
-        if (string.IsNullOrEmpty(connectionString)) return;
-
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync(ct);
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
 
         var totalDeleted = 0;
         while (!ct.IsCancellationRequested)
         {
             await using var command = new NpgsqlCommand(sql, connection);
+            command.Parameters.AddWithValue("status", status);
             command.Parameters.AddWithValue("retention_days", retentionDays);
             command.Parameters.AddWithValue("batch_size", PruneBatchSize);
 
@@ -168,8 +222,8 @@ public class JobQueueMaintenanceWorker : BackgroundService
         if (totalDeleted > 0)
         {
             _logger.LogInformation(
-                "Pruned {Count} completed job(s) older than {RetentionDays} day(s).",
-                totalDeleted, retentionDays);
+                "Pruned {Count} {Status} job(s) older than {RetentionDays} day(s).",
+                totalDeleted, status, retentionDays);
         }
     }
 }

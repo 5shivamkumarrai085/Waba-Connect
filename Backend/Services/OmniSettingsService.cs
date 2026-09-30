@@ -200,7 +200,11 @@ public class OmniSettingsService : IOmniSettingsService
             [OmniSettingsCatalog.WebhookEvents] = OmniSettingsCatalog.WebhookFieldCatalogue
                 .Select(f => new OmniSettingsOptionDto { Value = f.Value, Label = f.Label }).ToList(),
             [OmniSettingsCatalog.HttpMethods] = OmniSettingsCatalog.HttpMethodCatalogue
-                .Select(m => new OmniSettingsOptionDto { Value = m.Value, Label = m.Label }).ToList()
+                .Select(m => new OmniSettingsOptionDto { Value = m.Value, Label = m.Label }).ToList(),
+            [OmniSettingsCatalog.TimeZones] = OmniSettingsCatalog.TimeZoneCatalogue
+                .Select(z => new OmniSettingsOptionDto { Value = z.Value, Label = z.Label }).ToList(),
+            [OmniSettingsCatalog.ContactFields] = Catalogs.ContactFieldCatalog.Configurable
+                .Select(f => new OmniSettingsOptionDto { Value = f.Key, Label = f.Label }).ToList()
         };
     }
 
@@ -499,7 +503,12 @@ public class OmniSettingsService : IOmniSettingsService
     }
 
     /// <inheritdoc />
-    public void InvalidateCache() => _cache.Remove(CacheKey);
+    public void InvalidateCache()
+    {
+        _cache.Remove(CacheKey);
+        // Contact validation caches the required fields separately (it must read synchronously).
+        _cache.Remove(Validators.ContactLookupValidatorCache.RequiredFieldsCacheKey);
+    }
 
     public async Task<string?> GetValueAsync(string key)
     {

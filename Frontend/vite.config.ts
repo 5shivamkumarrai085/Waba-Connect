@@ -29,7 +29,13 @@ export default defineConfig({
   ],
   build: {
     target: 'esnext',
-    minify: false,
-    cssCodeSplit: false
+    // Minified for production: the unminified build shipped several megabytes of JavaScript to
+    // every user. Source maps keep production stack traces readable without that cost.
+    minify: true,
+    sourcemap: 'hidden',
+    // Kept as one stylesheet: the federation remote is consumed as a single entry, and a host
+    // cannot follow per-route CSS chunks it does not know about.
+    cssCodeSplit: false,
+    chunkSizeWarningLimit: 800,
   }
 })

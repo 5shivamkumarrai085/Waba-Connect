@@ -19,6 +19,13 @@ public interface IEmailRateLimiter
     Task<int> TryReserveAsync(int connectionId, int count, CancellationToken ct = default);
 
     /// <summary>
+    /// As <see cref="TryReserveAsync(int, int, CancellationToken)"/>, seeding a new bucket at
+    /// <paramref name="defaultRatePerSecond"/> instead of the email default — the same per-connection
+    /// bucket serves WhatsApp connections, whose provider allows a much higher rate.
+    /// </summary>
+    Task<int> TryReserveAsync(int connectionId, int count, double defaultRatePerSecond, CancellationToken ct = default);
+
+    /// <summary>
     /// Returns tokens for sends that did not happen, so a suppressed or skipped recipient does
     /// not consume someone else's send allowance.
     /// </summary>
@@ -31,7 +38,7 @@ public interface IEmailRateLimiter
 /// <para>
 /// In the database rather than in memory, because an in-process limiter is only correct while
 /// exactly one instance is running. Scale to three and the provider quietly receives three times
-/// the configured rate — which gets an SES account throttled, and then reputation-damaged. Since
+/// the configured rate — which gets a mail account throttled, and then reputation-damaged. Since
 /// horizontal scaling is an explicit requirement here, a per-process limiter would have been
 /// wrong by construction.
 /// </para>
@@ -43,21 +50,27 @@ public interface IEmailRateLimiter
 /// </summary>
 public class PostgresEmailRateLimiter : IEmailRateLimiter
 {
-    private readonly IDbContextFactory<AppDbContext> _contextFactory;
+    private readonly NpgsqlDataSource _dataSource;
     private readonly IOptionsMonitor<EmailOptions> _options;
     private readonly ILogger<PostgresEmailRateLimiter> _logger;
 
     public PostgresEmailRateLimiter(
-        IDbContextFactory<AppDbContext> contextFactory,
+        NpgsqlDataSource dataSource,
         IOptionsMonitor<EmailOptions> options,
         ILogger<PostgresEmailRateLimiter> logger)
     {
-        _contextFactory = contextFactory;
+        _dataSource = dataSource;
         _options = options;
         _logger = logger;
     }
 
-    public async Task<int> TryReserveAsync(int connectionId, int count, CancellationToken ct = default)
+    public Task<int> TryReserveAsync(int connectionId, int count, CancellationToken ct = default) =>
+        TryReserveAsync(connectionId, count, _options.CurrentValue.Dispatch.DefaultSendRatePerSecond, ct);
+
+    /// <summary>Buckets known to exist, so the hot path skips the seeding INSERT.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> _knownBuckets = new();
+
+    public async Task<int> TryReserveAsync(int connectionId, int count, double defaultRatePerSecond, CancellationToken ct = default)
     {
         if (count <= 0) return 0;
 
@@ -65,8 +78,12 @@ public class PostgresEmailRateLimiter : IEmailRateLimiter
 
         // The bucket row is created on demand so a connection configured before this feature
         // existed, or one whose quota row was pruned, still sends at the configured default
-        // rather than failing.
-        await EnsureBucketAsync(connection, connectionId, ct);
+        // rather than failing. Once seen it is not re-checked on every reservation.
+        if (!_knownBuckets.ContainsKey(connectionId))
+        {
+            await EnsureBucketAsync(connection, connectionId, defaultRatePerSecond, ct);
+            _knownBuckets[connectionId] = true;
+        }
 
         // Refill and decrement in one statement:
         //   * refilled  — tokens plus elapsed-time accrual, capped at capacity.
@@ -132,10 +149,8 @@ public class PostgresEmailRateLimiter : IEmailRateLimiter
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private async Task EnsureBucketAsync(NpgsqlConnection connection, int connectionId, CancellationToken ct)
+    private static async Task EnsureBucketAsync(NpgsqlConnection connection, int connectionId, double defaultRate, CancellationToken ct)
     {
-        var defaultRate = _options.CurrentValue.Dispatch.DefaultSendRatePerSecond;
-
         // ON CONFLICT DO NOTHING rather than a check-then-insert: two workers hitting an
         // unseeded connection at once would otherwise race on the primary key.
         const string sql = """
@@ -152,14 +167,5 @@ public class PostgresEmailRateLimiter : IEmailRateLimiter
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private async Task<NpgsqlConnection> OpenAsync(CancellationToken ct)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync(ct);
-        var connectionString = context.Database.GetConnectionString()
-            ?? throw new InvalidOperationException("No connection string is configured for the email rate limiter.");
-
-        var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync(ct);
-        return connection;
-    }
+    private ValueTask<NpgsqlConnection> OpenAsync(CancellationToken ct) => _dataSource.OpenConnectionAsync(ct);
 }

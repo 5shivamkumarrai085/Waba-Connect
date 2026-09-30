@@ -220,7 +220,7 @@ export const EmailTemplatesList: React.FC = () => {
 
   return (
     <motion.div {...pageTransitionProps}>
-      <div className="email-templates-hero">
+      <div className="omni-page-hero email-templates-hero">
         <div>
           <h1>Email Templates</h1>
           <p>Create and manage reusable email templates for your campaigns.</p>

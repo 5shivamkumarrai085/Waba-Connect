@@ -280,13 +280,13 @@ export const TemplateBotWizard: React.FC = () => {
   return (
     <motion.div {...pageTransitionProps}>
       {/* Title Bar */}
-      <div className="wizard-title-bar">
-        <button className="back-arrow-btn" onClick={() => navigate('/template-bot')}>
+      <div className="wizard-title-bar omni-page-hero form-page-hero">
+        <button className="back-arrow-btn" onClick={() => navigate('/template-bot')} aria-label="Go Back">
           <ArrowLeft size={20} />
         </button>
-        <span className="wizard-title">
+        <h2 className="wizard-title">
           {isViewMode ? 'View Template Bot' : isEditMode ? 'Edit Template Bot' : 'Create Template Bot'}
-        </span>
+        </h2>
       </div>
 
       <form className="wizard-split-layout" style={!selectedTemplate ? { gridTemplateColumns: '1fr' } : undefined} onSubmit={handleSubmit}>

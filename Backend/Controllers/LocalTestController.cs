@@ -1,3 +1,6 @@
+#if DEBUG
+// Development harness only: compiled out of Release builds entirely, so no production binary
+// carries it, whatever the environment variable says.
 using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -164,3 +167,5 @@ public class SimulationResponse
     public bool IsNewContact { get; set; }
     public bool MatchedAnyBot { get; set; }
 }
+
+#endif

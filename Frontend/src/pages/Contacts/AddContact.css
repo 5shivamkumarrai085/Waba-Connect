@@ -48,7 +48,7 @@
   font-size: 14px;
   background: transparent;
   border-radius: 6px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: color 0.25s var(--ease-out), background-color 0.25s var(--ease-out), border-color 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out), transform 0.25s var(--ease-out), opacity 0.25s var(--ease-out);
   border: none;
   cursor: pointer;
   position: relative;
@@ -63,7 +63,7 @@
   height: 3px;
   border-radius: 3px 3px 0 0;
   background-color: transparent;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: color 0.25s var(--ease-out), background-color 0.25s var(--ease-out), border-color 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out), transform 0.25s var(--ease-out), opacity 0.25s var(--ease-out);
 }
 
 .add-contact-card .stepper-step:hover {
@@ -122,7 +122,7 @@
   font-size: 14px;
   color: var(--text-main);
   background-color: var(--bg-secondary);
-  transition: all 0.2s ease-in-out;
+  transition: color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), transform 0.2s var(--ease-out), opacity 0.2s var(--ease-out);
   width: 100%;
   box-sizing: border-box;
 }
@@ -278,7 +278,7 @@
   height: 40px;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s ease-in-out;
+  transition: color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), transform 0.2s var(--ease-out), opacity 0.2s var(--ease-out);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -301,14 +301,14 @@
   height: 40px;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s ease-in-out;
+  transition: color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), transform 0.2s var(--ease-out), opacity 0.2s var(--ease-out);
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .btn-add:hover {
-  background-color: #3730a3;
+  background-color: var(--accent-indigo);
   box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
 }
 
@@ -322,9 +322,17 @@
 }
 .invalid-feedback {
   color: var(--omni-color-danger);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
-  margin-top: 4px;
+  margin-top: var(--space-2xs);
+}
+
+/* Supporting text under a field, e.g. the age worked out from a date of birth. */
+.form-hint {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin-top: var(--space-2xs);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- Country Code Picker Styles ---- */
@@ -355,8 +363,8 @@
   background: var(--bg-secondary);
   cursor: pointer;
   font-size: 14px;
-  color: var(--text-main, #1e293b);
-  transition: all 0.2s ease;
+  color: var(--text-main);
+  transition: color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), transform 0.2s var(--ease-out), opacity 0.2s var(--ease-out);
   user-select: none;
 }
 
@@ -525,7 +533,7 @@
 
 .note-content {
   font-size: 14px;
-  color: var(--text-main, #1e293b);
+  color: var(--text-main);
   line-height: 1.5;
   white-space: pre-wrap;
   margin-bottom: 8px;
@@ -580,7 +588,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background-color: var(--bg-secondary);
-  transition: all 0.2s ease-in-out;
+  transition: color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), transform 0.2s var(--ease-out), opacity 0.2s var(--ease-out);
 }
 
 .add-contact-card .ss-trigger:hover:not(:disabled) {
@@ -612,4 +620,12 @@
 
 .add-contact-card .ss-trigger.is-invalid.is-open {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
+}
+
+/* Groups the form so view mode can disable every input at once; no visual frame of its own. */
+.contact-form-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
 }

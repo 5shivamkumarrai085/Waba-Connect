@@ -40,6 +40,42 @@ export interface Campaign {
   repliedCount?: number
   unsubscribedCount?: number
   complainedCount?: number
+
+  /** False for SMTP email campaigns: the provider reports acceptance, not delivery. */
+  reportsDelivery?: boolean
+
+  /** Maker-checker state, when the campaign went through approval (details only). */
+  approval?: CampaignApproval | null
+
+  /** Recipients excluded by a compliance rule (consent, opt-out, frequency cap). */
+  skippedCount?: number
+  /** Why the system put the campaign on hold (e.g. an unreadable connection password); null for a manual pause. */
+  pausedReason?: string | null
+  /** A/B test results (details only). */
+  abTest?: CampaignAbTest | null
+  followUps?: CampaignFollowUp[]
+  parentCampaignId?: number | null
+  topic?: string | null
+  isTransactional?: boolean
+  /** Wall-clock send time for a recipient-local-time campaign. */
+  localSendAt?: string | null
+
+  /** Failed recipients a retry would send to again, and how many retries are used/allowed. */
+  retryableCount?: number
+  retryRuns?: number
+  maxRetryRuns?: number
+}
+
+/** Maker-checker: who asked, who decided, and whether the current user may decide. */
+export interface CampaignApproval {
+  state: 'Pending' | 'Approved' | 'Rejected' | string
+  requestedBy?: string | null
+  requestedAt: string
+  decidedBy?: string | null
+  decidedAt?: string | null
+  reason?: string | null
+  /** Holds Campaign.Approve and is not the person who submitted it. */
+  canDecide: boolean
 }
 
 /**
@@ -134,9 +170,25 @@ export interface CampaignWizardForm {
   contactsFilterStatus: string
   contactsFilterSource: string
   selectedContactIds: number[]
+  /** Dynamic segments: resolved again when the campaign starts sending. */
+  selectedSegmentIds?: number[]
+  /** Contact groups: every member at creation time. */
+  selectedGroupIds?: number[]
   selectAllContacts: boolean
   sendImmediately: boolean
   scheduledTime?: string
+  /** Deliver at scheduledTime in each recipient's own time zone rather than once for everyone. */
+  recipientLocalTime?: boolean
+  /** Consent topic the campaign is sent under ('marketing' when empty). */
+  topic?: string
+  /** Service message: exempt from quiet hours and the frequency cap (never from opt-outs). */
+  isTransactional?: boolean
+  /** Administrator override of a failed pre-flight check (audited on the server). */
+  overridePrecheck?: boolean
+  /** A/B test settings (variant A is the campaign's own template). */
+  abTest?: import('../pages/Campaigns/abTestForm').AbTestForm
+  /** Follow-ups sent (or tagged) automatically after the campaign. */
+  followUps?: import('../pages/Campaigns/FollowUpEditor').FollowUpForm[]
   variables?: { variableName: string; variableValue: string; mergeField?: string }[]
 }
 
@@ -149,4 +201,45 @@ export interface CampaignAttachment {
   fileName: string
   contentType?: string | null
   sizeBytes?: number | null
+}
+
+
+/** A/B test results for one campaign. */
+export interface CampaignAbTest {
+  metric: string
+  testPercent: number
+  decideAt?: string | null
+  decidedAt?: string | null
+  winnerVariantId?: number | null
+  heldRecipients: number
+  variants: {
+    variantId: number
+    label: string
+    templateName?: string | null
+    subjectOverride?: string | null
+    recipients: number
+    sent: number
+    opened: number
+    clicked: number
+    replied: number
+    read: number
+    rate: number
+    isWinner: boolean
+  }[]
+}
+
+/** A follow-up rule of a campaign, and what it did. */
+export interface CampaignFollowUp {
+  id: number
+  condition: string
+  delayHours: number
+  action: string
+  channel: string
+  templateName?: string | null
+  tag?: string | null
+  dueAt: string
+  status: 'Pending' | 'Running' | 'Done' | 'Failed' | string
+  childCampaignId?: number | null
+  matchedCount?: number | null
+  note?: string | null
 }

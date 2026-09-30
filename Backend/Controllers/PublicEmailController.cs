@@ -1,9 +1,13 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.Enums;
 using WhatsAppCampaignApi.Services.Email;
 using WhatsAppCampaignApi.Services.Interfaces;
+using WhatsAppCampaignApi.Services.Compliance;
+using WhatsAppCampaignApi.Models.Entities;
 
 namespace WhatsAppCampaignApi.Controllers;
 
@@ -25,17 +29,29 @@ public class PublicEmailController : ControllerBase
     private readonly IUnsubscribeTokenService _tokens;
     private readonly IEmailSuppressionService _suppression;
     private readonly IAuditService _auditService;
+    private readonly ICampaignEmailEventProcessor _eventProcessor;
+    private readonly AppDbContext _dbContext;
     private readonly ILogger<PublicEmailController> _logger;
+    private readonly IConsentService _consent;
+    private readonly IOmniSettingsService _settings;
 
     public PublicEmailController(
         IUnsubscribeTokenService tokens,
         IEmailSuppressionService suppression,
         IAuditService auditService,
-        ILogger<PublicEmailController> logger)
+        ICampaignEmailEventProcessor eventProcessor,
+        AppDbContext dbContext,
+        ILogger<PublicEmailController> logger,
+        IConsentService consent,
+        IOmniSettingsService settings)
     {
+        _consent = consent;
+        _settings = settings;
         _tokens = tokens;
         _suppression = suppression;
         _auditService = auditService;
+        _eventProcessor = eventProcessor;
+        _dbContext = dbContext;
         _logger = logger;
     }
 
@@ -99,14 +115,23 @@ public class PublicEmailController : ControllerBase
 
         await SuppressAsync(payload, "landing page", ct);
 
+        var preferencesUrl = $"preferences?t={Uri.EscapeDataString(t!)}";
         return Content(BuildPage(
             "You have been unsubscribed",
             $"<strong>{System.Net.WebUtility.HtmlEncode(payload.Email)}</strong> has been removed from this "
-          + "mailing list. You will not receive further marketing email at this address."), "text/html");
+          + "mailing list. You will not receive further marketing email at this address. "
+          + $"<a href=\"{System.Net.WebUtility.HtmlEncode(preferencesUrl)}\">Manage your email preferences</a>."), "text/html");
     }
 
     private async Task SuppressAsync(UnsubscribePayload payload, string source, CancellationToken ct)
     {
+        // The consent record — with where and how it was given — alongside the suppression.
+        await _consent.SetForEmailAsync(
+            payload.Email, ConsentTopics.All, ConsentStatus.OptedOut, WhatsAppCampaignApi.Services.Catalogs.ConsentCatalog.Sources.UnsubscribeLink,
+            proof: new { link = source, campaignId = payload.CampaignId, userAgent = Truncate(Request.Headers.UserAgent.ToString(), 300) },
+            ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
+            ct: ct);
+
         await _suppression.SuppressAsync(
             payload.Email,
             SuppressionReason.Unsubscribe,
@@ -126,9 +151,38 @@ public class PublicEmailController : ControllerBase
           + $"{(payload.CampaignId is { } id ? $" from campaign {id}" : "")}.",
             "EmailSuppression", payload.Email);
 
+        // Count it against the campaign it came from, so the Unsubscribed KPI and the live page
+        // see it. Previously the address was suppressed but the campaign never heard about it.
+        if (payload.CampaignId is { } fromCampaign)
+        {
+            int? recipientId = payload.ContactId is { } contactId
+                ? await _dbContext.CampaignContacts
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Where(cc => cc.CampaignId == fromCampaign && cc.ContactId == contactId)
+                    .Select(cc => (int?)cc.Id)
+                    .FirstOrDefaultAsync(ct)
+                : null;
+
+            await _eventProcessor.ProcessAsync(
+                kind: EmailEventKind.Unsubscribed,
+                idempotencyKey: recipientId is { } rid
+                    ? $"unsub:recipient:{rid}"
+                    : $"unsub:campaign:{fromCampaign}:{payload.Email.ToLowerInvariant()}",
+                source: "UnsubscribeLink",
+                campaignId: fromCampaign,
+                campaignContactId: recipientId,
+                recipientAddress: payload.Email,
+                userAgent: Truncate(Request.Headers.UserAgent.ToString(), 500),
+                ct: ct);
+        }
+
         _logger.LogInformation(
-            "{Email} unsubscribed via {Source}.", payload.Email, source);
+            "A recipient unsubscribed via {Source} (campaign {CampaignId}).", source, payload.CampaignId);
     }
+
+    private static string? Truncate(string? value, int max) =>
+        string.IsNullOrEmpty(value) || value.Length <= max ? value : value[..max];
 
     /// <summary>
     /// A self-contained confirmation page.
@@ -142,6 +196,112 @@ public class PublicEmailController : ControllerBase
     /// </summary>
     // A $$ raw string, so the CSS braces are literal and only {{...}} interpolates. With a single
     // $ every `{` in the stylesheet would start an interpolation.
+    // ── Preference centre ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The recipient's email preferences, per topic. Reached from the unsubscribe page and
+    /// authorised by the same signed token as the unsubscribe link — no account needed.
+    /// </summary>
+    [HttpGet("preferences")]
+    [EnableRateLimiting("auth")]
+    public async Task<IActionResult> Preferences([FromQuery(Name = "t")] string? t, CancellationToken ct)
+    {
+        var payload = _tokens.Validate(t ?? string.Empty);
+        if (payload is null)
+            return Content(BuildPage("Link not valid", "This preferences link is not valid or has expired."), "text/html");
+
+        var (topics, state) = await LoadPreferencesAsync(payload.Email, ct);
+        return Content(BuildPreferencesPage(payload.Email, t!, topics, state, saved: false), "text/html");
+    }
+
+    [HttpPost("preferences")]
+    [EnableRateLimiting("auth")]
+    [Consumes("application/x-www-form-urlencoded")]
+    public async Task<IActionResult> SavePreferences([FromForm(Name = "t")] string? t, CancellationToken ct)
+    {
+        var payload = _tokens.Validate(t ?? string.Empty);
+        if (payload is null)
+            return Content(BuildPage("Link not valid", "This preferences link is not valid or has expired."), "text/html");
+
+        var form = await Request.ReadFormAsync(ct);
+        var (topics, _) = await LoadPreferencesAsync(payload.Email, ct);
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var proof = new { page = "preference-centre", campaignId = payload.CampaignId, userAgent = Truncate(Request.Headers.UserAgent.ToString(), 300) };
+
+        if (form.ContainsKey("unsubscribe_all"))
+        {
+            await SuppressAsync(payload, "preference centre", ct);
+        }
+        else
+        {
+            // Opting back in to anything lifts an earlier "unsubscribe from all".
+            var anyOn = topics.Any(topic => form.ContainsKey($"topic_{topic}"));
+            if (anyOn)
+            {
+                await _consent.SetForEmailAsync(payload.Email, ConsentTopics.All, ConsentStatus.OptedIn, WhatsAppCampaignApi.Services.Catalogs.ConsentCatalog.Sources.PreferenceCentre, proof, ip, ct);
+                await _suppression.UnsuppressAsync(payload.Email, null, "Recipient (preference centre)", ct);
+            }
+
+            foreach (var topic in topics)
+            {
+                var status = form.ContainsKey($"topic_{topic}") ? ConsentStatus.OptedIn : ConsentStatus.OptedOut;
+                await _consent.SetForEmailAsync(payload.Email, topic, status, WhatsAppCampaignApi.Services.Catalogs.ConsentCatalog.Sources.PreferenceCentre, proof, ip, ct);
+            }
+        }
+
+        var (_, state) = await LoadPreferencesAsync(payload.Email, ct);
+        return Content(BuildPreferencesPage(payload.Email, t!, topics, state, saved: true), "text/html");
+    }
+
+    /// <summary>The configured topics, and whether this address currently receives each one.</summary>
+    private async Task<(IReadOnlyList<string> Topics, Dictionary<string, bool> Receives)> LoadPreferencesAsync(string email, CancellationToken ct)
+    {
+        var configured = await _settings.GetListAsync("compliance.topics");
+        var topics = (configured.Count > 0 ? configured : [ConsentTopics.Marketing])
+            .Select(ConsentTopics.Normalize).Where(x => x != ConsentTopics.All).Distinct().ToList();
+
+        var normalized = email.Trim().ToLower();
+        var rows = await _dbContext.ContactConsents.AsNoTracking()
+            .Where(c => c.Channel == MessageChannel.Email && c.Contact.Email != null && c.Contact.Email.ToLower() == normalized)
+            .Select(c => new { c.Topic, c.Status })
+            .ToListAsync(ct);
+
+        var allOut = rows.Any(r => r.Topic == ConsentTopics.All && r.Status == ConsentStatus.OptedOut);
+        var receives = topics.ToDictionary(
+            topic => topic,
+            topic => !allOut && !rows.Any(r => r.Topic == topic && r.Status == ConsentStatus.OptedOut));
+
+        return (topics, receives);
+    }
+
+    private static string BuildPreferencesPage(string email, string token, IReadOnlyList<string> topics, Dictionary<string, bool> receives, bool saved)
+    {
+        static string Label(string topic) => System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(topic.Replace('-', ' ').Replace('_', ' '));
+        Func<string?, string?> enc = System.Net.WebUtility.HtmlEncode;
+
+        var rows = string.Join("", topics.Select(topic =>
+            $"<label class=\"row\"><input type=\"checkbox\" name=\"topic_{enc(topic)}\" {(receives.GetValueOrDefault(topic) ? "checked" : "")}> {enc(Label(topic))}</label>"));
+
+        var body =
+            (saved ? "<p class=\"ok\">Your preferences have been saved.</p>" : "") +
+            $"<p>Choose which emails <strong>{enc(email)}</strong> receives.</p>" +
+            $"<form method=\"post\" action=\"preferences\"><input type=\"hidden\" name=\"t\" value=\"{enc(token)}\">" +
+            rows +
+            "<label class=\"row all\"><input type=\"checkbox\" name=\"unsubscribe_all\"> Unsubscribe from all marketing email</label>" +
+            "<button type=\"submit\">Save preferences</button></form>";
+
+        return BuildPage("Email preferences", body)
+            .Replace("<p><p", "<div><p").Replace("</form></p>", "</form></div>")
+            .Replace("</style>", """
+                form { margin-top: 16px; display: grid; gap: 10px; }
+                .row { display: flex; gap: 10px; align-items: center; font-size: 14px; }
+                .all { margin-top: 8px; padding-top: 12px; border-top: 1px solid rgba(148,163,184,.4); }
+                button { margin-top: 12px; padding: 10px 16px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font-weight: 600; cursor: pointer; }
+                .ok { color: #047857 !important; margin-bottom: 12px !important; }
+              </style>
+            """);
+    }
+
     private static string BuildPage(string title, string bodyHtml) =>
         $$"""
         <!DOCTYPE html>

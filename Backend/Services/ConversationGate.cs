@@ -33,7 +33,14 @@ namespace WhatsAppCampaignApi.Services;
 /// </summary>
 public static class ConversationGate
 {
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> Locks = new(StringComparer.Ordinal);
+    /// <summary>
+    /// A fixed set of lock stripes, chosen by hashing the phone number. The previous per-number
+    /// dictionary was never pruned, so it grew by one semaphore for every customer who ever wrote
+    /// in. Striping keeps memory constant; two numbers that share a stripe merely take turns,
+    /// which is harmless because a bot turn is short.
+    /// </summary>
+    private const int StripeCount = 4096;
+    private static readonly SemaphoreSlim[] Stripes = Enumerable.Range(0, StripeCount).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
     /// <summary>
     /// How long a message waits for the one ahead of it before giving up.
@@ -54,7 +61,7 @@ public static class ConversationGate
     /// </summary>
     public static async Task<IDisposable?> EnterAsync(string phoneNumber, CancellationToken cancellationToken = default)
     {
-        var gate = Locks.GetOrAdd(phoneNumber, _ => new SemaphoreSlim(1, 1));
+        var gate = Stripes[(int)((uint)StringComparer.Ordinal.GetHashCode(phoneNumber) % StripeCount)];
 
         if (!await gate.WaitAsync(MaxWait, cancellationToken))
         {
@@ -64,8 +71,8 @@ public static class ConversationGate
         return new Release(gate);
     }
 
-    /// <summary>How many conversations are currently held or queued. For diagnostics.</summary>
-    public static int TrackedConversations => Locks.Count;
+    /// <summary>How many lock stripes are currently held. For diagnostics.</summary>
+    public static int HeldStripes => Stripes.Count(s => s.CurrentCount == 0);
 
     private sealed class Release : IDisposable
     {

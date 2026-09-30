@@ -4,7 +4,7 @@ public enum ContactType { Lead, Customer, Vendor }
 public enum ContactStatus { New, Active, Inactive, InProgress, Contacted, Qualified, Closed }
 public enum ContactSource { WhatsApp, Web, Import, Manual, Facebook, Saas, Email }
 public enum TemplateCategory { Marketing, Utility, Authentication }
-public enum TemplateType { Text, Image, Video, Document }
+public enum TemplateType { Text, Image, Video, Document, Carousel }
 public enum HeaderType { None, Text, Image, Video, Document }
 public enum TemplateStatus { Approved, Rejected, Pending }
 // AwaitingApproval is appended, not inserted: these persist as strings
@@ -12,16 +12,24 @@ public enum TemplateStatus { Approved, Rejected, Pending }
 // no existing row changes meaning. It is set only by the campaign execution gate, which is a
 // no-op pass-through in this deployment — see ICampaignExecutionGate.
 public enum CampaignStatus { Draft, Sending, Sent, Scheduled, Paused, Failed, PartiallyFailed, Cancelled, AwaitingApproval }
-public enum ScheduleType { Immediate, Scheduled }
+// RecipientLocalTime: each recipient receives it at the same wall-clock time in their own time zone.
+public enum ScheduleType { Immediate, Scheduled, RecipientLocalTime }
 
 // Bounced/Complained/Suppressed are email-only terminal states, appended for the same reason as
 // above. WhatsApp never writes them, and the monotonic status guards treat them as terminal.
 // Opens and clicks deliberately do NOT appear here — engagement is not a delivery state, and
 // folding it in would let a later "Open" event regress a recipient out of Delivered. Those live
 // in EmailDeliveryEvent instead.
-public enum MessageStatus { Pending, Sent, Delivered, Read, Failed, Bounced, Complained, Suppressed }
+// Skipped: excluded by a compliance rule (no consent, opted out, frequency cap) — a correct outcome, not a failure.
+public enum MessageStatus { Pending, Sent, Delivered, Read, Failed, Bounced, Complained, Suppressed, Skipped }
+
+/// <summary>A contact's answer for one channel and topic. See ContactConsent.</summary>
+public enum ConsentStatus { OptedIn, OptedOut }
 public enum ChatMessageDirection { Incoming, Outgoing, System }
 public enum ChatMessageStatus { Pending, Sent, Delivered, Read, Failed, Received }
+
+/// <summary>Where a conversation stands: Open (needs the team), Pending (waiting on the customer), Resolved, Closed.</summary>
+public enum ConversationStatus { Open, Pending, Resolved, Closed }
 
 // ── Channel dimension ────────────────────────────────────────────────────────────────────────
 // Only the channels this build can actually send on. The UI lists SMS/Instagram/Facebook as
@@ -30,24 +38,21 @@ public enum ChatMessageStatus { Pending, Sent, Delivered, Read, Failed, Received
 public enum MessageChannel { WhatsApp, Email }
 
 // ── Email channel ────────────────────────────────────────────────────────────────────────────
-public enum EmailProviderType { AmazonSes, Smtp }
-
-/// <summary>How a provider authenticates. IamRole stores no credentials at all and is the
-/// recommended production option; AccessKey falls back to the encrypted key columns.</summary>
-public enum EmailAuthMode { AccessKey, IamRole }
+/// <summary>
+/// How a connection sends mail. Standard SMTP only (MailKit): every mail service speaks it, so
+/// choosing or changing a provider is configuration, never code. Kept as an enum (stored as its
+/// name) so a future transport can be added without another schema change.
+/// </summary>
+public enum EmailProviderType { Smtp }
 
 public enum SmtpSecurityMode { None, StartTls, SslOnConnect }
 
-/// <summary>Mirrors the SES identity/DKIM verification states.</summary>
-public enum EmailIdentityStatus { NotStarted, Pending, Verified, Failed, TemporaryFailure }
-
-public enum EmailEventType { Send, Delivery, Bounce, Complaint, Reject, Open, Click, DeliveryDelay, RenderingFailure, Subscription }
 
 /// <summary>
 /// Normalized, channel-agnostic email event kinds.
 ///
 /// These are the events the application's business logic understands, regardless of which
-/// provider or channel produced them. EmailEventType is SES-specific; EmailEventKind is not.
+/// provider or channel produced them.
 ///
 /// OPENED means a tracking pixel was loaded — not a guaranteed human reading.
 /// DELIVERED means the receiving server accepted the message — not end-user reading.

@@ -6,6 +6,32 @@ export interface TemplateVariable {
   description?: string
 }
 
+export type TemplateButtonType = 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'COPY_CODE'
+
+/** One template button, as Meta defines it. */
+export interface TemplateButton {
+  type: TemplateButtonType
+  text: string
+  /** URL buttons; may end in {{1}} for a per-recipient suffix. */
+  url?: string
+  phone_number?: string
+  /** Copy-code buttons: an example code for Meta's review. */
+  example?: string
+}
+
+export interface CreateTemplateInput {
+  name: string
+  language: string
+  /** One of the categories from GET api/reference/template-options. */
+  category: string
+  bodyText: string
+  headerType: 'None' | 'Text'
+  headerContent?: string
+  footerText?: string
+  variables: TemplateVariable[]
+  buttons: TemplateButton[]
+}
+
 export interface Template {
   id: number
   name: string
@@ -20,6 +46,7 @@ export interface Template {
   headerContent?: string
   footerText?: string
   variables?: TemplateVariable[]
+  buttons?: TemplateButton[]
   createdAt?: string
   updatedAt?: string
 }

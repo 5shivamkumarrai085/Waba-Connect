@@ -69,6 +69,26 @@ public class AuthController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Exchanges a refresh token for a new access token and refresh token. The presented token is
+    /// single-use; replaying it revokes every session from the same sign-in.
+    /// </summary>
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    public async Task<IActionResult> Refresh([FromBody] RefreshTokenRequest request)
+    {
+        try
+        {
+            var result = await _authService.RefreshAsync(request.RefreshToken);
+            return Ok(new ApiResponse<LoginResponse> { Success = true, Data = result });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized(new ApiResponse { Success = false, Message = "Your session has ended. Please sign in again." });
+        }
+    }
+
     /// <summary>The signed-in user plus their freshly resolved permission set.</summary>
     [HttpGet("me")]
     [Authorize]
@@ -108,11 +128,14 @@ public class AuthController : ControllerBase
 
         try
         {
-            await _authService.ChangePasswordAsync(userId.Value, request);
-            return Ok(new ApiResponse
+            // New tokens: the old ones say "must change password" and belong to a session that
+            // the password change has just ended.
+            var tokens = await _authService.ChangePasswordAsync(userId.Value, request);
+            return Ok(new ApiResponse<LoginResponse>
             {
                 Success = true,
-                Message = "Password changed successfully."
+                Message = "Password changed successfully.",
+                Data = tokens
             });
         }
         catch (UnauthorizedAccessException ex)
@@ -122,12 +145,18 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Present for client symmetry. Tokens are stateless and self-expiring, so there is nothing
-    /// to revoke server-side; the client discards its copy. The call is still worth making
-    /// because it records the event in the audit trail.
+    /// Ends the session: the refresh token is revoked so it can never mint another access token.
+    /// With no token in the body, every session of this user is ended.
     /// </summary>
     [HttpPost("logout")]
     [Authorize]
-    public IActionResult Logout() =>
-        Ok(new ApiResponse { Success = true, Message = "Signed out." });
+    public async Task<IActionResult> Logout([FromBody] LogoutRequest? request)
+    {
+        if (_currentUser.UserId is { } userId)
+        {
+            await _authService.LogoutAsync(userId, request?.RefreshToken);
+        }
+
+        return Ok(new ApiResponse { Success = true, Message = "Signed out." });
+    }
 }

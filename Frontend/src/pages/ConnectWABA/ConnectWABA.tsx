@@ -12,7 +12,6 @@ import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { Modal } from '../../components/Modal/Modal'
 import toast from 'react-hot-toast'
 import { QrCode, HelpCircle, Key, Send, Globe, Link2, Unlink, RefreshCw, XCircle, Eye, EyeOff, Camera } from 'lucide-react'
-import html2canvas from 'html2canvas'
 import './ConnectWABA.css'
 import Can from '../../components/Can/Can'
 import usePermission from '../../hooks/usePermission'
@@ -56,6 +55,8 @@ export const ConnectWABA: React.FC = () => {
   const handleCaptureScreenshot = async () => {
     const element = document.body;
     try {
+      // Loaded on demand: a 200 KB library used only by this one button.
+      const { default: html2canvas } = await import('html2canvas')
       const canvas = await html2canvas(element, {
         useCORS: true,
         backgroundColor: '#f8fafc'

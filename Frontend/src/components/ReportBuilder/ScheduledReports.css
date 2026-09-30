@@ -1,0 +1,63 @@
+/* Reporting › Scheduled Reports. Sits in the page's own section card and report table; tokens only. */
+
+.scheduled-reports-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-xl);
+  flex-wrap: wrap;
+}
+
+.scheduled-muted { color: var(--text-light); }
+
+.scheduled-last-run {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  white-space: nowrap;
+}
+
+.scheduled-recipients {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduled-row > .setup-field { flex: 1; min-width: 0; }
+
+.scheduled-suffix-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-muted);
+  font-size: var(--text-body);
+}
+
+.scheduled-suffix-input .setup-input { max-width: 110px; font-variant-numeric: tabular-nums; }
+
+.scheduled-hint-error { color: var(--omni-color-danger-text); }
+
+.scheduled-form-error {
+  padding: var(--space-md) var(--space-base);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--omni-color-danger-border);
+  background: var(--omni-color-danger-bg);
+  color: var(--omni-color-danger-text);
+  font-size: var(--text-body);
+  outline: none;
+}
+
+.scheduled-form-error:focus-visible { box-shadow: var(--focus-ring); }
+
+.scheduled-spin { animation: scheduled-spin 0.9s linear infinite; }
+
+@keyframes scheduled-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .scheduled-spin { animation: none; }
+}
+
+@media (max-width: 640px) {
+  .scheduled-row { flex-direction: column; }
+}

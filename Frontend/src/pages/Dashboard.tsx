@@ -1,12 +1,14 @@
-import React, { useEffect, lazy, Suspense } from 'react'
+import React, { useEffect, useState, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { StatCard } from '../components/StatCard'
-import { MessageSquare, Users, Megaphone, Send, CornerUpLeft, AlertTriangle, Plus } from 'lucide-react'
+import { MessageSquare, Users, Megaphone, Send, CornerUpLeft, AlertTriangle, Plus, RefreshCw } from 'lucide-react'
+import { realtimeService } from '../services/campaigns/campaignHubService'
 import { getChannel } from '../types/channel'
 import type { StatCardChannelSlice } from '../components/StatCard'
 import { useDashboardStore } from '../store/dashboardStore'
 import { Skeleton } from '../components/Skeleton'
+import { useAuthStore } from '../store/authStore'
 import {
   fadeSlideUp,
   staggerContainer,
@@ -30,11 +32,11 @@ const PERIOD_LABEL: Record<string, string | undefined> = {
   all: undefined
 }
 
-/** Returns a human-friendly date-range string for the current filter. */
+/** Returns a human-friendly date-range string for the current filter, in the viewer's locale. */
 const getDateRangeLabel = (filter: string): string => {
   const now = new Date()
   const fmt = (d: Date) =>
-    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 
   if (filter === 'today') {
     return fmt(now)
@@ -59,6 +61,7 @@ const FILTER_LABELS: Record<string, string> = {
 }
 
 export const Dashboard: React.FC = () => {
+  const currentUser = useAuthStore((state) => state.user)
   const navigate = useNavigate()
 
   // Atomic store selectors to prevent unnecessary parent re-renders
@@ -75,16 +78,32 @@ export const Dashboard: React.FC = () => {
   const startPolling = useDashboardStore(state => state.startPolling)
   const dashboardTimeFilter = useDashboardStore(state => state.dashboardTimeFilter)
   const setDashboardTimeFilter = useDashboardStore(state => state.setDashboardTimeFilter)
+  const loadError = useDashboardStore(state => state.loadError)
+  const lastUpdatedAt = useDashboardStore(state => state.lastUpdatedAt)
+  const [isLive, setIsLive] = useState(realtimeService.isConnected)
 
   useEffect(() => {
-    loadDashboardData()
-  }, [])
+    void loadDashboardData()
+  }, [loadDashboardData])
 
-  // Keep the dashboard live: re-poll on an interval matched to the active filter's cache TTL.
+  // Real time: the server signals "dashboard changed" (debounced) whenever a message, reply,
+  // contact or campaign changes, and the page refetches its own summary. After a reconnect it
+  // reloads, because signals sent while offline are not replayed.
+  useEffect(() => realtimeService.subscribeDashboard(() => void loadDashboardData(false)), [loadDashboardData])
+  useEffect(() => realtimeService.onStateChange((state, { reconnected }) => {
+    setIsLive(state === 'connected')
+    if (reconnected) void loadDashboardData(false)
+  }), [loadDashboardData])
+
+  // Polling is the safety net, slowed right down while the live connection works.
+  useEffect(() => startPolling(isLive), [dashboardTimeFilter, startPolling, isLive])
+
+  // A tab that comes back into view catches up at once.
   useEffect(() => {
-    const stopPolling = startPolling()
-    return stopPolling
-  }, [dashboardTimeFilter, startPolling])
+    const onVisible = () => { if (document.visibilityState === 'visible') void loadDashboardData(false) }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [loadDashboardData])
 
   const handleNewCampaignClick = () => {
     navigate('/campaigns/campaign/create')
@@ -128,20 +147,20 @@ export const Dashboard: React.FC = () => {
     }
   }, [channelBreakdown])
 
-  const istHour = Number(
-    new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hourCycle: 'h23' }).format(new Date())
-  )
-  const timeGreeting = istHour < 12 ? 'Good Morning' : istHour < 17 ? 'Good Afternoon' : 'Good Evening'
-  const greeting = `${timeGreeting}, RMA! 👋`
+  // The signed-in user's name, in the viewer's own time zone. This used to greet everyone as
+  // "RMA" on India time regardless of who they were or where they sat.
+  const localHour = new Date().getHours()
+  const timeGreeting = localHour < 12 ? 'Good Morning' : localHour < 17 ? 'Good Afternoon' : 'Good Evening'
+  const greeting = currentUser?.firstName ? `${timeGreeting}, ${currentUser.firstName}!` : `${timeGreeting}!`
 
   if (isLoading) {
     return (
       <div className="fade-in">
         {/* Welcome Banner Skeleton */}
-        <div className="dashboard-welcome" style={{ marginBottom: 24 }}>
+        <div className="dashboard-welcome">
           <div className="dashboard-welcome-left">
             <Skeleton variant="title" width={280} height={32} />
-            <Skeleton variant="text" width={400} style={{ marginTop: 8 }} />
+            <Skeleton variant="text" width={400} />
           </div>
         </div>
 
@@ -178,7 +197,25 @@ export const Dashboard: React.FC = () => {
             {isBackgroundSyncing && <span className="dashboard-sync-dot" title="Refreshing…" />}
           </h1>
           <p>Track, manage and grow your campaigns across all channels.</p>
-          <div className="dashboard-date-range">{dateRangeLabel}</div>
+          <div className="dashboard-hero-meta">
+            <span className="dashboard-date-range">{dateRangeLabel}</span>
+            <span
+              className={`dashboard-live${isLive ? ' is-live' : ''}`}
+              title={isLive
+                ? 'Numbers update by themselves as messages, replies, contacts and campaigns change.'
+                : 'Live updates are reconnecting; the numbers refresh on a timer meanwhile.'}
+            >
+              <span className="dashboard-live-dot" aria-hidden="true" />
+              {isLive ? 'Live' : 'Auto-refresh'}
+              {lastUpdatedAt && (
+                <span className="dashboard-live-time">
+                  · updated <time dateTime={new Date(lastUpdatedAt).toISOString()}>
+                    {new Date(lastUpdatedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </time>
+                </span>
+              )}
+            </span>
+          </div>
         </div>
         <div className="dashboard-welcome-right">
           <div className="dashboard-filter-tabs">
@@ -203,7 +240,20 @@ export const Dashboard: React.FC = () => {
         </div>
       </motion.div>
 
-      {/* ── KPI Cards (6 cards) ──────────────────────────────────────────────── */}
+      {loadError && (
+        <div className="dashboard-error" role="alert">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span>
+            {summary ? 'The latest numbers could not be loaded; showing the last ones received.' : 'The dashboard could not be loaded.'}
+            {' '}<span className="dashboard-error-detail">{loadError}</span>
+          </span>
+          <button type="button" className="btn btn-secondary" onClick={() => void loadDashboardData(false)}>
+            <RefreshCw size={14} aria-hidden="true" /> Try Again
+          </button>
+        </div>
+      )}
+
+      {/* ── KPI strip: one row on desktop (see .stat-cards-grid) ──────────────── */}
       <motion.div
         className="stat-cards-grid"
         variants={staggerContainer(0.08, 0.1)}
@@ -230,8 +280,6 @@ export const Dashboard: React.FC = () => {
             footnote={`${channelStats.rate(channelStats.delivered)}% delivery rate`}
             channels={channelStats.slice(r => r.delivered)}
             colorClass="green"
-            changePercent={periodLabel ? metrics.messages.changePercent : undefined}
-            periodLabel={periodLabel}
           />
         </motion.div>
         <motion.div variants={staggerChild}>
@@ -263,8 +311,6 @@ export const Dashboard: React.FC = () => {
             value={metrics.contacts.bottom}
             footnote="Engaged this period"
             colorClass="blue"
-            changePercent={periodLabel ? metrics.contacts.changePercent : undefined}
-            periodLabel={periodLabel}
           />
         </motion.div>
         <motion.div variants={staggerChild}>
@@ -274,8 +320,6 @@ export const Dashboard: React.FC = () => {
             value={metrics.campaigns.bottom}
             footnote="Sending or scheduled"
             colorClass="orange"
-            changePercent={periodLabel ? metrics.campaigns.changePercent : undefined}
-            periodLabel={periodLabel}
           />
         </motion.div>
       </motion.div>

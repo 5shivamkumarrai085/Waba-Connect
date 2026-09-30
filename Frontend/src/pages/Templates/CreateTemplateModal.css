@@ -1,0 +1,139 @@
+/* New WhatsApp template dialog: form on the left, live preview on the right. Tokens only. */
+
+.tpl-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
+  gap: var(--space-3xl);
+  align-items: start;
+}
+
+.tpl-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+  min-width: 0;
+}
+
+.tpl-optional { font-weight: var(--weight-normal); color: var(--text-light); }
+
+.tpl-counter { font-variant-numeric: tabular-nums; text-align: right; }
+
+.tpl-hint-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-base);
+}
+
+.tpl-create-samples {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: var(--space-base);
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-base);
+}
+
+.tpl-create-samples legend { padding: 0 var(--space-2xs); }
+
+.tpl-create-buttons {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.tpl-create-buttons-head { padding: 0; margin-bottom: var(--space-2xs); }
+
+.tpl-create-button {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+/* Quick replies and copy codes have one input instead of two. */
+.tpl-create-button:not(:has(> input + input)) { grid-template-columns: 180px minmax(0, 1fr) auto; }
+
+.tpl-button-hint { grid-column: 1 / -1; margin: 0; }
+
+.tpl-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--omni-color-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.tpl-remove:hover {
+  color: var(--omni-color-danger);
+  border-color: var(--omni-color-danger-border);
+  background: var(--omni-color-danger-bg);
+}
+
+.tpl-remove:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.tpl-add-button { align-self: flex-start; }
+
+.tpl-create-error {
+  padding: var(--space-md) var(--space-base);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--omni-color-danger-border);
+  background: var(--omni-color-danger-bg);
+  color: var(--omni-color-danger-text);
+  font-size: var(--text-body);
+  outline: none;
+}
+
+.tpl-create-error:focus-visible { box-shadow: var(--focus-ring); }
+
+.tpl-create-problems {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-base);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--omni-color-warning-border);
+  background: var(--omni-color-warning-bg);
+  color: var(--omni-color-warning-text);
+  font-size: var(--text-body);
+}
+
+.tpl-create-problems svg { flex-shrink: 0; margin-top: var(--space-3xs); }
+.tpl-create-problems p { margin: 0 0 var(--space-2xs); font-weight: var(--weight-semibold); }
+.tpl-create-problems ul { margin: 0; padding-left: var(--space-xl); display: flex; flex-direction: column; gap: var(--space-3xs); }
+
+.tpl-create-preview {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.tpl-preview-label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tpl-spin { animation: tpl-spin 0.9s linear infinite; }
+@keyframes tpl-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tpl-spin { animation: none; } }
+
+@media (max-width: 900px) {
+  .tpl-create { grid-template-columns: 1fr; }
+  .tpl-create-preview { position: static; }
+  .tpl-create-button,
+  .tpl-create-button:not(:has(> input + input)) { grid-template-columns: 1fr auto; }
+  .tpl-create-button > select { grid-column: 1 / -1; }
+}

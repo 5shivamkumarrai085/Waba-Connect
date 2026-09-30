@@ -20,35 +20,11 @@ public class EmailConfiguration
     public int? ConnectionId { get; set; }
     public virtual Connection? Connection { get; set; }
 
-    public EmailProviderType Provider { get; set; } = EmailProviderType.AmazonSes;
+    public EmailProviderType Provider { get; set; } = EmailProviderType.Smtp;
 
     public bool IsActive { get; set; } = true;
 
-    // ── Amazon SES ───────────────────────────────────────────────────────────────────────────
-
-    /// <summary>AWS region id, e.g. "ap-southeast-1". Never defaulted in code — an unset region
-    /// is a configuration error the UI must surface, not something to guess.</summary>
-    [MaxLength(40)]
-    public string? Region { get; set; }
-
-    /// <summary>IamRole stores nothing and is preferred in production; AccessKey uses the
-    /// encrypted pair below.</summary>
-    public EmailAuthMode AuthMode { get; set; } = EmailAuthMode.IamRole;
-
-    [MaxLength(200)]
-    public string? AccessKeyId { get; set; }
-
-    /// <summary>AES ciphertext, never the raw key. Wider than the plaintext to allow for the
-    /// Base64 + prepended IV that EncryptionService produces.</summary>
-    [MaxLength(1000)]
-    public string? SecretAccessKeyEncrypted { get; set; }
-
-    /// <summary>SES configuration set that publishes delivery events to our SNS topic. Without
-    /// one, SES sends fine but no delivery/bounce/complaint events ever arrive.</summary>
-    [MaxLength(100)]
-    public string? ConfigurationSet { get; set; }
-
-    // ── SMTP (MailKit fallback) ──────────────────────────────────────────────────────────────
+    // ── SMTP (MailKit) ──────────────────────────────────────────────────────────────────────
 
     [MaxLength(255)]
     public string? SmtpHost { get; set; }
@@ -84,11 +60,35 @@ public class EmailConfiguration
     [MaxLength(1000)]
     public string? ImapPasswordEncrypted { get; set; }
 
+    /// <summary>
+    /// Accept a certificate that fails validation (self-signed, or issued for the hosting
+    /// provider's name rather than the mail host — common on cPanel). Off by default; an operator
+    /// has to opt in per connection, and every poll logs a warning while it is on.
+    /// </summary>
+    public bool ImapAllowInvalidCertificate { get; set; }
+
+    /// <summary>Highest IMAP UID already ingested from INBOX. Polling resumes after it, so a reply
+    /// someone has already opened in webmail is still picked up.</summary>
+    public long? ImapLastUid { get; set; }
+
+    /// <summary>INBOX UIDVALIDITY that <see cref="ImapLastUid"/> belongs to. When the server
+    /// reports a different value the stored UID is meaningless and polling falls back to a
+    /// date window.</summary>
+    public long? ImapUidValidity { get; set; }
+
+    /// <summary>When the polling worker last finished a cycle for this mailbox, successful or not.</summary>
+    public DateTime? ImapLastPolledAt { get; set; }
+
+    /// <summary>Why the last poll failed, or null when it succeeded. Shown on the connection page
+    /// so a broken inbox is visible instead of silently receiving nothing.</summary>
+    [MaxLength(1000)]
+    public string? ImapLastError { get; set; }
+
     // ── Shared sending settings ──────────────────────────────────────────────────────────────
 
     /// <summary>Messages per second this connection may emit, enforced across every running
     /// instance by the token bucket in <see cref="EmailSendQuota"/>. Null means fall back to the
-    /// configured default rather than "unlimited" — an unbounded default would get the SES
+    /// configured default rather than "unlimited" — an unbounded default would get the mail
     /// account throttled.</summary>
     public decimal? MaxSendRatePerSecond { get; set; }
 
@@ -127,5 +127,4 @@ public class EmailConfiguration
     public DateTime? UpdatedAt { get; set; }
 
     public ICollection<EmailSenderIdentity> SenderIdentities { get; set; } = [];
-    public ICollection<EmailSendingDomain> SendingDomains { get; set; } = [];
 }

@@ -54,7 +54,7 @@ public class EmailEvent
     public string? MessageId { get; set; }
 
     /// <summary>
-    /// The provider's own identifier for the message (SMTP ENVID, future SES MessageId, etc.).
+    /// The provider's own identifier for the message (the Message-Id header for SMTP).
     /// Nullable: not all sources provide one.
     /// </summary>
     [MaxLength(255)]

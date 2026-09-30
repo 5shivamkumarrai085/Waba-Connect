@@ -1,12 +1,5 @@
 // src/types/waba.ts
 
-export interface WabaConnectionModel {
-  facebookAppId: string
-  facebookAppSecret: string
-  wabaId: string
-  accessToken: string
-}
-
 export interface AccessTokenInfoModel {
   token: string
   permissions: string[]
@@ -34,10 +27,4 @@ export interface WabaHealthModel {
   
   appId: string
   appStatus: 'AVAILABLE' | 'UNAVAILABLE' | string
-}
-
-export interface ConnectionRequirement {
-  step: number
-  title: string
-  description: string
 }

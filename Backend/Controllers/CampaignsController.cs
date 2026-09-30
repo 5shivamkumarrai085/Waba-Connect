@@ -6,6 +6,8 @@ using WhatsAppCampaignApi.Services.Interfaces;
 
 using WhatsAppCampaignApi.Helpers;
 using WhatsAppCampaignApi.Models.Enums;
+using WhatsAppCampaignApi.Services.Storage;
+using WhatsAppCampaignApi.Services.Email;
 
 namespace WhatsAppCampaignApi.Controllers;
 
@@ -16,14 +18,29 @@ public class CampaignsController : ControllerBase
 {
     private readonly ICampaignService _campaignService;
     private readonly IDashboardCacheService _dashboardCacheService;
+    private readonly IFileStorage _storage;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<CampaignsController> _logger;
 
-    public CampaignsController(ICampaignService campaignService, IDashboardCacheService dashboardCacheService, ILogger<CampaignsController> logger)
+    public CampaignsController(
+        ICampaignService campaignService,
+        IDashboardCacheService dashboardCacheService,
+        IFileStorage storage,
+        IConfiguration configuration,
+        ILogger<CampaignsController> logger)
     {
         _campaignService = campaignService;
         _dashboardCacheService = dashboardCacheService;
+        _storage = storage;
+        _configuration = configuration;
         _logger = logger;
     }
+
+    /// <summary>The public origin links are built on: App:PublicBaseUrl, else this request's.</summary>
+    private string PublicOrigin =>
+        _configuration["App:PublicBaseUrl"]?.TrimEnd('/') is { Length: > 0 } configured
+            ? configured
+            : $"{Request.Scheme}://{Request.Host.Value}";
 
     [HttpGet]
     [RequiresPermission("Campaign.View")]
@@ -31,10 +48,35 @@ public class CampaignsController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? status = null,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        [FromQuery] string? channel = null,
+        [FromQuery] string? template = null,
+        [FromQuery] string? relationType = null,
+        [FromQuery] DateTime? createdFrom = null,
+        [FromQuery] DateTime? createdTo = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] bool sortDescending = true)
     {
-        var request = new PagedRequest { Page = page, PageSize = pageSize, Search = search };
-        var data = await _campaignService.GetAllAsync(request, status);
+        // Filtering, sorting and paging all happen in the database: the list used to download
+        // every campaign and do all three in the browser.
+        var request = new PagedRequest
+        {
+            Page = page,
+            PageSize = pageSize,
+            Search = search,
+            SortBy = sortBy,
+            SortDescending = sortDescending
+        };
+
+        var data = await _campaignService.GetAllAsync(request, new CampaignListFilter
+        {
+            Status = status,
+            Channel = channel,
+            Template = template,
+            RelationType = relationType,
+            CreatedFrom = createdFrom,
+            CreatedTo = createdTo
+        });
         return Ok(new ApiResponse<PagedResponse<CampaignResponse>> { Success = true, Data = data });
     }
 
@@ -90,6 +132,86 @@ public class CampaignsController : ControllerBase
         return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign cancelled successfully." });
     }
 
+    /// <summary>Maker-checker: how many campaigns are waiting for approval (for the list badge).</summary>
+    [HttpGet("pending-approval/count")]
+    [RequiresPermission("Campaign.View")]
+    public async Task<ActionResult<ApiResponse<int>>> PendingApprovalCount()
+    {
+        var count = await _campaignService.GetPendingApprovalCountAsync();
+        return Ok(new ApiResponse<int> { Success = true, Data = count });
+    }
+
+    /// <summary>Pre-flight check: sender DNS (SPF, DKIM, DMARC, MX) and content. Nothing is sent.</summary>
+    [HttpPost("precheck")]
+    [RequiresPermission("Campaign.Create", "Campaign.Edit")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<PrecheckItem>>>> Precheck(
+        [FromServices] IDeliverabilityService deliverability, [FromBody] PrecheckRequest request, CancellationToken ct)
+    {
+        var items = await deliverability.PrecheckAsync(request, ct);
+        return Ok(new ApiResponse<IReadOnlyList<PrecheckItem>> { Success = true, Data = items });
+    }
+
+    /// <summary>Sends the rendered email (sample values) to up to five proof addresses.</summary>
+    [HttpPost("proof")]
+    [RequiresPermission("Campaign.Create", "Campaign.Edit")]
+    public async Task<ActionResult<ApiResponse<int>>> Proof(
+        [FromServices] IDeliverabilityService deliverability, [FromBody] ProofSendRequest request, CancellationToken ct)
+    {
+        var sent = await deliverability.SendProofAsync(request, ct);
+        return Ok(new ApiResponse<int> { Success = sent > 0, Data = sent, Message = $"Proof sent to {sent} address(es)." });
+    }
+
+    /// <summary>Email campaigns: clicks per link, total and unique.</summary>
+    [HttpGet("{id}/links")]
+    [RequiresPermission("Campaign.View")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<CampaignLinkClicks>>>> Links(int id, CancellationToken ct)
+    {
+        var data = await _campaignService.GetLinkReportAsync(id, ct);
+        return Ok(new ApiResponse<IReadOnlyList<CampaignLinkClicks>> { Success = true, Data = data });
+    }
+
+    /// <summary>A/B tests: pick the winner now (optionally a specific variant) and send it to everyone held back.</summary>
+    [HttpPost("{id}/ab-test/decide")]
+    [RequiresPermission("Campaign.Send")]
+    public async Task<ActionResult<ApiResponse<int?>>> DecideAbTest(int id, [FromBody] AbDecisionRequest? request)
+    {
+        var winner = await _campaignService.DecideAbTestAsync(id, request?.VariantId);
+        _dashboardCacheService.InvalidateCache();
+        return Ok(new ApiResponse<int?> { Success = true, Data = winner, Message = "Winner chosen and released." });
+    }
+
+    [HttpPost("{id}/retry")]
+    [RequiresPermission("Campaign.Retry")]
+    public async Task<ActionResult<ApiResponse<CampaignRetryResponse>>> RetryFailed(int id)
+    {
+        var data = await _campaignService.RetryFailedAsync(id);
+        _dashboardCacheService.InvalidateCache();
+        return Ok(new ApiResponse<CampaignRetryResponse>
+        {
+            Success = true,
+            Data = data,
+            Message = $"Retrying {data.RecipientCount} failed recipient(s)."
+        });
+    }
+
+    [HttpPost("{id}/approve")]
+    [RequiresPermission("Campaign.Approve")]
+    public async Task<ActionResult<ApiResponse<CampaignResponse>>> Approve(int id, [FromBody] CampaignApprovalDecisionRequest? request)
+    {
+        var data = await _campaignService.ApproveAsync(id, request?.Comment);
+        _dashboardCacheService.InvalidateCache();
+        return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign approved." });
+    }
+
+    [HttpPost("{id}/reject")]
+    [RequiresPermission("Campaign.Approve")]
+    public async Task<ActionResult<ApiResponse<CampaignResponse>>> Reject(int id, [FromBody] CampaignApprovalDecisionRequest? request)
+    {
+        var data = await _campaignService.RejectAsync(id, request?.Comment);
+        _dashboardCacheService.InvalidateCache();
+        return Ok(new ApiResponse<CampaignResponse> { Success = true, Data = data, Message = "Campaign rejected." });
+    }
+
     [HttpPost("{id}/pause")]
     [RequiresPermission("Campaign.Send")]
     public async Task<ActionResult<ApiResponse<CampaignResponse>>> Pause(int id)
@@ -113,40 +235,62 @@ public class CampaignsController : ControllerBase
     public async Task<ActionResult<ApiResponse<PagedResponse<CampaignRecipientResponse>>>> GetRecipients(
         int id,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? state = null,
+        [FromQuery] string? search = null)
     {
-        var request = new PagedRequest { Page = page, PageSize = pageSize };
-        var data = await _campaignService.GetRecipientsAsync(id, request);
+        var request = new PagedRequest { Page = page, PageSize = pageSize, Search = search };
+        var data = await _campaignService.GetRecipientsAsync(id, request, state);
         return Ok(new ApiResponse<PagedResponse<CampaignRecipientResponse>> { Success = true, Data = data });
+    }
+
+    /// <summary>Queued vs executed recipient counts, for the detail page's tabs.</summary>
+    [HttpGet("{id}/recipients/counts")]
+    [RequiresPermission("Campaign.View")]
+    public async Task<IActionResult> GetRecipientCounts(int id)
+    {
+        var (queued, executed) = await _campaignService.GetRecipientCountsAsync(id);
+        return Ok(new ApiResponse<object> { Success = true, Data = new { queued, executed } });
+    }
+
+    /// <summary>The campaign's full execution log as CSV, streamed.</summary>
+    [HttpGet("{id}/recipients/export")]
+    [RequiresPermission("Campaign.View")]
+    public async Task ExportRecipients(int id, CancellationToken ct)
+    {
+        Response.ContentType = "text/csv; charset=utf-8";
+        Response.Headers.ContentDisposition = $"attachment; filename=\"campaign-{id}-recipients-{DateTime.UtcNow:yyyyMMdd-HHmm}.csv\"";
+        await _campaignService.ExportRecipientsCsvAsync(id, Response.Body, ct);
     }
 
     [HttpPost("upload")]
     [Consumes("multipart/form-data")]
     [RequiresPermission("Campaign.Create", "Campaign.Edit", "BulkCampaign.Create")]
-    public async Task<ActionResult<ApiResponse<UploadResponse>>> UploadFile(IFormFile file)
+    [RequestSizeLimit(30L * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 30L * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<UploadResponse>>> UploadFile(IFormFile file, CancellationToken ct)
     {
         if (file == null || file.Length == 0)
         {
             return BadRequest(new ApiResponse<UploadResponse> { Success = false, Message = "No file uploaded." });
         }
 
-        var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
-        if (!Directory.Exists(uploadsFolder))
+        // Stored through the storage gatekeeper: only media types on the allow-list, verified by
+        // content rather than by the name the client chose, under a generated file name. This
+        // endpoint used to accept anything — an .html or .svg upload was then served from our own
+        // origin, which is stored cross-site scripting against every signed-in user.
+        StoredFile stored;
+        try
         {
-            Directory.CreateDirectory(uploadsFolder);
+            await using var content = file.OpenReadStream();
+            stored = await _storage.SavePublicMediaAsync(content, file.FileName, file.ContentType, "campaigns", ct);
+        }
+        catch (InvalidDataException ex)
+        {
+            return BadRequest(new ApiResponse<UploadResponse> { Success = false, Message = ex.Message });
         }
 
-        var uniqueFileName = $"{Guid.NewGuid()}_{Path.GetFileName(file.FileName)}";
-        var filePath = Path.Combine(uploadsFolder, uniqueFileName);
-
-        using (var fileStream = new FileStream(filePath, FileMode.Create))
-        {
-            await file.CopyToAsync(fileStream);
-        }
-
-        var requestScheme = Request.Scheme;
-        var requestHost = Request.Host.Value;
-        var fileUrl = $"{requestScheme}://{requestHost}/uploads/{uniqueFileName}";
+        var fileUrl = $"{PublicOrigin}{stored.RelativeUrl}";
 
         return Ok(new ApiResponse<UploadResponse>
         {
@@ -225,16 +369,16 @@ public class CampaignsController : ControllerBase
             return BadRequest(new ApiResponse<CsvValidationResponse> { Success = false, Message = "Only .csv files can be uploaded. Export your sheet as CSV and try again." });
         }
 
-        var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "csv");
-        Directory.CreateDirectory(uploadsFolder);
-
-        var uniqueFileName = $"{Guid.NewGuid()}_{Path.GetFileName(file.FileName)}";
-        var filePath = Path.Combine(uploadsFolder, uniqueFileName);
-
-        await using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+        // Customer lists are personal data: stored outside the web root, never served. They used
+        // to sit in wwwroot/uploads/csv, where anyone with the URL could download them.
+        string privateKey;
+        await using (var content = file.OpenReadStream())
         {
-            await file.CopyToAsync(fileStream, cancellationToken);
+            privateKey = await _storage.SavePrivateAsync(content, file.FileName, "csv", cancellationToken);
         }
+
+        var filePath = _storage.ResolvePrivatePath(privateKey)!;
+        var uniqueFileName = Path.GetFileName(filePath);
 
         if (!Enum.TryParse<MessageChannel>(channel, true, out var parsedChannel))
         {

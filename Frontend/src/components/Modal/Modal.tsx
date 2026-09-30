@@ -135,7 +135,7 @@ export const Modal: React.FC<ModalProps> = ({
             {hasHeader && (
               <div className={`oc-dialog-header${subtitle ? ' oc-dialog-header--bordered' : ''}`}>
                 {icon && (
-                  <span className={`oc-dialog-icon oc-dialog-icon--${tone}`}>{icon}</span>
+                  <span className={`oc-dialog-icon oc-dialog-icon--${tone}`} aria-hidden="true">{icon}</span>
                 )}
                 <div className="oc-dialog-heading">
                   {title && (

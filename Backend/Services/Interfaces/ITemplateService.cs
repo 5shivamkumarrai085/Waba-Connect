@@ -23,4 +23,7 @@ public interface ITemplateService
     /// Generates a preview of the template body with sample variables replaced.
     /// </summary>
     Task<TemplatePreviewResponse> GetPreviewAsync(int id, Dictionary<string, string>? variableValues = null);
+
+    /// <summary>Submits a template created here to Meta for review.</summary>
+    Task<TemplateResponse> SubmitToMetaAsync(int id, int connectionId);
 }

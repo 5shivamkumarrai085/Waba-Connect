@@ -30,7 +30,7 @@ namespace WhatsAppCampaignApi.Services.Email;
 public class SmtpEmailProvider : IEmailProvider
 {
     /// <summary>
-    /// Conservative: most relays cap well below SES, and exceeding a relay's limit typically
+    /// Conservative: most relays cap well below bulk-mail services, and exceeding a relay's limit typically
     /// produces a mid-transfer disconnect rather than a clear rejection.
     /// </summary>
     private const int SmtpMaxMessageBytes = 25 * 1024 * 1024;

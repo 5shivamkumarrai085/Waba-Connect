@@ -58,23 +58,34 @@ interface DashboardState {
   businessName: string | null
   isLoading: boolean
   isBackgroundSyncing: boolean
+  /** Why the last load failed, or null. Shown with a retry instead of a dashboard of zeros. */
+  loadError: string | null
+  /** When the numbers on screen were fetched. */
+  lastUpdatedAt: number | null
   dashboardTimeFilter: string
   setDashboardTimeFilter: (filter: string) => void
   loadDashboardData: (forceShowSkeleton?: boolean) => Promise<void>
-  startPolling: () => () => void
+  /** Polls as a safety net; `live` (a working real-time connection) slows it right down. */
+  startPolling: (live?: boolean) => () => void
 }
 
 const emptyMetric: StatMetric = { total: 0, bottom: 0, changePercent: 0 }
 
 // Poll roughly in step with the backend's own cache TTL per filter, so a refresh always has fresh data waiting.
-// This is only a safety net for changes made outside the current tab (webhook status updates, another admin) —
-// same-tab mutations (contacts/campaigns/templates/bots) trigger an immediate silent refresh of their own.
+// Only a safety net: while the real-time connection is up, the server's "dashboardChanged" signal
+// refreshes the page within seconds of any change, and polling drops to LIVE_POLL_INTERVAL_MS.
 const POLL_INTERVAL_MS: Record<string, number> = {
   today: 12000,
   week: 22000,
   month: 47000,
   all: 47000
 }
+const LIVE_POLL_INTERVAL_MS = 120000
+
+// One request at a time: a burst of signals, polls and same-tab refreshes collapses into the
+// request already in flight plus at most one follow-up.
+let inFlight: Promise<void> | null = null
+let pendingRefresh = false
 
 export const useDashboardStore = create<DashboardState>((set, get) => ({
   summary: null,
@@ -92,12 +103,19 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   businessName: null,
   isLoading: false,
   isBackgroundSyncing: false,
+  loadError: null,
+  lastUpdatedAt: null,
   dashboardTimeFilter: 'today',
   setDashboardTimeFilter: (filter) => {
     set({ dashboardTimeFilter: filter })
     get().loadDashboardData(true)
   },
   loadDashboardData: async (forceShowSkeleton = false) => {
+    if (inFlight && !forceShowSkeleton) {
+      pendingRefresh = true
+      return inFlight
+    }
+
     const hasCache = get().summary !== null
 
     if (!hasCache || forceShowSkeleton) {
@@ -106,6 +124,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       set({ isBackgroundSyncing: true })
     }
 
+    const run = (async () => {
     try {
       const summaryRes = await dashboardService.getSummary(get().dashboardTimeFilter)
       const sum = summaryRes?.data || {}
@@ -142,18 +161,34 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         channelBreakdown: sum.channelBreakdown || [],
         businessName: sum.businessName || null,
         isLoading: false,
-        isBackgroundSyncing: false
+        isBackgroundSyncing: false,
+        loadError: null,
+        lastUpdatedAt: Date.now()
       })
     } catch (e) {
-      console.error("Failed to load dashboard data", e)
-      set({ isLoading: false, isBackgroundSyncing: false })
+      const message = e instanceof Error ? e.message : 'The dashboard could not be loaded.'
+      // Numbers already on screen stay; the error is shown next to them rather than replacing them.
+      set({ isLoading: false, isBackgroundSyncing: false, loadError: message })
+    }
+    })()
+
+    inFlight = run
+    try {
+      await run
+    } finally {
+      inFlight = null
+      if (pendingRefresh) {
+        pendingRefresh = false
+        void get().loadDashboardData(false)
+      }
     }
   },
-  startPolling: () => {
+  startPolling: (live = false) => {
     const filter = get().dashboardTimeFilter
-    const intervalMs = POLL_INTERVAL_MS[filter] ?? POLL_INTERVAL_MS.all
+    const intervalMs = live ? LIVE_POLL_INTERVAL_MS : (POLL_INTERVAL_MS[filter] ?? POLL_INTERVAL_MS.all)
     const interval = window.setInterval(() => {
-      get().loadDashboardData(false)
+      // A hidden tab has nobody looking at it; it catches up when it becomes visible again.
+      if (document.visibilityState === 'visible') void get().loadDashboardData(false)
     }, intervalMs)
     return () => window.clearInterval(interval)
   }

@@ -30,6 +30,15 @@ export interface Conversation {
   contactCreatedAt?: string
   contactGroups?: string[]
   contactIsActive?: boolean
+
+  /** Open, Pending, Resolved or Closed. */
+  conversationStatus?: 'Open' | 'Pending' | 'Resolved' | 'Closed' | string
+  assignedUserId?: number | null
+  assignedUserName?: string | null
+  /** When a first reply is due (absent once answered, or with no SLA). */
+  firstResponseDueAt?: string | null
+  slaBreached?: boolean
+  resolveDueAt?: string | null
 }
 
 export interface Message {
@@ -78,12 +87,4 @@ export interface ChatAccount {
   verifiedName: string
   quality: string
   status: string
-}
-
-export interface CsvUploadModel {
-  campaignName: string
-  file: File | null
-  uploadProgress: number
-  status: 'idle' | 'uploading' | 'success' | 'error'
-  validationError?: string
 }

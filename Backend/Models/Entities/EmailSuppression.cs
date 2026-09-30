@@ -7,10 +7,10 @@ namespace WhatsAppCampaignApi.Models.Entities;
 /// An address we must not send to, and why.
 ///
 /// <para>
-/// This list is authoritative for our own enqueue decisions — we deliberately do not lean on the
-/// SES account-level suppression list, because by the time SES suppresses a send it has already
-/// been counted against our reputation, and a campaign reported as "sent" with silently dropped
-/// recipients is worse than one that reports them as skipped. Checked twice: when a campaign is
+/// This list is authoritative for our own enqueue decisions — we deliberately do not lean on a mail
+/// server's own rejection, because by the time a server refuses a send it has already been counted
+/// against our reputation, and a campaign reported as "sent" with silently dropped recipients is
+/// worse than one that reports them as skipped. Checked twice: when a campaign is
 /// expanded into jobs, and again immediately before the provider call, since a complaint can land
 /// in the minutes between the two.
 /// </para>
@@ -38,7 +38,7 @@ public class EmailSuppression
     public SuppressionReason Reason { get; set; }
 
     /// <summary>
-    /// Where it came from: an SES event type, "UnsubscribeLink", an operator's name, or an import
+    /// Where it came from: a bounce or complaint report, "UnsubscribeLink", an operator's name, or an import
     /// file name.
     /// </summary>
     [MaxLength(200)]

@@ -15,12 +15,21 @@ import {
   Filter,
   FilterX,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Plus,
+  ExternalLink,
+  Phone,
+  Copy,
+  Reply
 } from 'lucide-react'
+import CreateTemplateModal from './CreateTemplateModal'
 import './TemplatesList.css'
 import { useConnectionStore } from '../../store/connectionStore'
 import Can from '../../components/Can/Can'
 import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
+
+/** The icon beside each template button, by Meta's button type. */
+const TEMPLATE_BUTTON_ICONS: Record<string, React.ElementType> = { URL: ExternalLink, PHONE_NUMBER: Phone, COPY_CODE: Copy, QUICK_REPLY: Reply }
 
 export const TemplatesList: React.FC = () => {
   const {
@@ -73,6 +82,7 @@ export const TemplatesList: React.FC = () => {
     bodyText: true
   })
   const [expandedIds, setExpandedIds] = useState<Record<number, boolean>>({})
+  const [showCreate, setShowCreate] = useState(false)
   const [sortKey, setSortKey] = useState<string>('')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
@@ -287,6 +297,19 @@ export const TemplatesList: React.FC = () => {
             >
               <Download size={16} />
               <span>Load Templates</span>
+            </motion.button>
+          </Can>
+          <Can permission="Template.Create">
+            <motion.button
+              type="button"
+              className="btn-toolbar"
+              onClick={() => setShowCreate(true)}
+              disabled={getConnectedIds().length === 0}
+              title={getConnectedIds().length === 0 ? 'Connect a WhatsApp Business number first.' : undefined}
+              {...buttonHoverProps}
+            >
+              <Plus size={16} />
+              <span>New Template</span>
             </motion.button>
           </Can>
           <motion.button
@@ -529,6 +552,20 @@ export const TemplatesList: React.FC = () => {
                             <div className={`body-text-content ${expandedIds[template.id] ? 'expanded' : 'collapsed'}`}>
                               {template.bodyText}
                             </div>
+                            {template.buttons && template.buttons.length > 0 && (
+                              <ul className="template-buttons-row" aria-label="Buttons">
+                                {template.buttons.map((b, i) => {
+                                  const Icon = TEMPLATE_BUTTON_ICONS[b.type] ?? Reply
+                                  const label = b.type === 'COPY_CODE' ? (b.example || 'Offer code') : b.text
+                                  return (
+                                    <li key={i} className="template-button-chip" title={b.url ?? b.phone_number ?? undefined}>
+                                      <Icon size={12} aria-hidden="true" />
+                                      <span>{label}</span>
+                                    </li>
+                                  )
+                                })}
+                              </ul>
+                            )}
                             {template.bodyText && template.bodyText.length > 100 && (
                               <button
                                 type="button"
@@ -597,6 +634,13 @@ export const TemplatesList: React.FC = () => {
           </div>
         </div>
       </div>
+      <CreateTemplateModal
+        isOpen={showCreate}
+        onClose={() => setShowCreate(false)}
+        languages={languages ?? []}
+        connections={connections.filter(c => c.isConnected && c.phoneNumber).map(c => ({ id: c.id, name: c.nickname || c.name }))}
+        onSubmitted={() => { void loadTemplates(getConnectedIds()) }}
+      />
     </motion.div>
   )
 }

@@ -366,37 +366,10 @@ public class EmailSendRecorder : IEmailSendRecorder
     /// <inheritdoc />
     public async Task TryFinalizeCampaignAsync(int campaignId, CancellationToken ct = default)
     {
-        // This is now called only after terminal events (SENT, FAILED, BOUNCED).
-        // The event processor's CampaignEmailEventProcessor.TryFinalizeCampaignAsync already
-        // does the same conditional UPDATE — this recorder-side method is kept for backward
-        // compat (EmailDispatchWorker still calls it for build-failure paths that bypass the
-        // event processor). It performs a single conditional UPDATE, never a GROUP BY scan.
-        const string sql = """
-            UPDATE "Campaigns" c SET
-                "Status" = CASE
-                    WHEN s.sent = 0 THEN 'Failed'
-                    WHEN s.failed = 0 THEN 'Sent'
-                    ELSE 'PartiallyFailed'
-                END,
-                "UpdatedAt" = now()
-            FROM (
-                SELECT
-                    count(*) FILTER (WHERE "Status" = 'Pending')                          AS pending,
-                    count(*) FILTER (WHERE "Status" IN ('Sent','Delivered','Read'))        AS sent,
-                    count(*) FILTER (WHERE "Status" IN ('Failed','Bounced','Complained'))  AS failed
-                FROM "CampaignContacts" WHERE "CampaignId" = {0}
-            ) s
-            WHERE c."Id" = {0}
-              AND c."Status" = 'Sending'
-              AND s.pending = 0
-            """;
-
-        var affected = await _dbContext.Database.ExecuteSqlRawAsync(
-            sql.Replace("{0}", campaignId.ToString()), ct);
-
-        if (affected > 0)
+        var status = await CampaignFinalizer.TryFinalizeAsync(_dbContext, campaignId, ct);
+        if (status is not null)
         {
-            _logger.LogInformation("Campaign {CampaignId} finished; status updated.", campaignId);
+            _logger.LogInformation("Campaign {CampaignId} finished as {Status}.", campaignId, status);
         }
     }
 

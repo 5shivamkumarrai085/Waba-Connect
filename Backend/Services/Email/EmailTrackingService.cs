@@ -196,7 +196,14 @@ public class EmailTrackingService : IEmailTrackingService
 
     private string ComputeHmac(string data)
     {
-        var secret = _options.CurrentValue.Tracking.SigningSecret ?? "change-me-in-production-tracking-secret";
+        // Always set: Program.cs derives one from Encryption:Key when none is configured, and
+        // refuses to start in Production on a missing or placeholder value.
+        var secret = _options.CurrentValue.Tracking.SigningSecret;
+        if (string.IsNullOrWhiteSpace(secret))
+        {
+            throw new InvalidOperationException("Email:Tracking:SigningSecret is not configured.");
+        }
+
         var key = Encoding.UTF8.GetBytes(secret);
         using var hmac = new HMACSHA256(key);
         var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(data));

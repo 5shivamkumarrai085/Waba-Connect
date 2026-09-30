@@ -78,7 +78,7 @@ export const ConnectNewEmailPage: React.FC = () => {
   return (
     <motion.div className="waba-wizard-wrapper" {...pageTransitionProps}>
       <div className="waba-wizard-card">
-        <div className="waba-wizard-header email">
+        <div className="waba-wizard-header email omni-page-hero form-card-hero">
           <div>
             <h2 className="waba-wizard-title">Connect New Email</h2>
             <p className="waba-wizard-subtitle">Connect an email account to send email campaigns.</p>

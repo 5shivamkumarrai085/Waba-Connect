@@ -642,12 +642,6 @@
   cursor: not-allowed;
 }
 
-.dark-theme .contacts-filters-header,
-.dark-theme .contacts-filters-grid {
-  background: rgba(30, 41, 59, 0.4);
-  border-color: rgba(255, 255, 255, 0.05);
-}
-
 .filter-field {
   display: flex;
   flex-direction: column;

@@ -19,9 +19,11 @@ public class TemplatesController : ControllerBase
     private readonly IWhatsAppService _whatsAppService;
     private readonly AppDbContext _dbContext;
     private readonly IDashboardCacheService _dashboardCacheService;
+    private readonly WhatsAppCampaignApi.Services.Security.IAccessScope _accessScope;
 
-    public TemplatesController(ITemplateService templateService, IWhatsAppService whatsAppService, AppDbContext dbContext, IDashboardCacheService dashboardCacheService)
+    public TemplatesController(ITemplateService templateService, IWhatsAppService whatsAppService, AppDbContext dbContext, IDashboardCacheService dashboardCacheService, WhatsAppCampaignApi.Services.Security.IAccessScope accessScope)
     {
+        _accessScope = accessScope;
         _templateService = templateService;
         _whatsAppService = whatsAppService;
         _dbContext = dbContext;
@@ -169,6 +171,16 @@ public class TemplatesController : ControllerBase
             new { id = "INTERACTIVE", name = "Interactive" }
         };
         return Ok(new ApiResponse<IEnumerable<object>> { Success = true, Data = data });
+    }
+
+    /// <summary>Submits a template created here to Meta for review, on a connection's account.</summary>
+    [HttpPost("{id}/submit")]
+    [RequiresPermission("Template.Create")]
+    public async Task<ActionResult<ApiResponse<TemplateResponse>>> Submit(int id, [FromBody] SubmitTemplateRequest request)
+    {
+        await _accessScope.EnsureConnectionAllowedAsync(request.ConnectionId);
+        var data = await _templateService.SubmitToMetaAsync(id, request.ConnectionId);
+        return Ok(new ApiResponse<TemplateResponse> { Success = true, Data = data, Message = $"Submitted to Meta — status {data.Status}." });
     }
 
     [HttpPost("sync")]

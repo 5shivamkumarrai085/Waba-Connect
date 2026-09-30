@@ -11,9 +11,18 @@ public class CreateTemplateRequest
     public string? HeaderContent { get; set; }
     public string? FooterText { get; set; }
     public List<TemplateVariableRequest>? Variables { get; set; }
+
+    /// <summary>Quick reply, URL (optionally with a {{1}} suffix), phone number or copy-code buttons.</summary>
+    public List<WhatsAppCampaignApi.Services.WhatsApp.TemplateButton>? Buttons { get; set; }
 }
 
 public class UpdateTemplateRequest : CreateTemplateRequest { }
+
+public class SubmitTemplateRequest
+{
+    /// <summary>The connection whose WhatsApp Business Account the template is created on.</summary>
+    public int ConnectionId { get; set; }
+}
 
 public class TemplateVariableRequest
 {
@@ -36,18 +45,10 @@ public class TemplateResponse
     public string? FooterText { get; set; }
     public string? WhatsAppTemplateId { get; set; }
     public string? RejectReason { get; set; }
+    public List<WhatsAppCampaignApi.Services.WhatsApp.TemplateButton> Buttons { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public List<TemplateVariableRequest> Variables { get; set; } = [];
-}
-
-public class TemplateBriefResponse
-{
-    public int Id { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public string Language { get; set; } = string.Empty;
-    public string Category { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
 }
 
 public class TemplatePreviewResponse

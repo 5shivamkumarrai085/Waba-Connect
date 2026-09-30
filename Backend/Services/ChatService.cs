@@ -5,6 +5,7 @@ using WhatsAppCampaignApi.Models.DTOs.Chat;
 using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Models.Enums;
 using WhatsAppCampaignApi.Services.Interfaces;
+using WhatsAppCampaignApi.Services.Security;
 
 namespace WhatsAppCampaignApi.Services;
 
@@ -16,6 +17,8 @@ public class ChatService : IChatService
     private readonly ICurrentUserService _currentUser;
     private readonly IAuditService _auditService;
     private readonly IOmniSettingsService _settings;
+    private readonly IAccessScope _accessScope;
+    private readonly Chat.IConversationOperations _conversationOps;
 
     public ChatService(
         AppDbContext dbContext,
@@ -23,8 +26,12 @@ public class ChatService : IChatService
         ITemplateService templateService,
         ICurrentUserService currentUser,
         IAuditService auditService,
-        IOmniSettingsService settings)
+        IOmniSettingsService settings,
+        IAccessScope accessScope,
+        Chat.IConversationOperations conversationOps)
     {
+        _conversationOps = conversationOps;
+        _accessScope = accessScope;
         _dbContext = dbContext;
         _whatsAppService = whatsAppService;
         _templateService = templateService;
@@ -43,6 +50,12 @@ public class ChatService : IChatService
         if (connectionId.HasValue)
         {
             query = query.Where(p => p.ConnectionId == connectionId.Value);
+        }
+
+        if (await _accessScope.GetAllowedConnectionIdsAsync() is { } allowed)
+        {
+            var ids = allowed.ToArray();
+            query = query.Where(p => p.ConnectionId != null && ids.Contains(p.ConnectionId.Value));
         }
 
         var accounts = await query
@@ -89,14 +102,28 @@ public class ChatService : IChatService
     /// </summary>
     private async Task EnsureConversationVisibleAsync(int conversationId)
     {
-        var restriction = await GetAgentRestrictionAsync();
-        if (restriction is null) return;
-
-        var visible = await RestrictToAgent(_dbContext.ChatConversations.AsNoTracking(), restriction)
+        var visible = await (await VisibleAsync(_dbContext.ChatConversations.AsNoTracking()))
             .AnyAsync(c => c.Id == conversationId);
 
         if (!visible)
             throw new KeyNotFoundException($"Chat conversation with ID {conversationId} not found.");
+    }
+
+    /// <summary>
+    /// Everything that limits which conversations this caller sees: the agent restriction and the
+    /// connection scope. Every conversation read and every per-id action goes through this.
+    /// </summary>
+    private async Task<IQueryable<ChatConversation>> VisibleAsync(IQueryable<ChatConversation> query)
+    {
+        query = RestrictToAgent(query, await GetAgentRestrictionAsync(), _currentUser.UserId);
+
+        if (await _accessScope.GetAllowedConnectionIdsAsync() is { } allowed)
+        {
+            var ids = allowed.ToArray();
+            query = query.Where(c => c.ConnectionId != null && ids.Contains(c.ConnectionId.Value));
+        }
+
+        return query;
     }
 
     /// <summary>Applies <see cref="GetAgentRestrictionAsync"/> to any conversation query.</summary>
@@ -109,12 +136,33 @@ public class ChatService : IChatService
         return query.Where(c => c.Contact.AssignedTo != null && c.Contact.AssignedTo == assignedToName);
     }
 
-    public async Task<List<ChatConversationResponse>> GetConversationsAsync(
+    /// <summary>
+    /// The agent restriction with conversation ownership: an agent sees conversations assigned to
+    /// them, plus (for older rows with no owner) those whose contact they own.
+    /// </summary>
+    private static IQueryable<ChatConversation> RestrictToAgent(
+        IQueryable<ChatConversation> query,
+        string? assignedToName,
+        int? agentUserId)
+    {
+        if (assignedToName is null) return query;
+
+        return query.Where(c => (agentUserId != null && c.AssignedUserId == agentUserId)
+            || (c.AssignedUserId == null && c.Contact.AssignedTo != null && c.Contact.AssignedTo == assignedToName));
+    }
+
+    public async Task<ChatPage<ChatConversationResponse>> GetConversationsAsync(
         string? search = null,
         string? filter = null,
         int? connectionId = null,
-        string? channel = null)
+        string? channel = null,
+        string? cursor = null,
+        int limit = ChatPaging.DefaultConversationPageSize,
+        string? state = null,
+        string? assignee = null)
     {
+        limit = Math.Clamp(limit, 1, ChatPaging.MaxConversationPageSize);
+
         // No reconciliation here. This is polled by every open Chat tab, and rebuilding the
         // contact × connection cross-product (with writes) on each poll was the single largest
         // source of database load in the application. Rows are created when a contact is
@@ -126,11 +174,35 @@ public class ChatService : IChatService
                 .ThenInclude(contact => contact.GroupMemberships)
                     .ThenInclude(membership => membership.Group)
             .Include(c => c.WabaPhoneNumber)
+            .Include(c => c.AssignedUser)
             .AsQueryable();
 
         // Applied before search, filter and paging, so counts and results are all consistent with
         // what this caller is allowed to see.
-        query = RestrictToAgent(query, await GetAgentRestrictionAsync());
+        query = await VisibleAsync(query);
+
+        // Status tabs: "active" is Open + Pending; a single status narrows to it; absent means all.
+        if (!string.IsNullOrWhiteSpace(state))
+        {
+            if (state.Equals("active", StringComparison.OrdinalIgnoreCase))
+                query = query.Where(c => c.Status == ConversationStatus.Open || c.Status == ConversationStatus.Pending);
+            else if (Enum.TryParse<ConversationStatus>(state, true, out var parsedState))
+                query = query.Where(c => c.Status == parsedState);
+        }
+
+        // Owner filter: "me", "unassigned", or a user id.
+        if (!string.IsNullOrWhiteSpace(assignee))
+        {
+            if (assignee.Equals("me", StringComparison.OrdinalIgnoreCase))
+            {
+                var me = _currentUser.UserId ?? -1;
+                query = query.Where(c => c.AssignedUserId == me);
+            }
+            else if (assignee.Equals("unassigned", StringComparison.OrdinalIgnoreCase))
+                query = query.Where(c => c.AssignedUserId == null);
+            else if (int.TryParse(assignee, out var assigneeId))
+                query = query.Where(c => c.AssignedUserId == assigneeId);
+        }
 
         if (connectionId.HasValue)
         {
@@ -180,26 +252,41 @@ public class ChatService : IChatService
             query = query.Where(c => c.UnreadCount > 0);
         }
 
+        // Keyset paging on (last activity, id). Offset paging re-reads every row it skips and
+        // drifts when a new message moves a conversation to the top between two page requests;
+        // a cursor does neither, and each page is one index range scan however deep it is.
+        if (ChatPaging.TryDecodeConversationCursor(cursor, out var cursorAt, out var cursorId))
+        {
+            query = query.Where(c =>
+                (c.LastMessageAt ?? c.UpdatedAt) < cursorAt
+                || ((c.LastMessageAt ?? c.UpdatedAt) == cursorAt && c.Id < cursorId));
+        }
+
         var conversations = await query
             .OrderByDescending(c => c.LastMessageAt ?? c.UpdatedAt)
-            .ThenBy(c => c.Contact.Name)
+            .ThenByDescending(c => c.Id)
+            .Take(limit + 1)
             .ToListAsync();
 
-        return conversations.Select(MapConversation).ToList();
+        var hasMore = conversations.Count > limit;
+        if (hasMore) conversations.RemoveAt(conversations.Count - 1);
+
+        var last = conversations.LastOrDefault();
+        return new ChatPage<ChatConversationResponse>(
+            conversations.Select(MapConversation).ToList(),
+            hasMore && last is not null ? ChatPaging.EncodeConversationCursor(last.LastMessageAt ?? last.UpdatedAt, last.Id) : null,
+            hasMore);
     }
 
     public async Task<ChatConversationResponse> GetConversationAsync(int id)
     {
-        var restriction = await GetAgentRestrictionAsync();
-
-        var conversation = await RestrictToAgent(
+        var conversation = await (await VisibleAsync(
                 _dbContext.ChatConversations
                     .AsNoTracking()
                     .Include(c => c.Contact)
                         .ThenInclude(contact => contact.GroupMemberships)
                             .ThenInclude(membership => membership.Group)
-                    .Include(c => c.WabaPhoneNumber),
-                restriction)
+                    .Include(c => c.WabaPhoneNumber)))
             .FirstOrDefaultAsync(c => c.Id == id);
 
         // Deliberately the same "not found" a genuinely missing id produces. Telling an agent that
@@ -222,22 +309,62 @@ public class ChatService : IChatService
     /// it, which is also the only moment it is actually true.
     /// </para>
     /// </summary>
-    public async Task<List<ChatMessageResponse>> GetMessagesAsync(int conversationId)
+    public async Task<ChatPage<ChatMessageResponse>> GetMessagesAsync(
+        int conversationId,
+        int? beforeId = null,
+        int? afterId = null,
+        int limit = ChatPaging.DefaultMessagePageSize)
     {
         // The conversation guard has to be repeated here: the messages endpoint takes an id
         // directly, so without this an agent could read any thread by guessing a number.
         await EnsureConversationVisibleAsync(conversationId);
 
-        var messages = await _dbContext.ChatMessages
+        limit = Math.Clamp(limit, 1, ChatPaging.MaxMessagePageSize);
+
+        var query = _dbContext.ChatMessages
             .AsNoTracking()
             // The email side-table, for threads on the email channel. A left join by navigation:
             // WhatsApp messages simply have none, and pay only for the outer join.
             .Include(m => m.EmailDetail)
-            .Where(m => m.ConversationId == conversationId && !m.IsDeleted)
-            .OrderBy(m => m.CreatedAt)
-            .ToListAsync();
+            .Where(m => m.ConversationId == conversationId && !m.IsDeleted);
 
-        return messages.Select(MapMessage).ToList();
+        List<ChatMessage> messages;
+        bool hasMore;
+
+        if (afterId is { } after)
+        {
+            // New since the client's newest message: ascending, oldest first.
+            messages = await query
+                .Where(m => m.Id > after)
+                .OrderBy(m => m.Id)
+                .Take(limit + 1)
+                .ToListAsync();
+
+            hasMore = messages.Count > limit;
+            if (hasMore) messages.RemoveAt(messages.Count - 1);
+        }
+        else
+        {
+            // The newest page, or the page just older than beforeId: read newest-first so LIMIT
+            // takes the right end of the thread, then flip to chronological for the client.
+            if (beforeId is { } before) query = query.Where(m => m.Id < before);
+
+            messages = await query
+                .OrderByDescending(m => m.Id)
+                .Take(limit + 1)
+                .ToListAsync();
+
+            hasMore = messages.Count > limit;
+            if (hasMore) messages.RemoveAt(messages.Count - 1);
+            messages.Reverse();
+        }
+
+        return new ChatPage<ChatMessageResponse>(
+            messages.Select(MapMessage).ToList(),
+            NextCursor: hasMore && messages.Count > 0
+                ? (afterId is null ? messages[0].Id : messages[^1].Id).ToString()
+                : null,
+            HasMore: hasMore);
     }
 
     /// <summary>
@@ -475,7 +602,20 @@ public class ChatService : IChatService
         if (string.IsNullOrWhiteSpace(text) && !isMedia)
             throw new ArgumentException("Message text is required.");
 
-        var dbText = text;
+        var replyButtons = (request.ReplyButtons ?? []).Select(b => b?.Trim() ?? "").Where(b => b.Length > 0).ToList();
+        if (replyButtons.Count > 0)
+        {
+            if (isMedia) throw new ArgumentException("Reply buttons can be sent with text, not with an attachment.");
+            if (replyButtons.Count > Catalogs.ChatCatalog.MaxReplyButtons)
+                throw new ArgumentException($"WhatsApp allows at most {Catalogs.ChatCatalog.MaxReplyButtons} reply buttons.");
+            if (replyButtons.Any(b => b.Length > Catalogs.ChatCatalog.MaxReplyButtonLength))
+                throw new ArgumentException($"Each reply button can be at most {Catalogs.ChatCatalog.MaxReplyButtonLength} characters.");
+            if (replyButtons.Distinct(StringComparer.OrdinalIgnoreCase).Count() != replyButtons.Count) throw new ArgumentException("Reply buttons must be different from each other.");
+            if (text.Length > Catalogs.ChatCatalog.MaxInteractiveBodyLength)
+                throw new ArgumentException($"A message with reply buttons can be at most {Catalogs.ChatCatalog.MaxInteractiveBodyLength} characters.");
+        }
+
+        var dbText = replyButtons.Count > 0 ? $"{text}\n\n[Buttons: {string.Join(" | ", replyButtons)}]" : text;
         if (isMedia)
         {
             var fileName = request.MediaFileName ?? (!string.IsNullOrEmpty(request.MediaUrl) ? Path.GetFileName(request.MediaUrl) : "file");
@@ -523,6 +663,27 @@ public class ChatService : IChatService
                 account?.PhoneNumberId,
                 effectiveConnectionId);
         }
+        else if (replyButtons.Count > 0)
+        {
+            var payload = new
+            {
+                messaging_product = "whatsapp",
+                recipient_type = "individual",
+                to = conversation.Contact.Phone,
+                type = "interactive",
+                interactive = new
+                {
+                    type = "button",
+                    body = new { text },
+                    action = new
+                    {
+                        buttons = replyButtons.Select((title, i) => new { type = "reply", reply = new { id = $"agent-reply-{i}", title } }).ToArray()
+                    }
+                }
+            };
+            result = await _whatsAppService.SendCustomPayloadAsync(
+                conversation.Contact.Phone, payload, account?.PhoneNumberId, effectiveConnectionId);
+        }
         else
         {
             result = await _whatsAppService.SendTextMessageAsync(
@@ -544,6 +705,7 @@ public class ChatService : IChatService
         }
 
         await _dbContext.SaveChangesAsync();
+        await _conversationOps.OnAgentReplyAsync(conversation.Id);
         return MapMessage(message);
     }
 
@@ -562,6 +724,8 @@ public class ChatService : IChatService
             .FirstOrDefaultAsync(t => t.Id == request.TemplateId);
         if (template == null)
             throw new KeyNotFoundException($"Template with ID {request.TemplateId} not found.");
+
+        await _accessScope.EnsureConnectionAllowedAsync(request.ConnectionId);
 
         var preview = await _templateService.GetPreviewAsync(request.TemplateId, request.Variables);
         var messageText = preview.PreviewText;
@@ -680,8 +844,12 @@ public class ChatService : IChatService
 
     public async Task<ChatConversation> GetOrCreateConversationAsync(int contactId, int? connectionId = null)
     {
+        // WhatsApp threads only: without the channel filter a contact with an email thread on the
+        // same connection could have a WhatsApp campaign message filed into their email thread.
         var conversation = await _dbContext.ChatConversations
-            .FirstOrDefaultAsync(c => c.ContactId == contactId && (connectionId == null || c.ConnectionId == connectionId));
+            .FirstOrDefaultAsync(c => c.ContactId == contactId
+                                   && c.Channel == MessageChannel.WhatsApp
+                                   && (connectionId == null || c.ConnectionId == connectionId));
 
         if (conversation != null) return conversation;
 
@@ -697,7 +865,23 @@ public class ChatService : IChatService
         };
 
         _dbContext.ChatConversations.Add(conversation);
-        await _dbContext.SaveChangesAsync();
+        try
+        {
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Two campaign workers reached the same new contact at once; the unique
+            // (contact, connection, channel) index let the other one win. Use its row.
+            _dbContext.Entry(conversation).State = EntityState.Detached;
+            var winner = await _dbContext.ChatConversations
+                .FirstOrDefaultAsync(c => c.ContactId == contactId
+                                       && c.Channel == MessageChannel.WhatsApp
+                                       && c.ConnectionId == conversation.ConnectionId);
+            if (winner is null) throw;
+            return winner;
+        }
+
         return conversation;
     }
 
@@ -777,7 +961,13 @@ public class ChatService : IChatService
                 .Select(gm => gm.Group?.Name ?? "")
                 .Where(name => !string.IsNullOrEmpty(name))
                 .ToList() ?? new List<string>(),
-            ContactIsActive = conversation.Contact.IsActive
+            ContactIsActive = conversation.Contact.IsActive,
+            ConversationStatus = conversation.Status.ToString(),
+            AssignedUserId = conversation.AssignedUserId,
+            AssignedUserName = conversation.AssignedUser is { } agent ? $"{agent.FirstName} {agent.LastName}".Trim() : null,
+            FirstResponseDueAt = conversation.FirstRespondedAt is null ? conversation.FirstResponseDueAt : null,
+            SlaBreached = conversation.SlaBreachedAt is not null && conversation.FirstRespondedAt is null,
+            ResolveDueAt = conversation.ResolvedAt is null ? conversation.ResolveDueAt : null
         };
     }
 

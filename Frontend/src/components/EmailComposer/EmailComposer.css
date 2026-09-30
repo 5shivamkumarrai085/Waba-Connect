@@ -1,12 +1,27 @@
 /* EmailComposer.css */
 
+/* Takes at most three quarters of the conversation pane and shares the rest with the thread; the
+   tabs and the Send bar are fixed, only the middle scrolls. It used to refuse to shrink
+   (flex-shrink: 0), so in a short window the Send button was pushed below the pane's edge. */
 .email-composer {
   display: flex;
+  flex: 0 1 auto;
   flex-direction: column;
+  min-height: 0;
+  max-height: 75%;
   border-top: 1px solid var(--border-light);
   background: var(--bg-primary);
-  flex-shrink: 0;
 }
+
+.email-composer-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.email-composer .rich-editor-surface { min-height: 140px; }
+.email-composer-tabs { flex-shrink: 0; }
 
 /* ── Tabs ─────────────────────────────────────────────────────────────────── */
 
@@ -112,8 +127,8 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px 2px 10px;
-  background: var(--omni-color-primary-100, #dbeafe);
-  color: var(--omni-color-info-text, #1e40af);
+  background: var(--omni-color-primary-100);
+  color: var(--omni-color-info-text);
   border-radius: 20px;
   font-size: 12px;
   font-weight: 500;
@@ -197,12 +212,17 @@
 
 /* ── Actions ────────────────────────────────────────────────────────────── */
 
+/* The Send bar is outside the scroll region and never shrinks, so it stays visible however long
+   the recipient list or the draft gets, and however short the window is. */
 .email-composer-actions {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-base);
+  border-top: 1px solid var(--border-light);
+  background: var(--omni-color-surface);
 }
 
 .email-composer-from {

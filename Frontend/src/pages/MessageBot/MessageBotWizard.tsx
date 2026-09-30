@@ -227,7 +227,7 @@ export const MessageBotWizard: React.FC = () => {
 
   return (
     <motion.div {...pageTransitionProps}>
-      <div className="wizard-header">
+      <div className="wizard-header omni-page-hero form-page-hero">
         <button className="btn-back" onClick={() => navigate('/message-bot')} aria-label="Go Back">
           <ArrowLeft size={18} />
         </button>

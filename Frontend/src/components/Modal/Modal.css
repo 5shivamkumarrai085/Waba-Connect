@@ -160,6 +160,8 @@ body.is-modal-open {
   min-height: 0;
   padding: 20px 24px;
   overflow-y: auto;
+  /* Scrolling to the end of a dialog must not scroll the page behind it. */
+  overscroll-behavior: contain;
 }
 
 .oc-dialog-message {

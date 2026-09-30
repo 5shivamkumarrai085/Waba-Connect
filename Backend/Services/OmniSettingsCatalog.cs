@@ -28,6 +28,54 @@ public static class OmniSettingsCatalog
     public const string AiModels = "aiModels";
     public const string WebhookEvents = "webhookEvents";
     public const string HttpMethods = "httpMethods";
+    public const string TimeZones = "timeZones";
+    public const string ContactFields = "contactFields";
+
+    /// <summary>
+    /// The time zones this server knows, as IANA ids ("Asia/Kolkata"), labelled with their current
+    /// UTC offset. Read from the operating system rather than typed out, so it matches exactly what
+    /// the compliance rules can resolve.
+    /// </summary>
+    public static IReadOnlyList<(string Value, string Label)> TimeZoneCatalogue => LazyTimeZones.Value;
+
+    /// <summary>
+    /// Windows-to-IANA conversion returns some zones under their older IANA names; these are the
+    /// current ones (IANA "backward" links — fixed reference data). Both names resolve.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> IanaAliases => CurrentIanaName;
+
+    private static readonly Dictionary<string, string> CurrentIanaName = new(StringComparer.Ordinal)
+    {
+        ["Asia/Calcutta"] = "Asia/Kolkata",
+        ["Asia/Katmandu"] = "Asia/Kathmandu",
+        ["Asia/Rangoon"] = "Asia/Yangon",
+        ["Asia/Saigon"] = "Asia/Ho_Chi_Minh",
+        ["Europe/Kiev"] = "Europe/Kyiv",
+        ["America/Godthab"] = "America/Nuuk",
+        ["America/Buenos_Aires"] = "America/Argentina/Buenos_Aires",
+        ["America/Indianapolis"] = "America/Indiana/Indianapolis",
+        ["Atlantic/Faeroe"] = "Atlantic/Faroe",
+        ["Pacific/Enderbury"] = "Pacific/Kanton",
+    };
+
+    private static readonly Lazy<IReadOnlyList<(string Value, string Label)>> LazyTimeZones = new(() =>
+        TimeZoneInfo.GetSystemTimeZones()
+            .Select(z =>
+            {
+                var id = z.HasIanaId ? z.Id
+                    : TimeZoneInfo.TryConvertWindowsIdToIanaId(z.Id, out var iana) ? iana : null;
+                if (id is null) return default((string Value, string Label, TimeSpan Offset)?);
+                id = CurrentIanaName.GetValueOrDefault(id, id);
+                var offset = z.GetUtcOffset(DateTime.UtcNow);
+                var sign = offset < TimeSpan.Zero ? "-" : "+";
+                return (id, $"(UTC{sign}{offset.Duration().Hours:00}:{offset.Duration().Minutes:00}) {id}", offset);
+            })
+            .Where(z => z is not null)
+            .Select(z => z!.Value)
+            .DistinctBy(z => z.Item1)
+            .OrderBy(z => z.Item3).ThenBy(z => z.Item1)
+            .Select(z => (z.Item1, z.Item2))
+            .ToList());
 
     /// <summary>
     /// The WhatsApp Cloud API webhook fields an app can subscribe to.
@@ -104,7 +152,7 @@ public static class OmniSettingsCatalog
 
     // ── Sections ─────────────────────────────────────────────────────────────
 
-    private static readonly OmniSettingsSectionDto[] AllSections =
+    private static OmniSettingsSectionDto[] AllSections =
     {
         new()
         {
@@ -386,6 +434,101 @@ public static class OmniSettingsCatalog
     };
 
     public static IReadOnlyList<OmniSettingsSectionDto> Sections => AllSections;
+
+    // Compliance is declared separately and appended, so the long list above stays in page order.
+    static OmniSettingsCatalog()
+    {
+        AllSections = [.. AllSections, ChatOperationsSection, ComplianceSection, ContactsSection];
+    }
+
+    private static OmniSettingsSectionDto ChatOperationsSection => new()
+    {
+        Key = "chat-operations",
+        Label = "Chat Routing & SLA",
+        Description = "Who new conversations go to, how fast they must be answered, and when quiet ones close.",
+        Icon = "MessageSquare",
+        Fields =
+        {
+            new()
+            {
+                Key = "chatRouting.strategy", Label = "Assign new conversations", Type = "select",
+                Options =
+                {
+                    new() { Value = "off", Label = "Manually (no automatic routing)" },
+                    new() { Value = "roundRobin", Label = "Round robin" },
+                    new() { Value = "leastBusy", Label = "To the agent with the fewest open conversations" }
+                }
+            },
+            new() { Key = "chatRouting.agents", Label = "Agents in the rotation", Type = "multiselect", OptionSource = Users,
+                    Helper = "Leave empty to include everyone who can use Chat. Connection access still applies." },
+            new() { Key = "sla.firstResponseMinutes", Label = "First response within", Type = "number", Unit = "Minutes", Min = 0, Max = 10080,
+                    Helper = "0 turns the first-response SLA off." },
+            new() { Key = "sla.resolutionHours", Label = "Resolve within", Type = "number", Unit = "Hours", Min = 0, Max = 720,
+                    Helper = "0 turns the resolution SLA off." },
+            new() { Key = "autoClose.hours", Label = "Close conversations quiet for", Type = "number", Unit = "Hours", Min = 0, Max = 720,
+                    Helper = "0 never closes them automatically. A new message from the customer reopens a closed conversation." },
+            new() { Key = "autoClose.message", Label = "Closing message (WhatsApp)", Type = "text",
+                    Placeholder = "We're closing this chat for now. Reply any time to reopen it.",
+                    Helper = "Sent only within WhatsApp's 24-hour service window." }
+        }
+    };
+
+    private static OmniSettingsSectionDto ComplianceSection => new()
+    {
+        Key = "compliance",
+        Label = "Compliance",
+        Description = "Consent, quiet hours and message limits applied to every campaign on every channel.",
+        Icon = "ShieldCheck",
+        Fields =
+        {
+            new() { Key = "compliance.timeZone", Label = "Default time zone", Type = "select", OptionSource = TimeZones,
+                    Helper = "Used for quiet hours and local-time sends when a contact has no time zone of their own." },
+            new() { Key = "compliance.quietHours.enabled", Label = "Enforce quiet hours", Type = "toggle",
+                    Helper = "Marketing messages due inside the window are held and sent when it ends. Transactional campaigns are exempt." },
+            new() { Key = "compliance.quietHours.startHour", Label = "Quiet hours start", Type = "number", Unit = ":00 (24h)", Min = 0, Max = 23,
+                    RequiredWhenKey = "compliance.quietHours.enabled" },
+            new() { Key = "compliance.quietHours.endHour", Label = "Quiet hours end", Type = "number", Unit = ":00 (24h)", Min = 0, Max = 23,
+                    RequiredWhenKey = "compliance.quietHours.enabled" },
+            new() { Key = "compliance.frequencyCap.maxMessages", Label = "Frequency cap", Type = "number", Unit = "messages", Min = 0, Max = 100,
+                    Helper = "Most marketing messages one contact may receive in the window, across email and WhatsApp. 0 turns the cap off." },
+            new() { Key = "compliance.frequencyCap.days", Label = "Frequency cap window", Type = "number", Unit = "Days", Min = 1, Max = 90 },
+            new() { Key = "compliance.whatsapp.requireOptIn", Label = "Require WhatsApp opt-in", Type = "toggle",
+                    Helper = "Marketing WhatsApp messages go only to contacts with a recorded opt-in." },
+            new() { Key = "compliance.optOutKeywords", Label = "WhatsApp opt-out keywords", Type = "tags", Placeholder = "STOP, UNSUBSCRIBE…",
+                    Helper = "A message consisting of one of these opts the contact out of all WhatsApp marketing." },
+            new() { Key = "compliance.optInKeywords", Label = "WhatsApp opt-in keywords", Type = "tags", Placeholder = "START, SUBSCRIBE…" },
+            new() { Key = "compliance.optOutReply", Label = "Reply to an opt-out", Type = "text",
+                    Placeholder = "You have been unsubscribed from our WhatsApp messages. Reply START to subscribe again." },
+            new() { Key = "compliance.optInReply", Label = "Reply to an opt-in", Type = "text",
+                    Placeholder = "You are subscribed to our WhatsApp messages. Reply STOP to unsubscribe." },
+            new() { Key = "compliance.topics", Label = "Preference-centre topics", Type = "tags", Placeholder = "marketing, offers, newsletters…",
+                    Helper = "The topics recipients can opt in or out of individually. Campaigns choose one of these." }
+        },
+        Notes =
+        {
+            new() { Tone = "info", Text = "Opt-outs always apply, including to transactional campaigns. Every change is recorded with its source and evidence on the contact." }
+        }
+    };
+
+    private static OmniSettingsSectionDto ContactsSection => new()
+    {
+        Key = "contacts",
+        Label = "Contacts",
+        Description = "Which details must be filled in when a contact is added or edited by hand or imported.",
+        Icon = "Users",
+        Fields =
+        {
+            new()
+            {
+                Key = Catalogs.ContactFieldCatalog.RequiredFieldsSettingKey, Label = "Also required", Type = "multiselect", OptionSource = ContactFields,
+                Helper = "Name, phone, type, status and source are always required. Contacts created automatically from an incoming message are exempt."
+            }
+        },
+        Notes =
+        {
+            new() { Tone = "info", Text = "The age shown on a contact and used by segments is worked out from the date of birth, so it never goes out of date." }
+        }
+    };
 
     /// <summary>The section for a key, or null when the slug is not one we publish.</summary>
     public static OmniSettingsSectionDto? FindSection(string? key) =>

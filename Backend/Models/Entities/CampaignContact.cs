@@ -17,7 +17,7 @@ public class CampaignContact
     public string? WhatsAppMessageId { get; set; }
 
     /// <summary>
-    /// The sending provider's own id for this recipient's message — an SES MessageId for email.
+    /// The sending provider's own id for this recipient's message — the Message-Id header for email.
     /// Deliberately a second column rather than a rename of <see cref="WhatsAppMessageId"/>:
     /// renaming would touch the webhook correlation path, the reporting queries and the chat
     /// lookups, all of which are WhatsApp-critical, for no gain. WhatsApp keeps writing the old
@@ -30,7 +30,7 @@ public class CampaignContact
 
     /// <summary>
     /// Stamped immediately before the provider call, and before the send result is committed.
-    /// SES offers no idempotent send, so if a worker dies mid-send this is the only evidence
+    /// SMTP offers no idempotent send, so if a worker dies mid-send this is the only evidence
     /// that a message may already be in flight: a redelivered job that finds this set but no
     /// ProviderMessageId is treated as "possibly sent" rather than silently sent again.
     /// </summary>
@@ -57,4 +57,10 @@ public class CampaignContact
     public DateTime? OpenedAt { get; set; }
     public DateTime? ClickedAt { get; set; }
     public DateTime? RepliedAt { get; set; }
+
+    /// <summary>A/B tests: the variant this recipient receives (null outside a test).</summary>
+    public int? VariantId { get; set; }
+
+    /// <summary>A/B tests: waiting for the winner; not sent until the test is decided.</summary>
+    public bool HeldForWinner { get; set; }
 }

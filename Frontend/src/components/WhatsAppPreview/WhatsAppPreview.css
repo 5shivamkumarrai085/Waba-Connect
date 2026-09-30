@@ -1,4 +1,4 @@
-/* WhatsAppPreview.css */
+/* WhatsApp message preview. WhatsApp's own colours come from the --wa-* tokens. */
 
 .whatsapp-preview-card {
   border: 1px solid var(--border-color);
@@ -8,80 +8,137 @@
   box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
-  animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideInRight 0.4s var(--ease-out) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .whatsapp-preview-card { animation: none; }
 }
 
 .whatsapp-preview-header {
-  background-color: #f0f2f5;
+  background-color: var(--wa-header-bg);
   border-bottom: 1px solid var(--border-light);
-  padding: 12px 16px;
+  padding: var(--space-base) var(--space-xl);
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-base);
 }
 
 .whatsapp-preview-avatar {
   width: 32px;
   height: 32px;
+  flex-shrink: 0;
   border-radius: var(--radius-full);
-  background-color: #128c7e; /* WhatsApp dark green */
+  background-color: var(--wa-avatar-bg);
   color: var(--text-on-accent);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
-  font-size: 14px;
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-md);
 }
 
 .whatsapp-preview-sender-name {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
   color: var(--text-main);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .whatsapp-preview-chat-area {
-  background-color: #efeae2; /* WhatsApp chat beige */
-  padding: 20px 16px;
+  background-color: var(--wa-chat-bg);
+  padding: var(--space-2xl) var(--space-xl);
   min-height: 240px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
 }
 
+.whatsapp-message {
+  align-self: flex-end;
+  max-width: 85%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin-bottom: var(--space-sm);
+}
+
 /* Chat bubble */
 .whatsapp-chat-bubble {
-  align-self: flex-end;
-  background-color: #d9fdd3; /* WhatsApp light green bubble */
-  border-radius: 8px 0px 8px 8px;
-  padding: 8px 12px;
-  max-width: 85%;
-  box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.13);
-  position: relative;
-  margin-bottom: 8px;
+  background-color: var(--wa-bubble-out-bg);
+  border-radius: var(--radius-sm) 0 var(--radius-sm) var(--radius-sm);
+  padding: var(--space-sm) var(--space-base);
+  box-shadow: var(--wa-bubble-shadow);
   word-break: break-word;
+  white-space: pre-wrap;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.whatsapp-chat-bubble-header {
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-md);
+  color: var(--wa-bubble-text);
 }
 
 .whatsapp-chat-bubble-text {
   font-family: var(--font-family);
-  font-size: 13px;
-  line-height: 1.5;
-  color: #111b21;
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
+  color: var(--wa-bubble-text);
+}
+
+.whatsapp-chat-bubble-footer {
+  font-size: var(--text-sm);
+  color: var(--wa-bubble-meta);
 }
 
 .whatsapp-chat-bubble-time {
   display: block;
   text-align: right;
-  font-size: 10px;
-  color: #667781;
-  margin-top: 4px;
+  font-size: var(--text-2xs);
+  color: var(--wa-bubble-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.whatsapp-chat-buttons {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.whatsapp-chat-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  background-color: var(--wa-bubble-out-bg);
+  color: var(--wa-button-text);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  box-shadow: var(--wa-bubble-shadow);
+  min-width: 0;
+}
+
+.whatsapp-chat-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .whatsapp-preview-empty-state {
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-body);
   background-color: var(--omni-color-surface);
-  padding: 24px 16px;
+  padding: var(--space-3xl) var(--space-xl);
   border: 1px dashed var(--border-color);
   border-radius: var(--radius-md);
   margin: auto;

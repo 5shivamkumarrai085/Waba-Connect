@@ -1,6 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import * as Icons from 'lucide-react'
+import { iconByName } from '../../utils/iconRegistry'
 import { cardHoverProps } from '../../utils/motion'
 import type { MetricCardModel } from '../../types/reporting'
 import './MetricCard.css'
@@ -13,7 +13,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({ metric }) => {
   const { title, description, value, badgeText, badgeType, iconName } = metric
 
   // Dynamically resolve the Lucide Icon component from the icon name string
-  const LucideIcon = (Icons as any)[iconName] || Icons.HelpCircle
+  const LucideIcon = iconByName(iconName)
 
   // Format value: Split unit from numeric values to style units separately (matches screenshot design)
   const formatValue = (val: string | number) => {

@@ -18,5 +18,6 @@ public interface IPermissionManagementService
     Task<bool> ToggleDepartmentPermissionStatusAsync(int id);
     Task<bool> DeleteDepartmentPermissionAsync(int id);
 
-    Task SeedInitialPermissionsIfEmptyAsync();
+    /// <summary>The real users and roles an assignment can be made to.</summary>
+    Task<PermissionCandidatesResponse> GetCandidatesAsync();
 }

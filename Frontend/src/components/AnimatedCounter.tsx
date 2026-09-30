@@ -27,21 +27,28 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({ value, classNa
   })
 
   useEffect(() => {
-    if (!isNumeric || !isInView) return
-    
-    // Check reduced motion preference
+    if (!isNumeric) return
+
+    const finalText = typeof value === 'number' ? value.toLocaleString() : String(value)
+    const showFinal = () => {
+      if (ref.current) ref.current.textContent = finalText
+    }
+
+    // The animation is decoration; the number must be right without it. Animation frames do not
+    // run in a hidden tab, and a card below the fold is never "in view", so relying on the spring
+    // alone left KPI cards reading 0 while live updates arrived in the background.
     const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (prefersReduced) {
-      if (ref.current) {
-        ref.current.textContent = typeof value === 'number' 
-          ? value.toLocaleString() 
-          : String(value)
-      }
+    if (prefersReduced || !isInView || document.hidden) {
+      motionValue.jump(numericValue)
+      showFinal()
       return
     }
 
     motionValue.set(numericValue)
-  }, [numericValue, isInView, isNumeric])
+    // The spring settles well inside this; the timer only guarantees the final value is shown.
+    const settle = window.setTimeout(showFinal, 1500)
+    return () => window.clearTimeout(settle)
+  }, [numericValue, isInView, isNumeric, value, motionValue])
 
   useEffect(() => {
     if (!isNumeric) return

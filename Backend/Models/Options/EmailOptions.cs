@@ -29,10 +29,6 @@ public class EmailOptions
     /// </summary>
     public bool Enabled { get; set; }
 
-    /// <summary>Provider used when a connection does not name one. "AmazonSes" or "Smtp".</summary>
-    [Required]
-    public string DefaultProvider { get; set; } = "AmazonSes";
-
     [Required]
     public QueueOptions Queue { get; set; } = new();
 
@@ -44,9 +40,6 @@ public class EmailOptions
 
     [Required]
     public UnsubscribeOptions Unsubscribe { get; set; } = new();
-
-    [Required]
-    public SesOptions Ses { get; set; } = new();
 
     [Required]
     public InboundOptions Inbound { get; set; } = new();
@@ -121,6 +114,10 @@ public class QueueOptions
     /// <summary>How long completed rows are kept before the maintenance sweep prunes them.</summary>
     [Range(0, 365)]
     public int CompletedRetentionDays { get; set; } = 7;
+
+    /// <summary>How long dead-lettered rows are kept for an operator to inspect or requeue.</summary>
+    [Range(0, 3650)]
+    public int DeadLetterRetentionDays { get; set; } = 30;
 }
 
 /// <summary>Email dispatch worker behaviour.</summary>
@@ -135,8 +132,8 @@ public class DispatchOptions
     public int BatchSize { get; set; } = 10;
 
     /// <summary>
-    /// Fallback send rate for a connection that specifies none. Deliberately conservative: SES
-    /// starts new accounts at 1/sec, and guessing high is how an account gets throttled and then
+    /// Fallback send rate for a connection that specifies none. Deliberately conservative: many mail
+    /// services start new accounts at about 1/sec, and guessing high is how an account gets throttled and then
     /// reputation-damaged.
     /// </summary>
     [Range(0.1, 1000)]
@@ -196,40 +193,6 @@ public class UnsubscribeOptions
     public int TokenTtlDays { get; set; } = 400;
 }
 
-/// <summary>Amazon SES specifics that are account-wide rather than per-connection.</summary>
-public class SesOptions
-{
-    /// <summary>
-    /// Default configuration set for event publishing, when a connection names none. Without one
-    /// SES still sends, but no delivery, bounce or complaint event ever arrives.
-    /// </summary>
-    public string? EventConfigurationSet { get; set; }
-
-    /// <summary>
-    /// SNS topic ARNs the webhook will accept. An allowlist, not decoration: the endpoint is
-    /// necessarily anonymous, and signature verification alone would accept a validly-signed
-    /// notification from any SNS topic in any AWS account.
-    /// </summary>
-    public string[] AllowedSnsTopicArns { get; set; } = [];
-
-    /// <summary>S3 bucket the SES receipt rule writes raw inbound MIME to.</summary>
-    public string? InboundBucket { get; set; }
-
-    public string? InboundPrefix { get; set; }
-
-    /// <summary>
-    /// The value recipients must include in their SPF record, e.g. "amazonses.com". Data, not a
-    /// literal in code, because it differs by provider and region.
-    /// </summary>
-    public string SpfInclude { get; set; } = "amazonses.com";
-
-    /// <summary>
-    /// Template for the DMARC record shown in the setup UI. Starts at p=none so a new domain
-    /// does not begin rejecting its own mail before the operator has read the reports.
-    /// </summary>
-    public string DmarcPolicyTemplate { get; set; } = "v=DMARC1; p=none; rua=mailto:{rua}";
-}
-
 /// <summary>Inbound reply handling.</summary>
 public class InboundOptions
 {
@@ -246,11 +209,48 @@ public class InboundOptions
     public int MaxSizeBytes { get; set; } = 10485760;
 
     /// <summary>
-    /// Headers that mark a message as machine-generated. Anything carrying one is recorded but
-    /// never auto-replied to — this is what stops two auto-responders from mailing each other
-    /// indefinitely.
+    /// Headers that mark a message as machine-generated (RFC 3834). Interpreted by value, not by
+    /// presence: <c>Auto-Submitted: no</c> is a human message and <c>Precedence</c> only counts
+    /// when it is bulk, junk or list. Any other header named here counts when present at all.
     /// </summary>
-    public string[] LoopProtectionHeaders { get; set; } = ["Auto-Submitted", "X-Auto-Response-Suppress", "Precedence"];
+    public string[] LoopProtectionHeaders { get; set; } = ["Auto-Submitted", "Precedence", "X-Autoreply", "X-Autorespond", "List-Id"];
+
+    /// <summary>Default IMAP port when a connection does not set one (993 = implicit TLS).</summary>
+    [Range(1, 65535)]
+    public int DefaultImapPort { get; set; } = 993;
+
+    /// <summary>Socket and command timeout for IMAP operations, in seconds.</summary>
+    [Range(5, 300)]
+    public int TimeoutSeconds { get; set; } = 30;
+
+    /// <summary>Upper bound on messages ingested from one mailbox per poll, so one busy inbox
+    /// cannot starve the others.</summary>
+    [Range(1, 5000)]
+    public int MaxMessagesPerPoll { get; set; } = 200;
+
+    /// <summary>
+    /// How far back the first poll of a mailbox (or a poll after the server reset its
+    /// UIDVALIDITY) looks. After that the worker tracks the last UID it processed, so replies
+    /// already read in webmail are still ingested.
+    /// </summary>
+    [Range(1, 90)]
+    public int InitialLookbackDays { get; set; } = 3;
+
+    /// <summary>Flag processed messages \Seen on the server. Ingestion does not depend on it.</summary>
+    public bool MarkAsSeen { get; set; } = true;
+
+    /// <summary>A message that fails this many times in a row is skipped so it cannot block the
+    /// mailbox; the failure stays in the logs.</summary>
+    [Range(1, 100)]
+    public int MaxFailuresPerMessage { get; set; } = 5;
+
+    /// <summary>
+    /// When a connection sends through SMTP but has no IMAP host saved, derive one from the SMTP
+    /// host (<c>smtp.x</c> → <c>imap.x</c>, otherwise the same host) and reuse the SMTP
+    /// credentials. Most mail hosts serve both from one account, so replies work without a
+    /// second setup step. An explicit IMAP host always wins.
+    /// </summary>
+    public bool DeriveImapFromSmtp { get; set; } = true;
 }
 
 /// <summary>
@@ -287,14 +287,13 @@ public class TrackingOptions
 
     /// <summary>
     /// The public base URL of this application. Must be publicly reachable — a localhost
-    /// value produces pixels that email clients cannot load.
-    /// Set via environment variable Email__Tracking__BaseUrl.
+    /// value produces pixels that email clients cannot load. Defaults to App:PublicBaseUrl.
     /// </summary>
     public string BaseUrl { get; set; } = string.Empty;
 
     /// <summary>
-    /// HMAC-SHA256 signing secret for tracking tokens.
-    /// Set via environment variable Email__Tracking__SigningSecret. Never committed.
+    /// HMAC-SHA256 signing secret for tracking tokens. Set via Email__Tracking__SigningSecret and
+    /// never committed; when unset it is derived from Encryption:Key at startup.
     /// </summary>
-    public string SigningSecret { get; set; } = "change-me-in-production-tracking-secret";
+    public string SigningSecret { get; set; } = string.Empty;
 }

@@ -18,7 +18,6 @@ public class EmailConnectionService : IEmailConnectionService
     private readonly IMimeMessageBuilder _mimeBuilder;
     private readonly IOptionsMonitor<EmailOptions> _options;
     private readonly IAuditService _auditService;
-    private readonly IEmailDomainService _domainService;
     private readonly ILogger<EmailConnectionService> _logger;
 
     public EmailConnectionService(
@@ -28,22 +27,31 @@ public class EmailConnectionService : IEmailConnectionService
         IMimeMessageBuilder mimeBuilder,
         IOptionsMonitor<EmailOptions> options,
         IAuditService auditService,
-        IEmailDomainService domainService,
-        ILogger<EmailConnectionService> logger)
+        ILogger<EmailConnectionService> logger,
+        Security.IAccessScope accessScope)
     {
+        _accessScope = accessScope;
         _dbContext = dbContext;
         _encryption = encryption;
         _providerFactory = providerFactory;
         _mimeBuilder = mimeBuilder;
         _options = options;
         _auditService = auditService;
-        _domainService = domainService;
         _logger = logger;
     }
+
+    private readonly Security.IAccessScope _accessScope;
 
     public async Task<List<EmailConnectionResponse>> GetAllAsync(CancellationToken ct = default)
     {
         var configurations = await LoadQuery().ToListAsync(ct);
+
+        // Connection scoping: a restricted user sees (and can send from) only their connections.
+        if (await _accessScope.GetAllowedConnectionIdsAsync(ct) is { } allowed)
+        {
+            configurations = configurations.Where(c => c.ConnectionId is { } id && allowed.Contains(id)).ToList();
+        }
+
         return configurations.Select(MapToResponse).ToList();
     }
 
@@ -51,6 +59,12 @@ public class EmailConnectionService : IEmailConnectionService
     {
         var configuration = await LoadQuery().FirstOrDefaultAsync(c => c.Id == id, ct)
             ?? throw new KeyNotFoundException($"Email connection {id} not found.");
+
+        if (await _accessScope.GetAllowedConnectionIdsAsync(ct) is { } allowed
+            && !(configuration.ConnectionId is { } connectionId && allowed.Contains(connectionId)))
+        {
+            throw new KeyNotFoundException($"Email connection {id} not found.");
+        }
 
         return MapToResponse(configuration);
     }
@@ -88,14 +102,13 @@ public class EmailConnectionService : IEmailConnectionService
         var configuration = new EmailConfiguration
         {
             Connection = connection,
-            Provider = ParseProvider(_options.CurrentValue.DefaultProvider),
+            Provider = EmailProviderType.Smtp,
 
             // Inactive until step 2 supplies credentials. A configuration that claims to be
             // active with nothing behind it would let a campaign be created against a connection
             // that cannot send.
             IsActive = false,
 
-            AuthMode = EmailAuthMode.IamRole,
             DefaultFromName = request.DisplayName.Trim(),
             DefaultFromEmail = email,
             DefaultReplyTo = string.IsNullOrWhiteSpace(request.ReplyToEmail) ? null : request.ReplyToEmail.Trim()
@@ -107,12 +120,7 @@ public class EmailConnectionService : IEmailConnectionService
             EmailAddress = email,
             ReplyTo = configuration.DefaultReplyTo,
             IsDefault = true,
-            IsActive = true,
-
-            // Nothing is verified until the provider says so. Starting at NotStarted rather than
-            // Verified means the send gate blocks until the domain is genuinely authenticated,
-            // instead of failing at the provider once a campaign is already running.
-            VerificationStatus = EmailIdentityStatus.NotStarted
+            IsActive = true
         });
 
         _dbContext.EmailConfigurations.Add(configuration);
@@ -140,56 +148,20 @@ public class EmailConnectionService : IEmailConnectionService
         configuration.Provider = provider;
         configuration.IsActive = request.IsActive;
 
-        if (provider == EmailProviderType.AmazonSes)
+        configuration.SmtpHost = Trim(request.SmtpHost);
+        configuration.SmtpPort = request.SmtpPort;
+        configuration.SmtpSecurity = ParseSmtpSecurity(request.SmtpSecurity);
+        configuration.SmtpUsername = Trim(request.SmtpUsername);
+
+        // Blank means "keep the stored password", so the API never needs to return one.
+        if (!string.IsNullOrWhiteSpace(request.SmtpPassword))
         {
-            configuration.Region = Trim(request.Region);
-            configuration.AuthMode = ParseAuthMode(request.AuthMode);
-            configuration.ConfigurationSet = Trim(request.ConfigurationSet);
-
-            if (configuration.AuthMode == EmailAuthMode.IamRole)
-            {
-                // Switching to the role-based chain must not leave a usable key behind. Keeping
-                // it would mean a credential nobody believes is in use is still decryptable in
-                // the database.
-                configuration.AccessKeyId = null;
-                configuration.SecretAccessKeyEncrypted = null;
-            }
-            else
-            {
-                configuration.AccessKeyId = Trim(request.AccessKeyId);
-
-                // Blank means "keep the stored key". This is what lets an operator change the
-                // region without re-typing a secret, and is the reason the API never needs to
-                // return one.
-                if (!string.IsNullOrWhiteSpace(request.SecretAccessKey))
-                {
-                    configuration.SecretAccessKeyEncrypted = _encryption.Encrypt(request.SecretAccessKey.Trim());
-                }
-
-                if (string.IsNullOrWhiteSpace(configuration.AccessKeyId)
-                    || string.IsNullOrWhiteSpace(configuration.SecretAccessKeyEncrypted))
-                {
-                    throw new ArgumentException(
-                        "Access-key authentication requires both an access key ID and a secret access key.");
-                }
-            }
+            configuration.SmtpPasswordEncrypted = _encryption.Encrypt(request.SmtpPassword.Trim());
         }
-        else
+
+        if (string.IsNullOrWhiteSpace(configuration.SmtpHost))
         {
-            configuration.SmtpHost = Trim(request.SmtpHost);
-            configuration.SmtpPort = request.SmtpPort;
-            configuration.SmtpSecurity = ParseSmtpSecurity(request.SmtpSecurity);
-            configuration.SmtpUsername = Trim(request.SmtpUsername);
-
-            if (!string.IsNullOrWhiteSpace(request.SmtpPassword))
-            {
-                configuration.SmtpPasswordEncrypted = _encryption.Encrypt(request.SmtpPassword.Trim());
-            }
-
-            if (string.IsNullOrWhiteSpace(configuration.SmtpHost))
-            {
-                throw new ArgumentException("An SMTP host is required for the SMTP provider.");
-            }
+            throw new ArgumentException("An SMTP server (host) is required.");
         }
 
         // Stamped once, on the first successful configuration. This is what later distinguishes a
@@ -238,13 +210,11 @@ public class EmailConnectionService : IEmailConnectionService
     {
         var provider = _providerFactory.GetProvider(request.Provider);
 
-        // Secrets the operator did not retype are taken from the stored configuration, so
-        // re-testing after changing only a region does not force them to re-enter a key.
-        string? secretAccessKey = Trim(request.SecretAccessKey);
+        // A password the operator did not retype is taken from the stored configuration, so
+        // re-testing after changing only the port does not force them to re-enter it.
         string? smtpPassword = Trim(request.SmtpPassword);
 
-        if (request.EmailConfigurationId is { } configurationId
-            && (secretAccessKey is null || smtpPassword is null))
+        if (request.EmailConfigurationId is { } configurationId && smtpPassword is null)
         {
             var stored = await _dbContext.EmailConfigurations
                 .AsNoTracking()
@@ -252,8 +222,7 @@ public class EmailConnectionService : IEmailConnectionService
 
             if (stored is not null)
             {
-                secretAccessKey ??= DecryptOrNull(stored.SecretAccessKeyEncrypted);
-                smtpPassword ??= DecryptOrNull(stored.SmtpPasswordEncrypted);
+                smtpPassword = DecryptOrNull(stored.SmtpPasswordEncrypted);
             }
         }
 
@@ -262,11 +231,6 @@ public class EmailConnectionService : IEmailConnectionService
             // Zero, because nothing is stored yet. Only used for log correlation.
             EmailConfigurationId = request.EmailConfigurationId ?? 0,
             Provider = ParseProvider(request.Provider),
-            Region = Trim(request.Region),
-            AuthMode = ParseAuthMode(request.AuthMode),
-            AccessKeyId = Trim(request.AccessKeyId),
-            SecretAccessKey = secretAccessKey,
-            ConfigurationSet = Trim(request.ConfigurationSet),
             SmtpHost = Trim(request.SmtpHost),
             SmtpPort = request.SmtpPort,
             SmtpSecurity = ParseSmtpSecurity(request.SmtpSecurity),
@@ -332,8 +296,7 @@ public class EmailConnectionService : IEmailConnectionService
 
             // Tagged so the delivery event for this send is distinguishable from campaign
             // traffic in reporting.
-            Tags = new Dictionary<string, string> { ["purpose"] = "connection_test" },
-            ConfigurationSet = context.ConfigurationSet
+            Tags = new Dictionary<string, string> { ["purpose"] = "connection_test" }
         };
 
         var result = await provider.SendAsync(message, context, ct);
@@ -381,9 +344,6 @@ public class EmailConnectionService : IEmailConnectionService
     {
         var configuration = await _dbContext.EmailConfigurations
             .Include(c => c.SenderIdentities)
-                // See the note in LoadQuery: without this, MapSender's CanSend reads a null
-                // SendingDomain and reports a domain-verified sender as unusable.
-                .ThenInclude(s => s.SendingDomain)
             .FirstOrDefaultAsync(c => c.Id == id, ct)
             ?? throw new KeyNotFoundException($"Email connection {id} not found.");
 
@@ -404,9 +364,7 @@ public class EmailConnectionService : IEmailConnectionService
 
             // The first sender is the default whether or not the caller said so — a connection
             // with senders but no default has no answer to "who does a campaign send as".
-            IsDefault = request.IsDefault || configuration.SenderIdentities.Count == 0,
-            VerificationStatus = EmailIdentityStatus.NotStarted,
-            SendingDomainId = await FindDomainForAsync(id, email, ct)
+            IsDefault = request.IsDefault || configuration.SenderIdentities.Count == 0
         };
 
         if (sender.IsDefault) ClearOtherDefaults(configuration.SenderIdentities, exceptId: null);
@@ -419,15 +377,6 @@ public class EmailConnectionService : IEmailConnectionService
             $"Added sender {email} to email connection {id}.",
             nameof(EmailSenderIdentity), sender.Id.ToString());
 
-        // Ask SES straight away rather than storing NotStarted and waiting to be asked. Verifying
-        // an address in the SES console and then adding it here is the ordinary order of events,
-        // and leaving it NotStarted made an already-verified sender unusable with no indication
-        // of what to do about it.
-        //
-        // Deliberately not fatal: the sender is saved either way, and a transient SES failure
-        // should not lose an operator's work. The gate re-checks before any send.
-        await _domainService.RefreshSenderStatusAsync(sender.Id, ct);
-
         return MapSender(sender, configuration);
     }
 
@@ -439,9 +388,6 @@ public class EmailConnectionService : IEmailConnectionService
     {
         var configuration = await _dbContext.EmailConfigurations
             .Include(c => c.SenderIdentities)
-                // See the note in LoadQuery: without this, MapSender's CanSend reads a null
-                // SendingDomain and reports a domain-verified sender as unusable.
-                .ThenInclude(s => s.SendingDomain)
             .FirstOrDefaultAsync(c => c.Id == id, ct)
             ?? throw new KeyNotFoundException($"Email connection {id} not found.");
 
@@ -449,21 +395,11 @@ public class EmailConnectionService : IEmailConnectionService
             ?? throw new KeyNotFoundException($"Sender {senderId} not found on this connection.");
 
         var email = request.EmailAddress.Trim();
-        var addressChanged = !sender.EmailAddress.Equals(email, StringComparison.OrdinalIgnoreCase);
 
         sender.DisplayName = request.DisplayName.Trim();
         sender.EmailAddress = email;
         sender.ReplyTo = Trim(request.ReplyTo);
         sender.IsActive = request.IsActive;
-
-        if (addressChanged)
-        {
-            // A different address is a different identity as far as the provider is concerned, so
-            // its verification cannot be inherited — carrying it over would let an unverified
-            // address through the send gate.
-            sender.VerificationStatus = EmailIdentityStatus.NotStarted;
-            sender.SendingDomainId = await FindDomainForAsync(id, email, ct);
-        }
 
         if (request.IsDefault)
         {
@@ -472,10 +408,6 @@ public class EmailConnectionService : IEmailConnectionService
         }
 
         await _dbContext.SaveChangesAsync(ct);
-
-        // Only when the address changed: the status was just reset to NotStarted above, and a
-        // rename or a reply-to edit is not a reason to call SES.
-        if (addressChanged) await _domainService.RefreshSenderStatusAsync(sender.Id, ct);
 
         await _auditService.LogAsync(
             "EmailSender.Updated", "Settings",
@@ -539,7 +471,6 @@ public class EmailConnectionService : IEmailConnectionService
         // Secrets cleared, mirroring what WhatsApp's disconnect does to its access token. A
         // "disconnected" connection that still holds a working credential is a credential nobody
         // is watching.
-        configuration.SecretAccessKeyEncrypted = null;
         configuration.SmtpPasswordEncrypted = null;
 
         await _dbContext.SaveChangesAsync(ct);
@@ -577,6 +508,16 @@ public class EmailConnectionService : IEmailConnectionService
             configuration.ImapPasswordEncrypted = _encryption.Encrypt(request.ImapPassword.Trim());
         }
 
+        if (request.ImapAllowInvalidCertificate is { } allowInvalid)
+        {
+            configuration.ImapAllowInvalidCertificate = allowInvalid;
+        }
+
+        // A different mailbox has different UIDs: start again from the look-back window.
+        configuration.ImapLastUid = null;
+        configuration.ImapUidValidity = null;
+        configuration.ImapLastError = null;
+
         await _dbContext.SaveChangesAsync(ct);
 
         await _auditService.LogAsync(
@@ -596,55 +537,21 @@ public class EmailConnectionService : IEmailConnectionService
             .FirstOrDefaultAsync(c => c.Id == id, ct)
             ?? throw new KeyNotFoundException($"Email connection {id} not found.");
 
-        if (string.IsNullOrWhiteSpace(configuration.ImapHost))
+        var inbound = _options.CurrentValue.Inbound;
+        var endpoint = ImapEndpointResolver.Resolve(configuration, inbound, DecryptOrNull, out var reason);
+
+        if (endpoint is null)
         {
             return new EmailProviderTestResponse
             {
                 Success = false,
-                Message = "No IMAP host is configured for this connection. Save IMAP settings first."
+                Message = reason ?? "This connection cannot receive replies."
             };
         }
-
-        var username = !string.IsNullOrWhiteSpace(configuration.ImapUsername)
-            ? configuration.ImapUsername
-            : configuration.SmtpUsername;
-
-        var password = DecryptOrNull(configuration.ImapPasswordEncrypted)
-            ?? DecryptOrNull(configuration.SmtpPasswordEncrypted);
-
-        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
-        {
-            return new EmailProviderTestResponse
-            {
-                Success = false,
-                Message = "IMAP credentials are incomplete. Configure an IMAP username and password (or SMTP credentials to fall back to)."
-            };
-        }
-
-        var port = configuration.ImapPort ?? 993;
-
-        var socketOptions = configuration.ImapSecurity switch
-        {
-            SmtpSecurityMode.SslOnConnect => MailKit.Security.SecureSocketOptions.SslOnConnect,
-            SmtpSecurityMode.StartTls     => MailKit.Security.SecureSocketOptions.StartTls,
-            SmtpSecurityMode.None         => MailKit.Security.SecureSocketOptions.None,
-            _                             => MailKit.Security.SecureSocketOptions.SslOnConnect
-        };
 
         try
         {
-            using var client = new MailKit.Net.Imap.ImapClient();
-            client.Timeout = 20_000;
-
-            // cPanel and other shared-hosting providers often use a self-signed certificate
-            // (e.g. mail.rma.my serving a cert for the hosting provider's own domain).
-            // MailKit rejects these by default. We bypass validation here because:
-            // 1. The connection itself is still TLS-encrypted.
-            // 2. This is an inbound-only poll — we receive, never send credentials over plain text.
-            client.ServerCertificateValidationCallback = (s, c, h, e) => true;
-
-            await client.ConnectAsync(configuration.ImapHost, port, socketOptions, ct);
-            await client.AuthenticateAsync(username, password, ct);
+            using var client = await ImapEndpointResolver.ConnectAsync(endpoint, inbound.TimeoutSeconds, _logger, ct);
 
             var inbox = client.Inbox;
             await inbox.OpenAsync(MailKit.FolderAccess.ReadOnly, ct);
@@ -652,9 +559,13 @@ public class EmailConnectionService : IEmailConnectionService
 
             await client.DisconnectAsync(quit: true, ct);
 
-            var message = $"IMAP connection successful. Inbox contains {messageCount} message(s).";
+            var message = endpoint.IsDerivedFromSmtp
+                ? $"IMAP connection to {endpoint.Host} (derived from the SMTP host) successful. Inbox contains {messageCount} message(s)."
+                : $"IMAP connection successful. Inbox contains {messageCount} message(s).";
 
-            await RecordTestResultAsync(id, EmailProviderTestResult.Ok(message), ct);
+            // Recorded against the inbound status only. Writing it to LastTestSucceeded made a
+            // failing mailbox mark the whole sending connection as broken.
+            await RecordImapStatusAsync(id, error: null, ct);
 
             return new EmailProviderTestResponse
             {
@@ -662,20 +573,25 @@ public class EmailConnectionService : IEmailConnectionService
                 Message = message,
                 Details = new Dictionary<string, string>
                 {
-                    ["host"] = configuration.ImapHost,
-                    ["port"] = port.ToString(),
+                    ["host"] = endpoint.Host,
+                    ["port"] = endpoint.Port.ToString(),
+                    ["derived"] = endpoint.IsDerivedFromSmtp.ToString(),
                     ["messageCount"] = messageCount.ToString()
                 }
             };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex,
                 "IMAP connection test failed for email configuration {ConfigId} ({Host}:{Port}).",
-                id, configuration.ImapHost, port);
+                id, endpoint.Host, endpoint.Port);
 
-            var errorMessage = $"IMAP connection failed: {ex.Message}";
-            await RecordTestResultAsync(id, EmailProviderTestResult.Fail(errorMessage), ct);
+            var errorMessage = ex is MailKit.Security.SslHandshakeException
+                ? $"IMAP connection to {endpoint.Host} failed: the server's TLS certificate is not valid for this host. "
+                  + "Use the host name the certificate was issued for, or allow the invalid certificate for this connection."
+                : $"IMAP connection to {endpoint.Host} failed: {ex.Message}";
+
+            await RecordImapStatusAsync(id, errorMessage, ct);
 
             return new EmailProviderTestResponse
             {
@@ -683,6 +599,28 @@ public class EmailConnectionService : IEmailConnectionService
                 Message = errorMessage
             };
         }
+    }
+
+    private async Task RecordImapStatusAsync(int id, string? error, CancellationToken ct)
+    {
+        var trimmed = error is { Length: > 1000 } ? error[..1000] : error;
+        await _dbContext.EmailConfigurations
+            .Where(c => c.Id == id)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(c => c.ImapLastError, trimmed)
+                .SetProperty(c => c.ImapLastPolledAt, DateTime.UtcNow), ct);
+    }
+
+    /// <summary>The mailbox replies are read from, derived from the SMTP host when none is saved.</summary>
+    private string? ResolveEffectiveImapHost(EmailConfiguration configuration, out bool derived)
+    {
+        derived = false;
+        if (!string.IsNullOrWhiteSpace(configuration.ImapHost)) return configuration.ImapHost;
+        if (configuration.Provider != EmailProviderType.Smtp || !_options.CurrentValue.Inbound.DeriveImapFromSmtp) return null;
+
+        var host = ImapEndpointResolver.DeriveHostFromSmtp(configuration.SmtpHost);
+        derived = host is not null;
+        return host;
     }
 
     public async Task DeleteAsync(int id, CancellationToken ct = default)
@@ -723,16 +661,6 @@ public class EmailConnectionService : IEmailConnectionService
             .AsNoTracking()
             .Include(c => c.Connection)
             .Include(c => c.SenderIdentities)
-                // The sender's own domain, explicitly. Including the configuration's SendingDomains
-                // collection does NOT populate it: this query is AsNoTracking, so EF performs no
-                // relationship fixup between the two collections, and sender.SendingDomain came
-                // back null. CanSend then read null and hid senders whose domain was verified —
-                // the API contradicting the server's own send gate.
-                .ThenInclude(s => s.SendingDomain)
-            .Include(c => c.SendingDomains)
-            // Two collections at the same level: without this, every domain repeats once per
-            // sender. Same reasoning as the campaign detail query.
-            .AsSplitQuery()
             .OrderBy(c => c.Id);
 
     /// <summary>
@@ -791,23 +719,6 @@ public class EmailConnectionService : IEmailConnectionService
         await _dbContext.SaveChangesAsync(ct);
     }
 
-    /// <summary>
-    /// Links a sender to the sending domain that authorises it, when one is configured. Matching
-    /// on the address's domain is what lets the send gate answer "is this sender authenticated"
-    /// without a second lookup per recipient.
-    /// </summary>
-    private async Task<int?> FindDomainForAsync(int configurationId, string emailAddress, CancellationToken ct)
-    {
-        if (!emailAddress.Contains('@')) return null;
-
-        var domain = emailAddress.Split('@')[1].Trim().ToLowerInvariant();
-
-        return await _dbContext.EmailSendingDomains
-            .Where(d => d.EmailConfigurationId == configurationId && d.DomainName.ToLower() == domain)
-            .Select(d => (int?)d.Id)
-            .FirstOrDefaultAsync(ct);
-    }
-
     private static void ClearOtherDefaults(IEnumerable<EmailSenderIdentity> senders, int? exceptId)
     {
         foreach (var other in senders.Where(s => s.IsDefault && s.Id != exceptId))
@@ -829,15 +740,9 @@ public class EmailConnectionService : IEmailConnectionService
             Description = configuration.Connection?.Description,
             Provider = configuration.Provider.ToString(),
             IsActive = configuration.IsActive,
-            Region = configuration.Region,
-            AuthMode = configuration.AuthMode.ToString(),
-            AccessKeyId = configuration.AccessKeyId,
-
             // The flags, never the values.
-            HasSecretAccessKey = !string.IsNullOrEmpty(configuration.SecretAccessKeyEncrypted),
             HasSmtpPassword = !string.IsNullOrEmpty(configuration.SmtpPasswordEncrypted),
-
-            ConfigurationSet = configuration.ConfigurationSet,
+            CredentialsReadable = CredentialsReadable(configuration),
             SmtpHost = configuration.SmtpHost,
             SmtpPort = configuration.SmtpPort,
             SmtpSecurity = configuration.SmtpSecurity.ToString(),
@@ -849,6 +754,11 @@ public class EmailConnectionService : IEmailConnectionService
             ImapSecurity = configuration.ImapSecurity.ToString(),
             ImapUsername = configuration.ImapUsername,
             HasImapPassword = !string.IsNullOrEmpty(configuration.ImapPasswordEncrypted),
+            ImapAllowInvalidCertificate = configuration.ImapAllowInvalidCertificate,
+            EffectiveImapHost = ResolveEffectiveImapHost(configuration, out var imapDerived),
+            ImapHostIsDerived = imapDerived,
+            ImapLastPolledAt = configuration.ImapLastPolledAt,
+            ImapLastError = configuration.ImapLastError,
 
             MaxSendRatePerSecond = configuration.MaxSendRatePerSecond,
             DefaultFromName = configuration.DefaultFromName,
@@ -871,20 +781,6 @@ public class EmailConnectionService : IEmailConnectionService
                 .OrderByDescending(s => s.IsDefault)
                 .ThenBy(s => s.EmailAddress)
                 .Select(s => MapSender(s, configuration))
-                .ToList(),
-            Domains = configuration.SendingDomains
-                .OrderBy(d => d.DomainName)
-                .Select(d => new EmailSendingDomainResponse
-                {
-                    Id = d.Id,
-                    DomainName = d.DomainName,
-                    VerificationStatus = d.VerificationStatus.ToString(),
-                    DkimStatus = d.DkimStatus.ToString(),
-                    MailFromDomain = d.MailFromDomain,
-                    MailFromStatus = d.MailFromStatus.ToString(),
-                    LastCheckedAt = d.LastCheckedAt,
-                    LastCheckMessage = d.LastCheckMessage
-                })
                 .ToList(),
             CreatedAt = configuration.CreatedAt,
             UpdatedAt = configuration.UpdatedAt
@@ -925,39 +821,28 @@ public class EmailConnectionService : IEmailConnectionService
         ReplyTo = sender.ReplyTo,
         IsDefault = sender.IsDefault,
         IsActive = sender.IsActive,
-        VerificationStatus = sender.VerificationStatus.ToString(),
-        SendingDomainId = sender.SendingDomainId,
-        DomainName = sender.SendingDomain?.DomainName,
 
-        // Mirrors IEmailDomainService.CanSenderSendAsync clause for clause, so the wizard can
-        // explain an unselectable sender rather than letting a campaign fail at dispatch — and so
-        // it never hides one the server would have accepted.
+        // Mirrors IEmailSenderGate.CanSenderSendAsync clause for clause, so the wizard can explain
+        // an unselectable sender rather than letting a campaign fail later — and so it never hides
+        // one the server would have accepted.
         CanSend = CanSend(sender, configuration)
     };
 
+    /// <summary>The read-only half of the send gate: the same rule as <see cref="IEmailSenderGate"/>.</summary>
+    private static bool CanSend(EmailSenderIdentity sender, EmailConfiguration? configuration) =>
+        sender.IsActive
+        && configuration is not { IsActive: false }
+        && (configuration is null || !string.IsNullOrWhiteSpace(configuration.SmtpHost));
+
     /// <summary>
-    /// The read-only half of the send gate: everything <see cref="IEmailDomainService.CanSenderSendAsync"/>
-    /// decides without touching the provider.
-    ///
-    /// <para>
-    /// The gate itself stays authoritative — it can additionally re-read a stale status from SES,
-    /// which a projection has no business doing. This answers the same question from what is
-    /// already loaded, and must not answer it differently.
-    /// </para>
+    /// Whether every stored password on the connection can be read with this server's key. A
+    /// value that cannot is shown as "needs re-entering" before any send fails on it.
     /// </summary>
-    private static bool CanSend(EmailSenderIdentity sender, EmailConfiguration? configuration)
-    {
-        if (!sender.IsActive) return false;
-        if (configuration is { IsActive: false }) return false;
-
-        // SMTP exposes no verification state to query — the relay decides what it will carry, so
-        // requiring a verification that cannot exist would make every SMTP sender unusable. This
-        // clause was missing here while being present in the gate.
-        if (configuration?.Provider == EmailProviderType.Smtp) return true;
-
-        return sender.VerificationStatus == EmailIdentityStatus.Verified
-            || sender.SendingDomain?.VerificationStatus == EmailIdentityStatus.Verified;
-    }
+    private static bool CredentialsReadable(EmailConfiguration configuration) =>
+        (string.IsNullOrEmpty(configuration.SmtpPasswordEncrypted)
+            || Helpers.EncryptionKeyGuard.CanDecrypt(configuration.SmtpPasswordEncrypted, SecretCipher.Decrypt))
+        && (string.IsNullOrEmpty(configuration.ImapPasswordEncrypted)
+            || Helpers.EncryptionKeyGuard.CanDecrypt(configuration.ImapPasswordEncrypted, SecretCipher.Decrypt));
 
     /// <summary>
     /// One status string for the connections list, derived rather than stored — a stored status is
@@ -972,16 +857,11 @@ public class EmailConnectionService : IEmailConnectionService
 
         if (!configuration.IsActive) return "Disconnected";
 
-        var hasCredentials = configuration.Provider switch
-        {
-            EmailProviderType.AmazonSes => configuration.AuthMode == EmailAuthMode.IamRole
-                                        || !string.IsNullOrEmpty(configuration.SecretAccessKeyEncrypted),
-            EmailProviderType.Smtp => !string.IsNullOrWhiteSpace(configuration.SmtpHost),
-            _ => false
-        };
-
-        if (!hasCredentials) return "Setup pending";
+        if (string.IsNullOrWhiteSpace(configuration.SmtpHost)) return "Setup pending";
         if (configuration.SenderIdentities.Count == 0) return "Setup pending";
+
+        // A stored password this server cannot read will fail every send until it is re-entered.
+        if (!CredentialsReadable(configuration)) return "Needs attention";
 
         // A last test that failed is worth surfacing: the credentials are present but known not
         // to work, which is different from never having been tried.
@@ -1035,9 +915,6 @@ public class EmailConnectionService : IEmailConnectionService
             ? parsed
             : throw new ArgumentException(
                 $"Unknown email provider '{value}'. Valid values: {string.Join(", ", Enum.GetNames<EmailProviderType>())}.");
-
-    private static EmailAuthMode ParseAuthMode(string? value) =>
-        Enum.TryParse<EmailAuthMode>(value, true, out var parsed) ? parsed : EmailAuthMode.IamRole;
 
     private static SmtpSecurityMode ParseSmtpSecurity(string? value) =>
         Enum.TryParse<SmtpSecurityMode>(value, true, out var parsed) ? parsed : SmtpSecurityMode.StartTls;

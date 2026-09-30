@@ -60,6 +60,19 @@ public interface IJobQueue
     /// </summary>
     Task<bool> ExtendLeaseAsync(QueueLease lease, TimeSpan extension, CancellationToken ct = default);
 
+    /// <summary>
+    /// Returns a leased job to the queue after <paramref name="delay"/> WITHOUT consuming an
+    /// attempt. For work that could not start — no rate-limit capacity yet — as opposed to work
+    /// that started and failed, which is <see cref="FailAsync"/>.
+    /// </summary>
+    Task<bool> DeferAsync(QueueLease lease, TimeSpan delay, string reason, CancellationToken ct = default);
+
+    /// <summary>
+    /// Dead-letters jobs whose final attempt lost its lease — the process died or hung mid-job.
+    /// Without this such a job is re-claimable forever and can crash every worker that takes it.
+    /// </summary>
+    Task<int> DeadLetterExhaustedLeasesAsync(CancellationToken ct = default);
+
     /// <summary>Queue depth and age, for monitoring and alerting.</summary>
     Task<QueueDepthSnapshot> GetDepthAsync(string queueName, CancellationToken ct = default);
 
@@ -156,8 +169,8 @@ public sealed record QueueLease
 /// failure while consuming send quota.
 /// </param>
 /// <param name="RetryAfter">
-/// Honour a provider-specified delay instead of the computed backoff — SES sends one when
-/// throttling.
+/// Honour a provider-specified delay instead of the computed backoff — a mail server may ask for one
+/// when throttling.
 /// </param>
 public sealed record QueueFailure(string Error, bool IsTransient, TimeSpan? RetryAfter = null);
 

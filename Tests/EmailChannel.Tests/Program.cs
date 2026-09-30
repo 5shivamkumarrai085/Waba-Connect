@@ -50,6 +50,21 @@ try
     if (ShouldRun(5)) await Phase5_PipelineTests.RunAsync(harness, run);
     if (ShouldRun(6)) await Phase6_EventTests.RunAsync(harness, run);
     if (ShouldRun(7)) await Phase7_BulkCsvTests.RunAsync(harness, run);
+    if (ShouldRun(8)) await Phase8_HardeningTests.RunAsync(harness, run);
+    if (ShouldRun(9)) await Phase9_ConnectionScopingTests.RunAsync(harness, run);
+    if (ShouldRun(10)) await Phase10_ApprovalTests.RunAsync(harness, run);
+    if (ShouldRun(11)) await Phase11_RetryTests.RunAsync(harness, run);
+    if (ShouldRun(12)) await Phase12_ComplianceTests.RunAsync(harness, run);
+    if (ShouldRun(13)) await Phase13_SegmentsAndLinksTests.RunAsync(harness, run);
+    if (ShouldRun(14)) await Phase14_DeliverabilityTests.RunAsync(harness, run);
+    if (ShouldRun(15)) await Phase15_AbTestTests.RunAsync(harness, run);
+    if (ShouldRun(16)) await Phase16_FollowUpTests.RunAsync(harness, run);
+    if (ShouldRun(17)) await Phase17_ChatOperationsTests.RunAsync(harness, run);
+    if (ShouldRun(18)) await Phase18_InteractiveTemplateTests.RunAsync(harness, run);
+    if (ShouldRun(19)) await Phase19_WebhookAndScheduleTests.RunAsync(harness, run);
+    if (ShouldRun(20)) await Phase20_EncryptionKeyGuardTests.RunAsync(harness, run);
+    if (ShouldRun(21)) await Phase21_CatalogTests.RunAsync(harness, run);
+    if (ShouldRun(22)) await Phase22_Round4Tests.RunAsync(harness, run);
 }
 finally
 {

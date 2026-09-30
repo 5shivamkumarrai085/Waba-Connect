@@ -39,7 +39,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { botFlowService } from '../../services/botFlow/botFlowService'
 import { templateBotService } from '../../services/templateBot/templateBotService'
-import { useBotFlowStore } from './botFlowStore'
+import { useBotFlowCanvasStore } from './botFlowCanvasStore'
 import { toast } from 'react-hot-toast'
 import './BotFlowDesigner.css'
 
@@ -114,9 +114,9 @@ const NodeHeader = ({
   showDelete?: boolean
   customSubtitle?: React.ReactNode
 }) => {
-  const duplicateNode = useBotFlowStore(state => state.duplicateNode)
-  const deleteNode = useBotFlowStore(state => state.deleteNode)
-  const updateNodeData = useBotFlowStore(state => state.updateNodeData)
+  const duplicateNode = useBotFlowCanvasStore(state => state.duplicateNode)
+  const deleteNode = useBotFlowCanvasStore(state => state.deleteNode)
+  const updateNodeData = useBotFlowCanvasStore(state => state.updateNodeData)
 
   return (
     <div className={`node-header-bar ${headerClass}`}>
@@ -173,7 +173,7 @@ const NodeHeader = ({
 // 1. START TRIGGER NODE
 // ==========================================
 const StartTriggerNode = ({ id, data, selected }: any) => {
-  const updateNodeData = useBotFlowStore(state => state.updateNodeData)
+  const updateNodeData = useBotFlowCanvasStore(state => state.updateNodeData)
   const isCollapsed = data.isCollapsed || false
   const [keywordInput, setKeywordInput] = useState('')
   const [warnings, setWarnings] = useState<string[]>([])
@@ -319,7 +319,7 @@ const StartTriggerNode = ({ id, data, selected }: any) => {
 // 2. TEXT MESSAGE NODE
 // ==========================================
 const TextMessageNode = ({ id, data, selected }: any) => {
-  const updateNodeData = useBotFlowStore(state => state.updateNodeData)
+  const updateNodeData = useBotFlowCanvasStore(state => state.updateNodeData)
   const isCollapsed = data.isCollapsed || false
 
   const textVal = data.messageText || ''
@@ -369,8 +369,8 @@ const TextMessageNode = ({ id, data, selected }: any) => {
 // 3. BUTTON MESSAGE NODE
 // ==========================================
 const ButtonMessageNode = ({ id, data, selected }: any) => {
-  const updateNodeData = useBotFlowStore(state => state.updateNodeData)
-  const edges = useBotFlowStore(state => state.edges)
+  const updateNodeData = useBotFlowCanvasStore(state => state.updateNodeData)
+  const edges = useBotFlowCanvasStore(state => state.edges)
   const isCollapsed = data.isCollapsed || false
   const buttons = data.buttons || []
   const textVal = data.messageText || ''
@@ -524,7 +524,7 @@ const ButtonMessageNode = ({ id, data, selected }: any) => {
 // 4. CALL TO ACTION NODE
 // ==========================================
 const CallToActionNode = ({ id, data, selected }: any) => {
-  const updateNodeData = useBotFlowStore(state => state.updateNodeData)
+  const updateNodeData = useBotFlowCanvasStore(state => state.updateNodeData)
   const isCollapsed = data.isCollapsed || false
 
   const headerVal = data.header || ''
@@ -649,8 +649,8 @@ const CallToActionNode = ({ id, data, selected }: any) => {
 // 5. LIST MESSAGE NODE
 // ==========================================
 const ListMessageNode = ({ id, data, selected }: any) => {
-  const updateNodeData = useBotFlowStore(state => state.updateNodeData)
-  const edges = useBotFlowStore(state => state.edges)
+  const updateNodeData = useBotFlowCanvasStore(state => state.updateNodeData)
+  const edges = useBotFlowCanvasStore(state => state.edges)
   const isCollapsed = data.isCollapsed || false
   const sections = data.sections || []
   const bodyText = data.bodyText || ''
@@ -986,7 +986,7 @@ const ListMessageNode = ({ id, data, selected }: any) => {
 // 6. MEDIA MESSAGE NODE
 // ==========================================
 const MediaMessageNode = ({ id, data, selected }: any) => {
-  const updateNodeData = useBotFlowStore(state => state.updateNodeData)
+  const updateNodeData = useBotFlowCanvasStore(state => state.updateNodeData)
   const isCollapsed = data.isCollapsed || false
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -1145,7 +1145,7 @@ const MediaMessageNode = ({ id, data, selected }: any) => {
 // 7. LOCATION NODE
 // ==========================================
 const LocationNode = ({ id, data, selected }: any) => {
-  const updateNodeData = useBotFlowStore(state => state.updateNodeData)
+  const updateNodeData = useBotFlowCanvasStore(state => state.updateNodeData)
   const isCollapsed = data.isCollapsed || false
   const [zoom, setZoom] = useState(13)
   const [searchVal, setSearchVal] = useState('')
@@ -1321,7 +1321,7 @@ const LocationNode = ({ id, data, selected }: any) => {
 // 8. CONTACT CARD NODE
 // ==========================================
 const ContactCardNode = ({ id, data, selected }: any) => {
-  const updateNodeData = useBotFlowStore(state => state.updateNodeData)
+  const updateNodeData = useBotFlowCanvasStore(state => state.updateNodeData)
   const isCollapsed = data.isCollapsed || false
   const contacts = data.contacts || []
 
@@ -1486,7 +1486,7 @@ const ContactCardNode = ({ id, data, selected }: any) => {
 // 9. CUSTOM AI ASSISTANT NODE
 // ==========================================
 const AIAssistantNode = ({ id, data, selected }: any) => {
-  const updateNodeData = useBotFlowStore(state => state.updateNodeData)
+  const updateNodeData = useBotFlowCanvasStore(state => state.updateNodeData)
   const isCollapsed = data.isCollapsed || false
 
   const errors: string[] = []
@@ -1627,14 +1627,14 @@ const DesignerFlow = () => {
   const navigate = useNavigate()
   const flowId = id ? parseInt(id, 10) : 0
 
-  const nodes = useBotFlowStore(state => state.nodes)
-  const edges = useBotFlowStore(state => state.edges)
-  const setNodes = useBotFlowStore(state => state.setNodes)
-  const setEdges = useBotFlowStore(state => state.setEdges)
-  const onNodesChange = useBotFlowStore(state => state.onNodesChange)
-  const onEdgesChange = useBotFlowStore(state => state.onEdgesChange)
-  const onConnect = useBotFlowStore(state => state.onConnect)
-  const addNode = useBotFlowStore(state => state.addNode)
+  const nodes = useBotFlowCanvasStore(state => state.nodes)
+  const edges = useBotFlowCanvasStore(state => state.edges)
+  const setNodes = useBotFlowCanvasStore(state => state.setNodes)
+  const setEdges = useBotFlowCanvasStore(state => state.setEdges)
+  const onNodesChange = useBotFlowCanvasStore(state => state.onNodesChange)
+  const onEdgesChange = useBotFlowCanvasStore(state => state.onEdgesChange)
+  const onConnect = useBotFlowCanvasStore(state => state.onConnect)
+  const addNode = useBotFlowCanvasStore(state => state.addNode)
 
   const [flowName, setFlowName] = useState('')
   const [flowDesc, setFlowDesc] = useState('')

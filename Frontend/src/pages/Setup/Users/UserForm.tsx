@@ -175,6 +175,10 @@ export const UserForm: React.FC = () => {
 
   return (
     <motion.div {...pageTransitionProps}>
+      <div className="omni-page-hero form-page-hero">
+        <h2>{isEditMode ? 'Edit User' : 'Add User'}</h2>
+        <p>Personal details, sign-in and the role that decides what this person can do.</p>
+      </div>
       <form className="setup-form" onSubmit={handleSubmit}>
         <div className="setup-form-grid">
           {/* ── Personal information ─────────────────────────────────── */}

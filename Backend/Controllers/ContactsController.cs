@@ -8,7 +8,9 @@ using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Contacts;
 using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Models.Enums;
+using WhatsAppCampaignApi.Services.Catalogs;
 using WhatsAppCampaignApi.Services.Interfaces;
+using WhatsAppCampaignApi.Validators;
 
 namespace WhatsAppCampaignApi.Controllers;
 
@@ -24,6 +26,7 @@ public class ContactsController : ControllerBase
     private readonly IChatService _chatService;
     private readonly ILogger<ContactsController> _logger;
     private readonly IAuditService _auditService;
+    private readonly ContactLookupValidatorCache _contactLookups;
 
     public ContactsController(
         IContactService contactService,
@@ -31,7 +34,8 @@ public class ContactsController : ControllerBase
         IDashboardCacheService dashboardCacheService,
         IChatService chatService,
         ILogger<ContactsController> logger,
-        IAuditService auditService)
+        IAuditService auditService,
+        ContactLookupValidatorCache contactLookups)
     {
         _contactService = contactService;
         _dbContext = dbContext;
@@ -39,6 +43,7 @@ public class ContactsController : ControllerBase
         _chatService = chatService;
         _logger = logger;
         _auditService = auditService;
+        _contactLookups = contactLookups;
     }
 
     [HttpGet]
@@ -56,7 +61,9 @@ public class ContactsController : ControllerBase
         [FromQuery] string? source = null,
         [FromQuery] int? groupId = null,
         [FromQuery] DateTime? startDate = null,
-        [FromQuery] DateTime? endDate = null)
+        [FromQuery] DateTime? endDate = null,
+        [FromQuery] string? tag = null,
+        [FromQuery] string? group = null)
     {
         var request = new PagedRequest
         {
@@ -76,7 +83,9 @@ public class ContactsController : ControllerBase
             source,
             groupId,
             startDate,
-            endDate);
+            endDate,
+            tag,
+            group);
         return Ok(new ApiResponse<PagedResponse<ContactResponse>> { Success = true, Data = data });
     }
 
@@ -233,6 +242,24 @@ public class ContactsController : ControllerBase
         return Ok(list);
     }
 
+    /// <summary>
+    /// How many active contacts there are of each type, for the campaign wizard's audience summary.
+    /// One grouped query, so it stays cheap with millions of contacts (Type is indexed).
+    /// </summary>
+    [HttpGet("type-counts")]
+    [RequiresPermission("Contact.View")]
+    public async Task<IActionResult> GetTypeCounts(CancellationToken ct)
+    {
+        var counts = await _dbContext.Contacts
+            .AsNoTracking()
+            .Where(c => c.IsActive)
+            .GroupBy(c => c.Type)
+            .Select(g => new { type = g.Key, count = g.Count() })
+            .ToListAsync(ct);
+
+        return Ok(new ApiResponse<object> { Success = true, Data = counts });
+    }
+
     [HttpGet("languages")]
     [RequiresPermission("Contact.View")]
     public async Task<IActionResult> GetLanguages()
@@ -316,14 +343,33 @@ public class ContactsController : ControllerBase
 
     [HttpGet("csv-sample")]
     [RequiresPermission("Contact.Import")]
-    public IActionResult GetCsvSample()
+    public async Task<IActionResult> GetCsvSample()
     {
-        // Kept in step with the required-column set enforced by ImportCsv: status_id, source_id,
-        // firstname, lastname, type and phone are mandatory; assigned_id, company and email are
-        // optional but shipped in the sample so the user can see where they go.
-        var csvContent = "status_id,source_id,assigned_id,firstname,lastname,company,type,email,phone\n1,1,1,sample data,sample data,,lead,abc@gmail.com,+1 555 123 4567\n";
+        // Built from the same layout ImportCsv enforces, so a field an administrator makes
+        // required shows up in the sample the moment the setting is saved.
+        var columns = await CsvLayoutAsync();
+        static string Cell(string value) => value.Contains(',') || value.Contains('"') ? $"\"{value.Replace("\"", "\"\"")}\"" : value;
+        var csvContent = string.Join(",", columns.Columns.Select(c => Cell(c.Header))) + "\n"
+            + string.Join(",", columns.Columns.Select(c => Cell(c.Example))) + "\n";
         var bytes = System.Text.Encoding.UTF8.GetBytes(csvContent);
         return File(bytes, "text/csv", "contacts_sample.csv");
+    }
+
+    /// <summary>
+    /// The columns a contacts CSV needs (with which are required and an example value) and the
+    /// optional ones the importer also reads. The import dialog renders its table from this.
+    /// </summary>
+    [HttpGet("csv-layout")]
+    [RequiresPermission("Contact.Import")]
+    public async Task<ActionResult<ApiResponse<CsvContactLayoutResponse>>> GetCsvLayout() =>
+        Ok(new ApiResponse<CsvContactLayoutResponse> { Success = true, Data = await CsvLayoutAsync() });
+
+    private async Task<CsvContactLayoutResponse> CsvLayoutAsync()
+    {
+        var exampleType = await _dbContext.ContactTypes.AsNoTracking()
+            .OrderBy(t => t.Id).Select(t => t.Value).FirstOrDefaultAsync() ?? string.Empty;
+        var columns = CsvContactColumns.Layout(_contactLookups.RequiredFields(), exampleType, out var optional);
+        return new CsvContactLayoutResponse(columns, optional);
     }
 
     /// <summary>
@@ -370,14 +416,11 @@ public class ContactsController : ControllerBase
             int assignedIdIdx = headers.FindIndex(h => h == "assigned_id");
             int firstNameIdx = headers.FindIndex(h => h == "firstname" || h == "first name" || h == "first_name");
             int lastNameIdx = headers.FindIndex(h => h == "lastname" || h == "last name" || h == "last_name");
-            int companyIdx = headers.FindIndex(h => h == "company");
             int typeIdx = headers.FindIndex(h => h == "type");
-            int emailIdx = headers.FindIndex(h => h == "email");
             int phoneIdx = headers.FindIndex(h => h == "phone" || h == "phone number" || h == "phoneno");
 
-            // assigned_id, company and email are optional — which is what the Download Sample
-            // dialog has always documented (no asterisk on ASSIGNED_ID). The parser used to
-            // demand assigned_id anyway and reject the whole file without saying so.
+            // assigned_id is optional unless Settings › Contacts makes "Assigned to" required. The
+            // parser used to demand it anyway and reject the whole file without saying so.
             var missingHeaders = new List<string>();
             if (statusIdIdx == -1) missingHeaders.Add("status_id");
             if (sourceIdIdx == -1) missingHeaders.Add("source_id");
@@ -385,6 +428,19 @@ public class ContactsController : ControllerBase
             if (lastNameIdx == -1) missingHeaders.Add("lastname");
             if (typeIdx == -1) missingHeaders.Add("type");
             if (phoneIdx == -1) missingHeaders.Add("phone");
+
+            // The other contact fields (email, date of birth, company, city, ...) are read from
+            // any column named after them, and the fields an administrator has made required
+            // under Settings › Contacts must have a column — the same rules the contact form
+            // follows, so an import cannot create contacts the form would refuse.
+            var requiredFields = _contactLookups.RequiredFields();
+            var optionalColumns = CsvContactColumns.Map(headers);
+            foreach (var field in CsvContactColumns.Importable)
+            {
+                if (requiredFields.Contains(field.Key) && !optionalColumns.ContainsKey(field.Key))
+                    missingHeaders.Add(CsvContactColumns.HeaderFor(field));
+            }
+            if (requiredFields.Contains("assignedTo") && assignedIdIdx == -1) missingHeaders.Add("assigned_id");
 
             if (missingHeaders.Count > 0)
             {
@@ -561,10 +617,16 @@ public class ContactsController : ControllerBase
                     }
                 }
 
-                var fullName = $"{firstName} {lastName}".Trim();
-                if (fullName.Length < 2) fullName = firstName;
+                if (assignedTo is null && requiredFields.Contains("assignedTo"))
+                {
+                    errors.Add(new CsvRowError { RowNumber = rowNumber, Column = "assigned_id", Value = assignedVal, Reason = "Assigned to is required." });
+                    continue;
+                }
 
-                contactsToImport.Add(new Contact
+                var fullName = $"{firstName} {lastName}".Trim();
+                if (fullName.Length < ContactFieldCatalog.NameMinLength) fullName = firstName;
+
+                var contact = new Contact
                 {
                     Name = fullName,
                     Phone = cleanedPhone,
@@ -575,7 +637,17 @@ public class ContactsController : ControllerBase
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
-                });
+                };
+
+                var fieldError = CsvContactColumns.Apply(contact, fields, optionalColumns, requiredFields);
+                if (fieldError is not null)
+                {
+                    fieldError.RowNumber = rowNumber;
+                    errors.Add(fieldError);
+                    continue;
+                }
+
+                contactsToImport.Add(contact);
             }
 
             // One query for every candidate phone instead of an AnyAsync per row — on a remote

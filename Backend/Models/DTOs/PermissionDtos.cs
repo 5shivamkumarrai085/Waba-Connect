@@ -65,3 +65,11 @@ public class DepartmentPermissionDashboardResponse
     public int ActivePermissions { get; set; }
     public List<DepartmentPermissionResponse> DepartmentPermissions { get; set; } = new();
 }
+
+/// <summary>A user a connection can be assigned to.</summary>
+public sealed record PermissionCandidateUser(int Id, string Name, string Email, string? RoleName, bool IsAdministrator);
+
+/// <summary>A role ("department") a connection can be assigned to.</summary>
+public sealed record PermissionCandidateRole(int Id, string Name, int MemberCount);
+
+public sealed record PermissionCandidatesResponse(List<PermissionCandidateUser> Users, List<PermissionCandidateRole> Roles);

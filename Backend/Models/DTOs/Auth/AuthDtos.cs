@@ -23,9 +23,28 @@ public class LoginRequest
 
 public class LoginResponse
 {
+    /// <summary>Short-lived bearer token for API calls.</summary>
     public string Token { get; set; } = string.Empty;
     public DateTime ExpiresAt { get; set; }
+
+    /// <summary>Single-use token for <c>POST /api/auth/refresh</c>. Rotated on every use.</summary>
+    public string RefreshToken { get; set; } = string.Empty;
+    public DateTime RefreshTokenExpiresAt { get; set; }
+
     public CurrentUserResponse User { get; set; } = new();
+}
+
+public class RefreshTokenRequest
+{
+    [SkipSanitization]
+    public string RefreshToken { get; set; } = string.Empty;
+}
+
+public class LogoutRequest
+{
+    /// <summary>The refresh token to revoke. Omitted means this user's every session.</summary>
+    [SkipSanitization]
+    public string? RefreshToken { get; set; }
 }
 
 public class ChangePasswordRequest

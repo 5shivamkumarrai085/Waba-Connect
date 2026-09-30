@@ -53,7 +53,7 @@ export const CHANNELS: ChannelDefinition[] = [
   {
     key: 'email',
     label: 'Email',
-    description: 'Send message via Email (Amazon SES or SMTP)',
+    description: 'Send message via Email (SMTP)',
     iconName: 'Mail',
     colorVar: '--channel-email',
     available: true,
@@ -108,6 +108,3 @@ export const normalizeChannel = (value: string | null | undefined): AnyChannel =
 /** The form the API expects: `"WhatsApp"` or `"Email"`. */
 export const toApiChannel = (channel: MessageChannel): string =>
   channel === 'email' ? 'Email' : 'WhatsApp'
-
-export const channelLabel = (value: string | null | undefined): string =>
-  getChannel(value)?.label ?? 'Unknown'

@@ -29,8 +29,17 @@ public class DashboardCacheService : IDashboardCacheService
     // and avoids any TimeZoneInfo lookup / cross-platform timezone-database dependency.
     private static readonly TimeSpan IstOffset = TimeSpan.FromHours(5.5);
 
-    public DashboardCacheService(IDbContextFactory<AppDbContext> dbContextFactory, IMemoryCache cache, IConfiguration configuration)
+    private readonly Security.IAccessScope _accessScope;
+
+    /// <summary>
+    /// Cancelled on invalidation. Every cached summary — one per time filter and per connection
+    /// scope — listens to it, so one call clears them all.
+    /// </summary>
+    private static CancellationTokenSource _invalidation = new();
+
+    public DashboardCacheService(IDbContextFactory<AppDbContext> dbContextFactory, IMemoryCache cache, IConfiguration configuration, Security.IAccessScope accessScope)
     {
+        _accessScope = accessScope;
         _dbContextFactory = dbContextFactory;
         _cache = cache;
         _configuration = configuration;
@@ -42,7 +51,12 @@ public class DashboardCacheService : IDashboardCacheService
         var validFilters = new HashSet<string> { "today", "week", "month", "all" };
         if (!validFilters.Contains(normalizedFilter))
             normalizedFilter = "all";
-        string cacheKey = $"Dashboard_Summary_{normalizedFilter}";
+        // Connection scoping: a restricted user's figures cover only their connections, and are
+        // cached separately — keyed by the scope — so one user's numbers never serve another's.
+        var scope = (await _accessScope.GetAllowedConnectionIdsAsync())?.OrderBy(id => id).ToArray();
+        string cacheKey = scope is null
+            ? $"Dashboard_Summary_{normalizedFilter}"
+            : $"Dashboard_Summary_{normalizedFilter}_scope_{string.Join('-', scope)}";
 
         int ttlSeconds = normalizedFilter switch
         {
@@ -55,6 +69,7 @@ public class DashboardCacheService : IDashboardCacheService
         var data = await _cache.GetOrCreateAsync(cacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(ttlSeconds);
+            entry.AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(_invalidation.Token));
 
             var now = DateTime.UtcNow;
 
@@ -96,16 +111,16 @@ public class DashboardCacheService : IDashboardCacheService
             async Task<PreviousPeriodCounts?> GetPreviousPeriodOrNullAsync()
             {
                 if (!previousStart.HasValue || !previousEnd.HasValue) return null;
-                return await GetPreviousPeriodCountsAsync(previousStart.Value, previousEnd.Value);
+                return await GetPreviousPeriodCountsAsync(previousStart.Value, previousEnd.Value, scope);
             }
 
-            var coreCountsTask = GetCoreCountsAsync(currentCutoff);
+            var coreCountsTask = GetCoreCountsAsync(currentCutoff, scope);
             var previousPeriodTask = GetPreviousPeriodOrNullAsync();
-            var sparklinesTask = GetSparklinesAsync(sparklineStart);
-            var hourlyTask = GetHourlyChartAsync(currentCutoff);
-            var topAndRecentCampaignsTask = GetTopAndRecentCampaignsAsync(currentCutoff);
-            var recentActivityTask = GetRecentActivityAndBusinessNameAsync();
-        var channelBreakdownTask = GetChannelBreakdownAsync(currentCutoff);
+            var sparklinesTask = GetSparklinesAsync(sparklineStart, scope);
+            var hourlyTask = GetHourlyChartAsync(currentCutoff, scope);
+            var topAndRecentCampaignsTask = GetTopAndRecentCampaignsAsync(currentCutoff, scope);
+            var recentActivityTask = GetRecentActivityAndBusinessNameAsync(scope);
+        var channelBreakdownTask = GetChannelBreakdownAsync(currentCutoff, scope);
 
             await Task.WhenAll(
                 coreCountsTask,
@@ -208,6 +223,11 @@ public class DashboardCacheService : IDashboardCacheService
         {
             _cache.Remove(key);
         }
+
+        // The scoped variants have per-user keys; the shared token expires all of them.
+        var previous = Interlocked.Exchange(ref _invalidation, new CancellationTokenSource());
+        previous.Cancel();
+        previous.Dispose();
     }
 
     private static double PercentChange(int current, int previous)
@@ -274,11 +294,11 @@ public class DashboardCacheService : IDashboardCacheService
     /// unused".
     /// </para>
     /// </summary>
-    private async Task<List<ChannelBreakdownRow>> GetChannelBreakdownAsync(DateTime? currentCutoff)
+    private async Task<List<ChannelBreakdownRow>> GetChannelBreakdownAsync(DateTime? currentCutoff, int[]? scope)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
 
-        var queryCampaigns = db.Campaigns.AsNoTracking();
+        var queryCampaigns = db.Campaigns.ScopeTo(scope).AsNoTracking();
         if (currentCutoff.HasValue)
         {
             queryCampaigns = queryCampaigns.Where(c => c.CreatedAt >= currentCutoff.Value);
@@ -286,14 +306,14 @@ public class DashboardCacheService : IDashboardCacheService
 
         // One grouped round trip rather than a query per channel per status.
         var campaignIdsInPeriod = queryCampaigns.Select(c => c.Id);
-        var rows = await db.CampaignContacts.AsNoTracking()
+        var rows = await db.CampaignContacts.ScopeTo(scope).AsNoTracking()
             .Where(cc => campaignIdsInPeriod.Contains(cc.CampaignId))
             .GroupBy(cc => new { cc.Campaign.Channel, cc.Status, IsOpened = cc.OpenedAt != null })
             .Select(g => new { g.Key.Channel, g.Key.Status, g.Key.IsOpened, Count = g.Count() })
             .ToListAsync();
 
         // Inbound messages per channel, in one grouped query rather than one per channel.
-        var repliesQuery = db.ChatMessages.AsNoTracking()
+        var repliesQuery = db.ChatMessages.ScopeTo(scope).AsNoTracking()
             .Where(m => m.Direction == ChatMessageDirection.Incoming);
 
         if (currentCutoff.HasValue)
@@ -353,12 +373,12 @@ public class DashboardCacheService : IDashboardCacheService
             .ToList();
     }
 
-    private async Task<CoreCounts> GetCoreCountsAsync(DateTime? currentCutoff)
+    private async Task<CoreCounts> GetCoreCountsAsync(DateTime? currentCutoff, int[]? scope)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
 
         var queryContacts = db.Contacts.AsNoTracking();
-        var queryCampaigns = db.Campaigns.AsNoTracking();
+        var queryCampaigns = db.Campaigns.ScopeTo(scope).AsNoTracking();
         var queryTemplates = db.Templates.AsNoTracking();
 
         if (currentCutoff.HasValue)
@@ -378,7 +398,7 @@ public class DashboardCacheService : IDashboardCacheService
         var templatesApproved = await queryTemplates.CountAsync(t => t.Status == TemplateStatus.Approved);
 
         var campaignIdsInPeriod = queryCampaigns.Select(c => c.Id);
-        var statusRows = await db.CampaignContacts.AsNoTracking()
+        var statusRows = await db.CampaignContacts.ScopeTo(scope).AsNoTracking()
             .Where(cc => campaignIdsInPeriod.Contains(cc.CampaignId))
             .GroupBy(cc => new { cc.Campaign.Channel, cc.Status, IsOpened = cc.OpenedAt != null })
             .Select(g => new { g.Key.Channel, g.Key.Status, g.Key.IsOpened, Count = g.Count() })
@@ -410,7 +430,7 @@ public class DashboardCacheService : IDashboardCacheService
                 : (r.Status == MessageStatus.Pending || r.Status == MessageStatus.Sent))
             .Sum(r => r.Count);
 
-        var queryReplies = db.ChatMessages.AsNoTracking()
+        var queryReplies = db.ChatMessages.ScopeTo(scope).AsNoTracking()
             .Where(m => m.Direction == ChatMessageDirection.Incoming);
 
         if (currentCutoff.HasValue)
@@ -429,11 +449,11 @@ public class DashboardCacheService : IDashboardCacheService
     }
 
     // Raw counts for the immediately preceding period of equal length, used to compute the change-percent shown per stat card.
-    private async Task<PreviousPeriodCounts> GetPreviousPeriodCountsAsync(DateTime previousStart, DateTime previousEnd)
+    private async Task<PreviousPeriodCounts> GetPreviousPeriodCountsAsync(DateTime previousStart, DateTime previousEnd, int[]? scope)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
 
-        var prevCampaignsQuery = db.Campaigns.AsNoTracking()
+        var prevCampaignsQuery = db.Campaigns.ScopeTo(scope).AsNoTracking()
             .Where(c => c.CreatedAt >= previousStart && c.CreatedAt < previousEnd);
 
         var prevContactsCount = await db.Contacts.AsNoTracking()
@@ -443,7 +463,7 @@ public class DashboardCacheService : IDashboardCacheService
             .CountAsync(t => t.CreatedAt >= previousStart && t.CreatedAt < previousEnd);
 
         var prevCampaignIds = prevCampaignsQuery.Select(c => c.Id);
-        var prevMessagesCount = await db.CampaignContacts.AsNoTracking()
+        var prevMessagesCount = await db.CampaignContacts.ScopeTo(scope).AsNoTracking()
             .CountAsync(cc => prevCampaignIds.Contains(cc.CampaignId) && cc.Status != MessageStatus.Pending);
 
         return new PreviousPeriodCounts(prevContactsCount, prevCampaignsCount, prevTemplatesCount, prevMessagesCount);
@@ -451,7 +471,7 @@ public class DashboardCacheService : IDashboardCacheService
 
     // 7-day sparkline trend for each stat card (independent of the active timeFilter, always daily granularity).
     // Each series is aggregated in SQL (GROUP BY day) instead of pulling every row into memory and counting.
-    private async Task<SparklineData> GetSparklinesAsync(DateTime sparklineStart)
+    private async Task<SparklineData> GetSparklinesAsync(DateTime sparklineStart, int[]? scope)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
 
@@ -461,7 +481,7 @@ public class DashboardCacheService : IDashboardCacheService
             .Select(g => new { Day = g.Key, Count = g.Count() })
             .ToDictionaryAsync(g => g.Day, g => g.Count);
 
-        var campaignsByDay = await db.Campaigns.AsNoTracking()
+        var campaignsByDay = await db.Campaigns.ScopeTo(scope).AsNoTracking()
             .Where(c => c.CreatedAt >= sparklineStart)
             .GroupBy(c => c.CreatedAt.Date)
             .Select(g => new { Day = g.Key, Count = g.Count() })
@@ -474,7 +494,7 @@ public class DashboardCacheService : IDashboardCacheService
             .ToDictionaryAsync(g => g.Day, g => g.Count);
 
         // A message's "day" for this trend is its owning campaign's CreatedAt date (matching the semantics above).
-        var messagesByDay = await db.CampaignContacts.AsNoTracking()
+        var messagesByDay = await db.CampaignContacts.ScopeTo(scope).AsNoTracking()
             .Where(cc => cc.Status != MessageStatus.Pending && cc.Campaign.CreatedAt >= sparklineStart)
             .GroupBy(cc => cc.Campaign.CreatedAt.Date)
             .Select(g => new { Day = g.Key, Count = g.Count() })
@@ -505,11 +525,11 @@ public class DashboardCacheService : IDashboardCacheService
     // logic). Bucketing by raw UTC hour put "now" ~5.5 hours behind where a user expects to see it.
     // The IST-shifted day is small (one day's messages), so it's cheap to pull into memory and bucket
     // there — this sidesteps any risk of DateTime-arithmetic-inside-GroupBy failing to translate to SQL.
-    private async Task<HourlyChartResult> GetHourlyChartAsync(DateTime? currentCutoff)
+    private async Task<HourlyChartResult> GetHourlyChartAsync(DateTime? currentCutoff, int[]? scope)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
 
-        var hourlyBaseQuery = db.CampaignContacts.AsNoTracking().Where(cc => cc.SentAt != null);
+        var hourlyBaseQuery = db.CampaignContacts.ScopeTo(scope).AsNoTracking().Where(cc => cc.SentAt != null);
         if (currentCutoff.HasValue)
         {
             hourlyBaseQuery = hourlyBaseQuery.Where(cc => cc.SentAt >= currentCutoff.Value);
@@ -592,7 +612,7 @@ public class DashboardCacheService : IDashboardCacheService
         var sevenDaysAgoIst = DateTime.UtcNow.Add(IstOffset).Date.AddDays(-6);
         var sevenDaysStartUtc = sevenDaysAgoIst.Subtract(IstOffset);
 
-        var dailyTrendRows = await db.CampaignContacts.AsNoTracking()
+        var dailyTrendRows = await db.CampaignContacts.ScopeTo(scope).AsNoTracking()
             .Where(cc => cc.SentAt != null && cc.SentAt >= sevenDaysStartUtc)
             .Select(cc => new { cc.Campaign.Channel, cc.SentAt, cc.Status })
             .ToListAsync();
@@ -625,11 +645,11 @@ public class DashboardCacheService : IDashboardCacheService
 
     // Top-N campaign lists (most recent, and top-by-created-date with delivery/read rates) fetched
     // directly as their own targeted SQL queries — never derived from a fully materialized campaigns table.
-    private async Task<TopAndRecentCampaigns> GetTopAndRecentCampaignsAsync(DateTime? currentCutoff)
+    private async Task<TopAndRecentCampaigns> GetTopAndRecentCampaignsAsync(DateTime? currentCutoff, int[]? scope)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
 
-        var queryCampaigns = db.Campaigns.AsNoTracking();
+        var queryCampaigns = db.Campaigns.ScopeTo(scope).AsNoTracking();
         if (currentCutoff.HasValue)
         {
             queryCampaigns = queryCampaigns.Where(c => c.CreatedAt >= currentCutoff.Value);
@@ -695,7 +715,7 @@ public class DashboardCacheService : IDashboardCacheService
     }
 
     // Synthesized Recent Activity feed — merged from existing tables' own timestamps, no dedicated log table.
-    private async Task<RecentActivityResult> GetRecentActivityAndBusinessNameAsync()
+    private async Task<RecentActivityResult> GetRecentActivityAndBusinessNameAsync(int[]? scope)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
 
@@ -715,7 +735,7 @@ public class DashboardCacheService : IDashboardCacheService
             }));
         }
 
-        var recentCampaignActivity = await db.Campaigns.AsNoTracking()
+        var recentCampaignActivity = await db.Campaigns.ScopeTo(scope).AsNoTracking()
             .Where(c => c.Status == CampaignStatus.Sent || c.Status == CampaignStatus.Sending || c.Status == CampaignStatus.Scheduled)
             .OrderByDescending(c => c.UpdatedAt).Take(5)
             .Select(c => new { c.Name, c.Status, c.UpdatedAt }).ToListAsync();
@@ -778,4 +798,17 @@ public class DashboardCacheService : IDashboardCacheService
 
         return new RecentActivityResult(recentActivity, businessName);
     }
+}
+
+/// <summary>Connection-scope filters for the dashboard's queries. A null scope means unrestricted.</summary>
+internal static class DashboardScopeExtensions
+{
+    public static IQueryable<Models.Entities.Campaign> ScopeTo(this IQueryable<Models.Entities.Campaign> query, int[]? scope) =>
+        scope is null ? query : query.Where(c => c.ConnectionId != null && scope.Contains(c.ConnectionId.Value));
+
+    public static IQueryable<Models.Entities.CampaignContact> ScopeTo(this IQueryable<Models.Entities.CampaignContact> query, int[]? scope) =>
+        scope is null ? query : query.Where(cc => cc.Campaign.ConnectionId != null && scope.Contains(cc.Campaign.ConnectionId.Value));
+
+    public static IQueryable<Models.Entities.ChatMessage> ScopeTo(this IQueryable<Models.Entities.ChatMessage> query, int[]? scope) =>
+        scope is null ? query : query.Where(m => m.ConnectionId != null && scope.Contains(m.ConnectionId.Value));
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { apiClient } from '../services/apiClient'
+import { realtimeService } from '../services/campaigns/campaignHubService'
 
 /**
  * Where a custom notification sound is looked for.
@@ -202,53 +203,53 @@ export const useChatNotificationSound = () => {
   }, [])
 
   // ── The watch ─────────────────────────────────────────────────────────────────
+  // Pushed, not polled: the server announces each inbound message over the real-time connection.
+  // Only while that connection is down does a slow poll of the unread total stand in for it.
   useEffect(() => {
     let stopped = false
+    let fallbackTimer: number | null = null
 
-    const check = async () => {
-      if (stopped) return
+    const unsubscribeInbox = realtimeService.subscribeInbox((event) => {
+      if (event.type !== 'messageReceived') return
+      void isEnabled().then((enabled) => {
+        if (enabled && !stopped) play()
+      })
+    })
 
-      // Deliberately not gated on tab visibility. The Chat page pauses its own polling when hidden
-      // to save load, which is right for a list nobody is looking at — but a notification is most
-      // useful precisely when this tab is in the background. A 20-second poll is cheap enough to
-      // keep running.
-
-      // Never let two polls overlap: a slow response would otherwise queue up requests and could
-      // compare against a stale baseline, announcing the same message twice.
-      if (inFlightRef.current) return
+    const checkUnread = async () => {
+      if (stopped || inFlightRef.current) return
       inFlightRef.current = true
-
       try {
-        const res = await apiClient.get('/Chat/conversations')
+        const res = await apiClient.get('/Chat/conversations', { params: { filter: 'Unread Chats', limit: 100 } })
         const conversations: { unreadCount?: number }[] = res.data?.data ?? []
         const total = conversations.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0)
 
         const previous = previousUnreadRef.current
         previousUnreadRef.current = total
-
-        if (previous === null) return   // first reading: baseline only
-        if (total <= previous) return
-
-        if (await isEnabled()) play()
+        if (previous !== null && total > previous && (await isEnabled())) play()
       } catch {
-        // A failed poll leaves the baseline untouched, so the next successful one compares
-        // against the last figure actually observed rather than treating everything as new.
+        // A failed poll leaves the baseline untouched.
       } finally {
         inFlightRef.current = false
       }
     }
 
-    void check()
-    const interval = window.setInterval(check, POLL_MS)
-
-    // Returning to the tab is also a good moment to check, ahead of the next interval.
-    const onVisible = () => { if (document.visibilityState === 'visible') void check() }
-    document.addEventListener('visibilitychange', onVisible)
+    const unsubscribeState = realtimeService.onStateChange((state) => {
+      if (state === 'connected') {
+        if (fallbackTimer !== null) window.clearInterval(fallbackTimer)
+        fallbackTimer = null
+        previousUnreadRef.current = null
+      } else if (fallbackTimer === null) {
+        void checkUnread()
+        fallbackTimer = window.setInterval(checkUnread, POLL_MS)
+      }
+    })
 
     return () => {
       stopped = true
-      window.clearInterval(interval)
-      document.removeEventListener('visibilitychange', onVisible)
+      if (fallbackTimer !== null) window.clearInterval(fallbackTimer)
+      unsubscribeState()
+      unsubscribeInbox()
     }
   }, [isEnabled, play])
 

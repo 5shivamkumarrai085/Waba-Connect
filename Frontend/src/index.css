@@ -526,12 +526,12 @@
      The host sets Inter everywhere and leans on weight and negative tracking for
      hierarchy rather than a second family, so --font-title now resolves to the
      same stack — every `font-family: var(--font-title)` call site keeps working. */
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-title: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-title: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   /* --font-body was referenced with no fallback in AuditEventDetails, which meant
      that rule silently produced no font-family at all. An alias, so there is one
      stack and three names for it rather than three stacks. */
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-body: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
   /* Layout and Spacing */
@@ -630,12 +630,115 @@
   --z-modal: 1310;
   --z-menu: 1400;
   --z-toast: 999999;
+
+  /* ── Status borders ──────────────────────────────────────────────────────
+     The outline that goes with each status background, for bordered panels
+     (approval banners, callouts). */
+  --omni-color-success-border: #a7f3d0;
+  --omni-color-warning-border: #fde68a;
+  --omni-color-danger-border: #fecaca;
+  --omni-color-info-border: #bfdbfe;
+
+  /* ── Glass controls on the blue page banner ────────────────────────────── */
+  --hero-glass-bg: rgba(255, 255, 255, 0.16);
+  --hero-glass-bg-hover: rgba(255, 255, 255, 0.28);
+  --hero-glass-border: rgba(255, 255, 255, 0.3);
+  --hero-text-soft: rgba(255, 255, 255, 0.82);
+
+  /* ── WhatsApp message preview ──────────────────────────────────────────────
+     WhatsApp's own palette, so previews look like the message the customer
+     will actually receive. Used only by WhatsAppPreview. */
+  --wa-chat-bg: #efeae2;
+  --wa-header-bg: #f0f2f5;
+  --wa-avatar-bg: #128c7e;
+  --wa-bubble-out-bg: #d9fdd3;
+  --wa-bubble-text: #111b21;
+  --wa-bubble-meta: #667781;
+  --wa-button-text: #027eb5;
+  --wa-bubble-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+  --wa-read-tick: #53bdeb;
+  --wa-icon: #8696a0;
+
+  /* Matches of a search inside a conversation. */
+  --chat-search-highlight: #fef08a;
+
+  /* ── KPI cards ─────────────────────────────────────────────────────────────
+     One definition for every KPI strip (dashboard, campaign details), sized so a
+     row of six or seven fits one line on a laptop. Accent hues complement the
+     status palette above; purple is the "engagement" hue. */
+  --kpi-gap: var(--space-base);
+  --kpi-pad-y: var(--space-xl);
+  --kpi-pad-x: var(--space-xl);
+  --kpi-icon: 34px;
+  --kpi-value-size: clamp(22px, 1.9vw, 28px);
+  --kpi-purple: #7c3aed;
+  --kpi-purple-bg: #ede9fe;
+  --kpi-purple-border: #c4b5fd;
+  --kpi-purple-soft: #a78bfa;
+  --kpi-green-soft: #34d399;
+  --kpi-orange-soft: #fbbf24;
+  --kpi-red-soft: #f87171;
+  --shadow-card-hover: 0 12px 28px -4px rgba(var(--primary-rgb), 0.12);
+
+  /* ── Accent hues ───────────────────────────────────────────────────────────
+     For categorical badges and chips (channels, provider tags, template
+     categories) that need more than the four status colours. */
+  --accent-teal: #0d9488;
+  --accent-teal-bg: #f0fdfa;
+  --accent-cyan: #06b6d4;
+  --accent-sky-bg: #e0f2fe;
+  --accent-orange: #f97316;
+  --accent-orange-bg: #ffedd5;
+  --accent-indigo: #3730a3;
+  --accent-indigo-strong: #312e81;
+  --accent-purple-bg: #f3e8ff;
+
+  /* ── Aliases ────────────────────────────────────────────────────────────────
+     Names used across older stylesheets that were never defined, so the browser
+     silently fell back to whatever literal each call site carried — often an
+     off-palette colour. Pointing them at the real tokens makes every one of
+     those call sites render the design-system value. */
+  --danger: var(--omni-color-danger);
+  --danger-light: var(--omni-color-danger-bg);
+  --omni-color-danger-soft: var(--omni-color-danger-bg);
+  --primary-color: var(--primary);
+  --brand-primary: var(--primary);
+  --bg-card: var(--omni-color-surface);
+  --text-primary: var(--omni-color-text-primary);
+  --text-secondary: var(--omni-color-text-secondary);
+  --text-dark: var(--text-main);
+  --border-hover: var(--omni-color-border-strong);
+  --border-strong: var(--omni-color-border-strong);
+  --table-stripe: var(--omni-color-surface-alt);
+  --omni-font-size-xs: var(--text-xs);
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* ── Global utilities ─────────────────────────────────────────────────────────
+   Announced to screen readers, hidden visually (labels for icon-only controls,
+   live regions). Previously defined only in Chat.css, so it silently did nothing
+   on pages that did not load that stylesheet. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Numeric columns align right so digits line up. */
+.text-right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ─── Keyboard focus, everywhere ────────────────────────────────────
@@ -775,11 +878,6 @@ a {
   box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
 }
 
-.dark-theme .glass-panel {
-  background: rgba(30, 41, 59, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
 /* Input focus glow */
 .form-control:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
@@ -795,54 +893,5 @@ a {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-}
-
-/* Base Themes (Dark) Overrides */
-.dark-theme {
-  --bg-primary: #0f172a;       /* Dark slate main background */
-  --bg-secondary: #1e293b;     /* Lighter slate card/modal background */
-  --bg-hover: #334155;         /* Hover background */
-  
-  --primary: #60a5fa;          /* Lifted off the host blue for contrast on dark surfaces */
-  --primary-rgb: 96, 165, 250; /* Matches the lifted blue, so the focus ring lifts with it */
-  --primary-hover: #3b82f6;
-  --primary-dark: #3b82f6;     /* alias of --primary-hover, used by hover states in Chat/InfoCard/ConfirmationModal/ImportContacts */
-  --primary-light: rgba(96, 165, 250, 0.16);
-
-  --text-main: #f8fafc;        /* White text */
-  --text-heading: #f1f5f9;     /* Inverted with the ramp, so headings stay the strongest step */
-  --text-body-strong: #cbd5e1; /* Still above --text-muted, one step below headings */
-  --text-muted: #94a3b8;       /* Slate text */
-  --text-light: #64748b;       /* Muted grey text */
-  --text-dark: #f8fafc;
-  /* Not inverted: the surface underneath is the brand colour in both themes, so
-     the text on it stays white. */
-  --text-on-accent: #ffffff;
-  
-  --bg-subtle: #1e293b;        /* One step off the dark surface, mirroring the light ramp */
-
-  --border-color: #334155;     /* Dark slate border color */
-  --border-light: #1e293b;     /* Secondary border color */
-  
-  /* Additional tokens for compatibility */
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-
-  /* The --omni-* scale follows the theme too, so components written against the
-     host tokens are not stranded in light colours when dark mode is on. */
-  --omni-color-surface: #1e293b;
-  --omni-color-surface-alt: #0f172a;
-  --omni-color-border: #334155;
-  --omni-color-border-strong: #475569;
-  --omni-color-text-primary: #f8fafc;
-  --omni-color-text-secondary: #94a3b8;
-  --omni-color-text-muted: #64748b;
-  --omni-sidebar-bg: #1e293b;
-  --omni-sidebar-border: #334155;
-  --omni-sidebar-text: #94a3b8;
-  --omni-sidebar-text-active: #93c5fd;
-  --omni-sidebar-text-muted: #64748b;
-  --omni-sidebar-bg-active: rgba(96, 165, 250, 0.16);
-  --omni-sidebar-bg-hover: #334155;
 }
 

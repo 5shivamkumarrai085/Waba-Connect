@@ -15,8 +15,11 @@ public class ContactService : IContactService
     private readonly IAuditService _auditService;
     private readonly IChatService _chatConversationSeeder;
 
-    public ContactService(AppDbContext dbContext, IAuditService auditService, IChatService chatService)
+    private readonly Realtime.IDashboardNotifier? _dashboard;
+
+    public ContactService(AppDbContext dbContext, IAuditService auditService, IChatService chatService, Realtime.IDashboardNotifier? dashboard = null)
     {
+        _dashboard = dashboard;
         _dbContext = dbContext;
         _auditService = auditService;
         _chatConversationSeeder = chatService;
@@ -31,7 +34,9 @@ public class ContactService : IContactService
         string? source = null,
         int? groupId = null,
         DateTime? startDate = null,
-        DateTime? endDate = null)
+        DateTime? endDate = null,
+        string? tag = null,
+        string? groupName = null)
     {
         var query = _dbContext.Contacts
             .AsNoTracking()
@@ -48,26 +53,50 @@ public class ContactService : IContactService
 
         // Type joins status and source as a plain string comparison. The Enum.TryParse guard
         // that used to wrap this would have silently ignored any type an administrator added.
-        if (!string.IsNullOrEmpty(type))
+        // A comma-separated list selects several types at once (the campaign wizard's audience).
+        if (!string.IsNullOrEmpty(type) && !type.Equals("All", StringComparison.OrdinalIgnoreCase))
         {
-            query = query.Where(c => c.Type == type);
+            // Case-insensitive, as the list's filter has always behaved.
+            var types = type.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(t => t.ToLower()).Distinct().ToList();
+            query = types.Count == 1
+                ? query.Where(c => c.Type.ToLower() == types[0])
+                : query.Where(c => types.Contains(c.Type.ToLower()));
         }
 
         // Compared as plain strings now that statuses and sources are database-driven — an
         // Enum.TryParse here would silently drop any value an administrator added.
-        if (!string.IsNullOrEmpty(status))
+        if (!string.IsNullOrEmpty(status) && !status.Equals("All", StringComparison.OrdinalIgnoreCase))
         {
-            query = query.Where(c => c.Status == status);
+            // Case-insensitive, as the list's filter has always behaved.
+            var statusLower = status.ToLower();
+            query = query.Where(c => c.Status.ToLower() == statusLower);
         }
 
-        if (!string.IsNullOrEmpty(assignedTo))
+        if (!string.IsNullOrEmpty(assignedTo) && !assignedTo.Equals("All", StringComparison.OrdinalIgnoreCase))
         {
-            query = query.Where(c => c.AssignedTo == assignedTo);
+            query = assignedTo.Equals("Unassigned", StringComparison.OrdinalIgnoreCase)
+                ? query.Where(c => c.AssignedTo == null || c.AssignedTo == "")
+                : query.Where(c => c.AssignedTo == assignedTo);
         }
 
-        if (!string.IsNullOrEmpty(source))
+        if (!string.IsNullOrWhiteSpace(groupName) && !groupName.Equals("All", StringComparison.OrdinalIgnoreCase))
         {
-            query = query.Where(c => c.Source == source);
+            query = query.Where(c => c.GroupMemberships.Any(gm => gm.Group != null && gm.Group.Name == groupName));
+        }
+
+        if (!string.IsNullOrWhiteSpace(tag) && !tag.Equals("All", StringComparison.OrdinalIgnoreCase))
+        {
+            // Tags are stored comma-separated: match a whole tag, not a substring of another.
+            var needle = "," + tag.Trim().ToLower() + ",";
+            query = query.Where(c => c.Tags != null && ("," + c.Tags.ToLower().Replace(", ", ",") + ",").Contains(needle));
+        }
+
+        if (!string.IsNullOrEmpty(source) && !source.Equals("All", StringComparison.OrdinalIgnoreCase))
+        {
+            // Case-insensitive, as the list's filter has always behaved.
+            var sourceLower = source.ToLower();
+            query = query.Where(c => c.Source.ToLower() == sourceLower);
         }
 
         if (groupId.HasValue)
@@ -77,12 +106,15 @@ public class ContactService : IContactService
 
         if (startDate.HasValue)
         {
-            query = query.Where(c => c.CreatedAt >= startDate.Value);
+            var from = DateTime.SpecifyKind(startDate.Value.Date, DateTimeKind.Utc);
+            query = query.Where(c => c.CreatedAt >= from);
         }
 
         if (endDate.HasValue)
         {
-            query = query.Where(c => c.CreatedAt <= endDate.Value);
+            // The whole end day, not just its first instant.
+            var toExclusive = DateTime.SpecifyKind(endDate.Value.Date.AddDays(1), DateTimeKind.Utc);
+            query = query.Where(c => c.CreatedAt < toExclusive);
         }
 
         if (!string.IsNullOrEmpty(request.Search))
@@ -106,24 +138,20 @@ public class ContactService : IContactService
                 (c.Country != null && c.Country.ToLower().Contains(search)));
         }
 
-        if (request.SortDescending)
+        var desc = request.SortDescending;
+        query = (request.SortBy ?? string.Empty).ToLowerInvariant() switch
         {
-            query = request.SortBy?.ToLower() switch
-            {
-                "name" => query.OrderByDescending(c => c.Name),
-                "createdat" => query.OrderByDescending(c => c.CreatedAt),
-                _ => query.OrderByDescending(c => c.Id)
-            };
-        }
-        else
-        {
-            query = request.SortBy?.ToLower() switch
-            {
-                "name" => query.OrderBy(c => c.Name),
-                "createdat" => query.OrderBy(c => c.CreatedAt),
-                _ => query.OrderBy(c => c.Id)
-            };
-        }
+            "name" => desc ? query.OrderByDescending(c => c.Name) : query.OrderBy(c => c.Name),
+            "createdat" => desc ? query.OrderByDescending(c => c.CreatedAt) : query.OrderBy(c => c.CreatedAt),
+            "type" => desc ? query.OrderByDescending(c => c.Type) : query.OrderBy(c => c.Type),
+            "phone" => desc ? query.OrderByDescending(c => c.Phone) : query.OrderBy(c => c.Phone),
+            "email" => desc ? query.OrderByDescending(c => c.Email) : query.OrderBy(c => c.Email),
+            "status" => desc ? query.OrderByDescending(c => c.Status) : query.OrderBy(c => c.Status),
+            "source" => desc ? query.OrderByDescending(c => c.Source) : query.OrderBy(c => c.Source),
+            "assignedto" => desc ? query.OrderByDescending(c => c.AssignedTo) : query.OrderBy(c => c.AssignedTo),
+            "company" => desc ? query.OrderByDescending(c => c.Company) : query.OrderBy(c => c.Company),
+            _ => desc ? query.OrderByDescending(c => c.Id) : query.OrderBy(c => c.Id)
+        };
 
         var totalCount = await query.CountAsync();
         var items = await query
@@ -192,7 +220,9 @@ public class ContactService : IContactService
                 existingContact.City = request.City;
                 existingContact.State = request.State;
                 existingContact.Country = request.Country;
+                existingContact.TimeZone = NormalizeTimeZone(request.TimeZone);
                 existingContact.ZipCode = request.ZipCode;
+                existingContact.DateOfBirth = request.DateOfBirth;
                 existingContact.Address = request.Address;
                 existingContact.Description = request.Description;
                 existingContact.UpdatedAt = DateTime.UtcNow;
@@ -229,6 +259,7 @@ public class ContactService : IContactService
                 // had rows removed while deleted — top them up the same way a new one gets them.
                 await _chatConversationSeeder.EnsureConversationsForContactAsync(existingContact.Id);
 
+                _dashboard?.Changed();
                 return await GetByIdAsync(existingContact.Id);
             }
             else
@@ -251,7 +282,9 @@ public class ContactService : IContactService
             City = request.City,
             State = request.State,
             Country = request.Country,
+            TimeZone = NormalizeTimeZone(request.TimeZone),
             ZipCode = request.ZipCode,
+            DateOfBirth = request.DateOfBirth,
             Address = request.Address,
             Description = request.Description,
             IsDeleted = false,
@@ -284,6 +317,7 @@ public class ContactService : IContactService
         // build these on every read; doing it once here is what lets that read stay a read.
         await _chatConversationSeeder.EnsureConversationsForContactAsync(contact.Id);
 
+        _dashboard?.Changed();
         return await GetByIdAsync(contact.Id);
     }
 
@@ -317,7 +351,9 @@ public class ContactService : IContactService
         contact.City = request.City;
         contact.State = request.State;
         contact.Country = request.Country;
+        contact.TimeZone = NormalizeTimeZone(request.TimeZone);
         contact.ZipCode = request.ZipCode;
+        contact.DateOfBirth = request.DateOfBirth;
         contact.Address = request.Address;
         contact.Description = request.Description;
         contact.UpdatedAt = DateTime.UtcNow;
@@ -363,6 +399,7 @@ public class ContactService : IContactService
             "Contact.Deleted", "Data",
             $"Deleted contact \"{contact.Name}\" ({contact.Phone}).",
             "Contact", contact.Id.ToString());
+        _dashboard?.Changed();
     }
 
     public async Task<ContactResponse> ToggleActiveAsync(int id)
@@ -379,6 +416,7 @@ public class ContactService : IContactService
             $"Set contact \"{contact.Name}\" to {(contact.IsActive ? "active" : "inactive")}.",
             "Contact", contact.Id.ToString());
 
+        _dashboard?.Changed();
         return await GetByIdAsync(contact.Id);
     }
 
@@ -399,7 +437,14 @@ public class ContactService : IContactService
             City = c.City,
             State = c.State,
             Country = c.Country,
+            TimeZone = c.TimeZone,
+            AdSourceId = c.AdSourceId,
+            AdSourceUrl = c.AdSourceUrl,
+            AdHeadline = c.AdHeadline,
+            AdAttributedAt = c.AdAttributedAt,
             ZipCode = c.ZipCode,
+            DateOfBirth = c.DateOfBirth,
+            Age = c.DateOfBirth is { } dob ? Catalogs.ContactFieldCatalog.AgeOn(dob, DateOnly.FromDateTime(DateTime.UtcNow)) : null,
             Address = c.Address,
             Description = c.Description,
             Tags = c.Tags,
@@ -413,5 +458,15 @@ public class ContactService : IContactService
                 Color = gm.Group.Color
             }).ToList()
         };
+    }
+
+    /// <summary>A known time zone id, or null. An unknown value is rejected rather than stored and ignored.</summary>
+    private static string? NormalizeTimeZone(string? timeZone)
+    {
+        if (string.IsNullOrWhiteSpace(timeZone)) return null;
+        var id = timeZone.Trim();
+        if (!TimeZoneInfo.TryFindSystemTimeZoneById(id, out _))
+            throw new ArgumentException($"'{id}' is not a recognised time zone. Use an IANA name such as Asia/Kolkata.");
+        return id;
     }
 }

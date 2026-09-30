@@ -1,6 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import * as Icons from 'lucide-react'
+import { iconByName } from '../../utils/iconRegistry'
 import { fadeSlideUp, transitions } from '../../utils/motion'
 import './EmptyState.css'
 
@@ -23,7 +23,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   message,
   action
 }) => {
-  const IconComponent = (Icons as any)[iconName] || Icons.HelpCircle
+  const IconComponent = iconByName(iconName)
 
   return (
     <motion.div

@@ -199,8 +199,3 @@ export const ALL_COUNTRIES: CountryInfo[] = [
   { code: 'ZM', name: 'Zambia', dialCode: '+260', minDigits: 9, maxDigits: 9 },
   { code: 'ZW', name: 'Zimbabwe', dialCode: '+263', minDigits: 9, maxDigits: 9 }
 ]
-
-export const getCountryByDialCode = (dialCode: string): CountryInfo => {
-  const found = ALL_COUNTRIES.find((c) => c.dialCode === dialCode)
-  return found || ALL_COUNTRIES[0]
-}

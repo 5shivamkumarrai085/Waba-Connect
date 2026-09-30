@@ -4,7 +4,12 @@ using Microsoft.EntityFrameworkCore;
 using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Helpers;
 using WhatsAppCampaignApi.Models.DTOs.Webhook;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using WhatsAppCampaignApi.Services.Interfaces;
+using WhatsAppCampaignApi.Services.Queue;
+using WhatsAppCampaignApi.Services.WhatsApp;
 
 namespace WhatsAppCampaignApi.Controllers;
 
@@ -24,18 +29,24 @@ namespace WhatsAppCampaignApi.Controllers;
 public class WebhookController : ControllerBase
 {
     private readonly IWhatsAppService _whatsAppService;
-    private readonly IDashboardCacheService _dashboardCacheService;
+    private readonly IWhatsAppWebhookSignatureVerifier _signatureVerifier;
+    private readonly IJobQueue _queue;
+    private readonly IWebHostEnvironment _environment;
     private readonly AppDbContext _dbContext;
     private readonly ILogger<WebhookController> _logger;
 
     public WebhookController(
         IWhatsAppService whatsAppService,
-        IDashboardCacheService dashboardCacheService,
+        IWhatsAppWebhookSignatureVerifier signatureVerifier,
+        IJobQueue queue,
+        IWebHostEnvironment environment,
         AppDbContext dbContext,
         ILogger<WebhookController> logger)
     {
         _whatsAppService = whatsAppService;
-        _dashboardCacheService = dashboardCacheService;
+        _signatureVerifier = signatureVerifier;
+        _queue = queue;
+        _environment = environment;
         _dbContext = dbContext;
         _logger = logger;
     }
@@ -50,7 +61,8 @@ public class WebhookController : ControllerBase
         [FromQuery(Name = "hub.challenge")] string challenge,
         [FromQuery(Name = "hub.verify_token")] string token)
     {
-        _logger.LogInformation("Received WhatsApp Webhook GET verification request. Mode: {Mode}, Token: {Token}", mode, token);
+        // The verify token is a shared secret: never logged.
+        _logger.LogInformation("Received WhatsApp Webhook GET verification request. Mode: {Mode}", mode);
 
         var isValid = _whatsAppService.VerifyWebhook(mode, token, challenge);
         
@@ -60,43 +72,62 @@ public class WebhookController : ControllerBase
             return Content(challenge, "text/plain"); // Meta expects raw challenge string back with HTTP 200
         }
             
-        _logger.LogWarning("WhatsApp Webhook GET verification failed for mode: {Mode}, token: {Token}", mode, token);
+        _logger.LogWarning("WhatsApp Webhook GET verification failed for mode: {Mode}", mode);
         return Forbid();
     }
 
     /// <summary>
-    /// Event notifications (message status updates / inbound messages) from Meta
+    /// Event notifications (message status updates / inbound messages) from Meta.
     /// </summary>
+    /// <remarks>
+    /// Verify, store, acknowledge. The signature is checked against the raw bytes (re-serialising
+    /// would change them), the delivery is written to the durable queue, and Meta gets its 200
+    /// straight away; <see cref="WhatsAppWebhookWorker"/> does the processing. If the queue write
+    /// fails the response is a 500, so Meta redelivers rather than the event being lost.
+    /// </remarks>
     [HttpPost]
     [AllowAnonymous]
-    public async Task<IActionResult> ReceiveWebhook([FromBody] WhatsAppWebhookPayload payload)
+    [RequestSizeLimit(2 * 1024 * 1024)]
+    public async Task<IActionResult> ReceiveWebhook(CancellationToken ct)
     {
-        // Log detailed info about incoming webhook for debugging
-        if (payload.Entry != null)
-        {
-            foreach (var entry in payload.Entry)
-            {
-                if (entry.Changes == null) continue;
-                foreach (var change in entry.Changes)
-                {
-                    var phoneNumberId = change.Value?.Metadata?.PhoneNumberId;
-                    var displayPhone = change.Value?.Metadata?.DisplayPhoneNumber;
-                    var messageCount = change.Value?.Messages?.Count ?? 0;
-                    var statusCount = change.Value?.Statuses?.Count ?? 0;
+        using var buffer = new MemoryStream();
+        await Request.Body.CopyToAsync(buffer, ct);
+        var body = buffer.ToArray();
 
-                    _logger.LogInformation(
-                        "Webhook POST received — PhoneNumberId: {PhoneNumberId}, DisplayPhone: {DisplayPhone}, Messages: {MsgCount}, Statuses: {StatusCount}",
-                        phoneNumberId, displayPhone, messageCount, statusCount);
-                }
-            }
+        var signature = await _signatureVerifier.VerifyAsync(body, Request.Headers["X-Hub-Signature-256"], ct);
+        switch (signature)
+        {
+            case WebhookSignatureResult.Invalid:
+                _logger.LogWarning("Rejected a WhatsApp webhook POST with a missing or invalid X-Hub-Signature-256.");
+                return Unauthorized();
+
+            case WebhookSignatureResult.NotConfigured when _environment.IsProduction():
+                _logger.LogError("Rejected a WhatsApp webhook POST: no app secret is configured to verify it against.");
+                return Unauthorized();
+
+            case WebhookSignatureResult.NotConfigured:
+                _logger.LogWarning("WhatsApp webhook accepted WITHOUT signature verification: no app secret is configured.");
+                break;
         }
 
-        // Process inside the request scope so DbContext-backed webhook updates are reliable.
-        await _whatsAppService.ProcessWebhookAsync(payload);
-        
-        // Invalidate dashboard cache for real-time metric updates
-        _dashboardCacheService.InvalidateCache();
-        
+        var text = Encoding.UTF8.GetString(body);
+        if (string.IsNullOrWhiteSpace(text)) return Ok();
+
+        // Meta redelivers the identical body when it did not see our 200; hashing it makes that
+        // redelivery a no-op at the queue instead of a second round of processing.
+        var idempotencyKey = Convert.ToHexString(SHA256.HashData(body));
+
+        await _queue.EnqueueAsync(new[]
+        {
+            new QueueMessage
+            {
+                QueueName = QueueNames.WhatsAppWebhook,
+                Payload = JsonSerializer.Serialize(new WhatsAppWebhookJob(text, DateTime.UtcNow)),
+                IdempotencyKey = idempotencyKey,
+                Priority = 10
+            }
+        }, ct);
+
         return Ok();
     }
 
@@ -141,7 +172,9 @@ public class WebhookController : ControllerBase
                 connectionId = c.ConnectionId,
                 connectionName = c.Connection?.Name,
                 wabaId = c.WabaId,
-                verifyToken = c.VerifyToken,
+                // Masked: enough to tell which token is configured, not enough to reuse it.
+                verifyToken = string.IsNullOrEmpty(c.VerifyToken) ? null
+                    : c.VerifyToken.Length <= 4 ? "****" : $"****{c.VerifyToken[^4..]}",
                 isConnected = c.Connected,
                 hasAccessToken = !string.IsNullOrWhiteSpace(c.AccessToken),
                 matchingPhone = phones.FirstOrDefault(p => p.ConnectionId == c.ConnectionId)?.PhoneNumber

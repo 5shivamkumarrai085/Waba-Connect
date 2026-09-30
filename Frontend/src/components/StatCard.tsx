@@ -63,27 +63,28 @@ export const StatCard: React.FC<StatCardProps> = React.memo(({
 
   const hasBottomRow = bottomLabel !== undefined && bottomValue !== undefined
 
+  // Compact, left-aligned layout so a whole row of KPIs fits one line: label beside its icon,
+  // then the number, then its context. The accent (top cap and icon) follows the card's meaning
+  // through `tone-*`, not its position in the row.
   return (
     <motion.div
-      className="stat-card"
+      className={`stat-card tone-${colorClass}`}
       {...cardHoverProps}
     >
-      <div className="stat-card-top">
-        <div className={`stat-card-icon-wrapper ${colorClass}`}>
+      <div className="stat-card-head">
+        <span className={`stat-card-icon-wrapper ${colorClass}`} aria-hidden="true">
           {icon}
-        </div>
-        <div className="stat-card-info">
-          <div className="stat-card-label">{label}</div>
-          <AnimatedCounter value={value} className="stat-card-value" />
-          {hasTrend && (
-            <div className={`stat-card-trend ${isPositive ? 'positive' : 'negative'}`}>
-              {isPositive ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
-              <span>{Math.abs(changePercent as number).toFixed(1)}%</span>
-              {periodLabel && <span className="stat-card-trend-period">vs {periodLabel}</span>}
-            </div>
-          )}
-        </div>
+        </span>
+        <span className="stat-card-label">{label}</span>
       </div>
+      <AnimatedCounter value={value} className="stat-card-value" />
+      {hasTrend && (
+        <div className={`stat-card-trend ${isPositive ? 'positive' : 'negative'}`}>
+          {isPositive ? <ArrowUp size={12} aria-hidden="true" /> : <ArrowDown size={12} aria-hidden="true" />}
+          <span>{Math.abs(changePercent as number).toFixed(1)}%</span>
+          {periodLabel && <span className="stat-card-trend-period">vs {periodLabel}</span>}
+        </div>
+      )}
       {footnote && <div className="stat-card-footnote">{footnote}</div>}
 
       {showChannels && (

@@ -22,14 +22,12 @@ namespace WhatsAppCampaignApi.Controllers;
 public class EmailConnectionsController : ControllerBase
 {
     private readonly IEmailConnectionService _service;
-    private readonly IEmailDomainService _domainService;
+    private readonly IDeliverabilityService _deliverability;
 
-    public EmailConnectionsController(
-        IEmailConnectionService service,
-        IEmailDomainService domainService)
+    public EmailConnectionsController(IEmailConnectionService service, IDeliverabilityService deliverability)
     {
         _service = service;
-        _domainService = domainService;
+        _deliverability = deliverability;
     }
 
     [HttpGet]
@@ -191,31 +189,27 @@ public class EmailConnectionsController : ControllerBase
     }
 
     /// <summary>
-    /// Re-reads one sender address's verification state from the provider.
-    ///
-    /// <para>
-    /// The send gate also re-checks a stale status on its own, so this is not the only way a
-    /// newly verified address becomes usable — it is the way to make it usable *now*, for an
-    /// operator who has just verified in the SES console and does not want to guess whether the
-    /// product has noticed.
-    /// </para>
+    /// Domain authentication for each sender domain on the connection — SPF, DKIM, DMARC and MX,
+    /// read live from DNS (cached briefly). Warnings, never blockers: mail can still send, but
+    /// Gmail and Yahoo filter bulk mail from domains without them.
     /// </summary>
-    [HttpPost("{id:int}/senders/{senderId:int}/refresh")]
-    [RequiresPermission("EmailConnection.Edit")]
-    public async Task<IActionResult> RefreshSender(int id, int senderId, CancellationToken ct)
+    [HttpGet("{id:int}/domain-health")]
+    [RequiresPermission("EmailConnection.View")]
+    public async Task<IActionResult> DomainHealth(int id, CancellationToken ct)
     {
-        var (status, reason) = await _domainService.RefreshSenderStatusAsync(senderId, ct);
+        var domains = (await _service.GetSendersAsync(id, ct))
+            .Select(s => s.EmailAddress.Contains('@') ? s.EmailAddress[(s.EmailAddress.IndexOf('@') + 1)..].Trim().ToLowerInvariant() : null)
+            .Where(d => !string.IsNullOrWhiteSpace(d))
+            .Distinct()
+            .ToList();
 
-        // The whole sender list comes back, not just the status, so the caller's dropdown reflects
-        // the change without a second round trip to work out what CanSend is now.
-        var senders = await _service.GetSendersAsync(id, ct);
-
-        return Ok(new ApiResponse<List<EmailSenderIdentityResponse>>
+        var result = new List<object>();
+        foreach (var domain in domains)
         {
-            Success = true,
-            Message = reason ?? $"Sender is {status}.",
-            Data = senders
-        });
+            result.Add(new { domain, checks = await _deliverability.CheckDomainAsync(domain!, ct) });
+        }
+
+        return Ok(new ApiResponse<List<object>> { Success = true, Data = result });
     }
 
     [HttpDelete("{id:int}/senders/{senderId:int}")]

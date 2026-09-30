@@ -1,1011 +1,675 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, AlertCircle, Link2, Send, Save, ArrowLeft, Loader2, RefreshCw, Plus, Mail, ServerCog } from 'lucide-react'
+import {
+  AlertCircle, AlertTriangle, ArrowLeft, CheckCircle2, Inbox, KeyRound, Link2, Loader2,
+  RefreshCw, Save, Send, ServerCog, ShieldCheck, UserRound
+} from 'lucide-react'
 import toast from 'react-hot-toast'
+import { pageTransitionProps } from '../../utils/motion'
 import { emailConnectionService } from '../../services/email/emailConnectionService'
-import { emailDomainService } from '../../services/email/emailDomainService'
-import { CopyField } from '../../components/CopyField/CopyField'
+import { referenceService, type EmailPortPreset } from '../../services/referenceService'
+import useReference from '../../hooks/useReference'
+import { StatusBadge } from '../../components/StatusBadge/StatusBadge'
+import { Skeleton } from '../../components/Skeleton'
+import Toggle from '../../components/Toggle/Toggle'
 import { getErrorMessage } from '../../utils/errorHelper'
-import type {
-  EmailAuthMode,
-  EmailConnection,
-  EmailProviderTestResult,
-  EmailProviderType,
-  SmtpSecurityMode
-} from '../../types/email'
-import '../Connections/ConnectNewWabaPage.css'
+import { formatAbsoluteDateTime } from '../../utils/dateHelper'
+import type { DomainHealth, EmailConnection, EmailProviderTestResult, SmtpSecurityMode } from '../../types/email'
 import './ConnectEmail.css'
 
-/**
- * AWS regions SES is available in.
- *
- * A static list rather than an API call: it changes roughly once a year, listing it needs an AWS
- * credential we do not have yet at this point in the wizard, and a free-text region field is a
- * reliable way to produce a connection that fails with an unhelpful error.
- */
-const SES_REGIONS = [
-  { value: 'us-east-1', label: 'us-east-1 (US East — N. Virginia)' },
-  { value: 'us-east-2', label: 'us-east-2 (US East — Ohio)' },
-  { value: 'us-west-2', label: 'us-west-2 (US West — Oregon)' },
-  { value: 'eu-west-1', label: 'eu-west-1 (Europe — Ireland)' },
-  { value: 'eu-west-2', label: 'eu-west-2 (Europe — London)' },
-  { value: 'eu-central-1', label: 'eu-central-1 (Europe — Frankfurt)' },
-  { value: 'ap-south-1', label: 'ap-south-1 (Asia Pacific — Mumbai)' },
-  { value: 'ap-southeast-1', label: 'ap-southeast-1 (Asia Pacific — Singapore)' },
-  { value: 'ap-southeast-2', label: 'ap-southeast-2 (Asia Pacific — Sydney)' },
-  { value: 'ap-northeast-1', label: 'ap-northeast-1 (Asia Pacific — Tokyo)' },
-  { value: 'ca-central-1', label: 'ca-central-1 (Canada — Central)' },
-  { value: 'sa-east-1', label: 'sa-east-1 (South America — São Paulo)' }
-]
+const STATUS_BADGE: Record<string, string> = {
+  Connected: 'success',
+  'Needs attention': 'error',
+  Disconnected: 'error',
+  'Setup pending': 'warning'
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+interface SmtpForm {
+  host: string
+  port: string
+  security: SmtpSecurityMode
+  username: string
+  password: string
+  fromName: string
+  fromEmail: string
+  replyTo: string
+  sendRate: string
+}
+
+interface ImapForm {
+  host: string
+  port: string
+  security: SmtpSecurityMode
+  username: string
+  password: string
+  allowInvalidCertificate: boolean
+}
+
+const smtpFrom = (c: EmailConnection): SmtpForm => ({
+  host: c.smtpHost ?? '',
+  port: c.smtpPort?.toString() ?? '',
+  security: c.smtpSecurity ?? 'StartTls',
+  username: c.smtpUsername ?? '',
+  password: '',
+  fromName: c.defaultFromName ?? '',
+  fromEmail: c.defaultFromEmail ?? '',
+  replyTo: c.defaultReplyTo ?? '',
+  sendRate: c.maxSendRatePerSecond?.toString() ?? ''
+})
+
+const imapFrom = (c: EmailConnection): ImapForm => ({
+  host: c.imapHost ?? '',
+  port: c.imapPort?.toString() ?? '',
+  security: c.imapSecurity ?? 'SslOnConnect',
+  username: c.imapUsername ?? '',
+  password: '',
+  allowInvalidCertificate: c.imapAllowInvalidCertificate ?? false
+})
+
+/** The security a well-known port requires, from the server's catalogue. */
+const impliedSecurity = (ports: EmailPortPreset[] | undefined, port: string) =>
+  ports?.find(p => String(p.port) === port.trim())?.security as SmtpSecurityMode | undefined
 
 /**
- * Step 2 of connecting an email sender: provider credentials, a connectivity test, and the
- * domain authentication the send gate requires.
- *
- * Credentials are write-only throughout. The form starts with the secret fields empty even when
- * a secret is stored, and submitting them empty keeps what is stored — which is why the API never
- * needs to return one. The reference design rendered a live key into a readable input; that puts
- * a working credential in front of anyone who can open the page or screenshot it.
+ * One email connection: the SMTP account it sends through, the IMAP mailbox replies are read
+ * from, and the live checks that say whether both work. Passwords are write-only — the API only
+ * says whether one is stored — and every option list and limit comes from the server
+ * (GET api/reference/email-options).
  */
 export const ConnectEmail: React.FC = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const configurationId = Number(searchParams.get('emailConfigurationId') || 0)
+  const options = useReference(referenceService.getEmailOptions, 'email-options')
+  const id = useId()
+  const hostRef = useRef<HTMLInputElement>(null)
 
   const [connection, setConnection] = useState<EmailConnection | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [smtp, setSmtp] = useState<SmtpForm | null>(null)
+  const [imap, setImap] = useState<ImapForm | null>(null)
+  const [errors, setErrors] = useState<Partial<Record<keyof SmtpForm | 'imapHost' | 'imapPort' | 'testAddress', string>>>({})
 
-  // ── Provider form ──────────────────────────────────────────────────────────────────────────
-  const [provider, setProvider] = useState<EmailProviderType>('AmazonSes')
-  const [region, setRegion] = useState('')
-  const [authMode, setAuthMode] = useState<EmailAuthMode>('AccessKey')
-  const [accessKeyId, setAccessKeyId] = useState('')
-  const [secretAccessKey, setSecretAccessKey] = useState('')
-  const [configurationSet, setConfigurationSet] = useState('')
-  const [sendRate, setSendRate] = useState('')
-
-  const [smtpHost, setSmtpHost] = useState('')
-  const [smtpPort, setSmtpPort] = useState('')
-  const [smtpSecurity, setSmtpSecurity] = useState<SmtpSecurityMode>('StartTls')
-  const [smtpUsername, setSmtpUsername] = useState('')
-  const [smtpPassword, setSmtpPassword] = useState('')
-
-  // ── IMAP form ──────────────────────────────────────────────────────────────────────────────
-  const [imapHost, setImapHost] = useState('')
-  const [imapPort, setImapPort] = useState('')
-  const [imapSecurity, setImapSecurity] = useState<SmtpSecurityMode>('SslOnConnect')
-  const [imapUsername, setImapUsername] = useState('')
-  const [imapPassword, setImapPassword] = useState('')
-
-  // ── Actions in flight ──────────────────────────────────────────────────────────────────────
-  const [isTesting, setIsTesting] = useState(false)
-  const [testResult, setTestResult] = useState<EmailProviderTestResult | null>(null)
-
-  const [testEmailAddress, setTestEmailAddress] = useState('')
-  const [isSendingTest, setIsSendingTest] = useState(false)
+  const [busy, setBusy] = useState<null | 'save' | 'test' | 'saveImap' | 'testImap' | 'send'>(null)
+  const [smtpResult, setSmtpResult] = useState<EmailProviderTestResult | null>(null)
+  const [imapResult, setImapResult] = useState<EmailProviderTestResult | null>(null)
   const [sendResult, setSendResult] = useState<EmailProviderTestResult | null>(null)
+  const [testAddress, setTestAddress] = useState('')
 
-  const [isSaving, setIsSaving] = useState(false)
+  const [health, setHealth] = useState<DomainHealth[] | null>(null)
+  const [healthError, setHealthError] = useState<string | null>(null)
+  const [healthLoading, setHealthLoading] = useState(false)
 
-  const [isSavingImap, setIsSavingImap] = useState(false)
-  const [isTestingImap, setIsTestingImap] = useState(false)
-  const [imapTestResult, setImapTestResult] = useState<EmailProviderTestResult | null>(null)
-
-  // ── Domain authentication ──────────────────────────────────────────────────────────────────
-  const [newDomain, setNewDomain] = useState('')
-  const [isProvisioning, setIsProvisioning] = useState(false)
-  const [refreshingDomainId, setRefreshingDomainId] = useState<number | null>(null)
-
-  const isSes = provider === 'AmazonSes'
-
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!configurationId) {
-      toast.error('No email connection was specified.')
-      navigate('/connections')
+      setLoadError('No email connection was specified.')
       return
     }
-
     const loaded = await emailConnectionService.getConnection(configurationId)
     if (!loaded) {
-      toast.error('That email connection could not be found.')
-      navigate('/connections')
+      setLoadError('That email connection could not be found. It may have been deleted.')
       return
     }
-
+    setLoadError(null)
     setConnection(loaded)
-    setProvider(loaded.provider)
-    setRegion(loaded.region ?? '')
-    setAuthMode(loaded.authMode)
-    setAccessKeyId(loaded.accessKeyId ?? '')
-    setConfigurationSet(loaded.configurationSet ?? '')
-    setSendRate(loaded.maxSendRatePerSecond?.toString() ?? '')
-    setSmtpHost(loaded.smtpHost ?? '')
-    setSmtpPort(loaded.smtpPort?.toString() ?? '')
-    setSmtpSecurity(loaded.smtpSecurity ?? 'StartTls')
-    setSmtpUsername(loaded.smtpUsername ?? '')
-
-    // IMAP — host/port/security pre-filled since they are not secrets.
-    // Username and password are always left blank: blank means "use SMTP credentials",
-    // and filling them would make it look like a separate credential is required.
-    setImapHost(loaded.imapHost ?? '')
-    setImapPort(loaded.imapPort?.toString() ?? '')
-    setImapSecurity(loaded.imapSecurity ?? 'SslOnConnect')
-    setImapUsername('')
-
-    // Secret fields are deliberately left blank. The API returns only whether one is stored,
-    // and blank-means-keep on save is what makes that possible.
-    setSecretAccessKey('')
-    setSmtpPassword('')
-    setImapPassword('')
-
-    setIsLoading(false)
-  }
-
-  useEffect(() => {
-    load()
-    // Keyed on the configuration id so navigating between connections reloads the form.
+    setSmtp(smtpFrom(loaded))
+    setImap(imapFrom(loaded))
   }, [configurationId])
 
-  /** The payload both Save and Test send, so the two can never disagree about the form. */
-  const buildPayload = useMemo(
-    () => () => ({
-      provider,
-      region: isSes ? region || undefined : undefined,
-      authMode: isSes ? authMode : undefined,
-      accessKeyId: isSes && authMode === 'AccessKey' ? accessKeyId.trim() || undefined : undefined,
-      secretAccessKey:
-        isSes && authMode === 'AccessKey' ? secretAccessKey.trim() || undefined : undefined,
-      configurationSet: isSes ? configurationSet.trim() || undefined : undefined,
-      smtpHost: !isSes ? smtpHost.trim() || undefined : undefined,
-      smtpPort: !isSes && smtpPort ? Number(smtpPort) : undefined,
-      smtpSecurity: !isSes ? smtpSecurity : undefined,
-      smtpUsername: !isSes ? smtpUsername.trim() || undefined : undefined,
-      smtpPassword: !isSes ? smtpPassword.trim() || undefined : undefined,
-      maxSendRatePerSecond: sendRate ? Number(sendRate) : undefined,
-      isActive: true
-    }),
-    [
-      provider, isSes, region, authMode, accessKeyId, secretAccessKey, configurationSet,
-      smtpHost, smtpPort, smtpSecurity, smtpUsername, smtpPassword, sendRate
-    ]
-  )
-
-  /**
-   * Tests the credentials currently in the form, saved or not.
-   *
-   * Against the unsaved values on purpose: an operator should not have to store a possibly-wrong
-   * secret to find out whether it is wrong. Any secret left blank falls back to the stored one,
-   * so re-testing after changing only the region does not mean re-typing a key.
-   */
-  const handleTestConnection = async () => {
-    setIsTesting(true)
-    setTestResult(null)
-
+  const loadHealth = useCallback(async () => {
+    if (!configurationId) return
+    setHealthLoading(true)
+    setHealthError(null)
     try {
-      const result = await emailConnectionService.testUnsavedConnection({
-        ...buildPayload(),
-        emailConfigurationId: configurationId
-      })
-      setTestResult(result)
+      setHealth(await emailConnectionService.getDomainHealth(configurationId))
     } catch (err) {
-      setTestResult({ success: false, message: getErrorMessage(err, 'The connection test failed.') })
+      setHealthError(getErrorMessage(err, 'The DNS checks could not be run.'))
     } finally {
-      setIsTesting(false)
+      setHealthLoading(false)
     }
+  }, [configurationId])
+
+  useEffect(() => { void load() }, [load])
+  useEffect(() => { void loadHealth() }, [loadHealth])
+
+  const smtpDirty = useMemo(() => {
+    if (!connection || !smtp) return false
+    const saved = smtpFrom(connection)
+    return (Object.keys(saved) as (keyof SmtpForm)[]).some(k => saved[k] !== smtp[k])
+  }, [connection, smtp])
+
+  const imapDirty = useMemo(() => {
+    if (!connection || !imap) return false
+    const saved = imapFrom(connection)
+    return (Object.keys(saved) as (keyof ImapForm)[]).some(k => saved[k] !== imap[k])
+  }, [connection, imap])
+
+  // Leaving with unsaved settings asks first.
+  useEffect(() => {
+    if (!smtpDirty && !imapDirty) return
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault() }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [smtpDirty, imapDirty])
+
+  const leave = () => {
+    if ((smtpDirty || imapDirty) && !window.confirm('Leave without saving your changes?')) return
+    navigate('/connections')
   }
 
-  /**
-   * The security mode each well-known SMTP port requires.
-   *
-   * 465 is implicit TLS and 587 is STARTTLS — that is not a convention, it is what the servers
-   * on those ports do. Pairing them the other way round does not produce an error: both sides
-   * wait for the other to speak first and the connection hangs until it times out.
-   *
-   * Port 25 is left out deliberately. It is STARTTLS-capable but also the plaintext relay port,
-   * so inferring encryption from it would be a guess, and guessing in the direction of "this is
-   * encrypted" is the wrong way to be wrong.
-   */
-  const SECURITY_FOR_PORT: Record<string, SmtpSecurityMode> = {
-    '465': 'SslOnConnect',
-    '587': 'StartTls',
-    '2525': 'StartTls'
+  const setSmtpField = <K extends keyof SmtpForm>(key: K, value: SmtpForm[K]) => {
+    setSmtp(prev => {
+      if (!prev) return prev
+      const next = { ...prev, [key]: value }
+      // A well-known port implies its security; an explicit "None" is never overridden.
+      if (key === 'port') {
+        const implied = impliedSecurity(options.data?.smtpPorts, String(value))
+        if (implied && prev.security !== 'None') next.security = implied
+      }
+      return next
+    })
+    setErrors(prev => ({ ...prev, [key]: undefined }))
   }
 
-  const handlePortChange = (value: string) => {
-    setSmtpPort(value)
-
-    // Only moves the mode when the port names one, and never overrides an explicit "None":
-    // somebody who turned encryption off meant it, and quietly turning it back on would be a
-    // surprise in the opposite direction.
-    const implied = SECURITY_FOR_PORT[value.trim()]
-    if (implied && smtpSecurity !== 'None') setSmtpSecurity(implied)
+  const setImapField = <K extends keyof ImapForm>(key: K, value: ImapForm[K]) => {
+    setImap(prev => {
+      if (!prev) return prev
+      const next = { ...prev, [key]: value }
+      if (key === 'port') {
+        const implied = impliedSecurity(options.data?.imapPorts, String(value))
+        if (implied && prev.security !== 'None') next.security = implied
+      }
+      return next
+    })
+    setErrors(prev => ({ ...prev, imapHost: key === 'host' ? undefined : prev.imapHost, imapPort: key === 'port' ? undefined : prev.imapPort }))
   }
 
-  // A mismatch can still be reached by changing the dropdown after the port. Surfaced rather than
-  // silently corrected, because the operator just made a deliberate choice — but the server also
-  // lets the port win, so this warns instead of claiming the send will fail.
-  const portSecurityMismatch = (() => {
-    const implied = SECURITY_FOR_PORT[smtpPort.trim()]
-    return implied && smtpSecurity !== 'None' && implied !== smtpSecurity ? implied : null
-  })()
+  /** Field errors for the SMTP form; empty when it may be saved or tested. */
+  const validateSmtp = (form: SmtpForm) => {
+    const next: typeof errors = {}
+    const rate = options.data?.sendRate
+    if (!form.host.trim()) next.host = 'Enter the SMTP server, for example mail.example.com.'
+    if (form.port && (!Number.isInteger(Number(form.port)) || Number(form.port) < 1 || Number(form.port) > 65535)) next.port = 'Enter a port between 1 and 65535.'
+    if (form.fromEmail && !EMAIL_PATTERN.test(form.fromEmail.trim())) next.fromEmail = 'Enter a valid email address.'
+    if (form.replyTo && !EMAIL_PATTERN.test(form.replyTo.trim())) next.replyTo = 'Enter a valid email address.'
+    if (form.sendRate && rate && (Number.isNaN(Number(form.sendRate)) || Number(form.sendRate) < rate.min || Number(form.sendRate) > rate.max)) {
+      next.sendRate = `Enter a rate between ${rate.min} and ${rate.max} emails per second.`
+    }
+    return next
+  }
 
-  const handleSave = async () => {
-    setIsSaving(true)
+  const payload = (form: SmtpForm) => ({
+    provider: 'Smtp' as const,
+    smtpHost: form.host.trim() || undefined,
+    smtpPort: form.port ? Number(form.port) : undefined,
+    smtpSecurity: form.security,
+    smtpUsername: form.username.trim() || undefined,
+    smtpPassword: form.password.trim() || undefined,
+    defaultFromName: form.fromName.trim() || undefined,
+    defaultFromEmail: form.fromEmail.trim() || undefined,
+    defaultReplyTo: form.replyTo.trim() || undefined,
+    maxSendRatePerSecond: form.sendRate ? Number(form.sendRate) : undefined,
+    isActive: true
+  })
+
+  const checkSmtp = () => {
+    if (!smtp) return false
+    const found = validateSmtp(smtp)
+    setErrors(prev => ({ ...prev, ...found }))
+    if (Object.keys(found).length > 0) {
+      if (found.host) hostRef.current?.focus()
+      return false
+    }
+    return true
+  }
+
+  const handleSave = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    if (!smtp || !checkSmtp()) return
+    setBusy('save')
     try {
-      const saved = await emailConnectionService.saveProvider(configurationId, buildPayload())
+      const saved = await emailConnectionService.saveProvider(configurationId, payload(smtp))
       setConnection(saved)
-
-      // Cleared after a successful save, so a stored secret is never sitting in a DOM input
-      // longer than it has to be.
-      setSecretAccessKey('')
-      setSmtpPassword('')
-
-      toast.success('Provider configuration saved.')
-      await load()
+      setSmtp(smtpFrom(saved))
+      toast.success('Sending settings saved.')
+      void loadHealth()
     } catch (err) {
-      toast.error(getErrorMessage(err, 'Could not save the provider configuration.'))
+      toast.error(getErrorMessage(err, 'The sending settings could not be saved.'))
     } finally {
-      setIsSaving(false)
+      setBusy(null)
     }
   }
 
-  /** Sends one real email. Requires the configuration to be saved, since it sends as it. */
-  const handleSendTestEmail = async () => {
-    if (!testEmailAddress.trim()) {
-      toast.error('Enter an address to send the test to.')
-      return
-    }
-
-    setIsSendingTest(true)
-    setSendResult(null)
-
+  const handleTest = async () => {
+    if (!smtp || !checkSmtp()) return
+    setBusy('test')
+    setSmtpResult(null)
     try {
-      const result = await emailConnectionService.sendTestEmail(configurationId, {
-        toAddress: testEmailAddress.trim()
-      })
-      setSendResult(result)
+      setSmtpResult(await emailConnectionService.testUnsavedConnection({ ...payload(smtp), emailConfigurationId: configurationId }))
     } catch (err) {
-      setSendResult({ success: false, message: getErrorMessage(err, 'The test email could not be sent.') })
+      setSmtpResult({ success: false, message: getErrorMessage(err, 'The connection test failed.') })
     } finally {
-      setIsSendingTest(false)
+      setBusy(null)
     }
   }
 
   const handleSaveImap = async () => {
-    if (!imapHost.trim()) {
-      toast.error('Enter an IMAP host before saving.')
-      return
-    }
-
-    setIsSavingImap(true)
+    if (!imap) return
+    const next: typeof errors = {}
+    if (!imap.host.trim()) next.imapHost = 'Enter the IMAP server, for example mail.example.com.'
+    if (imap.port && (!Number.isInteger(Number(imap.port)) || Number(imap.port) < 1 || Number(imap.port) > 65535)) next.imapPort = 'Enter a port between 1 and 65535.'
+    setErrors(prev => ({ ...prev, ...next }))
+    if (Object.keys(next).length > 0) return
+    setBusy('saveImap')
     try {
       const saved = await emailConnectionService.saveImapSettings(configurationId, {
-        imapHost: imapHost.trim(),
-        imapPort: imapPort ? Number(imapPort) : undefined,
-        imapSecurity,
-        imapUsername: imapUsername.trim() || undefined,
-        imapPassword: imapPassword.trim() || undefined
+        imapHost: imap.host.trim(),
+        imapPort: imap.port ? Number(imap.port) : undefined,
+        imapSecurity: imap.security,
+        imapUsername: imap.username.trim() || undefined,
+        imapPassword: imap.password.trim() || undefined,
+        imapAllowInvalidCertificate: imap.allowInvalidCertificate
       })
       setConnection(saved)
-      setImapPassword('')
-      toast.success('IMAP settings saved. Inbound replies will now be polled.')
+      setImap(imapFrom(saved))
+      toast.success('Receiving settings saved. Replies are checked on the next poll.')
     } catch (err) {
-      toast.error(getErrorMessage(err, 'Could not save IMAP settings.'))
+      toast.error(getErrorMessage(err, 'The receiving settings could not be saved.'))
     } finally {
-      setIsSavingImap(false)
+      setBusy(null)
     }
   }
 
   const handleTestImap = async () => {
-    setIsTestingImap(true)
-    setImapTestResult(null)
+    setBusy('testImap')
+    setImapResult(null)
     try {
-      const result = await emailConnectionService.testImapConnection(configurationId)
-      setImapTestResult(result)
+      setImapResult(await emailConnectionService.testImapConnection(configurationId))
     } catch (err) {
-      setImapTestResult({ success: false, message: getErrorMessage(err, 'IMAP test failed.') })
+      setImapResult({ success: false, message: getErrorMessage(err, 'The mailbox could not be reached.') })
     } finally {
-      setIsTestingImap(false)
+      setBusy(null)
     }
   }
 
-  const handleProvisionDomain = async () => {
-    if (!newDomain.trim()) {
-      toast.error('Enter the domain you send from.')
+  const handleSendTest = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!EMAIL_PATTERN.test(testAddress.trim())) {
+      setErrors(prev => ({ ...prev, testAddress: 'Enter the address to send the test to.' }))
       return
     }
-
-    setIsProvisioning(true)
+    setBusy('send')
+    setSendResult(null)
     try {
-      await emailDomainService.provisionDomain(configurationId, newDomain.trim())
-      setNewDomain('')
-      toast.success('Domain added. Publish the DNS records below, then refresh.')
-      await load()
+      setSendResult(await emailConnectionService.sendTestEmail(configurationId, { toAddress: testAddress.trim() }))
     } catch (err) {
-      toast.error(getErrorMessage(err, 'Could not add that domain.'))
+      setSendResult({ success: false, message: getErrorMessage(err, 'The test email could not be sent.') })
     } finally {
-      setIsProvisioning(false)
+      setBusy(null)
     }
   }
 
-  const handleRefreshDomain = async (domainId: number) => {
-    setRefreshingDomainId(domainId)
-    try {
-      const refreshed = await emailDomainService.refreshDomain(domainId)
-      toast.success(
-        refreshed.verificationStatus === 'Verified'
-          ? `${refreshed.domainName} is verified and ready to send.`
-          : `${refreshed.domainName} is ${refreshed.verificationStatus}. DNS changes take time to propagate.`
-      )
-      await load()
-    } catch (err) {
-      toast.error(getErrorMessage(err, 'Could not refresh the domain status.'))
-    } finally {
-      setRefreshingDomainId(null)
-    }
-  }
-
-  if (isLoading) {
+  if (loadError) {
     return (
-      <motion.div className="waba-wizard-wrapper" {...pageTransitionProps}>
-        <div className="waba-wizard-card email-config-loading">
-          <Loader2 className="animate-spin" size={28} />
-          <p>Loading connection…</p>
+      <div className="ec-page">
+        <div className="ec-panel ec-fatal" role="alert">
+          <AlertCircle size={20} aria-hidden="true" />
+          <div>
+            <h2>This connection could not be opened</h2>
+            <p>{loadError}</p>
+          </div>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate('/connections')}>
+            <ArrowLeft size={16} aria-hidden="true" /> Back to Connections
+          </button>
         </div>
-      </motion.div>
+      </div>
     )
   }
 
+  if (!connection || !smtp || !imap) {
+    return (
+      <div className="ec-page" aria-busy="true">
+        <Skeleton variant="title" width={320} height={32} />
+        <div className="ec-layout">
+          <div className="ec-main"><Skeleton variant="card" count={2} /></div>
+          <aside className="ec-side"><Skeleton variant="card" /></aside>
+        </div>
+      </div>
+    )
+  }
+
+  const securityOptions = options.data?.securityModes ?? []
+  const describeSecurity = (value: string) => securityOptions.find(o => o.value === value)?.description
+  const smtpPortMismatch = (() => {
+    const implied = impliedSecurity(options.data?.smtpPorts, smtp.port)
+    return implied && smtp.security !== 'None' && implied !== smtp.security ? implied : null
+  })()
+  const imapDefaultPort = options.data?.defaultImapPort
+  const worstLevel = (checks: DomainHealth['checks']) =>
+    checks.some(c => c.level === 'fail') ? 'error' : checks.some(c => c.level === 'warn') ? 'warning' : 'success'
+
   return (
-    <motion.div className="waba-wizard-wrapper wide" {...pageTransitionProps}>
-      <div className="waba-wizard-card">
-        <div className="waba-wizard-header email">
-          <div>
-            <h2 className="waba-wizard-title">Connect New Email</h2>
-            <p className="waba-wizard-subtitle">
-              {connection?.connectionName} — {connection?.defaultFromEmail}
-            </p>
-          </div>
-
-          <div className="email-config-provider-mark">{isSes ? 'aws' : 'smtp'}</div>
+    <motion.div className="ec-page" {...pageTransitionProps}>
+      <header className="omni-page-hero form-page-hero ec-hero">
+        <button type="button" className="btn-back" onClick={leave} aria-label="Back to Connections">
+          <ArrowLeft size={18} aria-hidden="true" />
+        </button>
+        <div className="ec-hero-text">
+          <h1>{connection.connectionName}</h1>
+          <p>{connection.defaultFromEmail ?? 'Email connection'} · sends by SMTP, receives replies by IMAP</p>
         </div>
+        <StatusBadge type={STATUS_BADGE[connection.status] ?? 'info'} text={connection.status} />
+      </header>
 
-        <div className="waba-stepper-bar">
-          <div className="waba-step-item">
-            <div className="waba-step-badge complete">
-              <CheckCircle2 size={16} />
-            </div>
-            <div className="waba-step-labels">
-              <span className="waba-step-title">Basic Details</span>
-              <span className="waba-step-sub">{connection?.connectionName}</span>
-            </div>
-          </div>
-
-          <div className="waba-step-divider" />
-
-          <div className="waba-step-item">
-            <div className="waba-step-badge active">2</div>
-            <div className="waba-step-labels">
-              <span className="waba-step-title">
-                {isSes ? 'Amazon SES Configuration' : 'SMTP Configuration'}
-              </span>
-              <span className="waba-step-sub">Provider credentials</span>
-            </div>
-          </div>
+      {!connection.credentialsReadable && (
+        <div className="ec-alert is-error" role="alert">
+          <KeyRound size={18} aria-hidden="true" />
+          <p>
+            <strong>The stored password can't be read by this server.</strong> Sends and reply checks on this connection
+            will be held until it is re-entered. Type the password below and save.
+          </p>
         </div>
+      )}
 
-        <div className="waba-wizard-body">
-          <section className="email-config-section">
-            <div className="email-config-section-head">
+      <div className="ec-layout">
+        <div className="ec-main">
+          {/* ── Sending ─────────────────────────────────────────────────────── */}
+          <form className="ec-panel" aria-labelledby={`${id}-smtp`} onSubmit={handleSave} noValidate>
+            <div className="ec-panel-head">
+              <span className="ec-panel-icon" aria-hidden="true"><Send size={18} /></span>
               <div>
-                <h3 className="waba-wizard-heading">
-                  {isSes ? 'Amazon SES Configuration' : 'SMTP Configuration'}
-                </h3>
-                <p className="waba-wizard-subheading">
-                  {isSes
-                    ? 'Provide your Amazon SES configuration details.'
-                    : 'Provide the SMTP server details for this connection.'}
-                </p>
+                <h2 id={`${id}-smtp`}>Sending (SMTP)</h2>
+                <p>The mail server campaigns, chat replies and proofs are sent through.</p>
               </div>
             </div>
 
-            <div className="email-field-grid">
-              <div className="waba-field-group">
-                <label className="waba-field-label">Provider</label>
-                <select
-                  className="waba-field-input"
-                  value={provider}
-                  onChange={(e) => {
-                    setProvider(e.target.value as EmailProviderType)
-                    // A test result belongs to the provider it was run against.
-                    setTestResult(null)
-                  }}
-                >
-                  <option value="AmazonSes">Amazon SES</option>
-                  <option value="Smtp">SMTP</option>
+            <div className="ec-grid">
+              <Field id={`${id}-host`} label="SMTP server" required error={errors.host}>
+                <input ref={hostRef} id={`${id}-host`} className="form-control" value={smtp.host} autoComplete="off" spellCheck={false}
+                  placeholder="mail.example.com…" aria-invalid={!!errors.host} aria-describedby={errors.host ? `${id}-host-error` : undefined}
+                  onChange={e => setSmtpField('host', e.target.value)} />
+              </Field>
+
+              <Field id={`${id}-port`} label="Port" error={errors.port} hint={options.data ? `Common: ${options.data.smtpPorts.map(p => p.label).join(', ')}` : undefined}>
+                <input id={`${id}-port`} className="form-control" inputMode="numeric" list={`${id}-smtp-ports`} value={smtp.port}
+                  placeholder={options.data?.smtpPorts[0] ? String(options.data.smtpPorts[0].port) : ''} aria-invalid={!!errors.port}
+                  onChange={e => setSmtpField('port', e.target.value.replace(/\D/g, ''))} />
+                <datalist id={`${id}-smtp-ports`}>
+                  {options.data?.smtpPorts.map(p => <option key={p.port} value={p.port}>{p.label}</option>)}
+                </datalist>
+              </Field>
+
+              <Field id={`${id}-security`} label="Security" hint={describeSecurity(smtp.security)}
+                warning={smtpPortMismatch ? `Port ${smtp.port} expects ${securityOptions.find(o => o.value === smtpPortMismatch)?.label ?? smtpPortMismatch}; the server will use that.` : undefined}>
+                <select id={`${id}-security`} className="form-control" value={smtp.security} disabled={!options.data}
+                  onChange={e => setSmtpField('security', e.target.value as SmtpSecurityMode)}>
+                  {securityOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
-                <p className="waba-field-hint">
-                  {isSes
-                    ? 'SES reports delivery, bounces and complaints back to this app.'
-                    : 'SMTP can send, but reports no delivery or bounce events.'}
-                </p>
-              </div>
+              </Field>
 
-              {isSes ? (
-                <div className="waba-field-group">
-                  <label className="waba-field-label">
-                    AWS Region <span className="waba-field-required">*</span>
-                  </label>
-                  <select
-                    className="waba-field-input"
-                    value={region}
-                    onChange={(e) => setRegion(e.target.value)}
-                  >
-                    <option value="">Select a region</option>
-                    {SES_REGIONS.map((r) => (
-                      <option key={r.value} value={r.value}>{r.label}</option>
-                    ))}
-                  </select>
-                  <p className="waba-field-hint">
-                    Must match the region your SES identities are verified in.
-                  </p>
-                </div>
-              ) : (
-                <div className="waba-field-group">
-                  <label className="waba-field-label">
-                    SMTP Host <span className="waba-field-required">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    className="waba-field-input"
-                    placeholder="e.g. smtp-relay.gmail.com"
-                    value={smtpHost}
-                    onChange={(e) => setSmtpHost(e.target.value)}
-                  />
-                </div>
-              )}
+              <Field id={`${id}-user`} label="Username">
+                <input id={`${id}-user`} className="form-control" value={smtp.username} autoComplete="off" spellCheck={false}
+                  placeholder="name@example.com…" onChange={e => setSmtpField('username', e.target.value)} />
+              </Field>
+
+              <Field id={`${id}-password`} label="Password"
+                hint={connection.hasSmtpPassword ? (connection.credentialsReadable ? 'A password is saved. Leave blank to keep it.' : 'The saved password is unreadable. Enter it again.') : undefined}>
+                <input id={`${id}-password`} type="password" className="form-control" value={smtp.password} autoComplete="new-password"
+                  placeholder={connection.hasSmtpPassword ? '••••••••' : 'Enter the mailbox password…'}
+                  onChange={e => setSmtpField('password', e.target.value)} />
+              </Field>
+
+              <Field id={`${id}-rate`} label="Sending rate" error={errors.sendRate}
+                hint={options.data ? `Emails per second. Leave blank for the default (${options.data.sendRate.default}/s).` : undefined}>
+                <input id={`${id}-rate`} className="form-control" inputMode="decimal" value={smtp.sendRate}
+                  placeholder={options.data ? String(options.data.sendRate.default) : ''} aria-invalid={!!errors.sendRate}
+                  onChange={e => setSmtpField('sendRate', e.target.value.replace(/[^\d.]/g, ''))} />
+              </Field>
             </div>
 
-            {isSes ? (
-              <>
-                <div className="waba-field-group">
-                  <label className="waba-field-label">
-                    Authentication Method <span className="waba-field-required">*</span>
-                  </label>
+            <fieldset className="ec-fieldset">
+              <legend>Default sender</legend>
+              <div className="ec-grid">
+                <Field id={`${id}-from-name`} label="From name">
+                  <input id={`${id}-from-name`} className="form-control" value={smtp.fromName} autoComplete="off"
+                    onChange={e => setSmtpField('fromName', e.target.value)} />
+                </Field>
+                <Field id={`${id}-from-email`} label="From address" error={errors.fromEmail}>
+                  <input id={`${id}-from-email`} type="email" className="form-control" value={smtp.fromEmail} autoComplete="off" spellCheck={false}
+                    aria-invalid={!!errors.fromEmail} onChange={e => setSmtpField('fromEmail', e.target.value)} />
+                </Field>
+                <Field id={`${id}-reply`} label="Replies go to" error={errors.replyTo} hint="Optional. Must be the mailbox below for replies to reach Chat.">
+                  <input id={`${id}-reply`} type="email" className="form-control" value={smtp.replyTo} autoComplete="off" spellCheck={false}
+                    aria-invalid={!!errors.replyTo} onChange={e => setSmtpField('replyTo', e.target.value)} />
+                </Field>
+              </div>
+            </fieldset>
 
-                  <div className="email-radio-row">
-                    <label className={`email-radio ${authMode === 'IamRole' ? 'selected' : ''}`}>
-                      <input
-                        type="radio"
-                        name="auth-mode"
-                        checked={authMode === 'IamRole'}
-                        onChange={() => setAuthMode('IamRole')}
-                      />
-                      <span>
-                        <strong>IAM Role</strong>
-                        {/* Recommended because it stores no credential at all: there is nothing
-                            in the database to leak, and nothing to rotate. */}
-                        <em>Recommended — no credential is stored</em>
-                      </span>
-                    </label>
+            <div aria-live="polite">{smtpResult && <Result result={smtpResult} successTitle="The server accepted the login" />}</div>
 
-                    <label className={`email-radio ${authMode === 'AccessKey' ? 'selected' : ''}`}>
-                      <input
-                        type="radio"
-                        name="auth-mode"
-                        checked={authMode === 'AccessKey'}
-                        onChange={() => setAuthMode('AccessKey')}
-                      />
-                      <span>
-                        <strong>Access Key</strong>
-                        <em>Access Key ID and Secret Access Key</em>
-                      </span>
-                    </label>
-                  </div>
-                </div>
-
-                {authMode === 'AccessKey' && (
-                  <div className="email-field-grid">
-                    <div className="waba-field-group">
-                      <label className="waba-field-label">
-                        AWS Access Key ID <span className="waba-field-required">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        className="waba-field-input"
-                        placeholder="e.g. AKIAIOSFODNN7EXAMPLE"
-                        value={accessKeyId}
-                        onChange={(e) => setAccessKeyId(e.target.value)}
-                        autoComplete="off"
-                      />
-                    </div>
-
-                    <div className="waba-field-group">
-                      <label className="waba-field-label">
-                        AWS Secret Access Key{' '}
-                        {!connection?.hasSecretAccessKey && <span className="waba-field-required">*</span>}
-                      </label>
-                      <input
-                        type="password"
-                        className="waba-field-input"
-                        placeholder={
-                          connection?.hasSecretAccessKey
-                            ? 'Stored — leave blank to keep it'
-                            : 'Enter the secret access key'
-                        }
-                        value={secretAccessKey}
-                        onChange={(e) => setSecretAccessKey(e.target.value)}
-                        /* new-password stops browsers offering to autofill an unrelated saved
-                           credential into a field that writes to a shared configuration. */
-                        autoComplete="new-password"
-                      />
-                      <p className="waba-field-hint">
-                        {connection?.hasSecretAccessKey
-                          ? 'A key is stored, encrypted. It is never displayed — leave this blank unless you are replacing it.'
-                          : 'Stored encrypted and never shown again.'}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="email-field-grid">
-                  <div className="waba-field-group">
-                    <label className="waba-field-label">Configuration Set (Optional)</label>
-                    <input
-                      type="text"
-                      className="waba-field-input"
-                      placeholder="e.g. OmniConnect-Email-Tracking"
-                      value={configurationSet}
-                      onChange={(e) => setConfigurationSet(e.target.value)}
-                    />
-                    <p className="waba-field-hint">
-                      Used for tracking delivery events. Without one, SES sends but reports
-                      nothing back.
-                    </p>
-                  </div>
-
-                  <div className="waba-field-group">
-                    <label className="waba-field-label">Default Sending Rate (Optional)</label>
-                    <div className="email-input-with-unit">
-                      <input
-                        type="number"
-                        min="0.1"
-                        step="0.1"
-                        className="waba-field-input"
-                        placeholder="e.g. 14"
-                        value={sendRate}
-                        onChange={(e) => setSendRate(e.target.value)}
-                      />
-                      <span className="email-input-unit">emails/second</span>
-                    </div>
-                    <p className="waba-field-hint">
-                      Leave empty to use the configured default. Enforced across every running
-                      instance.
-                    </p>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="email-field-grid">
-                  <div className="waba-field-group">
-                    <label className="waba-field-label">Port</label>
-                    <input
-                      type="number"
-                      className="waba-field-input"
-                      placeholder="587"
-                      value={smtpPort}
-                      onChange={(e) => handlePortChange(e.target.value)}
-                    />
-                    <p className="waba-field-hint">
-                      587 for STARTTLS, 465 for implicit SSL. Security is set to match.
-                    </p>
-                  </div>
-
-                  <div className="waba-field-group">
-                    <label className="waba-field-label">Security</label>
-                    <select
-                      className="waba-field-input"
-                      value={smtpSecurity}
-                      onChange={(e) => setSmtpSecurity(e.target.value as SmtpSecurityMode)}
-                    >
-                      <option value="StartTls">STARTTLS (port 587)</option>
-                      <option value="SslOnConnect">SSL on connect (port 465)</option>
-                      <option value="None">None — not encrypted</option>
-                    </select>
-                    {smtpSecurity === 'None' && (
-                      <p className="waba-field-hint email-field-warning">
-                        Credentials and message content will be sent in clear text.
-                      </p>
-                    )}
-                    {portSecurityMismatch && (
-                      <p className="waba-field-hint email-field-warning">
-                        Port {smtpPort} expects{' '}
-                        {portSecurityMismatch === 'SslOnConnect' ? 'SSL on connect' : 'STARTTLS'}.
-                        The server will use that rather than hang on the wrong handshake.
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="waba-field-group">
-                    <label className="waba-field-label">Username</label>
-                    <input
-                      type="text"
-                      className="waba-field-input"
-                      value={smtpUsername}
-                      onChange={(e) => setSmtpUsername(e.target.value)}
-                      autoComplete="off"
-                    />
-                  </div>
-
-                  <div className="waba-field-group">
-                    <label className="waba-field-label">Password</label>
-                    <input
-                      type="password"
-                      className="waba-field-input"
-                      placeholder={
-                        connection?.hasSmtpPassword ? 'Stored — leave blank to keep it' : 'Enter the password'
-                      }
-                      value={smtpPassword}
-                      onChange={(e) => setSmtpPassword(e.target.value)}
-                      autoComplete="new-password"
-                    />
-                  </div>
-                </div>
-
-                <div className="waba-field-group">
-                  <label className="waba-field-label">Sending Rate (Optional)</label>
-                  <div className="email-input-with-unit">
-                    <input
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      className="waba-field-input"
-                      placeholder="e.g. 5"
-                      value={sendRate}
-                      onChange={(e) => setSendRate(e.target.value)}
-                    />
-                    <span className="email-input-unit">emails/second</span>
-                  </div>
-                </div>
-              </>
-            )}
-
-            <div className="email-action-row">
-              <button
-                type="button"
-                className="btn-toolbar"
-                onClick={handleTestConnection}
-                disabled={isTesting}
-              >
-                {isTesting ? <Loader2 className="animate-spin" size={14} /> : <Link2 size={14} />}
-                {isTesting ? 'Testing…' : 'Test Connection'}
+            <div className="ec-actions">
+              <button type="button" className="btn btn-secondary" onClick={handleTest} disabled={busy !== null}>
+                {busy === 'test' ? <Loader2 size={16} className="ec-spin" aria-hidden="true" /> : <Link2 size={16} aria-hidden="true" />}
+                {busy === 'test' ? 'Testing…' : 'Test Connection'}
+              </button>
+              <span className="ec-actions-note">{smtpDirty ? 'Unsaved changes' : connection.lastTestedAt
+                ? `Last tested ${formatAbsoluteDateTime(connection.lastTestedAt)} · ${connection.lastTestSucceeded ? 'passed' : 'failed'}` : ''}</span>
+              <button type="submit" className="btn btn-primary" disabled={busy !== null || !smtpDirty}
+                title={smtpDirty ? undefined : 'Nothing has changed yet.'}>
+                {busy === 'save' ? <Loader2 size={16} className="ec-spin" aria-hidden="true" /> : <Save size={16} aria-hidden="true" />}
+                {busy === 'save' ? 'Saving…' : 'Save Sending Settings'}
               </button>
             </div>
+          </form>
 
-            {testResult && <ResultBanner result={testResult} />}
-          </section>
-
-          {/* Sending a real email requires the saved configuration, so this section follows it. */}
-          <section className="email-config-section">
-            <div className="email-config-section-head">
+          {/* ── Receiving ───────────────────────────────────────────────────── */}
+          <section className="ec-panel" aria-labelledby={`${id}-imap`}>
+            <div className="ec-panel-head">
+              <span className="ec-panel-icon" aria-hidden="true"><Inbox size={18} /></span>
               <div>
-                <h3 className="waba-wizard-heading">Send Test Email</h3>
-                <p className="waba-wizard-subheading">
-                  Sends one real email using the saved configuration, to verify end-to-end delivery.
+                <h2 id={`${id}-imap`}>Receiving replies (IMAP)</h2>
+                <p>The mailbox checked for replies and bounce reports, so they appear in Chat and in campaign results.</p>
+              </div>
+            </div>
+
+            <div className={`ec-inbound ${connection.imapLastError ? 'is-error' : connection.effectiveImapHost ? 'is-ok' : 'is-idle'}`} role="status">
+              {connection.imapLastError ? <AlertTriangle size={18} aria-hidden="true" /> : <ServerCog size={18} aria-hidden="true" />}
+              <div>
+                {connection.effectiveImapHost ? (
+                  <p>
+                    Reading replies from <strong>{connection.effectiveImapHost}</strong>
+                    {connection.imapHostIsDerived
+                      ? `, worked out from the SMTP server${imapDefaultPort ? ` (port ${imapDefaultPort}, SSL/TLS)` : ''} with the SMTP login. Save your own settings below to override.`
+                      : ' with the settings below.'}
+                  </p>
+                ) : (
+                  <p>No mailbox is being checked yet. Save a server below to receive replies.</p>
+                )}
+                <p className="ec-inbound-meta">
+                  {connection.imapLastPolledAt ? `Last checked ${formatAbsoluteDateTime(connection.imapLastPolledAt)}` : 'Not checked yet'}
+                  {connection.imapLastError && <> · <span className="ec-error-text">{connection.imapLastError}</span></>}
                 </p>
               </div>
             </div>
 
-            <div className="email-test-send-row">
-              <div className="waba-field-group email-test-send-field">
-                <label className="waba-field-label">
-                  Test Email Address <span className="waba-field-required">*</span>
-                </label>
-                <input
-                  type="email"
-                  className="waba-field-input"
-                  placeholder="e.g. yourname@example.com"
-                  value={testEmailAddress}
-                  onChange={(e) => setTestEmailAddress(e.target.value)}
-                />
-              </div>
-
-              <button
-                type="button"
-                className="btn-toolbar"
-                onClick={handleSendTestEmail}
-                disabled={isSendingTest || !connection?.configuredAt}
-                title={
-                  connection?.configuredAt
-                    ? undefined
-                    : 'Save the provider configuration before sending a test email.'
-                }
-              >
-                {isSendingTest ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}
-                {isSendingTest ? 'Sending…' : 'Send Test Email'}
-              </button>
+            <div className="ec-grid">
+              <Field id={`${id}-imap-host`} label="IMAP server" required error={errors.imapHost}>
+                <input id={`${id}-imap-host`} className="form-control" value={imap.host} autoComplete="off" spellCheck={false}
+                  placeholder={connection.imapHostIsDerived && connection.effectiveImapHost ? `${connection.effectiveImapHost}…` : 'mail.example.com…'}
+                  aria-invalid={!!errors.imapHost} onChange={e => setImapField('host', e.target.value)} />
+              </Field>
+              <Field id={`${id}-imap-port`} label="Port" error={errors.imapPort} hint={options.data ? `Common: ${options.data.imapPorts.map(p => p.label).join(', ')}` : undefined}>
+                <input id={`${id}-imap-port`} className="form-control" inputMode="numeric" list={`${id}-imap-ports`} value={imap.port}
+                  placeholder={imapDefaultPort ? String(imapDefaultPort) : ''} aria-invalid={!!errors.imapPort}
+                  onChange={e => setImapField('port', e.target.value.replace(/\D/g, ''))} />
+                <datalist id={`${id}-imap-ports`}>
+                  {options.data?.imapPorts.map(p => <option key={p.port} value={p.port}>{p.label}</option>)}
+                </datalist>
+              </Field>
+              <Field id={`${id}-imap-security`} label="Security" hint={describeSecurity(imap.security)}>
+                <select id={`${id}-imap-security`} className="form-control" value={imap.security} disabled={!options.data}
+                  onChange={e => setImapField('security', e.target.value as SmtpSecurityMode)}>
+                  {securityOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </Field>
+              <Field id={`${id}-imap-user`} label="Username" hint="Blank uses the SMTP username.">
+                <input id={`${id}-imap-user`} className="form-control" value={imap.username} autoComplete="off" spellCheck={false}
+                  placeholder={smtp.username ? `${smtp.username}…` : ''} onChange={e => setImapField('username', e.target.value)} />
+              </Field>
+              <Field id={`${id}-imap-password`} label="Password"
+                hint={connection.hasImapPassword ? 'A password is saved. Leave blank to keep it.' : 'Blank uses the SMTP password.'}>
+                <input id={`${id}-imap-password`} type="password" className="form-control" value={imap.password} autoComplete="new-password"
+                  placeholder={connection.hasImapPassword ? '••••••••' : ''} onChange={e => setImapField('password', e.target.value)} />
+              </Field>
             </div>
 
-            {sendResult && <ResultBanner result={sendResult} />}
+            <div className="ec-toggle-row">
+              <Toggle checked={imap.allowInvalidCertificate} onChange={v => setImapField('allowInvalidCertificate', v)}
+                label="Accept a certificate issued to another name" />
+              <p className="ec-hint">
+                Only for shared hosting whose certificate names the host company. The connection stays encrypted, but the
+                server's identity is not checked.
+              </p>
+            </div>
+
+            <div aria-live="polite">{imapResult && <Result result={imapResult} successTitle="The mailbox is reachable" />}</div>
+
+            <div className="ec-actions">
+              <button type="button" className="btn btn-secondary" onClick={handleTestImap}
+                disabled={busy !== null || !connection.effectiveImapHost || imapDirty}
+                title={imapDirty ? 'Save your changes first; the test uses the saved settings.' : !connection.effectiveImapHost ? 'Save a mailbox first.' : undefined}>
+                {busy === 'testImap' ? <Loader2 size={16} className="ec-spin" aria-hidden="true" /> : <ServerCog size={16} aria-hidden="true" />}
+                {busy === 'testImap' ? 'Testing…' : 'Test Mailbox'}
+              </button>
+              <span className="ec-actions-note">{imapDirty ? 'Unsaved changes' : ''}</span>
+              <button type="button" className="btn btn-primary" onClick={handleSaveImap} disabled={busy !== null || !imapDirty}
+                title={imapDirty ? undefined : 'Nothing has changed yet.'}>
+                {busy === 'saveImap' ? <Loader2 size={16} className="ec-spin" aria-hidden="true" /> : <Save size={16} aria-hidden="true" />}
+                {busy === 'saveImap' ? 'Saving…' : 'Save Receiving Settings'}
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <aside className="ec-side">
+          {/* ── Domain authentication ───────────────────────────────────────── */}
+          <section className="ec-panel ec-side-panel" aria-labelledby={`${id}-dns`} aria-busy={healthLoading}>
+            <div className="ec-side-head">
+              <h2 id={`${id}-dns`}><ShieldCheck size={16} aria-hidden="true" /> Domain authentication</h2>
+              <button type="button" className="ec-icon-btn" onClick={() => void loadHealth()} disabled={healthLoading} aria-label="Check the DNS again">
+                <RefreshCw size={15} className={healthLoading ? 'ec-spin' : undefined} aria-hidden="true" />
+              </button>
+            </div>
+            <p className="ec-hint">SPF, DKIM and DMARC let Gmail and Yahoo trust your mail. Checked live in DNS.</p>
+            {healthError ? (
+              <p className="ec-error-text" role="alert">{healthError}</p>
+            ) : !health ? (
+              <Skeleton variant="list" count={4} />
+            ) : health.length === 0 ? (
+              <p className="ec-hint">Add a sender address to check its domain.</p>
+            ) : health.map(d => (
+              <div className="ec-domain" key={d.domain}>
+                <div className="ec-domain-head">
+                  <strong>{d.domain}</strong>
+                  <StatusBadge type={worstLevel(d.checks)} text={worstLevel(d.checks) === 'success' ? 'All good' : worstLevel(d.checks) === 'error' ? 'Action needed' : 'Improve'} />
+                </div>
+                <ul className="ec-checks">
+                  {d.checks.map(c => (
+                    <li key={c.key} className={`is-${c.level}`}>
+                      {c.level === 'pass' ? <CheckCircle2 size={15} aria-hidden="true" /> : <AlertTriangle size={15} aria-hidden="true" />}
+                      <div>
+                        <span className="ec-check-title">{c.title}</span>
+                        <span className="ec-check-detail" title={c.detail}>{c.detail}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </section>
 
-          {/* IMAP section — only for SMTP connections (SES handles inbound separately). */}
-          {!isSes && (
-            <section className="email-config-section">
-              <div className="email-config-section-head">
-                <div>
-                  <h3 className="waba-wizard-heading">
-                    <Mail size={16} style={{ display: 'inline', marginRight: 6 }} />
-                    IMAP — Receive Inbound Replies
-                  </h3>
-                  <p className="waba-wizard-subheading">
-                    Configure your IMAP mailbox so replies sent to this address appear automatically
-                    in Chat. Leave username/password blank to reuse the SMTP credentials above.
-                  </p>
-                </div>
-                {connection?.imapHost && (
-                  <span className="email-domain-status verified" style={{ alignSelf: 'flex-start' }}>
-                    Configured
-                  </span>
-                )}
-              </div>
+          {/* ── Test email ──────────────────────────────────────────────────── */}
+          <form className="ec-panel ec-side-panel" aria-labelledby={`${id}-send`} onSubmit={handleSendTest} noValidate>
+            <h2 id={`${id}-send`}><Send size={16} aria-hidden="true" /> Send a test email</h2>
+            <p className="ec-hint">Sends one real message with the saved settings.</p>
+            <div className="ec-inline">
+              <label className="sr-only" htmlFor={`${id}-test-to`}>Send the test to</label>
+              <input id={`${id}-test-to`} type="email" className="form-control" value={testAddress} autoComplete="email" spellCheck={false}
+                placeholder="you@example.com…" aria-invalid={!!errors.testAddress}
+                onChange={e => { setTestAddress(e.target.value); setErrors(prev => ({ ...prev, testAddress: undefined })) }} />
+              <button type="submit" className="btn btn-secondary" disabled={busy !== null || !connection.configuredAt || smtpDirty}
+                title={!connection.configuredAt ? 'Save the sending settings first.' : smtpDirty ? 'Save your changes first; the test uses the saved settings.' : undefined}>
+                {busy === 'send' ? <Loader2 size={16} className="ec-spin" aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
+                {busy === 'send' ? 'Sending…' : 'Send'}
+              </button>
+            </div>
+            {errors.testAddress && <p className="ec-error-text" role="alert">{errors.testAddress}</p>}
+            <div aria-live="polite">{sendResult && <Result result={sendResult} successTitle="Sent" />}</div>
+          </form>
 
-              <div className="email-field-grid">
-                <div className="waba-field-group">
-                  <label className="waba-field-label">
-                    IMAP Host <span className="waba-field-required">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    className="waba-field-input"
-                    placeholder="e.g. mail.rma.my"
-                    value={imapHost}
-                    onChange={(e) => setImapHost(e.target.value)}
-                    autoComplete="off"
-                  />
-                </div>
-
-                <div className="waba-field-group">
-                  <label className="waba-field-label">IMAP Port</label>
-                  <input
-                    type="number"
-                    className="waba-field-input"
-                    placeholder="993"
-                    value={imapPort}
-                    onChange={(e) => setImapPort(e.target.value)}
-                  />
-                  <p className="waba-field-hint">993 for SSL on connect (recommended), 143 for STARTTLS.</p>
-                </div>
-
-                <div className="waba-field-group">
-                  <label className="waba-field-label">Security</label>
-                  <select
-                    className="waba-field-input"
-                    value={imapSecurity}
-                    onChange={(e) => setImapSecurity(e.target.value as SmtpSecurityMode)}
-                  >
-                    <option value="SslOnConnect">SSL on connect (port 993)</option>
-                    <option value="StartTls">STARTTLS (port 143)</option>
-                    <option value="None">None — not encrypted</option>
-                  </select>
-                </div>
-
-                <div className="waba-field-group">
-                  <label className="waba-field-label">
-                    Username
-                    <span className="waba-field-hint" style={{ marginLeft: 6, fontWeight: 400 }}>
-                      (defaults to SMTP username)
-                    </span>
-                  </label>
-                  <input
-                    type="text"
-                    className="waba-field-input"
-                    placeholder=""
-                    value={imapUsername}
-                    onChange={(e) => setImapUsername(e.target.value)}
-                    autoComplete="off"
-                  />
-                </div>
-
-                <div className="waba-field-group">
-                  <label className="waba-field-label">
-                    Password
-                    <span className="waba-field-hint" style={{ marginLeft: 6, fontWeight: 400 }}>
-                      (defaults to SMTP password)
-                    </span>
-                  </label>
-                  <input
-                    type="password"
-                    className="waba-field-input"
-                    placeholder=""
-                    value={imapPassword}
-                    onChange={(e) => setImapPassword(e.target.value)}
-                    autoComplete="new-password"
-                  />
-                  {connection?.hasImapPassword && (
-                    <p className="waba-field-hint">A password is stored and encrypted. Leave blank to keep it.</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="email-action-row">
-                <button
-                  type="button"
-                  className="btn-toolbar"
-                  onClick={handleTestImap}
-                  disabled={isTestingImap || !connection?.imapHost}
-                  title={connection?.imapHost ? undefined : 'Save IMAP settings first.'}
-                >
-                  {isTestingImap ? <Loader2 className="animate-spin" size={14} /> : <ServerCog size={14} />}
-                  {isTestingImap ? 'Testing IMAP…' : 'Test IMAP'}
-                </button>
-
-                <button
-                  type="button"
-                  className="btn-wizard-next"
-                  onClick={handleSaveImap}
-                  disabled={isSavingImap}
-                  style={{ marginLeft: 'auto' }}
-                >
-                  {isSavingImap ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
-                  {isSavingImap ? 'Saving…' : 'Save IMAP Settings'}
-                </button>
-              </div>
-
-              {imapTestResult && <ResultBanner result={imapTestResult} />}
-            </section>
-          )}
-
-          {/*
-            Domain authentication. Not in the reference design, but a campaign cannot send without
-            it: mail from an unauthenticated domain is junked by every major provider, so the
-            server gates sending on verification. Leaving this out would produce a wizard an
-            operator can complete and still not be able to send from.
-          */}
-          {isSes && (
-            <section className="email-config-section">
-              <div className="email-config-section-head">
-                <div>
-                  <h3 className="waba-wizard-heading">Sending Domains (SPF, DKIM, DMARC)</h3>
-                  <p className="waba-wizard-subheading">
-                    A verified domain is required before this connection can send a campaign.
-                  </p>
-                </div>
-              </div>
-
-              <div className="email-test-send-row">
-                <div className="waba-field-group email-test-send-field">
-                  <label className="waba-field-label">Domain</label>
-                  <input
-                    type="text"
-                    className="waba-field-input"
-                    placeholder="e.g. example.com"
-                    value={newDomain}
-                    onChange={(e) => setNewDomain(e.target.value)}
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  className="btn-toolbar"
-                  onClick={handleProvisionDomain}
-                  disabled={isProvisioning || !connection?.configuredAt}
-                  title={
-                    connection?.configuredAt
-                      ? undefined
-                      : 'Save the provider configuration before adding a domain.'
-                  }
-                >
-                  {isProvisioning ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />}
-                  Add Domain
-                </button>
-              </div>
-
-              {connection?.domains.length === 0 && (
-                <p className="waba-field-hint">No sending domains yet.</p>
-              )}
-
-              {connection?.domains.map((domain) => (
-                <div className="email-domain-card" key={domain.id}>
-                  <div className="email-domain-head">
+          {/* ── Senders ─────────────────────────────────────────────────────── */}
+          <section className="ec-panel ec-side-panel" aria-labelledby={`${id}-senders`}>
+            <h2 id={`${id}-senders`}><UserRound size={16} aria-hidden="true" /> Sender addresses</h2>
+            {connection.senders.length === 0 ? (
+              <p className="ec-hint">No sender addresses yet. Add one from the campaign wizard.</p>
+            ) : (
+              <ul className="ec-senders">
+                {connection.senders.map(s => (
+                  <li key={s.id}>
                     <div>
-                      <strong>{domain.domainName}</strong>
-                      <span className={`email-domain-status ${domain.verificationStatus.toLowerCase()}`}>
-                        {domain.verificationStatus}
-                      </span>
+                      <span className="ec-sender-name">{s.displayName}</span>
+                      <span className="ec-sender-address">{s.emailAddress}</span>
                     </div>
-
-                    <button
-                      type="button"
-                      className="btn-toolbar-tertiary"
-                      onClick={() => handleRefreshDomain(domain.id)}
-                      disabled={refreshingDomainId === domain.id}
-                    >
-                      {refreshingDomainId === domain.id ? (
-                        <Loader2 className="animate-spin" size={13} />
-                      ) : (
-                        <RefreshCw size={13} />
-                      )}
-                      Refresh
-                    </button>
-                  </div>
-
-                  {domain.lastCheckMessage && (
-                    <p className="waba-field-hint email-field-warning">{domain.lastCheckMessage}</p>
-                  )}
-
-                  {domain.verificationStatus !== 'Verified' && domain.requiredDnsRecords.length > 0 && (
-                    <>
-                      <p className="waba-field-hint">
-                        Publish these records in your DNS, then refresh. Propagation can take
-                        minutes to hours.
-                      </p>
-
-                      <div className="email-dns-table">
-                        {domain.requiredDnsRecords.map((record, index) => (
-                          <div className="email-dns-row" key={`${record.type}-${record.name}-${index}`}>
-                            <span className="email-dns-type">{record.type}</span>
-                            <div className="email-dns-fields">
-                              <label className="email-dns-label">Name</label>
-                              {/* CopyField, because transcribing a DKIM CNAME by hand is where
-                                  domain setup usually goes wrong. */}
-                              <CopyField value={record.name} readOnly />
-                              <label className="email-dns-label">Value</label>
-                              <CopyField value={record.value} readOnly />
-                            </div>
-                            <span className="email-dns-purpose">{record.purpose}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              ))}
-            </section>
-          )}
-
-          <div className="waba-wizard-footer">
-            <button type="button" className="btn-wizard-cancel" onClick={() => navigate('/connections')}>
-              <ArrowLeft size={14} />
-              Back
-            </button>
-
-            <button type="button" className="btn-wizard-next" onClick={handleSave} disabled={isSaving}>
-              {isSaving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
-              {isSaving ? 'Saving…' : 'Save Connection'}
-            </button>
-          </div>
-        </div>
+                    {s.isDefault && <StatusBadge type="info" text="Default" />}
+                    {!s.isActive && <StatusBadge type="stale" text="Off" />}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </aside>
       </div>
     </motion.div>
   )
 }
 
-/**
- * The success/failure banner under each action.
- *
- * One component for both outcomes, because the failure case is the one that matters: the server's
- * message names what to change ("the secret access key does not match the access key ID"), and
- * that needs to be as prominent as a success.
- */
-const ResultBanner: React.FC<{ result: EmailProviderTestResult }> = ({ result }) => (
-  <div className={`email-result-banner ${result.success ? 'success' : 'error'}`}>
-    {result.success ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+interface FieldProps {
+  id: string
+  label: string
+  required?: boolean
+  hint?: string | null
+  warning?: string
+  error?: string
+  children: React.ReactNode
+}
 
+/** Label, control, then (in priority order) the error, a warning or the hint. */
+const Field: React.FC<FieldProps> = ({ id, label, required, hint, warning, error, children }) => (
+  <div className="ec-field">
+    <label className="form-label" htmlFor={id}>
+      {label}{required && <span className="ec-required" aria-hidden="true"> *</span>}
+    </label>
+    {children}
+    {error ? <p id={`${id}-error`} className="ec-error-text" role="alert">{error}</p>
+      : warning ? <p className="ec-warning-text">{warning}</p>
+      : hint ? <p className="ec-hint">{hint}</p> : null}
+  </div>
+)
+
+/** The outcome of a test, with the server's own explanation when it failed. */
+const Result: React.FC<{ result: EmailProviderTestResult; successTitle: string }> = ({ result, successTitle }) => (
+  <div className={`ec-result ${result.success ? 'is-ok' : 'is-error'}`}>
+    {result.success ? <CheckCircle2 size={18} aria-hidden="true" /> : <AlertCircle size={18} aria-hidden="true" />}
     <div>
-      <strong>{result.success ? 'Success' : 'Could not connect'}</strong>
+      <strong>{result.success ? successTitle : 'It did not work'}</strong>
       <p>{result.message}</p>
-
       {result.details && Object.keys(result.details).length > 0 && (
-        <dl className="email-result-details">
+        <dl className="ec-result-details">
           {Object.entries(result.details).map(([key, value]) => (
-            <div key={key}>
-              <dt>{key}</dt>
-              <dd>{value}</dd>
-            </div>
+            <div key={key}><dt>{key}</dt><dd>{value}</dd></div>
           ))}
         </dl>
       )}

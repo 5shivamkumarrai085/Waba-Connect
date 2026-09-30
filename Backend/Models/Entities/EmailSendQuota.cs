@@ -5,7 +5,7 @@ namespace WhatsAppCampaignApi.Models.Entities;
 ///
 /// <para>
 /// The state lives in the database rather than in process memory on purpose. An in-process
-/// limiter is correct only while exactly one instance is running: scale to three and the SES
+/// limiter is correct only while exactly one instance is running: scale to three and the mail
 /// account quietly receives three times the configured rate, which gets it throttled and then
 /// reputation-damaged. Reserving tokens is a single conditional <c>UPDATE … RETURNING</c> that
 /// refills by elapsed time and decrements in the same statement, so concurrent workers cannot

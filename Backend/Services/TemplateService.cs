@@ -106,6 +106,20 @@ public class TemplateService : ITemplateService
 
     public async Task<TemplateResponse> CreateAsync(CreateTemplateRequest request)
     {
+        // Meta's rules, checked here so a template created in this app can be submitted.
+        request.Name = request.Name?.Trim() ?? string.Empty;
+        if (!System.Text.RegularExpressions.Regex.IsMatch(request.Name, Catalogs.TemplateAuthoringCatalog.NamePattern))
+            throw new ArgumentException("The template name can use only lower-case letters, digits and underscores.");
+        const int maxBody = Catalogs.TemplateAuthoringCatalog.MaxBodyLength;
+        const int maxHeader = Catalogs.TemplateAuthoringCatalog.MaxHeaderLength;
+        const int maxFooter = Catalogs.TemplateAuthoringCatalog.MaxFooterLength;
+        if (string.IsNullOrWhiteSpace(request.BodyText) || request.BodyText.Length > maxBody)
+            throw new ArgumentException($"The message body is required and can be at most {maxBody} characters.");
+        if (request.HeaderContent?.Length > maxHeader && string.Equals(request.HeaderType, "Text", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException($"A text header can be at most {maxHeader} characters.");
+        if (request.FooterText?.Length > maxFooter)
+            throw new ArgumentException($"The footer can be at most {maxFooter} characters.");
+
         var existing = await _dbContext.Templates.AnyAsync(t => t.Name == request.Name);
         if (existing)
             throw new InvalidOperationException($"Template with name '{request.Name}' already exists.");
@@ -117,6 +131,7 @@ public class TemplateService : ITemplateService
             Category = Enum.Parse<TemplateCategory>(request.Category, true),
             TemplateType = Enum.Parse<TemplateType>(request.TemplateType, true),
             BodyText = request.BodyText,
+            ButtonsJson = SerializeButtons(request.Buttons),
             HeaderType = Enum.Parse<HeaderType>(request.HeaderType, true),
             HeaderContent = request.HeaderContent,
             FooterText = request.FooterText
@@ -169,6 +184,7 @@ public class TemplateService : ITemplateService
         template.Category = Enum.Parse<TemplateCategory>(request.Category, true);
         template.TemplateType = Enum.Parse<TemplateType>(request.TemplateType, true);
         template.BodyText = request.BodyText;
+        if (request.Buttons is not null) template.ButtonsJson = SerializeButtons(request.Buttons);
         template.HeaderType = Enum.Parse<HeaderType>(request.HeaderType, true);
         template.HeaderContent = request.HeaderContent;
         template.FooterText = request.FooterText;
@@ -285,6 +301,7 @@ public class TemplateService : ITemplateService
                 "IMAGE" => TemplateType.Image,
                 "VIDEO" => TemplateType.Video,
                 "DOCUMENT" => TemplateType.Document,
+                "CAROUSEL" => TemplateType.Carousel,
                 _ => TemplateType.Text
             };
 
@@ -299,7 +316,9 @@ public class TemplateService : ITemplateService
                     TemplateType = mappedType,
                     Status = mappedStatus,
                     RejectReason = waTemplate.RejectReason,
-                    BodyText = waTemplate.BodyText ?? string.Empty
+                    BodyText = waTemplate.BodyText ?? string.Empty,
+                    ComponentsJson = waTemplate.ComponentsJson,
+                    ButtonsJson = waTemplate.ButtonsJson
                 };
                 _dbContext.Templates.Add(newTemplate);
                 newCount++;
@@ -310,6 +329,8 @@ public class TemplateService : ITemplateService
                 localTemplate.Status = mappedStatus;
                 localTemplate.TemplateType = mappedType;
                 localTemplate.RejectReason = waTemplate.RejectReason;
+                localTemplate.ComponentsJson = waTemplate.ComponentsJson ?? localTemplate.ComponentsJson;
+                localTemplate.ButtonsJson = waTemplate.ButtonsJson ?? localTemplate.ButtonsJson;
                 if (!string.IsNullOrEmpty(waTemplate.BodyText))
                 {
                     localTemplate.BodyText = waTemplate.BodyText;
@@ -395,6 +416,39 @@ public class TemplateService : ITemplateService
         };
     }
 
+    private static string? SerializeButtons(List<WhatsApp.TemplateButton>? buttons)
+    {
+        var valid = WhatsApp.TemplateComponents.ValidateButtons(buttons);
+        return valid.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(valid, WhatsApp.TemplateComponents.Json);
+    }
+
+    /// <summary>Submits a template created here to Meta for review, on the given connection's account.</summary>
+    public async Task<TemplateResponse> SubmitToMetaAsync(int id, int connectionId)
+    {
+        var template = await _dbContext.Templates.Include(t => t.Variables).FirstOrDefaultAsync(t => t.Id == id)
+            ?? throw new KeyNotFoundException("Template not found.");
+        if (!string.IsNullOrWhiteSpace(template.WhatsAppTemplateId))
+            throw new InvalidOperationException("This template has already been submitted to Meta.");
+        if (!Catalogs.TemplateAuthoringCatalog.Categories.Any(c => c.Value == template.Category.ToString()))
+            throw new InvalidOperationException($"{template.Category} templates are created in WhatsApp Manager, then synced here.");
+
+        var (success, metaId, status, error) = await _whatsAppService.SubmitTemplateAsync(connectionId, WhatsApp.TemplateComponents.BuildSubmission(template));
+        if (!success) throw new InvalidOperationException(error ?? "Meta refused the template.");
+
+        template.WhatsAppTemplateId = metaId;
+        template.Status = status?.ToUpperInvariant() switch
+        {
+            "APPROVED" => TemplateStatus.Approved,
+            "REJECTED" => TemplateStatus.Rejected,
+            _ => TemplateStatus.Pending
+        };
+        await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync("Template.Submitted", "Data",
+            $"Submitted template \"{template.Name}\" to Meta for review (status {template.Status}).", "Template", id.ToString());
+        return MapToResponse(template);
+    }
+
     private static TemplateResponse MapToResponse(Template t)
     {
         return new TemplateResponse
@@ -411,6 +465,7 @@ public class TemplateService : ITemplateService
             FooterText = t.FooterText,
             WhatsAppTemplateId = t.WhatsAppTemplateId,
             RejectReason = t.RejectReason,
+            Buttons = WhatsApp.TemplateComponents.ParseButtons(t.ButtonsJson),
             CreatedAt = t.CreatedAt,
             UpdatedAt = t.UpdatedAt,
             Variables = t.Variables.Select(v => new TemplateVariableRequest

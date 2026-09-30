@@ -56,8 +56,17 @@ public class ConnectionService : IConnectionService
         return connections.Select(c => MapToResponse(c, configs, phones)).ToList();
     }
 
+    /// <summary>404 unless the caller may use this connection (connection scoping).</summary>
+    private async Task EnsureAccessAsync(int id)
+    {
+        if (!await _permissionService.HasAccessToConnectionAsync(id))
+            throw new KeyNotFoundException("Connection not found.");
+    }
+
     public async Task<ConnectionResponse?> GetByIdAsync(int id)
     {
+        if (!await _permissionService.HasAccessToConnectionAsync(id)) return null;
+
         var connection = await _dbContext.Connections
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.Id == id);
@@ -127,6 +136,8 @@ public class ConnectionService : IConnectionService
 
     public async Task<ConnectionResponse> UpdateAsync(int id, UpdateConnectionRequest request)
     {
+        await EnsureAccessAsync(id);
+
         var connection = await _dbContext.Connections.FindAsync(id)
             ?? throw new KeyNotFoundException($"Connection with ID {id} not found.");
 
@@ -155,6 +166,8 @@ public class ConnectionService : IConnectionService
 
     public async Task<bool> SoftDisconnectAsync(int id)
     {
+        await EnsureAccessAsync(id);
+
         var config = await _dbContext.WabaConfigurations
             .FirstOrDefaultAsync(w => w.ConnectionId == id);
 
@@ -196,6 +209,8 @@ public class ConnectionService : IConnectionService
     /// </summary>
     public async Task<bool> ReconnectAsync(int id)
     {
+        await EnsureAccessAsync(id);
+
         var config = await _dbContext.WabaConfigurations
             .FirstOrDefaultAsync(w => w.ConnectionId == id);
 
@@ -252,6 +267,8 @@ public class ConnectionService : IConnectionService
     /// </summary>
     public async Task<int> SyncPhoneNumbersAsync(int id)
     {
+        await EnsureAccessAsync(id);
+
         var config = await _dbContext.WabaConfigurations
             .FirstOrDefaultAsync(w => w.ConnectionId == id);
 
@@ -310,6 +327,8 @@ public class ConnectionService : IConnectionService
 
     public async Task<bool> SoftDeleteAsync(int id)
     {
+        await EnsureAccessAsync(id);
+
         var connection = await _dbContext.Connections.FindAsync(id);
         if (connection == null) return false;
 

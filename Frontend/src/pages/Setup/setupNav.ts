@@ -12,6 +12,7 @@ import {
   FileBarChart2,
   Shield,
   Building2,
+  Webhook,
   type LucideIcon
 } from 'lucide-react'
 
@@ -53,6 +54,7 @@ export const setupNavSections: SetupNavSection[] = [
       { label: 'Languages', path: '/setup/languages', icon: Languages, permission: 'Language.View', built: true },
       { label: 'Email Templates', path: '/setup/email-templates', icon: Mail, permission: 'EmailTemplate.View', built: true },
       { label: 'System Logs', path: '/setup/system-logs', icon: FileBarChart2, permission: 'SystemLog.View', built: true },
+      { label: 'Webhooks', path: '/setup/webhooks', icon: Webhook, permission: 'Webhook.View', built: true },
     ]
   },
   {
@@ -63,6 +65,3 @@ export const setupNavSections: SetupNavSection[] = [
     ]
   }
 ]
-
-/** Flat lookup for route-level checks. */
-export const setupNavItems: SetupNavItem[] = setupNavSections.flatMap((section) => section.items)

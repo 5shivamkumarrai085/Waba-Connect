@@ -1,6 +1,7 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import { ReportBuilder } from '../components/ReportBuilder/ReportBuilder'
+import { ScheduledReports } from '../components/ReportBuilder/ScheduledReports'
 import { pageTransitionProps } from '../utils/motion'
 import './Reporting.css'
 
@@ -24,6 +25,7 @@ import './Reporting.css'
 export const Reporting: React.FC = () => (
   <motion.div {...pageTransitionProps}>
     <ReportBuilder />
+    <ScheduledReports />
   </motion.div>
 )
 

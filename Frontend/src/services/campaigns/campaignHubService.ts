@@ -1,44 +1,37 @@
 /**
- * campaignHubService.ts
+ * The app's single real-time connection (SignalR, /hubs/campaign).
  *
- * Manages the SignalR connection to CampaignHub (/hubs/campaign).
+ * - One shared connection, reference-counted: it starts with the first subscriber and stops a
+ *   short grace period after the last one leaves, so React StrictMode's mount → unmount → mount
+ *   does not tear it down and rebuild it.
+ * - The first connect is retried with backoff (SignalR's automatic reconnect only covers a
+ *   connection that was once up), so a backend that is still starting is not a permanent failure.
+ * - The access token is fetched fresh for every (re)connect, refreshing the session if needed.
+ * - Connection state is observable, so pages fall back to polling while it is down and reload
+ *   their data after a reconnect (events sent while disconnected are not replayed).
  *
- * Design:
- * - One singleton connection shared across the app (not one per component).
- * - Lazy-connect: the connection is only started when the first component subscribes.
- * - Auto-reconnect with exponential backoff (handled by @microsoft/signalr).
- * - JWT token read from localStorage on every negotiate call, so a refreshed token
- *   is picked up without restarting the connection.
- * - subscribe() returns an unsubscribe function for use in useEffect cleanup.
- *
- * Usage:
- *   const unsub = campaignHubService.subscribe(campaignId, (event) => { ... })
- *   // on unmount:
- *   unsub()
+ * The server decides membership from the caller's permissions (Campaign.View → campaign events,
+ * Chat.View → inbox events); payloads carry ids and counter deltas only.
  */
 
 import {
-  HubConnectionBuilder,
   HubConnection,
+  HubConnectionBuilder,
   HubConnectionState,
   LogLevel,
 } from '@microsoft/signalr'
-import { AUTH_TOKEN_STORAGE_KEY } from '../apiClient'
+import { API_BASE_URL, getValidAccessToken } from '../apiClient'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Payloads ──────────────────────────────────────────────────────────────────
 
-/**
- * The payload shape the backend sends via  hub.Clients.Group(...).SendAsync("campaignEvent", ...)
- * Must stay in sync with EventPublisherConsumer.cs
- */
+/** Must stay in sync with EventPublisherConsumer.cs. */
 export interface CampaignEventPayload {
   campaignId: number
-  kind: string                   // EmailEventKind enum value as string
+  kind: string
   campaignContactId: number | null
-  recipientAddress: string | null
-  occurredAt: string             // ISO 8601
+  occurredAt: string
 
-  // Counter deltas — apply these to the local Zustand state
+  // Counter deltas — the client applies these without a reload.
   sentDelta: number
   failedDelta: number
   deliveredDelta: number
@@ -48,163 +41,247 @@ export interface CampaignEventPayload {
   repliedDelta: number
   unsubscribedDelta: number
   complainedDelta: number
+  /** WhatsApp read receipts. */
+  readDelta: number
 
-  // Non-null only when the campaign reaches a terminal state
+  /** Non-null only when the campaign reached a new final status. */
   newCampaignStatus: string | null
 }
 
-type EventHandler = (event: CampaignEventPayload) => void
-
-// ── Hub URL ───────────────────────────────────────────────────────────────────
-
-/** Strip /api suffix from the base URL — SignalR hubs live at the root, not under /api. */
-const getHubUrl = (): string => {
-  const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5155/api'
-  return base.replace(/\/api\/?$/, '') + '/hubs/campaign'
+/** Must stay in sync with SignalRInboxNotifier.cs. */
+export interface InboxEventPayload {
+  type: 'messageReceived' | 'messageStatus' | 'conversationUpdated'
+  conversationId: number
+  connectionId?: number | null
+  messageId?: number
+  status?: string
 }
+
+export type RealtimeState = 'connecting' | 'connected' | 'disconnected'
+
+type CampaignHandler = (event: CampaignEventPayload) => void
+type InboxHandler = (event: InboxEventPayload) => void
+type DashboardHandler = () => void
+type StateHandler = (state: RealtimeState, info: { reconnected: boolean }) => void
+
+const HUB_URL = API_BASE_URL.replace(/\/api\/?$/, '') + '/hubs/campaign'
+const DISCONNECT_GRACE_MS = 3_000
+const INITIAL_RETRY_DELAYS = [1_000, 2_000, 5_000, 10_000, 30_000]
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
-class CampaignHubService {
+class RealtimeService {
   private connection: HubConnection | null = null
-  /** campaignId → Set<handler> */
-  private handlers = new Map<number, Set<EventHandler>>()
-  /** Subscribed group IDs (sent a JoinCampaign). */
-  private joinedGroups = new Set<number>()
-  private connectingPromise: Promise<void> | null = null
+  private starting: Promise<void> | null = null
+  private state: RealtimeState = 'disconnected'
+  private subscriberCount = 0
+  private stopTimer: ReturnType<typeof setTimeout> | null = null
+  private retryTimer: ReturnType<typeof setTimeout> | null = null
+  private retryAttempt = 0
 
-  // ── Public API ──────────────────────────────────────────────────────────────
+  /** campaignId → handlers; key 0 receives every campaign's events (list views). */
+  private campaignHandlers = new Map<number, Set<CampaignHandler>>()
+  private inboxHandlers = new Set<InboxHandler>()
+  private dashboardHandlers = new Set<DashboardHandler>()
+  private stateHandlers = new Set<StateHandler>()
 
-  /**
-   * Subscribe to real-time events for a specific campaign or all campaigns (if campaignId is null/undefined/0).
-   * Returns an unsubscribe function to be called from useEffect cleanup.
-   */
-  subscribe(campaignId: number | null | undefined, handler: EventHandler): () => void {
+  /** Events for one campaign (or every campaign when campaignId is falsy). */
+  subscribe(campaignId: number | null | undefined, handler: CampaignHandler): () => void {
     const id = campaignId || 0
-    // Register handler
-    if (!this.handlers.has(id)) {
-      this.handlers.set(id, new Set())
-    }
-    this.handlers.get(id)!.add(handler)
+    if (!this.campaignHandlers.has(id)) this.campaignHandlers.set(id, new Set())
+    this.campaignHandlers.get(id)!.add(handler)
 
-    // Ensure connected, then join the group if specific campaign
-    this.ensureConnected().then(() => {
-      if (id > 0) {
-        this.joinGroup(id)
-      }
-    })
+    const release = this.acquire()
+    if (id > 0) void this.invokeSafely('JoinCampaign', id)
 
     return () => {
-      this.handlers.get(id)?.delete(handler)
+      const set = this.campaignHandlers.get(id)
+      set?.delete(handler)
+      if (set?.size === 0) this.campaignHandlers.delete(id)
+      release()
+    }
+  }
 
-      // Leave server group if nobody is listening to this campaign anymore
-      if (this.handlers.get(id)?.size === 0) {
-        this.handlers.delete(id)
-        if (id > 0) {
-          this.leaveGroup(id)
-        }
-      }
+  /** Inbox activity: new messages and status changes, by conversation id. */
+  subscribeInbox(handler: InboxHandler): () => void {
+    this.inboxHandlers.add(handler)
+    const release = this.acquire()
+    return () => {
+      this.inboxHandlers.delete(handler)
+      release()
+    }
+  }
 
-      // If no handlers remain at all, disconnect
-      if (this.handlers.size === 0) {
-        this.disconnect()
+  /**
+   * "The dashboard's numbers changed" (server-debounced, data-free — see DashboardNotifier.cs).
+   * The handler refetches its own summary.
+   */
+  subscribeDashboard(handler: DashboardHandler): () => void {
+    this.dashboardHandlers.add(handler)
+    const release = this.acquire()
+    return () => {
+      this.dashboardHandlers.delete(handler)
+      release()
+    }
+  }
+
+  /** Connection state changes. Called immediately with the current state. */
+  onStateChange(handler: StateHandler): () => void {
+    this.stateHandlers.add(handler)
+    handler(this.state, { reconnected: false })
+    return () => {
+      this.stateHandlers.delete(handler)
+    }
+  }
+
+  get isConnected(): boolean {
+    return this.state === 'connected'
+  }
+
+  // ── Reference counting ──────────────────────────────────────────────────────
+
+  private acquire(): () => void {
+    this.subscriberCount++
+    if (this.stopTimer) {
+      clearTimeout(this.stopTimer)
+      this.stopTimer = null
+    }
+    void this.ensureStarted()
+
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.subscriberCount = Math.max(0, this.subscriberCount - 1)
+      if (this.subscriberCount === 0) {
+        this.stopTimer = setTimeout(() => void this.stop(), DISCONNECT_GRACE_MS)
       }
     }
   }
 
-  // ── Connection management ────────────────────────────────────────────────────
+  // ── Connection lifecycle ────────────────────────────────────────────────────
 
-  private ensureConnected(): Promise<void> {
-    if (this.connection?.state === HubConnectionState.Connected) {
-      return Promise.resolve()
-    }
-    if (this.connectingPromise) {
-      return this.connectingPromise
-    }
-
-    this.connectingPromise = this.connect().finally(() => {
-      this.connectingPromise = null
-    })
-
-    return this.connectingPromise
+  private setState(next: RealtimeState, reconnected = false) {
+    if (this.state === next && !reconnected) return
+    this.state = next
+    this.stateHandlers.forEach((h) => h(next, { reconnected }))
   }
 
-  private async connect(): Promise<void> {
-    this.connection = new HubConnectionBuilder()
-      .withUrl(getHubUrl(), {
-        // Token read on every negotiate — handles token refresh transparently.
-        accessTokenFactory: () =>
-          localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) ?? '',
+  private build(): HubConnection {
+    const connection = new HubConnectionBuilder()
+      .withUrl(HUB_URL, {
+        // Fresh (and if necessary renewed) token for every negotiate and reconnect.
+        accessTokenFactory: async () => (await getValidAccessToken()) ?? '',
       })
       .withAutomaticReconnect({
-        // 0s, 2s, 10s, 30s, then 30s forever
-        nextRetryDelayInMilliseconds: (retryContext) => {
-          const delays = [0, 2000, 10000, 30000]
-          return delays[retryContext.previousRetryCount] ?? 30000
-        },
+        nextRetryDelayInMilliseconds: (ctx) => [0, 2_000, 5_000, 10_000][ctx.previousRetryCount] ?? 30_000,
       })
-      .configureLogging(
-        import.meta.env.DEV ? LogLevel.Information : LogLevel.Warning,
-      )
+      .configureLogging(import.meta.env.DEV ? LogLevel.Warning : LogLevel.Error)
       .build()
 
-    // Register the server-to-client event listener
-    this.connection.on('campaignEvent', (payload: CampaignEventPayload) => {
-      // Specific campaign handlers
-      const set = this.handlers.get(payload.campaignId)
-      if (set) {
-        set.forEach((h) => h(payload))
-      }
-      // Global handlers (key 0)
-      const globalSet = this.handlers.get(0)
-      if (globalSet) {
-        globalSet.forEach((h) => h(payload))
-      }
+    connection.on('campaignEvent', (payload: CampaignEventPayload) => {
+      this.campaignHandlers.get(payload.campaignId)?.forEach((h) => h(payload))
+      this.campaignHandlers.get(0)?.forEach((h) => h(payload))
     })
 
-    // Re-join groups after automatic reconnect
-    this.connection.onreconnected(() => {
-      this.joinedGroups.forEach((id) => {
-        this.connection?.invoke('JoinCampaign', id).catch(() => {})
+    connection.on('inboxEvent', (payload: InboxEventPayload) => {
+      this.inboxHandlers.forEach((h) => h(payload))
+    })
+
+    connection.on('dashboardChanged', () => {
+      this.dashboardHandlers.forEach((h) => h())
+    })
+
+    connection.onreconnecting(() => this.setState('connecting'))
+    connection.onreconnected(() => {
+      // Campaign detail pages re-join (a no-op server-side, kept for older servers) and every
+      // subscriber is told to reload, because events sent while offline are not replayed.
+      this.campaignHandlers.forEach((_, id) => {
+        if (id > 0) void this.invokeSafely('JoinCampaign', id)
       })
+      this.setState('connected', true)
+    })
+    connection.onclose(() => {
+      this.setState('disconnected')
+      // Closed for good (automatic reconnect gave up): start over while anyone still listens.
+      if (this.subscriberCount > 0 && this.connection === connection) {
+        this.connection = null
+        this.scheduleRetry()
+      }
     })
 
-    await this.connection.start()
+    return connection
+  }
 
-    // Re-join any groups that were subscribed before connect() resolved
-    this.joinedGroups.forEach((id) => {
-      this.connection?.invoke('JoinCampaign', id).catch(() => {})
+  private ensureStarted(): Promise<void> {
+    if (this.connection?.state === HubConnectionState.Connected) return Promise.resolve()
+    if (this.starting) return this.starting
+
+    this.starting = this.start().finally(() => {
+      this.starting = null
     })
+    return this.starting
   }
 
-  private async joinGroup(campaignId: number): Promise<void> {
-    if (this.joinedGroups.has(campaignId)) return
-    this.joinedGroups.add(campaignId)
+  private async start(): Promise<void> {
+    if (!(await getValidAccessToken())) return // not signed in: nothing to connect as
+
+    if (!this.connection) this.connection = this.build()
+    if (this.connection.state !== HubConnectionState.Disconnected) return
+
+    this.setState('connecting')
     try {
-      await this.connection?.invoke('JoinCampaign', campaignId)
+      await this.connection.start()
+      this.retryAttempt = 0
+      this.setState('connected')
     } catch {
-      // Will be retried on reconnect
+      this.setState('disconnected')
+      this.connection = null
+      this.scheduleRetry()
     }
   }
 
-  private async leaveGroup(campaignId: number): Promise<void> {
-    this.joinedGroups.delete(campaignId)
-    try {
-      await this.connection?.invoke('LeaveCampaign', campaignId)
-    } catch {
-      // Best-effort
-    }
+  private scheduleRetry() {
+    if (this.retryTimer || this.subscriberCount === 0) return
+    const delay = INITIAL_RETRY_DELAYS[Math.min(this.retryAttempt, INITIAL_RETRY_DELAYS.length - 1)]
+    this.retryAttempt++
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null
+      if (this.subscriberCount > 0) void this.ensureStarted()
+    }, delay)
   }
 
-  private async disconnect(): Promise<void> {
-    this.joinedGroups.clear()
-    try {
-      await this.connection?.stop()
-    } catch {
-      // Ignore errors on intentional disconnect
+  private async stop(): Promise<void> {
+    this.stopTimer = null
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer)
+      this.retryTimer = null
     }
+
+    const connection = this.connection
     this.connection = null
+    this.retryAttempt = 0
+    try {
+      await connection?.stop()
+    } catch {
+      // Intentional stop; nothing to report.
+    }
+    this.setState('disconnected')
+  }
+
+  private async invokeSafely(method: string, ...args: unknown[]) {
+    try {
+      await this.ensureStarted()
+      if (this.connection?.state === HubConnectionState.Connected) {
+        await this.connection.invoke(method, ...args)
+      }
+    } catch {
+      // Best-effort: membership is decided server-side on connect anyway.
+    }
   }
 }
 
-export const campaignHubService = new CampaignHubService()
+export const realtimeService = new RealtimeService()
+
+/** Kept under its original name for existing imports. */
+export const campaignHubService = realtimeService

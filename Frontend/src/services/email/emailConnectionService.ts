@@ -1,6 +1,7 @@
 import { apiClient } from '../apiClient'
 import type {
   CreateEmailConnectionPayload,
+  DomainHealth,
   EmailConnection,
   EmailProviderTestResult,
   EmailSenderIdentity,
@@ -16,8 +17,8 @@ import type {
  *
  * Follows the same split as setupService: reads that feed pickers fall back to an empty list so
  * one failed lookup cannot blank a form, while writes let the server's message through — a
- * refused save needs to say *why* ("this sender has been used by a campaign", "access-key mode
- * requires a secret"), and swallowing that leaves the operator with nothing to act on.
+ * refused save needs to say *why* ("this sender has been used by a campaign", "an SMTP server is
+ * required"), and swallowing that leaves the operator with nothing to act on.
  *
  * The test endpoints are the exception in the other direction: they answer 200 with
  * `success: false` for a failed credential, because a failed diagnostic is a successful request.
@@ -114,30 +115,10 @@ export const emailConnectionService = {
     return response.data?.data
   },
 
-  /**
-   * Re-reads one sender's verification state from the provider.
-   *
-   * Returns the connection's full sender list, so a caller's dropdown reflects the new `canSend`
-   * without a second round trip. The message explains the outcome when it is not Verified.
-   */
-  refreshSender: async (
-    id: number,
-    senderId: number
-  ): Promise<{ senders: EmailSenderIdentity[]; message: string }> => {
-    try {
-      const response = await apiClient.post(`/email/connections/${id}/senders/${senderId}/refresh`)
-      return {
-        senders: response.data?.data ?? [],
-        message: response.data?.message ?? 'Sender status refreshed.'
-      }
-    } catch (err: any) {
-      // An empty list would read as "this connection has no senders", which is a different and
-      // much more alarming claim than "the check failed".
-      return {
-        senders: [],
-        message: err?.response?.data?.message ?? 'Could not reach the server to check this sender.'
-      }
-    }
+  /** SPF, DKIM, DMARC and MX for each sender domain on the connection, read live from DNS. */
+  getDomainHealth: async (id: number): Promise<DomainHealth[]> => {
+    const response = await apiClient.get(`/email/connections/${id}/domain-health`)
+    return response.data?.data ?? []
   },
 
   deleteSender: async (id: number, senderId: number): Promise<void> => {

@@ -20,6 +20,22 @@ const getApiErrorMessage = (error: unknown): string => {
   return data?.message || err.message || 'Failed to send message.'
 }
 
+/** One keyset page; paging metadata travels in response headers so the body stays a list. */
+export interface ChatPage<T> {
+  items: T[]
+  nextCursor: string | null
+  hasMore: boolean
+}
+
+export const CONVERSATION_PAGE_SIZE = 30
+export const MESSAGE_PAGE_SIZE = 50
+
+const readChatPage = <T,>(response: { data?: any; headers?: any }): ChatPage<T> => ({
+  items: (response.data?.data ?? []) as T[],
+  nextCursor: (response.headers?.['x-next-cursor'] as string | undefined) ?? null,
+  hasMore: String(response.headers?.['x-has-more'] ?? 'false') === 'true'
+})
+
 export const chatService = {
   getAccounts: async (connectionId?: number): Promise<ChatAccount[]> => {
     try {
@@ -33,30 +49,56 @@ export const chatService = {
   },
 
   /**
-   * @param channel 'WhatsApp' or 'Email'. Omitted means every channel.
+   * One page of the inbox, newest activity first.
    *
-   * Filtered on the server rather than in the component: the response is already scoped to one
-   * connection, so a client-side channel predicate could only ever remove rows from a list that
-   * never contained the other channel's to begin with.
+   * @param channel 'WhatsApp' or 'Email'. Omitted means every channel.
+   * @param cursor  The `nextCursor` of the previous page; omitted starts from the top.
+   *
+   * Throws on failure (rather than returning an empty list) so the caller can keep what is on
+   * screen instead of wiping the inbox because of one failed request.
    */
   getConversations: async (
     search?: string,
     filter?: string,
     connectionId?: number,
-    channel?: string
-  ): Promise<Conversation[]> => {
+    channel?: string,
+    options: { cursor?: string; limit?: number; state?: string; assignee?: string } = {}
+  ): Promise<ChatPage<Conversation>> => {
+    const response = await apiClient.get('/Chat/conversations', {
+      params: {
+        search: search || undefined,
+        filter: filter || undefined,
+        connectionId: connectionId || undefined,
+        channel: channel || undefined,
+        cursor: options.cursor,
+        limit: options.limit ?? CONVERSATION_PAGE_SIZE,
+        state: options.state && options.state !== 'all' ? options.state : undefined,
+        assignee: options.assignee || undefined
+      }
+    })
+    return readChatPage<Conversation>(response)
+  },
+
+  /** Agents who can take conversations on a connection, with their open workload. */
+  getAssignableAgents: async (connectionId?: number): Promise<AssignableAgent[]> => {
+    const response = await apiClient.get('/Chat/assignable-agents', { params: { connectionId: connectionId || undefined } })
+    return response.data?.data ?? []
+  },
+
+  /** Assigns a conversation; null unassigns it. */
+  assignConversation: async (conversationId: number, userId: number | null): Promise<void> => {
     try {
-      const response = await apiClient.get('/Chat/conversations', {
-        params: {
-          search: search || undefined,
-          filter: filter || undefined,
-          connectionId: connectionId || undefined,
-          channel: channel || undefined
-        }
-      })
-      return response.data?.data || []
+      await apiClient.post(`/Chat/conversations/${conversationId}/assign`, { userId })
     } catch (error) {
-      return []
+      throw new Error((error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Could not assign the conversation.')
+    }
+  },
+
+  setConversationStatus: async (conversationId: number, status: 'Open' | 'Pending' | 'Resolved' | 'Closed'): Promise<void> => {
+    try {
+      await apiClient.post(`/Chat/conversations/${conversationId}/status`, { status })
+    } catch (error) {
+      throw new Error((error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Could not change the status.')
     }
   },
 
@@ -102,16 +144,24 @@ export const chatService = {
     }
   },
 
-  getMessages: async (convId: number, signal?: AbortSignal): Promise<Message[]> => {
-    try {
-      const response = await apiClient.get(`/Chat/conversations/${convId}/messages`, { signal })
-      return response.data?.data || []
-    } catch (error) {
-      if (error && (error as any).name === 'CanceledError') {
-        return []
-      }
-      return []
-    }
+  /**
+   * Messages of a thread in chronological order: the newest page by default, the page older than
+   * `beforeId` when scrolling back, or only what arrived after `afterId` for a live thread.
+   * Throws on failure so a transient error never blanks an open conversation.
+   */
+  getMessages: async (
+    convId: number,
+    options: { beforeId?: number; afterId?: number; limit?: number; signal?: AbortSignal } = {}
+  ): Promise<ChatPage<Message>> => {
+    const response = await apiClient.get(`/Chat/conversations/${convId}/messages`, {
+      params: {
+        beforeId: options.beforeId,
+        afterId: options.afterId,
+        limit: options.limit ?? MESSAGE_PAGE_SIZE
+      },
+      signal: options.signal
+    })
+    return readChatPage<Message>(response)
   },
 
   sendMessage: async (
@@ -121,7 +171,8 @@ export const chatService = {
     mediaUrl?: string,
     mediaType?: string,
     mediaFileName?: string,
-    connectionId?: number
+    connectionId?: number,
+    replyButtons?: string[]
   ): Promise<Message | null> => {
     try {
       const response = await apiClient.post(`/Chat/conversations/${convId}/messages`, {
@@ -130,7 +181,8 @@ export const chatService = {
         mediaUrl,
         mediaType,
         mediaFileName,
-        connectionId
+        connectionId,
+        replyButtons: replyButtons && replyButtons.length > 0 ? replyButtons : undefined
       })
       return response.data?.data || null
     } catch (error) {
@@ -181,3 +233,10 @@ export const chatService = {
   }
 }
 export default chatService
+
+export interface AssignableAgent {
+  id: number
+  name: string
+  email: string
+  openConversations: number
+}

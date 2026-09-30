@@ -31,6 +31,12 @@ public static class ReportCatalog
         new() { Key = "timestamp", Label = "Date & Time" },
         new() { Key = "contactPhone", Label = "Sender / Contact" },
         new() { Key = "contactName", Label = "Contact Name" },
+        new()
+        {
+            Key = "adSource",
+            Label = "Came From Ad",
+            DerivedNote = "The Click-to-WhatsApp ad that first brought the contact in (its headline, or the ad id)."
+        },
         new() { Key = "connectionName", Label = "WABA / Connection" },
         new() { Key = "campaignName", Label = "Campaign" },
         new()

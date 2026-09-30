@@ -26,6 +26,17 @@ export interface Contact {
   city?: string
   state?: string
   country?: string
+  /** IANA time zone, e.g. 'Asia/Kolkata'. */
+  timeZone?: string | null
+  /** ISO date (yyyy-mm-dd). */
+  dateOfBirth?: string | null
+  /** Whole years today, worked out by the server from the date of birth. */
+  age?: number | null
+  /** The Click-to-WhatsApp ad that first brought this contact in. */
+  adSourceId?: string | null
+  adSourceUrl?: string | null
+  adHeadline?: string | null
+  adAttributedAt?: string | null
   zipCode?: string
   address?: string
   description?: string
@@ -84,15 +95,10 @@ export interface ContactFormModel {
   city: string
   state: string
   country: string
+  timeZone?: string
   zipCode: string
   address: string
   description: string
-}
-
-export interface UploadFileModel {
-  name: string
-  size: number
-  type: string
-  progress: number
-  status: 'idle' | 'uploading' | 'success' | 'error'
+  /** ISO date (yyyy-mm-dd); empty when unknown. */
+  dateOfBirth?: string
 }

@@ -32,7 +32,7 @@ public class ChatMessage
     public MessageChannel Channel { get; set; } = MessageChannel.WhatsApp;
 
     /// <summary>
-    /// Channel-neutral provider id — an SES MessageId for email. See the note on
+    /// Channel-neutral provider id — the Message-Id header for email. See the note on
     /// CampaignContact.ProviderMessageId for why this sits beside WhatsAppMessageId rather
     /// than replacing it.
     /// </summary>

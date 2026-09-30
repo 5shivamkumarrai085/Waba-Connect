@@ -43,6 +43,45 @@ public class CreateCampaignRequest
 
     public string RelationType { get; set; } = string.Empty;
     public string ScheduleType { get; set; } = "Immediate";
+
+    /// <summary>
+    /// For ScheduleType "RecipientLocalTime": the date and time to deliver in each recipient's own
+    /// time zone, as a wall-clock value (no offset), e.g. "2026-10-03T09:30:00".
+    /// </summary>
+    public DateTime? LocalSendAt { get; set; }
+
+    /// <summary>Consent topic the campaign is sent under ("marketing" when empty).</summary>
+    public string? Topic { get; set; }
+
+    /// <summary>Service messages: exempt from quiet hours and the frequency cap (never from opt-outs).</summary>
+    public bool IsTransactional { get; set; }
+
+    /// <summary>
+    /// Send even though the pre-flight check failed. Administrators only; recorded in the audit log.
+    /// </summary>
+    public bool OverridePrecheck { get; set; }
+
+    /// <summary>Dynamic segments: resolved now for the count, and again when the campaign starts sending.</summary>
+    public List<int>? SegmentIds { get; set; }
+
+    /// <summary>A/B test settings; null for an ordinary campaign.</summary>
+    public AbTestRequest? AbTest { get; set; }
+
+    /// <summary>Follow-ups: sent (or tagged) automatically after a delay, to recipients matching a condition.</summary>
+    public List<FollowUpRequest>? FollowUps { get; set; }
+
+    /// <summary>
+    /// Target every active contact matching the filters below (and <see cref="RelationType"/>),
+    /// resolved on the server. The wizard used to download every contact to the browser and send
+    /// the ids back, which cannot work for a large contact base.
+    /// </summary>
+    public bool SelectAllContacts { get; set; }
+
+    /// <summary>Contact status filter for <see cref="SelectAllContacts"/>; null or "All" means any.</summary>
+    public string? ContactStatus { get; set; }
+
+    /// <summary>Contact source filter for <see cref="SelectAllContacts"/>; null or "All" means any.</summary>
+    public string? ContactSource { get; set; }
     public DateTime? ScheduledAt { get; set; }
     public List<int>? ContactIds { get; set; }
     public List<int>? GroupIds { get; set; }
@@ -100,6 +139,15 @@ public class CampaignResponse
     public int UnsubscribedCount { get; set; }
     public int ComplainedCount { get; set; }
 
+    /// <summary>Recipients excluded by a compliance rule (consent, opt-out, frequency cap).</summary>
+    public int SkippedCount { get; set; }
+    public string? Topic { get; set; }
+    public bool IsTransactional { get; set; }
+    public DateTime? LocalSendAt { get; set; }
+
+    /// <summary>Why the system put the campaign on hold; null for a pause an operator chose.</summary>
+    public string? PausedReason { get; set; }
+
     /// <summary>Email-only counters, null for WhatsApp campaigns.</summary>
     public EmailCampaignStatsResponse? EmailStats { get; set; }
 }
@@ -124,8 +172,125 @@ public class EmailCampaignStatsResponse
 
 public class CampaignDetailResponse : CampaignResponse
 {
+    /// <summary>
+    /// Whether the sending provider reports delivery. SMTP only tells us the next server accepted
+    /// the message, so an SMTP campaign shows "Accepted" instead of a Delivered figure that would
+    /// always read zero. Always true for WhatsApp.
+    /// </summary>
+    public bool ReportsDelivery { get; set; } = true;
+
+    /// <summary>A first page only; use GET /Campaigns/{id}/recipients for the full, paged list.</summary>
     public List<CampaignRecipientResponse> Recipients { get; set; } = [];
+
+    /// <summary>Maker-checker state, when the campaign has been through approval.</summary>
+    public CampaignApprovalInfo? Approval { get; set; }
+
+    /// <summary>Follow-ups of this campaign and what they did.</summary>
+    public List<WhatsAppCampaignApi.Services.Campaigns.FollowUpInfo> FollowUps { get; set; } = [];
+
+    /// <summary>For a follow-up campaign: the campaign it follows up.</summary>
+    public int? ParentCampaignId { get; set; }
+
+    /// <summary>A/B test results, when the campaign is a test.</summary>
+    public WhatsAppCampaignApi.Services.Campaigns.AbTestResult? AbTest { get; set; }
+
+    /// <summary>Recipients whose send failed, which "Retry failed" would send to again.</summary>
+    public int RetryableCount { get; set; }
+
+    /// <summary>How many times the failed recipients have been retried, and the limit.</summary>
+    public int RetryRuns { get; set; }
+    public int MaxRetryRuns { get; set; }
     public List<CampaignVariableResponse>? Variables { get; set; } = [];
+}
+
+public class CampaignApprovalInfo
+{
+    public string State { get; set; } = "Pending";
+    public string? RequestedBy { get; set; }
+    public DateTime RequestedAt { get; set; }
+    public string? DecidedBy { get; set; }
+    public DateTime? DecidedAt { get; set; }
+    public string? Reason { get; set; }
+
+    /// <summary>Whether the current user may approve or reject: holds the permission and is not the maker.</summary>
+    public bool CanDecide { get; set; }
+}
+
+/// <summary>Clicks on one link of an email campaign.</summary>
+public class CampaignLinkClicks
+{
+    public string Url { get; set; } = string.Empty;
+
+    /// <summary>Every recorded click (repeat clicks by the same person included).</summary>
+    public int TotalClicks { get; set; }
+
+    /// <summary>Distinct recipients who clicked it.</summary>
+    public int UniqueClickers { get; set; }
+
+    public DateTime FirstClickAt { get; set; }
+    public DateTime LastClickAt { get; set; }
+}
+
+/// <summary>
+/// An A/B test: the campaign's own template is variant A; <see cref="Variants"/> are B, C…
+/// </summary>
+public class AbTestRequest
+{
+    /// <summary>Share of the audience in the test (10–100). At 100 every recipient gets a variant and nobody waits.</summary>
+    public int Percent { get; set; } = 20;
+
+    /// <summary>open, click or reply (email); read or reply (WhatsApp).</summary>
+    public string? Metric { get; set; }
+
+    /// <summary>Hours after the send starts that the winner is picked (1–168).</summary>
+    public int DecideAfterHours { get; set; } = 4;
+
+    public List<AbVariantRequest> Variants { get; set; } = [];
+}
+
+public class AbVariantRequest
+{
+    public int? TemplateId { get; set; }
+    public int? EmailTemplateId { get; set; }
+    public string? SubjectOverride { get; set; }
+}
+
+public class FollowUpRequest
+{
+    /// <summary>NotOpened, NotClicked, Clicked, Replied, NotReplied, NotRead or Failed.</summary>
+    public string Condition { get; set; } = "NotOpened";
+    public int DelayHours { get; set; } = 48;
+
+    /// <summary>send or tag.</summary>
+    public string Action { get; set; } = "send";
+
+    /// <summary>Email or WhatsApp; defaults to the campaign's own channel.</summary>
+    public string? Channel { get; set; }
+    public int? TemplateId { get; set; }
+    public int? EmailTemplateId { get; set; }
+    public int? SenderIdentityId { get; set; }
+    public int? ConnectionId { get; set; }
+    public string? SubjectOverride { get; set; }
+    public string? Tag { get; set; }
+}
+
+public class AbDecisionRequest
+{
+    /// <summary>Choose this variant; null picks the best by the test's metric.</summary>
+    public int? VariantId { get; set; }
+}
+
+public class CampaignRetryResponse
+{
+    public int CampaignId { get; set; }
+    public int RecipientCount { get; set; }
+    public int RetryNumber { get; set; }
+    public int MaxRetries { get; set; }
+}
+
+public class CampaignApprovalDecisionRequest
+{
+    public string? Comment { get; set; }
 }
 
 public class CsvCampaignCreateResponse : CampaignResponse

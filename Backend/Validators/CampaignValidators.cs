@@ -6,7 +6,7 @@ namespace WhatsAppCampaignApi.Validators;
 
 public class CreateCampaignValidator : AbstractValidator<CreateCampaignRequest>
 {
-    public CreateCampaignValidator()
+    public CreateCampaignValidator(ContactLookupValidatorCache lookups)
     {
         RuleFor(x => x.Name)
             .NotEmpty().WithMessage("Name is required.")
@@ -34,9 +34,9 @@ public class CreateCampaignValidator : AbstractValidator<CreateCampaignRequest>
             .When(x => IsEmail(x.Channel));
 
         RuleFor(x => x.RelationType)
-            .NotEmpty().WithMessage("RelationType is required.")
-            .Must(BeValidRelationTypeList)
-            .WithMessage("Invalid RelationType. Must be a comma-separated list of: Lead, Customer, Vendor.");
+            .NotEmpty().WithMessage("Choose at least one contact type.")
+            .Must(value => BeValidRelationTypeList(value, lookups))
+            .WithMessage("Each contact type must be one of the types set up under Setup › Contact types.");
 
         RuleFor(x => x.ScheduleType)
             .NotEmpty().WithMessage("ScheduleType is required.")
@@ -45,12 +45,27 @@ public class CreateCampaignValidator : AbstractValidator<CreateCampaignRequest>
         RuleFor(x => x.ScheduledAt)
             .NotEmpty().When(x => x.ScheduleType.Equals("Scheduled", StringComparison.OrdinalIgnoreCase))
             .WithMessage("ScheduledAt is required when ScheduleType is Scheduled.")
-            .GreaterThan(DateTime.UtcNow).When(x => x.ScheduledAt.HasValue)
+            .GreaterThan(DateTime.UtcNow).When(x => x.ScheduledAt.HasValue
+                && x.ScheduleType.Equals("Scheduled", StringComparison.OrdinalIgnoreCase))
             .WithMessage("ScheduledAt must be in the future.");
 
+        // A wall-clock time: compared generously (a day either side of UTC covers every zone).
+        RuleFor(x => x.LocalSendAt)
+            .NotEmpty().When(x => x.ScheduleType.Equals("RecipientLocalTime", StringComparison.OrdinalIgnoreCase))
+            .WithMessage("Choose the local date and time to deliver at.")
+            .Must(t => t is null || t.Value > DateTime.UtcNow.AddHours(-14))
+            .WithMessage("The local send time is in the past for every time zone.");
+
+        RuleFor(x => x.Topic)
+            .MaximumLength(64).WithMessage("The consent topic can be at most 64 characters.");
+
+        // "Select all" and segments are audiences too — the old rule rejected both.
         RuleFor(x => x)
-            .Must(x => (x.ContactIds != null && x.ContactIds.Any()) || (x.GroupIds != null && x.GroupIds.Any()))
-            .WithMessage("At least one Contact or Group must be selected.");
+            .Must(x => x.SelectAllContacts
+                || (x.ContactIds != null && x.ContactIds.Any())
+                || (x.GroupIds != null && x.GroupIds.Any())
+                || (x.SegmentIds != null && x.SegmentIds.Any()))
+            .WithMessage("Choose who receives the campaign: contacts, groups, segments or all contacts.");
 
         RuleForEach(x => x.Variables).SetValidator(new CampaignVariableValidator());
     }
@@ -67,14 +82,14 @@ public class CreateCampaignValidator : AbstractValidator<CreateCampaignRequest>
     private static bool BeAKnownChannel(string? channel) =>
         string.IsNullOrWhiteSpace(channel) || Enum.TryParse<MessageChannel>(channel, true, out _);
 
-    // A campaign can now target multiple relation types at once — RelationType arrives
-    // as a comma-separated string (e.g. "Lead,Customer"); every token must be a valid
-    // ContactType name.
-    private static bool BeValidRelationTypeList(string value)
+    // A campaign can target several contact types at once — RelationType arrives as a
+    // comma-separated string (e.g. "Lead,Customer"); every token must be a type from the
+    // administrator-managed ContactTypes lookup.
+    private static bool BeValidRelationTypeList(string value, ContactLookupValidatorCache lookups)
     {
         if (string.IsNullOrWhiteSpace(value)) return false;
         var tokens = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return tokens.Length > 0 && tokens.All(t => Enum.TryParse<ContactType>(t, true, out _));
+        return tokens.Length > 0 && tokens.All(lookups.TypeExists);
     }
 }
 

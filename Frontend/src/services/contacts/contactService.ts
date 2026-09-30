@@ -1,3 +1,4 @@
+import { fetchAllPages, readPaged, type PagedResult } from '../pagination'
 import { apiClient } from '../apiClient'
 import { getErrorMessage } from '../../utils/errorHelper'
 import type { CsvRowErrorItem } from '../../components/CsvRowErrors/CsvRowErrors'
@@ -21,6 +22,18 @@ export interface ContactImportSummary {
   errors: CsvRowErrorItem[]
 }
 
+export interface CsvContactColumn {
+  header: string
+  label: string
+  required: boolean
+  example: string
+}
+
+export interface CsvContactLayout {
+  columns: CsvContactColumn[]
+  optionalColumns: string[]
+}
+
 export interface ContactImportResult {
   /** The file was processed. Rows may still have been rejected — check `result`. */
   success: boolean
@@ -29,15 +42,72 @@ export interface ContactImportResult {
   result: ContactImportSummary | null
 }
 
+/** Server-side contact list query (filters, sort and page all run in the database). */
+export interface ContactListQuery {
+  page: number
+  pageSize: number
+  search?: string
+  type?: string
+  status?: string
+  source?: string
+  assignedTo?: string
+  group?: string
+  tag?: string
+  startDate?: string
+  endDate?: string
+  sortBy?: string
+  sortDescending?: boolean
+}
+
+const toContactParams = (q: Partial<ContactListQuery>) => {
+  const pick = (v?: string) => (v && v !== 'All' ? v : undefined)
+  return {
+    page: q.page,
+    pageSize: q.pageSize,
+    search: q.search?.trim() || undefined,
+    type: pick(q.type),
+    status: pick(q.status),
+    source: pick(q.source),
+    assignedTo: pick(q.assignedTo),
+    group: pick(q.group),
+    tag: pick(q.tag),
+    startDate: q.startDate || undefined,
+    endDate: q.endDate || undefined,
+    sortBy: q.sortBy || undefined,
+    sortDescending: q.sortDescending ?? true,
+  }
+}
+
 export const contactService = {
+  getContactsPage: async (query: ContactListQuery): Promise<PagedResult<Contact>> => {
+    const response = await apiClient.get('/Contacts', { params: toContactParams(query) })
+    return readPaged(response.data, mapContact)
+  },
+
+  /** Active contacts per type, in one grouped query (the campaign wizard's audience summary). */
+  getTypeCounts: async (): Promise<Record<string, number>> => {
+    const response = await apiClient.get('/Contacts/type-counts')
+    const rows = (response.data?.data ?? []) as { type: string; count: number }[]
+    return Object.fromEntries(rows.map(r => [r.type, r.count]))
+  },
+
+  /** The columns a contacts CSV needs right now (required ones follow Settings › Contacts). */
+  getCsvLayout: async (): Promise<CsvContactLayout> => {
+    const response = await apiClient.get('/Contacts/csv-layout')
+    return response.data?.data as CsvContactLayout
+  },
+
+  /** Every contact matching the filters, for exports; bounded. */
+  getAllMatching: async (query: Partial<ContactListQuery>, maxItems = 50_000): Promise<Contact[]> => {
+    const { page: _page, pageSize: _size, ...filters } = toContactParams(query)
+    return fetchAllPages('/Contacts', filters, mapContact, maxItems)
+  },
+
   getContacts: async (): Promise<Contact[]> => {
     try {
-      // Use large page size to fetch all contacts
-      const response = await apiClient.get('/Contacts', {
-        params: { pageSize: 10000 }
-      })
-      const items = response.data?.data?.items || []
-      return items.map(mapContact)
+      // For pickers that need the whole list. Bounded: the Contacts page itself pages on the
+      // server, and "select all" in the campaign wizard is resolved server-side.
+      return await fetchAllPages('/Contacts', {}, mapContact, 10_000)
     } catch (error) {
       return []
     }
@@ -45,13 +115,7 @@ export const contactService = {
 
   getContactGroups: async (): Promise<ContactGroup[]> => {
     try {
-      const response = await apiClient.get('/ContactGroups', {
-        params: { pageSize: 10000 }
-      })
-      if (response.data?.data?.items) {
-        return response.data.data.items
-      }
-      return []
+      return await fetchAllPages<ContactGroup>('/ContactGroups')
     } catch (error) {
       return []
     }
@@ -125,17 +189,20 @@ export const contactService = {
     const payload = {
       name: `${form.firstName} ${form.lastName}`.trim(),
       phone: formattedPhone,
-      type: form.type || 'Lead',
-      status: form.status || 'New',
-      source: form.source || 'whatsapp',
+      type: form.type,
+      status: form.status,
+      source: form.source,
       assignedTo: form.assigned || null,
+      company: form.company || null,
       email: form.email || null,
       website: form.website || null,
       language: form.language || null,
       city: form.city || null,
       state: form.state || null,
       country: form.country || null,
+      timeZone: form.timeZone || null,
       zipCode: form.zipCode || null,
+      dateOfBirth: form.dateOfBirth || null,
       address: form.address || null,
       description: form.description || null,
       groupIds: form.groups ? [parseInt(form.groups, 10)].filter(id => !isNaN(id)) : []
@@ -154,17 +221,20 @@ export const contactService = {
     const payload = {
       name: `${form.firstName} ${form.lastName}`.trim(),
       phone: formattedPhone,
-      type: form.type || 'Lead',
-      status: form.status || 'New',
-      source: form.source || 'whatsapp',
+      type: form.type,
+      status: form.status,
+      source: form.source,
       assignedTo: form.assigned || null,
+      company: form.company || null,
       email: form.email || null,
       website: form.website || null,
       language: form.language || null,
       city: form.city || null,
       state: form.state || null,
       country: form.country || null,
+      timeZone: form.timeZone || null,
       zipCode: form.zipCode || null,
+      dateOfBirth: form.dateOfBirth || null,
       address: form.address || null,
       description: form.description || null,
       groupIds: form.groups ? [parseInt(form.groups, 10)].filter(id => !isNaN(id)) : []

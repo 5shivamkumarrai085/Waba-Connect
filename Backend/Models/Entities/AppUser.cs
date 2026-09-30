@@ -61,8 +61,8 @@ public class AppUser
     public bool MustChangePassword { get; set; }
 
     /// <summary>
-    /// Records the "Send Welcome Email" intent from the user form. No mail is sent — this
-    /// build ships email template management only, with no SMTP configured.
+    /// "Send Welcome Email" from the user form: when set, the Welcome Email template is sent to the
+    /// new user through the platform SMTP account (the Smtp settings), if one is configured.
     /// </summary>
     public bool SendWelcomeEmail { get; set; }
 
@@ -87,6 +87,20 @@ public class AppUser
     public string? ExternalUserId { get; set; }
 
     public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>Consecutive failed sign-ins since the last success; drives the lockout.</summary>
+    public int FailedLoginCount { get; set; }
+
+    /// <summary>Sign-in is refused until this moment after too many failed attempts.</summary>
+    public DateTime? LockoutEndAt { get; set; }
+
+    /// <summary>
+    /// Changes whenever something that should end existing sessions changes — password,
+    /// deactivation, administrator or role assignment. Carried in every access token and checked
+    /// on each request, so those changes take effect immediately instead of when a token expires.
+    /// </summary>
+    [MaxLength(64)]
+    public string SecurityStamp { get; set; } = Guid.NewGuid().ToString("N");
 
     public bool IsDeleted { get; set; }
 

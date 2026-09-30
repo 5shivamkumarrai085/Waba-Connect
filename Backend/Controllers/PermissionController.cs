@@ -21,6 +21,15 @@ public class PermissionController : ControllerBase
         _permissionService = permissionService;
     }
 
+    /// <summary>The real users and roles that connection access can be granted to.</summary>
+    [HttpGet("candidates")]
+    [RequiresPermission("ConnectionAccess.View")]
+    public async Task<IActionResult> GetCandidates()
+    {
+        var data = await _permissionService.GetCandidatesAsync();
+        return Ok(data);
+    }
+
     [HttpGet("user/dashboard")]
     [RequiresPermission("ConnectionAccess.View")]
     public async Task<IActionResult> GetUserDashboard()

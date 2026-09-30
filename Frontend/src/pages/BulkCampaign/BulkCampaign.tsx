@@ -119,26 +119,29 @@ export const BulkCampaign: React.FC = () => {
   }, [campaignName])
 
   // Handle template selection change
-  // Loaded the first time the email channel is picked, not on mount: an operator who only ever
-  // sends WhatsApp should not pay for two requests they will never use.
+  // Email connections load up front, because the channel card's "configured" badge is derived
+  // from them (loading them only after Email was picked made the card always read "No verified
+  // sender yet"). Templates still load the first time Email is picked.
+  useEffect(() => {
+    let isMounted = true
+    emailConnectionService.getConnections()
+      .then(conns => { if (isMounted) setEmailConnections(conns) })
+      .catch(() => { /* the card simply shows as not configured */ })
+    return () => { isMounted = false }
+  }, [])
+
   useEffect(() => {
     if (!isEmailChannel) return
-    if (emailConnections.length > 0 || emailTemplates.length > 0) return
+    if (emailTemplates.length > 0) return
 
     let isMounted = true
     setIsLoadingEmailOptions(true)
 
-    Promise.all([
-      emailConnectionService.getConnections(),
-      // enabledOnly: offering a disabled template would produce a campaign the dispatcher
-      // refuses, after the operator has already uploaded a file and finished the form.
-      emailTemplateService.getTemplates(true)
-    ])
-      .then(([conns, tpls]) => {
-        if (!isMounted) return
-        setEmailConnections(conns)
-        setEmailTemplates(tpls)
-      })
+    // enabledOnly: offering a disabled template would produce a campaign the dispatcher
+    // refuses, after the operator has already uploaded a file and finished the form.
+    emailTemplateService.getTemplates(true)
+      .then(tpls => { if (isMounted) setEmailTemplates(tpls) })
+      .catch(() => { /* the template picker shows its empty state */ })
       .finally(() => {
         if (isMounted) setIsLoadingEmailOptions(false)
       })
@@ -586,7 +589,7 @@ export const BulkCampaign: React.FC = () => {
                 </div>
 
                 {/* From Name and From Email are the sender's own, shown read-only rather than as
-                    editable fields: SES will not send from an address it has not verified, so an
+                    editable fields: a mail server only sends from the addresses its account may use, so an
                     editable box here would only invite a value the send path must reject. */}
                 {selectedEmailSender && (
                   <div className="bulk-sender-summary">

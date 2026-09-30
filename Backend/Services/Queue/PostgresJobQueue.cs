@@ -1,8 +1,6 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
-using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.Options;
 
 namespace WhatsAppCampaignApi.Services.Queue;
@@ -28,16 +26,16 @@ namespace WhatsAppCampaignApi.Services.Queue;
 /// </summary>
 public class PostgresJobQueue : IJobQueue
 {
-    private readonly IDbContextFactory<AppDbContext> _contextFactory;
+    private readonly NpgsqlDataSource _dataSource;
     private readonly IOptionsMonitor<EmailOptions> _options;
     private readonly ILogger<PostgresJobQueue> _logger;
 
     public PostgresJobQueue(
-        IDbContextFactory<AppDbContext> contextFactory,
+        NpgsqlDataSource dataSource,
         IOptionsMonitor<EmailOptions> options,
         ILogger<PostgresJobQueue> logger)
     {
-        _contextFactory = contextFactory;
+        _dataSource = dataSource;
         _options = options;
         _logger = logger;
     }
@@ -46,19 +44,10 @@ public class PostgresJobQueue : IJobQueue
 
     private QueueOptions Queue => _options.CurrentValue.Queue;
 
-    private async Task<NpgsqlConnection> OpenAsync(CancellationToken ct)
-    {
-        // The factory-created context is disposed immediately; only its connection string is
-        // wanted. Taking a raw Npgsql connection keeps these statements clear of EF's command
-        // interception and of the scoped context's change tracker.
-        await using var context = await _contextFactory.CreateDbContextAsync(ct);
-        var connectionString = context.Database.GetConnectionString()
-            ?? throw new InvalidOperationException("No connection string is configured for the job queue.");
-
-        var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync(ct);
-        return connection;
-    }
+    // A pooled connection from the process-wide data source. Raw Npgsql keeps these statements
+    // clear of EF's command interception and of the scoped context's change tracker; the shared
+    // pool means a claim no longer builds a DbContext just to learn the connection string.
+    private ValueTask<NpgsqlConnection> OpenAsync(CancellationToken ct) => _dataSource.OpenConnectionAsync(ct);
 
     public async Task<QueueEnqueueResult> EnqueueAsync(
         IReadOnlyCollection<QueueMessage> messages,
@@ -170,7 +159,8 @@ public class PostgresJobQueue : IJobQueue
                        WHERE "QueueName" = @queue
                          AND "AvailableAt" <= now()
                          AND ("Status" = 'Pending'
-                              OR ("Status" = 'Leased' AND "LeaseExpiresAt" IS NOT NULL AND "LeaseExpiresAt" < now()))
+                              OR ("Status" = 'Leased' AND "LeaseExpiresAt" IS NOT NULL AND "LeaseExpiresAt" < now()
+                                  AND "Attempt" < "MaxAttempts"))
                        GROUP BY 1
                   ) grouped
                  ORDER BY grouped.oldest
@@ -186,7 +176,8 @@ public class PostgresJobQueue : IJobQueue
                          AND COALESCE(j2."PartitionKey", '') = p.pk
                          AND j2."AvailableAt" <= now()
                          AND (j2."Status" = 'Pending'
-                              OR (j2."Status" = 'Leased' AND j2."LeaseExpiresAt" IS NOT NULL AND j2."LeaseExpiresAt" < now()))
+                              OR (j2."Status" = 'Leased' AND j2."LeaseExpiresAt" IS NOT NULL AND j2."LeaseExpiresAt" < now()
+                                  AND j2."Attempt" < j2."MaxAttempts"))
                        ORDER BY j2."Priority" DESC, j2."AvailableAt", j2."Id"
                        LIMIT @per_partition_cap
                   ) slice
@@ -209,7 +200,11 @@ public class PostgresJobQueue : IJobQueue
                    -- and filters out anything that stopped being claimable in the meantime.
                    AND j."AvailableAt" <= now()
                    AND (j."Status" = 'Pending'
-                        OR (j."Status" = 'Leased' AND j."LeaseExpiresAt" IS NOT NULL AND j."LeaseExpiresAt" < now()))
+                        OR (j."Status" = 'Leased' AND j."LeaseExpiresAt" IS NOT NULL AND j."LeaseExpiresAt" < now()
+                            -- A job whose final attempt lost its lease (the process died, or it
+                            -- hung) is a poison candidate; the maintenance sweep dead-letters it
+                            -- instead of letting it be claimed forever.
+                            AND j."Attempt" < j."MaxAttempts"))
                  ORDER BY j."Priority" DESC, j."AvailableAt", j."Id"
                  FOR UPDATE SKIP LOCKED
                  LIMIT @batch_size
@@ -349,6 +344,63 @@ public class PostgresJobQueue : IJobQueue
         }
 
         return affected > 0;
+    }
+
+    public async Task<bool> DeferAsync(QueueLease lease, TimeSpan delay, string reason, CancellationToken ct = default)
+    {
+        // Returns the job without spending an attempt. Used when the job could not even start
+        // (no send capacity yet): counting that as a failure dead-lettered healthy jobs on any
+        // campaign large enough to outrun its rate limit.
+        const string sql = """
+            UPDATE "JobQueue"
+               SET "Status"         = 'Pending',
+                   "Attempt"        = GREATEST("Attempt" - 1, 0),
+                   "AvailableAt"    = now() + make_interval(secs => @delay_seconds),
+                   "LastError"      = @reason,
+                   "LeaseToken"     = NULL,
+                   "LeasedBy"       = NULL,
+                   "LeaseExpiresAt" = NULL,
+                   "UpdatedAt"      = now()
+             WHERE "Id" = @id AND "LeaseToken" = @token
+            """;
+
+        await using var connection = await OpenAsync(ct);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", lease.JobId);
+        command.Parameters.AddWithValue("token", lease.ReceiptToken);
+        command.Parameters.AddWithValue("delay_seconds", Math.Max(0, delay.TotalSeconds));
+        command.Parameters.AddWithValue("reason", Truncate(reason, 4000));
+
+        return await command.ExecuteNonQueryAsync(ct) > 0;
+    }
+
+    public async Task<int> DeadLetterExhaustedLeasesAsync(CancellationToken ct = default)
+    {
+        const string sql = """
+            UPDATE "JobQueue"
+               SET "Status"         = 'DeadLettered',
+                   "DeadLetteredAt" = now(),
+                   "LastError"      = 'Lease expired on the final attempt: the worker died or hung while processing this job.',
+                   "LastErrorAt"    = now(),
+                   "LeaseToken"     = NULL,
+                   "LeasedBy"       = NULL,
+                   "LeaseExpiresAt" = NULL,
+                   "UpdatedAt"      = now()
+             WHERE "Status" = 'Leased'
+               AND "LeaseExpiresAt" < now()
+               AND "Attempt" >= "MaxAttempts"
+            """;
+
+        await using var connection = await OpenAsync(ct);
+        await using var command = new NpgsqlCommand(sql, connection);
+        var affected = await command.ExecuteNonQueryAsync(ct);
+
+        if (affected > 0)
+        {
+            _logger.LogError("Dead-lettered {Count} job(s) whose final attempt lost its lease.", affected);
+        }
+
+        return affected;
     }
 
     public async Task<bool> ExtendLeaseAsync(QueueLease lease, TimeSpan extension, CancellationToken ct = default)

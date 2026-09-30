@@ -3,8 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { pageTransitionProps, transitions } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import { useContactStore } from '../../store/contactStore'
-import { contactFields } from '../../utils/contactSearchFields'
-import { matchesSearch } from '../../utils/smartSearch'
+import type { Contact } from '../../types/contacts'
 import { useLookupStore } from '../../store/lookupStore'
 import { contactService } from '../../services/contacts/contactService'
 import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
@@ -62,14 +61,9 @@ const SORT_OPTIONS = [
   { key: 'createdAt', label: 'Created At' }
 ]
 
-const getAssignedName = (assignedTo?: string) => {
-  if (!assignedTo) return 'Unassigned'
-  const lower = assignedTo.toLowerCase()
-  if (lower === 'superadmin') return 'superAdmin'
-  if (lower === 'johnmicheal') return 'John Micheal'
-  if (lower === 'gunaratnam') return 'Gunaratnam'
-  return assignedTo
-}
+// The owner as stored. (This used to translate a few hardcoded test names, so a real user who
+// happened to share one was displayed — and filtered — under someone else's spelling.)
+const getAssignedName = (assignedTo?: string) => assignedTo || 'Unassigned'
 
 export const ContactsList: React.FC = () => {
   const navigate = useNavigate()
@@ -86,14 +80,20 @@ export const ContactsList: React.FC = () => {
     currentPage,
     pageSize,
     visibleColumns,
-    
+
     setSearchQuery,
     toggleRowSelection,
     toggleAllRowSelection,
     toggleColumnVisibility,
     setCurrentPage,
     setPageSize,
-    
+    totalCount,
+    filters,
+    sortColumn,
+    sortOrder,
+    setFilters,
+    setSort,
+
     loadContacts,
     deleteSelected,
     toggleContactActive
@@ -153,97 +153,37 @@ export const ContactsList: React.FC = () => {
   const typeMap = useMemo(() => buildLookupMap(contactTypes), [contactTypes])
 
   useEffect(() => {
-    loadContacts()
     // Deduped and cached in the store, so revisiting this page costs nothing. The five lookup
     // calls also no longer carry wabaService.getDashboard() alongside them — nothing here read
     // its result, but it dragged one to two blocking Meta Graph calls onto every page load.
     void loadLookups()
   }, [])
 
-  // Filter contacts locally based on search query and custom filter dropdowns
-  const filteredContacts = contacts.filter((c: any) => {
-    // 1. Search Query filter — every field the row carries, via the shared matcher, so this and
-    //    the select-all in contactStore cannot disagree about which rows the search covers.
-    const contactName = c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim()
-    if (!matchesSearch(searchQuery, contactFields(c, contactName))) return false
+  // Filtering, sorting and paging run on the server; this page only states what it wants. The
+  // list used to download every contact and do all three in the browser, which does not scale
+  // past a few thousand rows.
+  useEffect(() => {
+    setFilters({
+      type: filterType,
+      assignedTo: filterAssigned,
+      status: filterStatus,
+      source: filterSource,
+      group: filterGroup,
+      tag: filterTag,
+      startDate: filterStartDate,
+      endDate: filterEndDate
+    })
+  }, [setFilters, filterType, filterAssigned, filterStatus, filterSource, filterGroup, filterTag, filterStartDate, filterEndDate])
 
-    // 2. Type filter
-    if (filterType !== 'All') {
-      const typeLower = (c.type || '').toLowerCase()
-      if (typeLower !== filterType.toLowerCase()) return false
-    }
+  useEffect(() => {
+    setSort(sortCol, sortOrd)
+  }, [setSort, sortCol, sortOrd])
 
-    // 3. Assigned filter
-    if (filterAssigned !== 'All') {
-      const assignedVal = getAssignedName(c.assignedTo)
-      if (assignedVal !== filterAssigned) return false
-    }
-
-    // 4. Status filter
-    if (filterStatus !== 'All') {
-      const statusLower = (c.status || '').toLowerCase()
-      if (statusLower !== filterStatus.toLowerCase()) return false
-    }
-
-    // 5. Source filter
-    if (filterSource !== 'All') {
-      const sourceLower = (c.source || '').toLowerCase()
-      if (sourceLower !== filterSource.toLowerCase()) return false
-    }
-
-    // 6. Group filter
-    if (filterGroup !== 'All') {
-      const groupList = Array.isArray(c.groups)
-        ? c.groups.map((g: any) => g?.name || g?.groupName || '').filter(Boolean)
-        : [];
-      if (!groupList.includes(filterGroup)) return false
-    }
-
-    // 6b. Tags filter — derived dynamically from the loaded contacts, see tagOptions below
-    if (filterTag !== 'All') {
-      const tagList = (c.tags || '').split(',').map((t: string) => t.trim()).filter(Boolean)
-      if (!tagList.includes(filterTag)) return false
-    }
-
-    // 7. Date range filter
-    if (filterStartDate) {
-      const start = new Date(filterStartDate).getTime()
-      const created = new Date(c.createdAt).getTime()
-      if (created < start) return false
-    }
-    if (filterEndDate) {
-      const end = new Date(filterEndDate).getTime() + 24 * 60 * 60 * 1000 - 1
-      const created = new Date(c.createdAt).getTime()
-      if (created > end) return false
-    }
-
-    return true
-  })
-
-  // Sort contacts locally
-  const sortedContacts = [...filteredContacts].sort((a: any, b: any) => {
-    let aVal = a[sortCol];
-    let bVal = b[sortCol];
-
-    if (sortCol === 'name') {
-      aVal = (a.name || `${a.firstName || ''} ${a.lastName || ''}`).toLowerCase();
-      bVal = (b.name || `${b.firstName || ''} ${b.lastName || ''}`).toLowerCase();
-    } else if (typeof aVal === 'string') {
-      aVal = aVal.toLowerCase();
-      bVal = (bVal || '').toLowerCase();
-    } else if (sortCol === 'createdAt') {
-      aVal = new Date(aVal || 0).getTime();
-      bVal = new Date(bVal || 0).getTime();
-    }
-
-    if (aVal === bVal) return 0;
-    
-    if (sortOrd === 'asc') {
-      return aVal > bVal ? 1 : -1;
-    } else {
-      return aVal < bVal ? 1 : -1;
-    }
-  });
+  useEffect(() => {
+    // Typing is debounced so each keystroke is not a request.
+    const timer = setTimeout(() => void loadContacts(), searchQuery ? 300 : 0)
+    return () => clearTimeout(timer)
+  }, [loadContacts, searchQuery, filters, sortColumn, sortOrder, currentPage, pageSize])
 
   // Tags filter options — derived dynamically from whatever tags actually exist on loaded contacts
   // (mirrors the same pattern TemplatesList.tsx uses for its Template Name filter), no backend lookup needed.
@@ -258,11 +198,11 @@ export const ContactsList: React.FC = () => {
     return Array.from(seen).sort()
   }, [contacts])
 
-  // Pagination calculation
-  const totalResults = sortedContacts.length
+  // Server-side paging: `contacts` is already the requested page.
+  const totalResults = totalCount
   const startIndex = (currentPage - 1) * pageSize
-  const endIndex = Math.min(totalResults, startIndex + pageSize)
-  const paginatedContacts = sortedContacts.slice(startIndex, endIndex)
+  const endIndex = Math.min(totalResults, startIndex + contacts.length)
+  const paginatedContacts = contacts
   const totalPages = Math.max(1, Math.ceil(totalResults / pageSize))
 
   const handleRefresh = async () => {
@@ -328,11 +268,18 @@ export const ContactsList: React.FC = () => {
     setIsInitiateModalOpen(true)
   }
 
-  const handleExport = (format: 'csv' | 'xlsx', scope: 'all' | 'selected') => {
-    const list = scope === 'selected' 
-      ? contacts.filter(c => selectedIds.includes(c.id)) 
-      : filteredContacts;
-      
+  const handleExport = async (format: 'csv' | 'xlsx', scope: 'all' | 'selected') => {
+    // "All" means every contact matching the current filters, fetched from the server in pages.
+    let list: Contact[]
+    try {
+      list = scope === 'selected'
+        ? contacts.filter(c => selectedIds.includes(c.id))
+        : await contactService.getAllMatching({ ...filters, search: searchQuery, sortBy: sortColumn, sortDescending: sortOrder === 'desc' })
+    } catch {
+      toast.error('Could not load the contacts to export.')
+      return
+    }
+
     if (list.length === 0) {
       toast.error('No contacts to export.');
       return;
@@ -347,18 +294,27 @@ export const ContactsList: React.FC = () => {
       c.assignedTo || 'Unassigned',
       c.status || '',
       c.source || '',
-      Array.isArray(c.groups) 
+      Array.isArray(c.groups)
         ? c.groups.map((g: any) => g?.name || g?.groupName || '').filter(Boolean).join(', ')
         : (c.groups || ''),
       c.createdAt ? new Date(c.createdAt).toLocaleString() : ''
     ]);
 
+    // A cell that starts with =, +, - or @ is executed as a formula by Excel; prefix it so it is
+    // shown as text. HTML is escaped because the .xlsx export is an HTML table.
+    const safeCell = (val: unknown) => {
+      const text = String(val ?? '')
+      return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text
+    }
+    const escapeHtml = (text: string) =>
+      text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
     if (format === 'csv') {
       const csvContent = [
         headers.join(','),
-        ...dataRows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+        ...dataRows.map(row => row.map(val => `"${safeCell(val).replace(/"/g, '""')}"`).join(','))
       ].join('\n');
-      
+
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -376,7 +332,7 @@ export const ContactsList: React.FC = () => {
       html += '</tr></thead><tbody>';
       dataRows.forEach(row => {
         html += '<tr>';
-        row.forEach(val => { html += `<td>${val}</td>`; });
+        row.forEach(val => { html += `<td>${escapeHtml(safeCell(val))}</td>`; });
         html += '</tr>';
       });
       html += '</tbody></table></body></html>';
@@ -513,7 +469,7 @@ export const ContactsList: React.FC = () => {
               <div className="export-row">
                 <span className="export-format">XLSX</span>
                 <button type="button" data-menu-item className="export-action" onClick={() => handleExport('xlsx', 'all')}>
-                  ({filteredContacts.length}) All
+                  ({totalCount}) All
                 </button>
                 <button
                   type="button"
@@ -528,7 +484,7 @@ export const ContactsList: React.FC = () => {
               <div className="export-row">
                 <span className="export-format">Csv</span>
                 <button type="button" data-menu-item className="export-action" onClick={() => handleExport('csv', 'all')}>
-                  ({filteredContacts.length}) All
+                  ({totalCount}) All
                 </button>
                 <button
                   type="button"
@@ -797,7 +753,7 @@ export const ContactsList: React.FC = () => {
                     const isVisible = visibleColumns[col.key] !== false
                     if (!isVisible) return null
                     const isSortable = col.key !== 'initiateChat' && col.key !== 'group'
-                    
+
                     const handleHeaderClick = () => {
                       if (!isSortable) return
                       if (sortCol === col.key) {
@@ -809,8 +765,8 @@ export const ContactsList: React.FC = () => {
                     }
 
                     return (
-                      <th 
-                        key={col.key} 
+                      <th
+                        key={col.key}
                         className={`col-width-${col.key} ${isSortable ? 'sortable-header' : ''}`}
                         onClick={handleHeaderClick}
                       >
@@ -877,7 +833,7 @@ export const ContactsList: React.FC = () => {
                 ) : (
                   paginatedContacts.map((contact, index) => {
                     const isRowSelected = selectedIds.includes(contact.id)
-                    
+
                     return (
                       <tr key={contact.id}>
                         <td className="checkbox-cell">
@@ -1138,7 +1094,7 @@ export const ContactsList: React.FC = () => {
               <button
                 type="button"
                 className="btn-control-icon"
-                disabled={currentPage === totalPages}
+                disabled={currentPage >= totalPages}
                 onClick={() => setCurrentPage(currentPage + 1)}
                 aria-label="Next Page"
               >
@@ -1153,8 +1109,8 @@ export const ContactsList: React.FC = () => {
         isOpen={isDeleteModalOpen || deleteTarget !== null}
         title="Delete Contact"
         message={
-          deleteTarget 
-            ? `Are you sure you want to delete contact "${deleteTarget.name}"?` 
+          deleteTarget
+            ? `Are you sure you want to delete contact "${deleteTarget.name}"?`
             : `Are you sure you want to delete ${selectedIds.length} selected contacts? This action cannot be undone.`
         }
         confirmText="Delete"

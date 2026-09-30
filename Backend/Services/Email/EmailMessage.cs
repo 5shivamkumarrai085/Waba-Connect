@@ -51,12 +51,6 @@ public sealed record EmailMessage
     public string? ReferencesHeader { get; init; }
 
     /// <summary>
-    /// SES configuration set. Without one SES still sends, but publishes no delivery, bounce or
-    /// complaint events, so nothing downstream ever learns what happened.
-    /// </summary>
-    public string? ConfigurationSet { get; init; }
-
-    /// <summary>
     /// Provider-side tags, echoed back on event notifications. Useful for attributing an event
     /// to a campaign even before our own correlation row is committed.
     /// </summary>
@@ -145,17 +139,6 @@ public sealed record EmailProviderContext
 
     public required EmailProviderType Provider { get; init; }
 
-    // ── SES ──────────────────────────────────────────────────────────────────────────────────
-    public string? Region { get; init; }
-
-    public EmailAuthMode AuthMode { get; init; }
-
-    public string? AccessKeyId { get; init; }
-
-    public string? SecretAccessKey { get; init; }
-
-    public string? ConfigurationSet { get; init; }
-
     // ── SMTP ─────────────────────────────────────────────────────────────────────────────────
     public string? SmtpHost { get; init; }
 
@@ -196,10 +179,10 @@ public sealed record EmailProviderCapabilities
 
 /// <param name="Success">Whether the credentials and endpoint actually work.</param>
 /// <param name="Message">
-/// Operator-facing detail. Must explain what to change — "the access key is not authorised for
-/// ses:SendEmail" is actionable, "request failed" is not.
+/// Operator-facing detail. Must explain what to change — "the server rejected the username or
+/// password (535)" is actionable, "request failed" is not.
 /// </param>
-/// <param name="Details">Optional extras, such as the account's send quota and current rate.</param>
+/// <param name="Details">Optional extras, such as the server's greeting or advertised size limit.</param>
 public sealed record EmailProviderTestResult(
     bool Success,
     string Message,

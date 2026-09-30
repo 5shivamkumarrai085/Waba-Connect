@@ -23,8 +23,12 @@ export interface LoginPayload {
 }
 
 export interface LoginResult {
+  /** Short-lived access token (minutes). Renewed automatically by the API client. */
   token: string
   expiresAt: string
+  /** Single-use token that renews the session; rotated on every use. */
+  refreshToken: string
+  refreshTokenExpiresAt: string
   user: CurrentUser
 }
 

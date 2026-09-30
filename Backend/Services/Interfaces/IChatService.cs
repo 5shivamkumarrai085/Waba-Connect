@@ -11,13 +11,30 @@ public interface IChatService
     /// rather than in the client is what lets the inbox scope the list to one channel at all,
     /// since the client only ever received one connection's worth of rows.
     /// </param>
-    Task<List<ChatConversationResponse>> GetConversationsAsync(
+    /// <remarks>
+    /// Keyset-paged, newest activity first. <paramref name="cursor"/> is the opaque value returned
+    /// as <see cref="ChatPage{T}.NextCursor"/> by the previous page; null starts from the top.
+    /// </remarks>
+    Task<ChatPage<ChatConversationResponse>> GetConversationsAsync(
         string? search = null,
         string? filter = null,
         int? connectionId = null,
-        string? channel = null);
+        string? channel = null,
+        string? cursor = null,
+        int limit = ChatPaging.DefaultConversationPageSize,
+        string? state = null,
+        string? assignee = null);
     Task<ChatConversationResponse> GetConversationAsync(int id);
-    Task<List<ChatMessageResponse>> GetMessagesAsync(int conversationId);
+    /// <remarks>
+    /// Returns messages in chronological order. With neither bound, the newest
+    /// <paramref name="limit"/>; with <paramref name="beforeId"/>, the page just older than it (for
+    /// scrolling back); with <paramref name="afterId"/>, only what arrived since (for a live thread).
+    /// </remarks>
+    Task<ChatPage<ChatMessageResponse>> GetMessagesAsync(
+        int conversationId,
+        int? beforeId = null,
+        int? afterId = null,
+        int limit = ChatPaging.DefaultMessagePageSize);
     Task<ChatMessageResponse> SendMessageAsync(int conversationId, SendChatMessageRequest request);
     Task<ChatMessageResponse> SendTemplateToContactAsync(SendTemplateToContactRequest request);
     Task DeleteConversationAsync(int conversationId);

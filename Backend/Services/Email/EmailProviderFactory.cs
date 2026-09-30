@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.Entities;
+using WhatsAppCampaignApi.Models.Enums;
 using WhatsAppCampaignApi.Models.Options;
 using WhatsAppCampaignApi.Services.Interfaces;
 
@@ -53,7 +54,7 @@ public class EmailProviderFactory : IEmailProviderFactory
     {
         if (string.IsNullOrWhiteSpace(providerName))
         {
-            providerName = _options.CurrentValue.DefaultProvider;
+            providerName = nameof(EmailProviderType.Smtp);
         }
 
         if (_providers.TryGetValue(providerName, out var provider)) return provider;
@@ -105,7 +106,7 @@ public class EmailProviderFactory : IEmailProviderFactory
         {
             // InvalidOperationException maps to 409 Conflict, which is the honest answer: the
             // request is well-formed, the resource just is not in a state that allows it.
-            throw new InvalidOperationException(
+            throw new EmailConnectionUnavailableException(configuration.Id,
                 $"Email configuration {configuration.Id} is inactive and cannot be used to send.");
         }
 
@@ -116,15 +117,6 @@ public class EmailProviderFactory : IEmailProviderFactory
             EmailConfigurationId = configuration.Id,
             ConnectionId = configuration.ConnectionId,
             Provider = configuration.Provider,
-            Region = configuration.Region,
-            AuthMode = configuration.AuthMode,
-            AccessKeyId = configuration.AccessKeyId,
-            SecretAccessKey = Decrypt(configuration.SecretAccessKeyEncrypted, configuration.Id, "AWS secret access key"),
-            ConfigurationSet = string.IsNullOrWhiteSpace(configuration.ConfigurationSet)
-                // Falls back to the account-wide default, so a connection that does not name one
-                // still gets delivery events rather than silently getting none.
-                ? _options.CurrentValue.Ses.EventConfigurationSet
-                : configuration.ConfigurationSet,
             SmtpHost = configuration.SmtpHost,
             SmtpPort = configuration.SmtpPort,
             SmtpSecurity = configuration.SmtpSecurity,
@@ -162,7 +154,7 @@ public class EmailProviderFactory : IEmailProviderFactory
               + "Encryption:Key has changed since the secret was saved; the credential must be re-entered.",
                 label, configurationId);
 
-            throw new InvalidOperationException(
+            throw new EmailConnectionUnavailableException(configurationId,
                 $"The stored {label} for this email connection could not be decrypted. "
               + "Re-enter it on the connection to fix this.", ex);
         }

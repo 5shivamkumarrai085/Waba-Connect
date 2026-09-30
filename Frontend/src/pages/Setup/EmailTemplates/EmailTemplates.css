@@ -11,12 +11,8 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
-  margin-bottom: var(--space-xl);
-  padding: var(--space-2xl);
-  border-radius: var(--radius-md);
-  /* The same gradient band the other hero headers use, so the page still reads as part of
-     Setup rather than as something bolted on. */
-  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  /* Layout only: the banner itself (gradient, padding, radius, light sources) comes from the
+     shared .omni-page-hero skin, so this header matches every other page. */
   color: var(--text-on-accent, #ffffff);
 }
 

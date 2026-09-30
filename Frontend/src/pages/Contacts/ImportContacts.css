@@ -102,9 +102,9 @@
 
 /* Warnings and Instructions Box */
 .sample-rules-alert {
-  background-color: #e0f2fe;
-  border-left: 4px solid var(--primary);
-  border-radius: 6px;
+  background-color: var(--omni-color-primary-50);
+  border: 1px solid var(--omni-color-primary-100);
+  border-radius: 8px;
   padding: 16px;
 }
 
@@ -137,7 +137,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background-color: #10b981; /* bright green */
+  background-color: var(--omni-color-success);
   color: var(--bg-secondary);
   border: none;
   border-radius: 6px;
@@ -149,7 +149,48 @@
 }
 
 .btn-download-sample-modal:hover {
-  background-color: var(--omni-color-success);
+  background-color: var(--omni-color-success-text);
+}
+
+.btn-download-sample-modal:focus-visible {
+  outline: 2px solid var(--omni-color-primary-500);
+  outline-offset: 2px;
+}
+
+.btn-download-sample-modal:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sample-csv-table th {
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.sample-csv-table td {
+  white-space: nowrap;
+}
+
+.sample-optional-columns {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.sample-optional-columns code {
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+}
+
+.sample-layout-state {
+  padding: 16px;
+  font-size: 13px;
+  color: var(--text-muted);
 }
 
 /* CSV Sample Table layout */

@@ -277,6 +277,8 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
         </button>
       </div>
 
+      {/* Fields, editor and attachments scroll; the tabs above and the Send bar below never do. */}
+      <div className="email-composer-scroll">
       <div className="email-composer-fields">
         <ChipInput
           label="To"
@@ -351,6 +353,8 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
         </div>
       )}
 
+      </div>
+
       <div className="email-composer-actions">
         {fromAddress && <span className="email-composer-from">Sending as {fromAddress}</span>}
 
@@ -361,7 +365,7 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
             type="file"
             multiple
             accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
-            style={{ display: 'none' }}
+            hidden
             onChange={handleFileChange}
           />
 

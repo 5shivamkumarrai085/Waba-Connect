@@ -3,14 +3,28 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Helpers;
 using WhatsAppCampaignApi.Models.DTOs.Webhook;
 using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Models.Enums;
+using WhatsAppCampaignApi.Services.Email;
 using WhatsAppCampaignApi.Services.Interfaces;
+using WhatsAppCampaignApi.Services.Realtime;
+using WhatsAppCampaignApi.Services.Storage;
 
 namespace WhatsAppCampaignApi.Services;
+
+/// <summary>
+/// Thrown when Meta reports a status for a message id we have not stored yet — the status raced
+/// the send that records the id. The webhook job is retried a few seconds later.
+/// </summary>
+public sealed class WhatsAppStatusNotYetKnownException(string messageId)
+    : Exception($"No stored message has WhatsApp id {messageId} yet.")
+{
+    public string MessageId { get; } = messageId;
+}
 
 /// <summary>
 /// Implementation of WhatsApp Business Cloud API integration.
@@ -24,6 +38,10 @@ public class WhatsAppCloudApiService : IWhatsAppService
     private readonly ILogger<WhatsAppCloudApiService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOmniSettingsService _settings;
+    private readonly IInboxNotifier _inboxNotifier;
+    private readonly IEventPublisher _eventPublisher;
+    private readonly IFileStorage _fileStorage;
+    private readonly Microsoft.Extensions.Caching.Memory.IMemoryCache _cache;
 
     private string ApiVersion => _configuration["WhatsApp:ApiVersion"] ?? "v21.0";
     private string BaseUrl => $"https://graph.facebook.com/{ApiVersion}";
@@ -40,7 +58,11 @@ public class WhatsAppCloudApiService : IWhatsAppService
         AppDbContext dbContext,
         ILogger<WhatsAppCloudApiService> logger,
         IServiceScopeFactory scopeFactory,
-        IOmniSettingsService settings)
+        IOmniSettingsService settings,
+        IInboxNotifier inboxNotifier,
+        IEventPublisher eventPublisher,
+        IFileStorage fileStorage,
+        Microsoft.Extensions.Caching.Memory.IMemoryCache cache)
     {
         _httpClient = httpClient;
         _configuration = configuration;
@@ -48,6 +70,10 @@ public class WhatsAppCloudApiService : IWhatsAppService
         _logger = logger;
         _scopeFactory = scopeFactory;
         _settings = settings;
+        _inboxNotifier = inboxNotifier;
+        _eventPublisher = eventPublisher;
+        _fileStorage = fileStorage;
+        _cache = cache;
     }
 
     private async Task<(string AccessToken, string PhoneNumberId, string BusinessAccountId)> GetActiveConfigAsync(string? requestedPhoneNumberId = null, int? connectionId = null)
@@ -151,7 +177,18 @@ public class WhatsAppCloudApiService : IWhatsAppService
                         HeaderType.Document => "document",
                         _ => "document"
                     };
-                    mediaId = await UploadMediaToWhatsAppAsync(fileVar.Value, mediaTypeStr, Path.GetFileName(fileVar.Value) ?? "file", accessToken, phoneNumberId);
+                    // Uploaded once per file per sending number, not once per recipient: Meta
+                    // media ids stay valid for 30 days, and re-uploading the same header image for
+                    // every recipient of a large campaign was pure waste of time and bandwidth.
+                    var mediaCacheKey = $"wa-media:{phoneNumberId}:{fileVar.Value}";
+                    if (!_cache.TryGetValue(mediaCacheKey, out mediaId))
+                    {
+                        mediaId = await UploadMediaToWhatsAppAsync(fileVar.Value, mediaTypeStr, Path.GetFileName(fileVar.Value) ?? "file", accessToken, phoneNumberId);
+                        if (!string.IsNullOrEmpty(mediaId))
+                        {
+                            _cache.Set(mediaCacheKey, mediaId, TimeSpan.FromHours(12));
+                        }
+                    }
                 }
             }
 
@@ -164,7 +201,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 {
                     name = templateName,
                     language = new { code = languageCode },
-                    components = BuildTemplateComponents(variables, headerType, mediaId)
+                    components = BuildTemplateComponents(variables, headerType, mediaId, template?.ButtonsJson)
                 }
             };
 
@@ -403,6 +440,18 @@ public class WhatsAppCloudApiService : IWhatsAppService
                         }
                     }
 
+                    if (item.TryGetProperty("components", out var allComponents) && allComponents.ValueKind == JsonValueKind.Array)
+                    {
+                        // Buttons and carousels were dropped here, so templates using them could not be
+                        // filled in at send time. Kept now, with the raw components for reference.
+                        var (templateButtons, isCarousel) = WhatsApp.TemplateComponents.ReadFromMeta(allComponents);
+                        templateInfo.ComponentsJson = allComponents.GetRawText();
+                        templateInfo.ButtonsJson = templateButtons.Count > 0
+                            ? JsonSerializer.Serialize(templateButtons, WhatsApp.TemplateComponents.Json)
+                            : null;
+                        if (isCarousel) templateInfo.TemplateType = "CAROUSEL";
+                    }
+
                     templates.Add(templateInfo);
                 }
             }
@@ -589,6 +638,18 @@ public class WhatsAppCloudApiService : IWhatsAppService
                         }
                     }
 
+                    if (item.TryGetProperty("components", out var allComponents) && allComponents.ValueKind == JsonValueKind.Array)
+                    {
+                        // Buttons and carousels were dropped here, so templates using them could not be
+                        // filled in at send time. Kept now, with the raw components for reference.
+                        var (templateButtons, isCarousel) = WhatsApp.TemplateComponents.ReadFromMeta(allComponents);
+                        templateInfo.ComponentsJson = allComponents.GetRawText();
+                        templateInfo.ButtonsJson = templateButtons.Count > 0
+                            ? JsonSerializer.Serialize(templateButtons, WhatsApp.TemplateComponents.Json)
+                            : null;
+                        if (isCarousel) templateInfo.TemplateType = "CAROUSEL";
+                    }
+
                     templates.Add(templateInfo);
                 }
             }
@@ -605,11 +666,13 @@ public class WhatsAppCloudApiService : IWhatsAppService
     public bool VerifyWebhook(string mode, string token, string challenge)
     {
         // Multi-connection support: check ALL WABA configurations for a matching verify token
-        var allConfigs = _dbContext.WabaConfigurations
-            .Where(c => !string.IsNullOrEmpty(c.VerifyToken))
-            .ToList();
+        if (string.IsNullOrEmpty(token)) return false;
 
-        var matchingConfig = allConfigs.FirstOrDefault(c => c.VerifyToken == token);
+        var matchingConfig = _dbContext.WabaConfigurations
+            .AsNoTracking()
+            .Where(c => c.VerifyToken == token)
+            .Select(c => new { c.Id, c.ConnectionId })
+            .FirstOrDefault();
 
         if (matchingConfig == null)
         {
@@ -621,7 +684,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 return true;
             }
 
-            _logger.LogWarning("Webhook verification failed. Mode: {Mode}, Token did not match any of {Count} configured tokens.", mode, allConfigs.Count);
+            _logger.LogWarning("Webhook verification failed. Mode: {Mode}; the token matched no configured connection.", mode);
             return false;
         }
 
@@ -642,6 +705,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
         // Re-send runs after the loop below, never before it: the customer endpoint is secondary,
         // and Meta re-delivers anything we are slow to acknowledge.
+        var unknownStatuses = new List<string>();
 
         foreach (var entry in payload.Entry)
         {
@@ -653,7 +717,14 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 {
                     foreach (var statusUpdate in change.Value.Statuses)
                     {
-                        await ProcessStatusUpdateAsync(statusUpdate);
+                        try
+                        {
+                            await ProcessStatusUpdateAsync(statusUpdate);
+                        }
+                        catch (WhatsAppStatusNotYetKnownException ex)
+                        {
+                            unknownStatuses.Add(ex.MessageId);
+                        }
                     }
                 }
 
@@ -672,6 +743,13 @@ public class WhatsAppCloudApiService : IWhatsAppService
                     }
                 }
             }
+        }
+
+        if (unknownStatuses.Count > 0)
+        {
+            // Everything else in the payload has been applied (and re-applying it is a no-op),
+            // so the caller can retry this payload to pick up the statuses that raced their send.
+            throw new WhatsAppStatusNotYetKnownException(string.Join(",", unknownStatuses));
         }
 
         // Forwarded on a detached task so a slow customer endpoint cannot hold up the 200 owed to
@@ -709,6 +787,8 @@ public class WhatsAppCloudApiService : IWhatsAppService
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(c => c.Phone == normalizedPhone);
 
+        var referral = incomingMessage.Referral;
+
         if (contact == null)
         {
             contact = new Contact
@@ -724,24 +804,59 @@ public class WhatsAppCloudApiService : IWhatsAppService
             await ApplyAutoLeadSettingsAsync(contact);
 
             _dbContext.Contacts.Add(contact);
+            try
+            {
+                await _dbContext.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // Two first messages from the same new number, processed at once: the unique
+                // phone index let one insert win. Adopt that row instead of failing the webhook.
+                _dbContext.Entry(contact).State = EntityState.Detached;
+                contact = await _dbContext.Contacts.IgnoreQueryFilters().FirstAsync(c => c.Phone == normalizedPhone);
+            }
+        }
+
+        // Click-to-WhatsApp: the first ad that brought this person in is kept (first touch).
+        if (referral is not null && contact.AdAttributedAt is null
+            && (!string.IsNullOrWhiteSpace(referral.SourceId) || !string.IsNullOrWhiteSpace(referral.CtwaClid)))
+        {
+            static string? Cap(string? v, int max) => string.IsNullOrWhiteSpace(v) ? null : v.Length <= max ? v : v[..max];
+            contact.AdSourceId = Cap(referral.SourceId, 100);
+            contact.AdSourceUrl = Cap(referral.SourceUrl, 500);
+            contact.AdHeadline = Cap(referral.Headline, 300);
+            contact.AdClickId = Cap(referral.CtwaClid, 200);
+            contact.AdAttributedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
         }
-        else if (!contact.IsActive)
+
+        if (contact.IsDeleted || !contact.IsActive)
         {
+            // A deleted or deactivated contact who writes in again is a returning customer. The
+            // conversation lookups below exclude deleted contacts, so leaving it deleted made every
+            // message from them try to create a second conversation and fail on the unique index —
+            // and Meta then retried the same failing delivery indefinitely.
+            contact.IsDeleted = false;
             contact.IsActive = true;
             await _dbContext.SaveChangesAsync();
         }
 
+        // Never "the first phone of any connection": a message without a phone_number_id cannot be
+        // attributed, and guessing would file a customer's message under another bank's number.
         var account = !string.IsNullOrWhiteSpace(fromPhoneNumberId)
             ? await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.PhoneNumberId == fromPhoneNumberId)
-            : await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
+            : null;
 
         var connectionId = account?.ConnectionId;
 
         // Auto-sync: If the phone number wasn't found in WabaPhoneNumbers, try to resolve it
-        // by querying all connected WABA configs against Meta Graph API and auto-register the phone
-        if (connectionId == null && !string.IsNullOrWhiteSpace(fromPhoneNumberId))
+        // by querying all connected WABA configs against Meta Graph API and auto-register the phone.
+        // At most once per unknown id per ten minutes, so a stream of messages for a number that
+        // is not ours cannot turn into a stream of Graph calls.
+        if (connectionId == null && !string.IsNullOrWhiteSpace(fromPhoneNumberId)
+            && _cache.TryGetValue($"wa-autosync:{fromPhoneNumberId}", out _) == false)
         {
+            _cache.Set($"wa-autosync:{fromPhoneNumberId}", true, TimeSpan.FromMinutes(10));
             _logger.LogInformation("Phone number ID {PhoneNumberId} not found in WabaPhoneNumbers. Attempting auto-sync from Meta Graph API.", fromPhoneNumberId);
             var connectedConfigs = await _dbContext.WabaConfigurations
                 .Where(c => c.Connected && c.ConnectionId.HasValue)
@@ -796,7 +911,9 @@ public class WhatsAppCloudApiService : IWhatsAppService
         }
 
         var conversation = await _dbContext.ChatConversations
-            .FirstOrDefaultAsync(c => c.ContactId == contact.Id && (connectionId == null || c.ConnectionId == connectionId));
+            .FirstOrDefaultAsync(c => c.ContactId == contact.Id
+                                   && c.Channel == MessageChannel.WhatsApp
+                                   && (connectionId == null || c.ConnectionId == connectionId));
 
         if (conversation == null)
         {
@@ -843,7 +960,6 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
         conversation.LastMessageText = text;
         conversation.LastMessageAt = DateTime.UtcNow;
-        conversation.UnreadCount += 1;
 
         _dbContext.ChatMessages.Add(new ChatMessage
         {
@@ -856,7 +972,68 @@ public class WhatsAppCloudApiService : IWhatsAppService
             Text = text
         });
 
-        await _dbContext.SaveChangesAsync();
+        try
+        {
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Meta delivered the same message twice concurrently and the other delivery stored it
+            // first; the unique index on the WhatsApp id is what caught it. Anything else is real.
+            if (await _dbContext.ChatMessages.AsNoTracking().AnyAsync(m => m.WhatsAppMessageId == incomingMessage.Id)) return;
+            throw;
+        }
+
+        // Incremented in the database: an agent opening the thread resets it concurrently, and a
+        // read-modify-write on the tracked entity loses one of the two.
+        var unreadConversationId = conversation.Id;
+        await _dbContext.ChatConversations
+            .Where(c => c.Id == unreadConversationId)
+            .ExecuteUpdateAsync(u => u.SetProperty(c => c.UnreadCount, c => c.UnreadCount + 1));
+
+        await _inboxNotifier.MessageReceivedAsync(conversation.Id, connectionId);
+
+        // Reopen / SLA clock / routing. Never allowed to break message ingestion.
+        try
+        {
+            using var opsScope = _scopeFactory.CreateScope();
+            await opsScope.ServiceProvider.GetRequiredService<Chat.IConversationOperations>().OnInboundAsync(conversation.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Conversation {ConversationId}: inbound bookkeeping (SLA/routing) failed.", conversation.Id);
+        }
+
+        // Consent keywords (STOP / START, configurable). Recorded with the message as proof and
+        // confirmed to the customer; the keyword is not passed on to a bot, so nobody who just
+        // opted out receives an automated reply.
+        using (var consentScope = _scopeFactory.CreateScope())
+        {
+            var consent = consentScope.ServiceProvider.GetRequiredService<Compliance.IConsentService>();
+            var changed = await consent.TryApplyWhatsAppKeywordAsync(contact.Id, text, incomingMessage.Id);
+            if (changed is { } consentStatus)
+            {
+                var settings = consentScope.ServiceProvider.GetRequiredService<IOmniSettingsService>();
+                var reply = consentStatus == ConsentStatus.OptedOut
+                    ? await settings.GetValueAsync("compliance.optOutReply")
+                    : await settings.GetValueAsync("compliance.optInReply");
+                reply = string.IsNullOrWhiteSpace(reply)
+                    ? consentStatus == ConsentStatus.OptedOut
+                        ? "You have been unsubscribed from our WhatsApp messages. Reply START to subscribe again."
+                        : "You are subscribed to our WhatsApp messages. Reply STOP to unsubscribe."
+                    : reply;
+
+                try
+                {
+                    await SendTextMessageAsync(contact.Phone, reply, fromPhoneNumberId, connectionId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not confirm the consent change to contact {ContactId}.", contact.Id);
+                }
+                return;
+            }
+        }
 
         // Start flow execution asynchronously.
         //
@@ -959,143 +1136,195 @@ public class WhatsAppCloudApiService : IWhatsAppService
     }
 
     /// <summary>
-    /// Processes a single message status update from the webhook.
-    /// Updates the campaign recipient and matching chat message.
+    /// Applies one delivery-status callback to the campaign recipient and the chat message.
     /// </summary>
+    /// <remarks>
+    /// Each transition is a conditional UPDATE on the expected previous status, so concurrent
+    /// webhook deliveries for the same message cannot both apply, and statuses that arrive out of
+    /// order ("delivered" after "read") never move a row backwards. The campaign counters then move
+    /// by the delta of that one transition — O(1) per status. This used to reload every recipient
+    /// of the campaign on every status (three statuses per message, so O(n²) per campaign), which
+    /// is what made large WhatsApp campaigns slow the whole database down.
+    /// </remarks>
     private async Task ProcessStatusUpdateAsync(StatusUpdate statusUpdate)
     {
-        try
+        if (string.IsNullOrWhiteSpace(statusUpdate.Id)) return;
+
+        var target = ParseWhatsAppStatus(statusUpdate.Status);
+        if (target is null)
         {
-            var campaignContact = await _dbContext.CampaignContacts
-                .Include(cc => cc.Campaign)
-                .FirstOrDefaultAsync(cc => cc.WhatsAppMessageId == statusUpdate.Id);
-
-            var chatMessage = await _dbContext.ChatMessages
-                .FirstOrDefaultAsync(cm => cm.WhatsAppMessageId == statusUpdate.Id);
-
-            if (campaignContact == null && chatMessage == null)
-            {
-                _logger.LogWarning(
-                    "Received status update for unknown message ID: {MessageId}", statusUpdate.Id);
-                return;
-            }
-
-            var previousCampaignStatus = campaignContact?.Status;
-            var previousChatStatus = chatMessage?.Status;
-            var now = DateTime.UtcNow;
-
-            switch (statusUpdate.Status?.ToLowerInvariant())
-            {
-                case "sent":
-                    if (campaignContact?.Status == MessageStatus.Pending)
-                    {
-                        campaignContact.Status = MessageStatus.Sent;
-                        campaignContact.SentAt ??= now;
-                    }
-                    if (chatMessage?.Status == ChatMessageStatus.Pending)
-                    {
-                        chatMessage.Status = ChatMessageStatus.Sent;
-                        chatMessage.SentAt ??= now;
-                    }
-                    break;
-
-                case "delivered":
-                    if (campaignContact?.Status is MessageStatus.Pending or MessageStatus.Sent)
-                    {
-                        campaignContact.Status = MessageStatus.Delivered;
-                        campaignContact.SentAt ??= now;
-                        campaignContact.DeliveredAt ??= now;
-                    }
-                    if (chatMessage?.Status is ChatMessageStatus.Pending or ChatMessageStatus.Sent)
-                    {
-                        chatMessage.Status = ChatMessageStatus.Delivered;
-                        chatMessage.SentAt ??= now;
-                        chatMessage.DeliveredAt ??= now;
-                    }
-                    break;
-
-                case "read":
-                    if (campaignContact?.Status is MessageStatus.Pending or MessageStatus.Sent or MessageStatus.Delivered)
-                    {
-                        campaignContact.Status = MessageStatus.Read;
-                        campaignContact.SentAt ??= now;
-                        campaignContact.DeliveredAt ??= now;
-                        campaignContact.ReadAt ??= now;
-                    }
-                    if (chatMessage?.Status is ChatMessageStatus.Pending or ChatMessageStatus.Sent or ChatMessageStatus.Delivered)
-                    {
-                        chatMessage.Status = ChatMessageStatus.Read;
-                        chatMessage.SentAt ??= now;
-                        chatMessage.DeliveredAt ??= now;
-                        chatMessage.ReadAt ??= now;
-                    }
-                    break;
-
-                case "failed":
-                    var error = statusUpdate.Errors?.FirstOrDefault();
-                    var errorMessage = error?.ErrorData?.Details
-                        ?? error?.Message
-                        ?? error?.Title
-                        ?? "Message delivery failed";
-                    if (campaignContact != null)
-                    {
-                        campaignContact.Status = MessageStatus.Failed;
-                        campaignContact.ErrorMessage = errorMessage;
-                    }
-                    if (chatMessage != null)
-                    {
-                        chatMessage.Status = ChatMessageStatus.Failed;
-                        chatMessage.ErrorMessage = errorMessage;
-                    }
-                    break;
-
-                default:
-                    _logger.LogWarning(
-                        "Unknown status '{Status}' for message {MessageId}",
-                        statusUpdate.Status, statusUpdate.Id);
-                    return;
-            }
-
-            if (campaignContact != null)
-            {
-                await RecalculateCampaignCountsAsync(campaignContact.CampaignId);
-            }
-
-            await _dbContext.SaveChangesAsync();
-
-            _logger.LogInformation(
-                "Updated message {MessageId} status. Campaign: {OldCampaignStatus} -> {NewCampaignStatus}, Chat: {OldChatStatus} -> {NewChatStatus}",
-                statusUpdate.Id,
-                previousCampaignStatus,
-                campaignContact?.Status,
-                previousChatStatus,
-                chatMessage?.Status);
+            _logger.LogWarning("Unknown status '{Status}' for message {MessageId}", statusUpdate.Status, statusUpdate.Id);
+            return;
         }
-        catch (Exception ex)
+
+        var now = DateTime.UtcNow;
+        var error = statusUpdate.Errors?.FirstOrDefault();
+        var errorMessage = Truncate(error?.ErrorData?.Details ?? error?.Message ?? error?.Title ?? "Message delivery failed", 500);
+
+        var recipientUpdated = await ApplyRecipientStatusAsync(statusUpdate.Id, target.Value, now, errorMessage);
+        var chatUpdated = await ApplyChatMessageStatusAsync(statusUpdate.Id, target.Value, now, errorMessage);
+
+        if (!recipientUpdated.Found && !chatUpdated.Found)
         {
-            _logger.LogError(ex,
-                "Error processing status update for message {MessageId}", statusUpdate.Id);
+            // Meta can report a status before our send has stored the message id. Thrown so the
+            // webhook job is retried shortly instead of the status being lost.
+            throw new WhatsAppStatusNotYetKnownException(statusUpdate.Id);
         }
+
+        if (chatUpdated.ConversationId is { } conversationId && chatUpdated.MessageId is { } chatMessageId)
+        {
+            await _inboxNotifier.MessageStatusChangedAsync(conversationId, chatMessageId, target.Value.ToString());
+        }
+    }
+
+    private static MessageStatus? ParseWhatsAppStatus(string? status) => status?.ToLowerInvariant() switch
+    {
+        "sent" => MessageStatus.Sent,
+        "delivered" => MessageStatus.Delivered,
+        "read" => MessageStatus.Read,
+        "failed" => MessageStatus.Failed,
+        _ => null
+    };
+
+    /// <summary>Forward-only order of the delivery states. Failed is terminal from any of them.</summary>
+    private static int Rank(MessageStatus status) => status switch
+    {
+        MessageStatus.Pending => 0,
+        MessageStatus.Sent => 1,
+        MessageStatus.Delivered => 2,
+        MessageStatus.Read => 3,
+        _ => 4
+    };
+
+    private async Task<(bool Found, bool Changed)> ApplyRecipientStatusAsync(
+        string whatsAppMessageId, MessageStatus target, DateTime now, string errorMessage)
+    {
+        // Two attempts: the first can lose a race with a concurrent status for the same message,
+        // in which case the re-read sees the winner and decides again.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var current = await _dbContext.CampaignContacts
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(cc => cc.WhatsAppMessageId == whatsAppMessageId)
+                .Select(cc => new { cc.Id, cc.CampaignId, cc.Status })
+                .FirstOrDefaultAsync();
+
+            if (current is null) return (false, false);
+
+            var previous = current.Status;
+            var isAdvance = target == MessageStatus.Failed
+                ? previous is not (MessageStatus.Failed or MessageStatus.Read)
+                : Rank(target) > Rank(previous) && previous != MessageStatus.Failed;
+
+            if (!isAdvance) return (true, false);
+
+            var rows = await _dbContext.CampaignContacts
+                .IgnoreQueryFilters()
+                .Where(cc => cc.Id == current.Id && cc.Status == previous)
+                .ExecuteUpdateAsync(u => u
+                    .SetProperty(cc => cc.Status, target)
+                    .SetProperty(cc => cc.SentAt, cc => target != MessageStatus.Failed ? (cc.SentAt ?? now) : cc.SentAt)
+                    .SetProperty(cc => cc.DeliveredAt, cc => target == MessageStatus.Delivered || target == MessageStatus.Read ? (cc.DeliveredAt ?? now) : cc.DeliveredAt)
+                    .SetProperty(cc => cc.ReadAt, cc => target == MessageStatus.Read ? (cc.ReadAt ?? now) : cc.ReadAt)
+                    .SetProperty(cc => cc.ErrorMessage, cc => target == MessageStatus.Failed ? errorMessage : cc.ErrorMessage));
+
+            if (rows == 0) continue;
+
+            await ApplyCampaignDeltaAsync(current.CampaignId, previous, target, now);
+            return (true, true);
+        }
+
+        return (true, false);
     }
 
     /// <summary>
-    /// Recalculates the aggregate delivery counts on a campaign.
+    /// Moves the campaign's WhatsApp counters by exactly one recipient's transition, and pushes
+    /// the same delta to open campaign pages.
     /// </summary>
-    private async Task RecalculateCampaignCountsAsync(int campaignId)
+    private async Task ApplyCampaignDeltaAsync(int campaignId, MessageStatus previous, MessageStatus next, DateTime now)
     {
-        var campaign = await _dbContext.Campaigns.FindAsync(campaignId);
-        if (campaign == null) return;
+        static int Delivered(MessageStatus s) => s is MessageStatus.Delivered or MessageStatus.Read ? 1 : 0;
+        static int Read(MessageStatus s) => s == MessageStatus.Read ? 1 : 0;
+        static int Failed(MessageStatus s) => s == MessageStatus.Failed ? 1 : 0;
+        static int Sent(MessageStatus s) => s is MessageStatus.Sent or MessageStatus.Delivered or MessageStatus.Read ? 1 : 0;
 
-        var contacts = await _dbContext.CampaignContacts
-            .Where(cc => cc.CampaignId == campaignId)
-            .ToListAsync();
+        var deliveredDelta = Delivered(next) - Delivered(previous);
+        var readDelta = Read(next) - Read(previous);
+        var failedDelta = Failed(next) - Failed(previous);
+        var sentDelta = Sent(next) - Sent(previous);
 
-        campaign.TotalRecipients = contacts.Count;
-        campaign.DeliveredCount = contacts.Count(c =>
-            c.Status is MessageStatus.Delivered or MessageStatus.Read);
-        campaign.ReadCount = contacts.Count(c => c.Status == MessageStatus.Read);
-        campaign.FailedCount = contacts.Count(c => c.Status == MessageStatus.Failed);
+        if (deliveredDelta == 0 && readDelta == 0 && failedDelta == 0 && sentDelta == 0) return;
+
+        await _dbContext.Campaigns
+            .IgnoreQueryFilters()
+            .Where(c => c.Id == campaignId)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(c => c.DeliveredCount, c => c.DeliveredCount + deliveredDelta)
+                .SetProperty(c => c.ReadCount, c => c.ReadCount + readDelta)
+                .SetProperty(c => c.FailedCount, c => c.FailedCount + failedDelta)
+                .SetProperty(c => c.SentCount, c => c.SentCount + sentDelta)
+                .SetProperty(c => c.UpdatedAt, now));
+
+        await _eventPublisher.PublishEmailEventAsync(new CampaignEmailEventNotification(
+            CampaignId: campaignId,
+            Kind: next switch
+            {
+                MessageStatus.Read => EmailEventKind.Opened,
+                MessageStatus.Delivered => EmailEventKind.Delivered,
+                MessageStatus.Failed => EmailEventKind.Failed,
+                _ => EmailEventKind.Sent
+            },
+            CampaignContactId: null,
+            RecipientAddress: null,
+            OccurredAt: now,
+            SentDelta: sentDelta,
+            FailedDelta: failedDelta,
+            DeliveredDelta: deliveredDelta,
+            ReadDelta: readDelta));
     }
+
+    private async Task<(bool Found, int? ConversationId, int? MessageId)> ApplyChatMessageStatusAsync(
+        string whatsAppMessageId, MessageStatus target, DateTime now, string errorMessage)
+    {
+        var message = await _dbContext.ChatMessages
+            .AsNoTracking()
+            .Where(m => m.WhatsAppMessageId == whatsAppMessageId)
+            .Select(m => new { m.Id, m.ConversationId, m.Status })
+            .FirstOrDefaultAsync();
+
+        if (message is null) return (false, null, null);
+
+        var chatTarget = target switch
+        {
+            MessageStatus.Sent => ChatMessageStatus.Sent,
+            MessageStatus.Delivered => ChatMessageStatus.Delivered,
+            MessageStatus.Read => ChatMessageStatus.Read,
+            _ => ChatMessageStatus.Failed
+        };
+
+        // The statuses a message may move forward from, per target.
+        var allowedFrom = chatTarget switch
+        {
+            ChatMessageStatus.Sent => new[] { ChatMessageStatus.Pending },
+            ChatMessageStatus.Delivered => new[] { ChatMessageStatus.Pending, ChatMessageStatus.Sent },
+            ChatMessageStatus.Read => new[] { ChatMessageStatus.Pending, ChatMessageStatus.Sent, ChatMessageStatus.Delivered },
+            _ => new[] { ChatMessageStatus.Pending, ChatMessageStatus.Sent, ChatMessageStatus.Delivered }
+        };
+
+        var rows = await _dbContext.ChatMessages
+            .Where(m => m.Id == message.Id && allowedFrom.Contains(m.Status))
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(m => m.Status, chatTarget)
+                .SetProperty(m => m.SentAt, m => chatTarget != ChatMessageStatus.Failed ? (m.SentAt ?? now) : m.SentAt)
+                .SetProperty(m => m.DeliveredAt, m => chatTarget == ChatMessageStatus.Delivered || chatTarget == ChatMessageStatus.Read ? (m.DeliveredAt ?? now) : m.DeliveredAt)
+                .SetProperty(m => m.ReadAt, m => chatTarget == ChatMessageStatus.Read ? (m.ReadAt ?? now) : m.ReadAt)
+                .SetProperty(m => m.ErrorMessage, m => chatTarget == ChatMessageStatus.Failed ? errorMessage : m.ErrorMessage));
+
+        return rows > 0 ? (true, message.ConversationId, message.Id) : (true, null, null);
+    }
+
+    private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
 
     private static string? ExtractMetaErrorMessage(string responseBody)
     {
@@ -1133,7 +1362,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
         return null;
     }
 
-    private static object[]? BuildTemplateComponents(Dictionary<string, string>? variables, HeaderType headerType, string? mediaId = null)
+    private static object[]? BuildTemplateComponents(Dictionary<string, string>? variables, HeaderType headerType, string? mediaId = null, string? buttonsJson = null)
     {
         if (variables == null || variables.Count == 0)
             return null;
@@ -1215,9 +1444,10 @@ public class WhatsAppCloudApiService : IWhatsAppService
             }
         }
 
-        // Add regular text variables to the body parameters
+        // Add regular text variables to the body parameters (button_* and card_* fill buttons and
+        // carousel cards, below, and are not body parameters).
         var bodyParams = variables
-            .Where(v => !v.Key.Equals("file", StringComparison.OrdinalIgnoreCase))
+            .Where(v => !WhatsApp.TemplateComponents.IsNonBodyVariable(v.Key))
             .OrderBy(v => v.Key)
             .Select(v => new
             {
@@ -1235,7 +1465,36 @@ public class WhatsAppCloudApiService : IWhatsAppService
             });
         }
 
+        componentsList.AddRange(WhatsApp.TemplateComponents.BuildSendComponents(variables, buttonsJson));
+
         return componentsList.Count > 0 ? componentsList.ToArray() : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<(bool Success, string? TemplateId, string? Status, string? Error)> SubmitTemplateAsync(int connectionId, object submission)
+    {
+        var config = await _dbContext.WabaConfigurations.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.ConnectionId == connectionId && c.Connected);
+        if (config is null) return (false, null, null, "That connection has no connected WhatsApp Business Account.");
+
+        var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/{config.WabaId}/message_templates")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(submission), Encoding.UTF8, "application/json")
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.AccessToken);
+
+        var response = await _httpClient.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Meta refused a template submission: {Status} {Body}", response.StatusCode, body);
+            return (false, null, null, ExtractMetaErrorMessage(body) ?? $"Meta refused the template ({(int)response.StatusCode}).");
+        }
+
+        using var doc = JsonDocument.Parse(body);
+        var id = doc.RootElement.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
+        var status = doc.RootElement.TryGetProperty("status", out var st) ? st.GetString() : "PENDING";
+        return (true, id, status, null);
     }
 
     /// <inheritdoc />
@@ -1419,25 +1678,19 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 var base64Part = mediaUrl.Substring(mediaUrl.IndexOf(";base64,") + 8);
                 fileBytes = Convert.FromBase64String(base64Part);
             }
-            else if (mediaUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-            {
-                using var tempClient = new HttpClient();
-                fileBytes = await tempClient.GetByteArrayAsync(mediaUrl);
-            }
             else
             {
-                var relativePath = mediaUrl.Replace("/", Path.DirectorySeparatorChar.ToString());
-                if (relativePath.StartsWith(Path.DirectorySeparatorChar))
+                // Local uploads and allow-listed remote hosts only, both through the storage
+                // gatekeeper: this used to join any caller-supplied path onto the web root (so
+                // "../appsettings.json" worked) and fetch any URL with a throwaway HttpClient.
+                var loaded = await _fileStorage.ReadAsync(mediaUrl, 100L * 1024 * 1024, CancellationToken.None);
+                if (loaded is null)
                 {
-                    relativePath = relativePath.Substring(1);
-                }
-                var absolutePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", relativePath);
-                if (!File.Exists(absolutePath))
-                {
-                    _logger.LogError("File does not exist: {Path}", absolutePath);
+                    _logger.LogError("Media {Media} is not an upload on this server or an allow-listed URL.", Path.GetFileName(mediaUrl));
                     return null;
                 }
-                fileBytes = await File.ReadAllBytesAsync(absolutePath);
+
+                fileBytes = loaded;
             }
 
             // 2. Prepare MultipartFormDataContent

@@ -17,7 +17,7 @@ import './auth.css'
 export const ChangePassword: React.FC = () => {
   const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
-  const clearMustChangePassword = useAuthStore((state) => state.clearMustChangePassword)
+  const applySession = useAuthStore((state) => state.applySession)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -43,8 +43,10 @@ export const ChangePassword: React.FC = () => {
 
     setIsSubmitting(true)
     try {
-      await authService.changePassword({ currentPassword, newPassword, confirmPassword })
-      clearMustChangePassword()
+      // The server ends every other session on a password change and returns fresh tokens for
+      // this one — tokens whose claims no longer demand a password change.
+      const session = await authService.changePassword({ currentPassword, newPassword, confirmPassword })
+      applySession(session)
       toast.success('Password changed successfully.')
       navigate('/', { replace: true })
     } catch (err) {

@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from 'react'
+import { campaignService } from '../../services/campaigns/campaignService'
 import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
 import { useNavigate } from 'react-router-dom'
 import { useCampaignStore } from '../../store/campaignStore'
-import { matchesSearch } from '../../utils/smartSearch'
+import { formatRelativeTime } from '../../utils/dateHelper'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { ColumnSelector } from '../../components/ColumnSelector/ColumnSelector'
-import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight, MoreVertical } from 'lucide-react'
+import { Plus, RefreshCw, Filter, ChevronLeft, ChevronRight, MoreVertical, ShieldCheck } from 'lucide-react'
 import { Menu, MenuItem } from '../../components/Menu/Menu'
 import toast from 'react-hot-toast'
 import { Skeleton } from '../../components/Skeleton'
 import './CampaignsList.css'
-import { formatRelativeTime } from '../../utils/dateHelper'
 import { templateService } from '../../services/templates/templateService'
 import { contactService } from '../../services/contacts/contactService'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
@@ -30,23 +30,29 @@ export const CampaignsList: React.FC = () => {
     searchQuery,
     templateFilter,
     relationTypeFilter,
-    createdAtFilter,
+    statusFilter,
     currentPage,
     pageSize,
-    
+    totalCount,
+    sortKey,
+    sortDescending,
+    createdFrom,
+    createdTo,
+
     setSearchQuery,
     setTemplateFilter,
+    setStatusFilter,
     setRelationTypeFilter,
     setCurrentPage,
     setPageSize,
-    
+    setSort,
+    setCreatedRange,
+
     loadCampaigns,
     deleteCampaign
   } = useCampaignStore()
 
   const [showFilters, setShowFilters] = useState(false)
-  const [sortKey, setSortKey] = useState<string>('')
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
     id: true,
     name: true,
@@ -66,8 +72,21 @@ export const CampaignsList: React.FC = () => {
   const [relationTypes, setRelationTypes] = useState<any[]>([])
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
 
+  // Filtering, sorting and paging run on the server; the page re-queries whenever any of them
+  // changes. Typing in the search box is debounced so each keystroke is not a request.
   useEffect(() => {
-    loadCampaigns()
+    const timer = setTimeout(() => void loadCampaigns(), searchQuery ? 300 : 0)
+    return () => clearTimeout(timer)
+  }, [loadCampaigns, searchQuery, templateFilter, relationTypeFilter, statusFilter, createdFrom, createdTo, sortKey, sortDescending, currentPage, pageSize])
+
+  // Maker-checker: how many campaigns wait for a second user's approval. Re-read whenever the
+  // list is, so approving one elsewhere is reflected on the next refresh.
+  const [pendingApprovals, setPendingApprovals] = useState(0)
+  useEffect(() => {
+    campaignService.getPendingApprovalCount().then(setPendingApprovals).catch(() => setPendingApprovals(0))
+  }, [campaigns])
+
+  useEffect(() => {
     const fetchMetadata = async () => {
       try {
         const [templatesData, relationTypesData] = await Promise.all([
@@ -83,99 +102,14 @@ export const CampaignsList: React.FC = () => {
     fetchMetadata()
   }, [])
 
-  const [filterStartDate, setFilterStartDate] = useState('')
-  const [filterEndDate, setFilterEndDate] = useState('')
-
-  // Local Filter logic
-  const filteredCampaigns = campaigns.filter((c) => {
-    // 1. General search bar query
-    // Status, relation type and the connection are all columns on this table, so they are all
-    // things people type into the search box.
-    if (!matchesSearch(searchQuery, [
-      c.name,
-      c.templateName,
-      c.status,
-      c.relationType,
-      c.connectionName,
-      c.connectionNickname
-    ])) {
-      return false
-    }
-
-    // 2. Template Filter dropdown
-    if (templateFilter !== 'All') {
-      if (c.templateName !== templateFilter) return false
-    }
-
-    // 3. Relation Type Filter dropdown — c.relationType may now be a comma-joined
-    // list of multiple types (e.g. "Lead,Customer"); match if the filter is any one
-    // of them.
-    if (relationTypeFilter !== 'All') {
-      const types = c.relationType.split(',').map(t => t.trim())
-      if (!types.includes(relationTypeFilter)) return false
-    }
-
-    // 4. Created At Date range filter
-    if (filterStartDate) {
-      const campDate = new Date(c.createdAt)
-      const startDate = new Date(filterStartDate)
-      startDate.setHours(0, 0, 0, 0)
-      if (campDate < startDate) return false
-    }
-
-    if (filterEndDate) {
-      const campDate = new Date(c.createdAt)
-      const endDate = new Date(filterEndDate)
-      endDate.setHours(23, 59, 59, 999)
-      if (campDate > endDate) return false
-    }
-
-    if (createdAtFilter) {
-      const relativeDate = formatRelativeTime(c.createdAt).toLowerCase()
-      if (!relativeDate.includes(createdAtFilter.toLowerCase())) return false
-    }
-
-    return true
-  })
-
-  // Sort logic — applied after filtering, before pagination
-  const sortedCampaigns = [...filteredCampaigns].sort((a, b) => {
-    if (!sortKey) return 0
-    let aVal: string | number = ''
-    let bVal: string | number = ''
-    switch (sortKey) {
-      case 'id': aVal = a.id; bVal = b.id; break
-      case 'name': aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase(); break
-      case 'source': aVal = a.isBulkCampaign ? 1 : 0; bVal = b.isBulkCampaign ? 1 : 0; break
-      case 'template': aVal = a.templateName.toLowerCase(); bVal = b.templateName.toLowerCase(); break
-      case 'relation': aVal = a.relationType.toLowerCase(); bVal = b.relationType.toLowerCase(); break
-      case 'total': aVal = a.total; bVal = b.total; break
-      case 'delivered': aVal = a.deliveredTo; bVal = b.deliveredTo; break
-      case 'read': aVal = a.readBy; bVal = b.readBy; break
-      case 'createdAt': aVal = new Date(a.createdAt).getTime(); bVal = new Date(b.createdAt).getTime(); break
-      default: return 0
-    }
-    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
-    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
-    return 0
-  })
-
-  // Handle column header click for sorting
-  const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortKey(key)
-      setSortDirection('asc')
-    }
-  }
-
-  // Pagination parameters
-  const totalResults = sortedCampaigns.length
+  // Server-side paging: `campaigns` is already the requested page.
+  const totalResults = totalCount
   const startIndex = (currentPage - 1) * pageSize
-  const endIndex = Math.min(totalResults, startIndex + pageSize)
-  const paginatedCampaigns = sortedCampaigns.slice(startIndex, endIndex)
+  const endIndex = Math.min(totalResults, startIndex + campaigns.length)
+  const paginatedCampaigns = campaigns
   const totalPages = Math.max(1, Math.ceil(totalResults / pageSize))
+  const handleSort = (key: string) => setSort(key)
+  const sortDirection = sortDescending ? 'desc' : 'asc'
 
   const handleRefresh = async () => {
     await loadCampaigns()
@@ -222,7 +156,7 @@ export const CampaignsList: React.FC = () => {
       {/* Page hero — matches the host's banner treatment. Presentational only. */}
       <div className="omni-page-hero">
         <h1>Campaigns</h1>
-        <p>Create, schedule and track your WhatsApp campaigns.</p>
+        <p>Create, schedule and track your WhatsApp and email campaigns.</p>
       </div>
       {/* Top Toolbar actions */}
       <div className="campaigns-toolbar">
@@ -236,8 +170,22 @@ export const CampaignsList: React.FC = () => {
             <span>Create Campaign</span>
           </button>
         </Can>
+        {(pendingApprovals > 0 || statusFilter === 'AwaitingApproval') && (
+          <button
+            type="button"
+            className={`btn-toolbar btn-toolbar-approvals${statusFilter === 'AwaitingApproval' ? ' is-active' : ''}`}
+            onClick={() => setStatusFilter(statusFilter === 'AwaitingApproval' ? '' : 'AwaitingApproval')}
+            aria-pressed={statusFilter === 'AwaitingApproval'}
+            title={statusFilter === 'AwaitingApproval' ? 'Show all campaigns' : 'Show campaigns waiting for approval'}
+          >
+            <ShieldCheck size={16} aria-hidden="true" />
+            <span>Pending Approval</span>
+            <span className="approvals-count-badge" aria-hidden="true">{new Intl.NumberFormat().format(pendingApprovals)}</span>
+            <span className="sr-only">({pendingApprovals} waiting)</span>
+          </button>
+        )}
         <button
-          type="button" 
+          type="button"
           className="btn-toolbar btn-toolbar-refresh"
           onClick={handleRefresh}
         >
@@ -313,15 +261,15 @@ export const CampaignsList: React.FC = () => {
                 <input
                   type="date"
                   className="form-control padding-date"
-                  value={filterStartDate}
-                  onChange={(e) => setFilterStartDate(e.target.value)}
+                  value={createdFrom}
+                  onChange={(e) => setCreatedRange(e.target.value, createdTo)}
                 />
                 <span className="date-separator">to</span>
                 <input
                   type="date"
                   className="form-control padding-date"
-                  value={filterEndDate}
-                  onChange={(e) => setFilterEndDate(e.target.value)}
+                  value={createdTo}
+                  onChange={(e) => setCreatedRange(createdFrom, e.target.value)}
                 />
               </div>
             </div>
@@ -341,7 +289,7 @@ export const CampaignsList: React.FC = () => {
                     const isVisible = visibleColumns[col.key] !== false
                     if (!isVisible) return null
                     return (
-                      <th 
+                      <th
                         key={col.key}
                         onClick={() => handleSort(col.key)}
                         style={{ cursor: 'pointer', userSelect: 'none' }}
@@ -549,7 +497,7 @@ export const CampaignsList: React.FC = () => {
               <button
                 type="button"
                 className="btn-control-icon"
-                disabled={currentPage === totalPages}
+                disabled={currentPage >= totalPages}
                 onClick={() => setCurrentPage(currentPage + 1)}
                 aria-label="Next Page"
               >
@@ -559,7 +507,7 @@ export const CampaignsList: React.FC = () => {
           </div>
         </div>
       </div>
-      
+
       <ConfirmationModal
         isOpen={deleteTarget !== null}
         title="Delete Campaign"

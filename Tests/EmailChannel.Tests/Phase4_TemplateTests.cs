@@ -180,13 +180,21 @@ public static class Phase4_TemplateTests
 
             run.Section("Preview");
 
-            var preview = await templates.PreviewAsync(created.Id);
+            // Sample data on, as the template editor's preview asks for it.
+            var preview = await templates.PreviewAsync(created.Id, useSampleData: true);
 
             run.Check("the subject is rendered", !preview.Subject.Contains("{{"), preview.Subject);
             run.Check("the body is rendered", !preview.BodyHtml.Contains("{{"),
                 preview.BodyHtml.Length > 120 ? preview.BodyHtml[..120] : preview.BodyHtml);
-            run.Check("nothing is left unresolved once samples are applied",
-                preview.UnresolvedVariables.Count == 0, string.Join(",", preview.UnresolvedVariables));
+            // UnresolvedVariables reports what the caller did not supply, samples or not: it is
+            // what lets the campaign wizard warn before a send goes out with stand-in values.
+            run.Check("fields without a supplied value are reported as unresolved",
+                preview.UnresolvedVariables.Count > 0, string.Join(",", preview.UnresolvedVariables));
+
+            var allSupplied = await templates.PreviewAsync(created.Id,
+                created.DetectedVariables.ToDictionary(v => v, v => (string?)$"value-{v}"));
+            run.Check("nothing is unresolved once every field is supplied",
+                allSupplied.UnresolvedVariables.Count == 0, string.Join(",", allSupplied.UnresolvedVariables));
 
             var withValues = await templates.PreviewAsync(created.Id, new Dictionary<string, string?>
             {
@@ -209,9 +217,11 @@ public static class Phase4_TemplateTests
                 run.Check("a seeded template's single-brace fields are detected",
                     welcome.DetectedVariables.Count > 0, string.Join(",", welcome.DetectedVariables));
 
-                var seededPreview = await templates.PreviewAsync(welcome.Id);
+                var seededPreview = await templates.PreviewAsync(welcome.Id,
+                    welcome.DetectedVariables.ToDictionary(v => v, v => (string?)$"value-{v}"));
                 run.Check("a seeded template still renders",
                     !string.IsNullOrWhiteSpace(seededPreview.BodyHtml)
+                    && !seededPreview.BodyHtml.Contains('{')
                     && seededPreview.UnresolvedVariables.Count == 0,
                     string.Join(",", seededPreview.UnresolvedVariables));
             }

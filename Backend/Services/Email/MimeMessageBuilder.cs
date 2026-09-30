@@ -9,10 +9,9 @@ namespace WhatsAppCampaignApi.Services.Email;
 /// Turns an <see cref="EmailMessage"/> into a MIME message.
 ///
 /// <para>
-/// Both providers go through here, rather than each assembling its own message. SES is given raw
-/// MIME precisely so that it and SMTP produce byte-identical mail: if each built its own, headers
-/// like <c>List-Unsubscribe</c> and our correlation id would drift between them, and a campaign
-/// would behave differently depending on which provider a connection happened to use.
+/// Every send path goes through here, rather than each assembling its own message, so campaign,
+/// chat, proof and test mail are byte-identical in structure: headers like <c>List-Unsubscribe</c>
+/// and our correlation id cannot drift between them.
 /// </para>
 /// </summary>
 public interface IMimeMessageBuilder
@@ -39,10 +38,9 @@ public class MimeMessageBuilder : IMimeMessageBuilder
 
         // Bcc is deliberately NOT set here.
         //
-        // MimeKit writes a Bcc header when serialising, and SES is handed this serialised form —
-        // which would disclose every blind recipient to everyone on the message. Both providers
-        // therefore carry Bcc in the SMTP envelope instead: SES through an explicit Destination,
-        // SMTP through the explicit recipients argument. Adding Bcc here would silently undo that.
+        // MimeKit writes a Bcc header when serialising, which would disclose every blind recipient
+        // to everyone on the message. Bcc is carried in the SMTP envelope instead, through the
+        // explicit recipients argument. Adding Bcc here would silently undo that.
 
         if (message.ReplyTo is { } replyTo) mime.ReplyTo.Add(ToMailbox(replyTo));
 

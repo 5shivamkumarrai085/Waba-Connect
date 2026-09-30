@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using WhatsAppCampaignApi.Data;
@@ -10,6 +12,8 @@ using WhatsAppCampaignApi.Services;
 using WhatsAppCampaignApi.Services.Email;
 using WhatsAppCampaignApi.Services.Interfaces;
 using WhatsAppCampaignApi.Services.Queue;
+using WhatsAppCampaignApi.Services.Realtime;
+using WhatsAppCampaignApi.Services.Storage;
 
 namespace EmailChannel.Tests;
 
@@ -56,6 +60,10 @@ public sealed class TestHarness : IAsyncDisposable
         var configuration = new ConfigurationBuilder()
             .SetBasePath(backendDirectory)
             .AddJsonFile("appsettings.json")
+            // Secrets are no longer committed: the same user-secrets store and environment
+            // variables the API reads supply the connection string and keys here too.
+            .AddUserSecrets(typeof(WhatsAppCampaignApi.Data.AppDbContext).Assembly, optional: true)
+            .AddEnvironmentVariables()
             // The channel must be on for the pipeline to run at all, and the unsubscribe signer
             // refuses to issue tokens without a key. Supplied here rather than in appsettings so
             // no test value is ever committed, and so running the suite cannot change how the
@@ -65,6 +73,8 @@ public sealed class TestHarness : IAsyncDisposable
                 ["Email:Enabled"] = "true",
                 ["Email:Unsubscribe:SigningKey"] = "integration-test-signing-key-not-a-real-secret",
                 ["Email:Unsubscribe:PublicBaseUrl"] = "https://example.test",
+                ["Email:Tracking:SigningSecret"] = "integration-test-tracking-secret-not-a-real-secret",
+                ["Email:Tracking:BaseUrl"] = "https://example.test",
                 ["Email:Dispatch:DefaultSendRatePerSecond"] = "50",
                 // Tightened so the workers react quickly; production values would make the suite
                 // spend most of its time asleep.
@@ -75,6 +85,9 @@ public sealed class TestHarness : IAsyncDisposable
 
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("No DefaultConnection connection string was found.");
+
+        // The field cipher is process-wide, initialised once at startup exactly as Program.cs does.
+        SecretCipher.Initialize(configuration["Encryption:Key"]);
 
         var services = new ServiceCollection();
 
@@ -88,7 +101,13 @@ public sealed class TestHarness : IAsyncDisposable
         // non-generic overload would register it only under that type — leaving EncryptionService,
         // which asks for IConfiguration, unresolvable.
         services.AddSingleton<IConfiguration>(configuration);
-        services.AddDbContextFactory<AppDbContext>(o => o.UseNpgsql(connectionString));
+        // One data source shared by EF, the queue and the rate limiter, as in production.
+        var dataSource = new NpgsqlDataSourceBuilder(connectionString).Build();
+        services.AddSingleton(dataSource);
+        // Mirrors Program.cs in Development: a query that includes two collections without opting into
+        // split queries throws, so the suite catches the cartesian-product queries that became 500s.
+        services.AddDbContextFactory<AppDbContext>(o => o.UseNpgsql(dataSource)
+            .ConfigureWarnings(w => w.Throw(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.MultipleCollectionIncludeWarning)));
         services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
         services.AddOptions<EmailOptions>().Bind(configuration.GetSection(EmailOptions.SectionName));
 
@@ -96,12 +115,11 @@ public sealed class TestHarness : IAsyncDisposable
         services.AddScoped<IAuditService, NoOpAuditService>();
 
         services.AddSingleton<IMimeMessageBuilder, MimeMessageBuilder>();
-        services.AddScoped<IEmailProvider, SesEmailProvider>();
         services.AddScoped<IEmailProvider, SmtpEmailProvider>();
         services.AddScoped<IEmailProviderFactory, EmailProviderFactory>();
         services.AddScoped<IEmailConnectionService, EmailConnectionService>();
         services.AddScoped<IEmailTemplateService, EmailTemplateService>();
-        services.AddScoped<IEmailDomainService, EmailDomainService>();
+        services.AddScoped<IEmailSenderGate, EmailSenderGate>();
         services.AddScoped<IEmailSuppressionService, EmailSuppressionService>();
         services.AddScoped<IEmailSendRecorder, EmailSendRecorder>();
         services.AddScoped<IEmailCampaignDispatcher, EmailCampaignDispatcher>();
@@ -109,17 +127,51 @@ public sealed class TestHarness : IAsyncDisposable
         services.AddSingleton<IUnsubscribeTokenService, UnsubscribeTokenService>();
         services.AddSingleton<IEmailRateLimiter, PostgresEmailRateLimiter>();
         services.AddSingleton<IJobQueue, PostgresJobQueue>();
-        services.AddScoped<IEmailEventProcessor, EmailEventProcessor>();
-        services.AddScoped<ISnsMessageValidator, SnsMessageValidator>();
-        services.AddHttpClient(SnsMessageValidator.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(10));
         services.AddMemoryCache();
+
+        // Campaign events: the store, the per-recipient processor and the in-process publisher.
+        services.AddScoped<IEmailEventStore, EmailEventStore>();
+        services.AddScoped<ICampaignEmailEventProcessor, CampaignEmailEventProcessor>();
+        services.AddSingleton<InProcessEventPublisher>();
+        services.AddSingleton<IEventPublisher>(sp => sp.GetRequiredService<InProcessEventPublisher>());
+        services.AddSingleton<IEmailTrackingService, EmailTrackingService>();
+        services.AddSingleton<SmtpConnectionPoolManager>();
+        services.AddScoped<IInboundEmailThreader, InboundEmailThreader>();
+        services.AddSingleton<IInboxNotifier, NoOpInboxNotifier>();
+
+        // Attachments and uploaded CSVs resolve through the same storage abstraction as the API.
+        services.AddSingleton<IHostEnvironment>(new TestHostEnvironment(backendDirectory));
+        services.AddOptions<StorageOptions>().Bind(configuration.GetSection(StorageOptions.SectionName));
+        services.AddHttpClient(FileStorage.HttpClientName);
+        services.AddSingleton<IFileStorage, FileStorage>();
+        services.AddScoped<ICurrentUserService, SystemCurrentUser>();
+        services.AddScoped<WhatsAppCampaignApi.Services.Security.IAccessScope, WhatsAppCampaignApi.Services.Security.AccessScope>();
+        services.AddScoped<IOmniSettingsService, OmniSettingsService>();
+        services.AddScoped<WhatsAppCampaignApi.Services.Segments.ISegmentService, WhatsAppCampaignApi.Services.Segments.SegmentService>();
+        services.AddSingleton<DnsClient.ILookupClient>(_ => new DnsClient.LookupClient(new DnsClient.LookupClientOptions { Timeout = TimeSpan.FromSeconds(3), Retries = 1 }));
+        services.AddScoped<IDeliverabilityService, DeliverabilityService>();
+        services.AddScoped<WhatsAppCampaignApi.Services.Campaigns.IAbTestService, WhatsAppCampaignApi.Services.Campaigns.AbTestService>();
+        services.AddScoped<WhatsAppCampaignApi.Services.Campaigns.IFollowUpService, WhatsAppCampaignApi.Services.Campaigns.FollowUpService>();
+        services.AddScoped<WhatsAppCampaignApi.Services.Compliance.IComplianceGuard, WhatsAppCampaignApi.Services.Compliance.ComplianceGuard>();
+        services.AddScoped<WhatsAppCampaignApi.Services.Compliance.IConsentService, WhatsAppCampaignApi.Services.Compliance.ConsentService>();
 
         // CampaignService takes both channels' collaborators. Nothing here exercises the WhatsApp
         // half — and that is itself part of what the suite checks, since an email campaign that
         // reached IWhatsAppService would throw rather than pass quietly.
-        services.AddScoped<IWhatsAppService>(_ => null!);
-        services.AddScoped<IChatService>(_ => null!);
+        services.AddScoped(_ => UnavailableService.Create<IWhatsAppService>());
+        services.AddScoped(_ => UnavailableService.Create<IChatService>());
+        services.AddScoped(_ => UnavailableService.Create<WhatsAppCampaignApi.Services.WhatsApp.IWhatsAppCampaignDispatcher>());
         services.AddScoped<ICampaignService, CampaignService>();
+
+        // Outbound webhooks. The suite's receiver listens on localhost, so this guard allows
+        // private networks; Phase 19 checks the production guard separately.
+        var webhookGuard = new WhatsAppCampaignApi.Services.Integrations.WebhookUrlGuard(allowHttp: true, allowPrivateNetworks: true);
+        services.AddSingleton(webhookGuard);
+        services.AddHttpClient(WhatsAppCampaignApi.Services.Integrations.WebhookSender.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(10))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, ConnectCallback = webhookGuard.ConnectAsync });
+        services.AddScoped<WhatsAppCampaignApi.Services.Integrations.WebhookSender>();
+        services.AddSingleton<WhatsAppCampaignApi.Services.Integrations.IWebhookEmitter, WhatsAppCampaignApi.Services.Integrations.WebhookEmitter>();
+        services.AddScoped<WhatsAppCampaignApi.Services.Integrations.IWebhookSubscriptionService, WhatsAppCampaignApi.Services.Integrations.WebhookSubscriptionService>();
 
         return new TestHarness(services.BuildServiceProvider(), configuration, connectionString);
     }
@@ -213,17 +265,6 @@ public sealed class TestHarness : IAsyncDisposable
 
         await ExecAsync("""DELETE FROM "MessageActivityLogs" WHERE "Name" LIKE @prefix""", ("prefix", $"{Prefix}%"));
 
-        // Delivery events survive their campaign on purpose — the FKs are SetNull, because the
-        // event log is the record of what a provider told us and stays true after the campaign is
-        // gone. So they are removed by their own test markers rather than by cascade. example.test
-        // is a reserved test domain, so this cannot match real traffic.
-        await ExecAsync("""
-            DELETE FROM "EmailDeliveryEvents"
-             WHERE "RecipientAddress" LIKE '%@example.test'
-                OR "ProviderMessageId" LIKE 'ses-%'
-                OR "ProviderMessageId" LIKE 'unknown-%'
-            """);
-
         await ExecAsync("""
             DELETE FROM "ChatMessages" WHERE "ContactId" IN (
                 SELECT "Id" FROM "Contacts" WHERE "Name" LIKE @prefix)
@@ -270,4 +311,58 @@ internal sealed class NoOpAuditService : IAuditService
         int? actorUserId = null,
         string? actorUserName = null,
         AuditMetadata? metadata = null) => Task.CompletedTask;
+}
+
+/// <summary>No SignalR hub in the suite; inbox pushes are not asserted on.</summary>
+internal sealed class NoOpInboxNotifier : IInboxNotifier
+{
+    public Task MessageReceivedAsync(int conversationId, int? connectionId, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task MessageStatusChangedAsync(int conversationId, int messageId, string status, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task ConversationUpdatedAsync(int conversationId, int? connectionId, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>The suite acts as the system: no signed-in user, no permissions.</summary>
+internal sealed class SystemCurrentUser : ICurrentUserService
+{
+    public int? UserId => null;
+    public string? Email => null;
+    public string? UserName => "email-channel-tests";
+    public bool IsAdministrator => false;
+    public bool IsAuthenticated => false;
+    public string? IpAddress => null;
+    public string? UserAgent => null;
+    public Task<bool> HasPermissionAsync(string permissionKey) => Task.FromResult(false);
+    public Task<bool> HasAnyPermissionAsync(IEnumerable<string> permissionKeys) => Task.FromResult(false);
+    public Task<List<string>> GetPermissionsAsync() => Task.FromResult(new List<string>());
+}
+
+/// <summary>Content root = the Backend directory, so storage paths resolve as they do for the API.</summary>
+internal sealed class TestHostEnvironment(string contentRoot) : IHostEnvironment
+{
+    public string EnvironmentName { get; set; } = Environments.Development;
+    public string ApplicationName { get; set; } = "WhatsAppCampaignApi";
+    public string ContentRootPath { get; set; } = contentRoot;
+    public IFileProvider ContentRootFileProvider { get; set; } = new PhysicalFileProvider(contentRoot);
+}
+
+/// <summary>
+/// Stands in for a service the suite deliberately does not wire (WhatsApp, Chat). Resolvable, so
+/// a class that merely depends on it can be built, but any call fails with a clear message rather
+/// than a NullReferenceException — reaching it from an email path is itself a bug.
+/// </summary>
+internal class UnavailableService : System.Reflection.DispatchProxy
+{
+    private string _name = "service";
+
+    public static T Create<T>() where T : class
+    {
+        var proxy = Create<T, UnavailableService>();
+        ((UnavailableService)(object)proxy)._name = typeof(T).Name;
+        return proxy;
+    }
+
+    protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args) =>
+        throw new NotSupportedException($"{_name}.{targetMethod?.Name} is not available in the email test suite.");
 }

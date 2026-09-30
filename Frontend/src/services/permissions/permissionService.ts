@@ -5,10 +5,17 @@ import type {
   UserPermissionDashboard,
   DepartmentPermissionDashboard,
   AssignUserPermissionPayload,
-  AssignDepartmentPermissionPayload
+  AssignDepartmentPermissionPayload,
+  PermissionCandidates
 } from '../../types/permission'
 
 export const permissionService = {
+  /** The real users and roles that connection access can be granted to. */
+  getCandidates: async (): Promise<PermissionCandidates> => {
+    const response = await apiClient.get<PermissionCandidates>('/permissions/candidates')
+    return response.data
+  },
+
   getUserDashboard: async (): Promise<UserPermissionDashboard> => {
     const response = await apiClient.get<UserPermissionDashboard>('/permissions/user/dashboard')
     return response.data

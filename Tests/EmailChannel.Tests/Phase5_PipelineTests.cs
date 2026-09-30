@@ -167,8 +167,8 @@ public static class Phase5_PipelineTests
 
                 var queued = await harness.CountAsync("""
                     SELECT count(*) FROM "JobQueue"
-                     WHERE "QueueName" = 'campaign-expansion' AND "IdempotencyKey" = @key
-                    """, ("key", $"expand:campaign:{campaignId}"));
+                     WHERE "QueueName" = @q AND "IdempotencyKey" = @key
+                    """, ("q", WhatsAppCampaignApi.Services.Queue.QueueNames.CampaignExpansion), ("key", $"expand:campaign:{campaignId}"));
                 run.Check("an expansion job was enqueued", queued == 1, $"{queued}");
             });
 
@@ -361,8 +361,8 @@ public static class Phase5_PipelineTests
                 expansionJobs == 1, $"{expansionJobs}");
 
             var sendJobs = await harness.CountAsync("""
-                SELECT count(*) FROM "JobQueue" WHERE "QueueName" = 'email-send' AND "PartitionKey" = @p
-                """, ("p", campaignId.ToString()));
+                SELECT count(*) FROM "JobQueue" WHERE "QueueName" = @q AND "PartitionKey" = @p
+                """, ("q", WhatsAppCampaignApi.Services.Queue.QueueNames.EmailSend), ("p", campaignId.ToString()));
             run.Check("exactly one send job exists, for the one eligible recipient",
                 sendJobs == 1, $"{sendJobs}");
 

@@ -14,17 +14,23 @@ public class UserService : IUserService
     private readonly IPermissionResolver _permissionResolver;
     private readonly IAuditService _auditService;
     private readonly ICurrentUserService _currentUser;
+    private readonly ISecurityStampCache _stampCache;
+    private readonly Email.ISystemMailService _systemMail;
 
     public UserService(
         AppDbContext dbContext,
         IPermissionResolver permissionResolver,
         IAuditService auditService,
-        ICurrentUserService currentUser)
+        ICurrentUserService currentUser,
+        ISecurityStampCache stampCache,
+        Email.ISystemMailService systemMail)
     {
+        _systemMail = systemMail;
         _dbContext = dbContext;
         _permissionResolver = permissionResolver;
         _auditService = auditService;
         _currentUser = currentUser;
+        _stampCache = stampCache;
     }
 
     public async Task<PagedResponse<UserListItemResponse>> GetAllAsync(
@@ -165,6 +171,21 @@ public class UserService : IUserService
             "User.Created", "User",
             $"Created user {user.Email}.", nameof(AppUser), user.Id.ToString());
 
+        // After the user is saved, and never able to undo it: a mail server that is down or not
+        // configured leaves the account created and simply sends nothing.
+        if (user.SendWelcomeEmail)
+        {
+            var fullName = string.Join(' ', new[] { user.FirstName, user.LastName }.Where(n => !string.IsNullOrWhiteSpace(n)));
+            var sent = await _systemMail.SendTemplateAsync(
+                Email.SystemMailService.WelcomeTemplateKey, user.Email, fullName,
+                new Dictionary<string, string?> { ["user_name"] = user.FirstName });
+            await _auditService.LogAsync(
+                sent ? "User.WelcomeEmailSent" : "User.WelcomeEmailNotSent", "User",
+                sent ? $"Sent the welcome email to {user.Email}."
+                     : $"The welcome email to {user.Email} was not sent (platform SMTP not configured, template disabled, or the mail server refused it).",
+                nameof(AppUser), user.Id.ToString());
+        }
+
         return await GetByIdAsync(user.Id);
     }
 
@@ -193,6 +214,14 @@ public class UserService : IUserService
         user.DialCode = request.DialCode;
         user.ProfileImageUrl = request.ProfileImageUrl;
         user.DefaultLanguageCode = request.DefaultLanguageCode;
+        // Changes that alter what this user may do end their existing sessions (see
+        // AppUser.SecurityStamp); cosmetic edits such as a name change do not.
+        var sessionsEnd = user.IsActive != request.IsActive
+                       || user.IsAdministrator != request.IsAdministrator
+                       || user.RoleId != (request.IsAdministrator ? null : request.RoleId)
+                       || user.UsesCustomPermissions != (!request.IsAdministrator && request.UsesCustomPermissions)
+                       || !string.IsNullOrWhiteSpace(request.Password);
+
         user.IsActive = request.IsActive;
         user.IsVerified = request.IsVerified;
         user.SendWelcomeEmail = request.SendWelcomeEmail;
@@ -213,10 +242,20 @@ public class UserService : IUserService
             user.MustChangePassword = true;
         }
 
+        if (sessionsEnd)
+        {
+            // Unlocks too: an administrator resetting a password or reactivating an account means
+            // the person should be able to sign in again now.
+            user.SecurityStamp = Guid.NewGuid().ToString("N");
+            user.FailedLoginCount = 0;
+            user.LockoutEndAt = null;
+        }
+
         await ReplaceUserPermissionsAsync(user, request.PermissionKeys);
         await _dbContext.SaveChangesAsync();
 
         _permissionResolver.InvalidateUser(user.Id);
+        _stampCache.Invalidate(user.Id);
 
         await _auditService.LogAsync(
             "User.Updated", "User",
@@ -238,10 +277,12 @@ public class UserService : IUserService
 
         user.IsDeleted = true;
         user.IsActive = false;
+        user.SecurityStamp = Guid.NewGuid().ToString("N");
         user.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
 
         _permissionResolver.InvalidateUser(id);
+        _stampCache.Invalidate(id);
 
         await _auditService.LogAsync(
             "User.Deleted", "User",
@@ -262,12 +303,14 @@ public class UserService : IUserService
             await EnsureNotLastAdministratorAsync(id, "deactivate");
 
         user.IsActive = !user.IsActive;
+        user.SecurityStamp = Guid.NewGuid().ToString("N");
         user.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
 
         // A deactivated account must stop being able to act immediately rather than when its
-        // cached permission set happens to expire.
+        // cached permission set happens to expire — or its token does.
         _permissionResolver.InvalidateUser(id);
+        _stampCache.Invalidate(id);
 
         await _auditService.LogAsync(
             user.IsActive ? "User.Activated" : "User.Deactivated", "User",

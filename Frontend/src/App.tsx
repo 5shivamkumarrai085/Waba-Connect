@@ -1,7 +1,8 @@
 import React, { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Outlet, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Outlet, Navigate, useLocation } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { PageLayout } from './components/PageLayout'
+import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary'
 import { RequireAuth } from './components/RequireAuth'
 import Can from './components/Can/Can'
 import { useChatNotificationSound } from './hooks/useChatNotificationSound'
@@ -11,12 +12,13 @@ const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m
 const CampaignsList = lazy(() => import('./pages/Campaigns/CampaignsList').then(m => ({ default: m.CampaignsList })))
 const CampaignWizard = lazy(() => import('./pages/Campaigns/CampaignWizard').then(m => ({ default: m.CampaignWizard })))
 const CampaignDetails = lazy(() => import('./pages/Campaigns/CampaignDetails').then(m => ({ default: m.CampaignDetails })))
-const Placeholder = lazy(() => import('./pages/Placeholder').then(m => ({ default: m.Placeholder })))
 const NotFound = lazy(() => import('./pages/NotFound').then(m => ({ default: m.NotFound })))
 const Reporting = lazy(() => import('./pages/Reporting').then(m => ({ default: m.Reporting })))
 const ActivityLogs = lazy(() => import('./pages/ActivityLogs').then(m => ({ default: m.ActivityLogs })))
 const ConnectWABA = lazy(() => import('./pages/ConnectWABA/ConnectWABA').then(m => ({ default: m.ConnectWABA })))
 const ContactsList = lazy(() => import('./pages/Contacts/ContactsList').then(m => ({ default: m.ContactsList })))
+const SegmentsList = lazy(() => import('./pages/Segments/SegmentsList').then(m => ({ default: m.SegmentsList })))
+const SegmentEditor = lazy(() => import('./pages/Segments/SegmentEditor').then(m => ({ default: m.SegmentEditor })))
 const AddContact = lazy(() => import('./pages/Contacts/AddContact').then(m => ({ default: m.AddContact })))
 const ImportContacts = lazy(() => import('./pages/Contacts/ImportContacts').then(m => ({ default: m.ImportContacts })))
 const TemplatesList = lazy(() => import('./pages/Templates/TemplatesList').then(m => ({ default: m.TemplatesList })))
@@ -52,6 +54,7 @@ const SetupAiPromptsList = lazy(() => import('./pages/Setup/AiPrompts/AiPromptsL
 const SetupCannedRepliesList = lazy(() => import('./pages/Setup/CannedReplies/CannedRepliesList').then(m => ({ default: m.CannedRepliesList })))
 const SetupEmailTemplatesList = lazy(() => import('./pages/Setup/EmailTemplates/EmailTemplatesList').then(m => ({ default: m.EmailTemplatesList })))
 const SetupActivityLog = lazy(() => import('./pages/Setup/ActivityLog/MessageActivityLog').then(m => ({ default: m.MessageActivityLog })))
+const SetupWebhooks = lazy(() => import('./pages/Setup/Webhooks/WebhooksList').then(m => ({ default: m.WebhooksList })))
 const SetupSystemLogs = lazy(() => import('./pages/Setup/SystemLogs/SystemLogs').then(m => ({ default: m.SystemLogs })))
 
 // Reusable Loading Fallback
@@ -65,16 +68,27 @@ const LoadingFallback: React.FC = () => (
  * The signed-in shell: sidebar, header, and the page container. Everything inside requires a
  * session, so the guard is applied once here rather than repeated on ~30 routes.
  */
-const AuthedShell: React.FC = () => {
-  // One watcher for the whole signed-in app, so a new WhatsApp message is announced wherever the
-  // user happens to be — not only while the Chat page is open. Mounted here rather than in Chat
-  // because a single instance is also what guarantees one sound per arrival.
+/**
+ * One watcher for the whole signed-in app, so a new message is announced wherever the user
+ * happens to be — not only while the Chat page is open. A single instance is also what guarantees
+ * one sound per arrival. Rendered inside the auth guard, so nothing polls before sign-in.
+ */
+const InboxNotifications: React.FC = () => {
   useChatNotificationSound()
+  return null
+}
+
+const AuthedShell: React.FC = () => {
+  // Keyed by path, so navigating away from a page that crashed clears the error.
+  const location = useLocation()
 
   return (
     <RequireAuth>
+      <InboxNotifications />
       <PageLayout>
-        <Outlet />
+        <ErrorBoundary key={location.pathname} area="This page">
+          <Outlet />
+        </ErrorBoundary>
       </PageLayout>
     </RequireAuth>
   )
@@ -165,6 +179,9 @@ const App: React.FC = () => {
             <Route path="/contacts/contact" element={<Guarded permission="Contact.Create"><AddContact /></Guarded>} />
             <Route path="/contacts/contact/edit/:id" element={<Guarded permission="Contact.Edit"><AddContact /></Guarded>} />
             <Route path="/contacts/import" element={<Guarded permission="Contact.Import"><ImportContacts /></Guarded>} />
+            <Route path="/segments" element={<Guarded permission="Segment.View"><SegmentsList /></Guarded>} />
+            <Route path="/segments/new" element={<Guarded permission="Segment.Manage"><SegmentEditor /></Guarded>} />
+            <Route path="/segments/:id" element={<Guarded permission="Segment.View"><SegmentEditor /></Guarded>} />
             <Route path="/templates" element={<Guarded permission="Template.View"><TemplatesList /></Guarded>} />
             <Route path="/bulk-campaigns" element={<Guarded permission="BulkCampaign.View"><BulkCampaign /></Guarded>} />
 
@@ -182,7 +199,6 @@ const App: React.FC = () => {
             {/* System Settings belongs to the host app, not OmniConnect. The route survives only
                 to redirect bookmarks; the sidebar item is gone. */}
             <Route path="/system-settings" element={<Navigate to="/omniconnect-settings" replace />} />
-            <Route path="/omniconnect-settings" element={<Placeholder />} />
 
             {/* Setup is the one nested subtree in this otherwise flat route table. It earns
                 the nesting: a single <Outlet /> keeps the section rail mounted across
@@ -208,15 +224,13 @@ const App: React.FC = () => {
               <Route path="languages/:id/translate" element={<Guarded permission="Language.Edit"><SetupTranslateScreen /></Guarded>} />
               <Route path="email-templates" element={<Guarded permission="EmailTemplate.View"><SetupEmailTemplatesList /></Guarded>} />
               <Route path="system-logs" element={<Guarded permission="SystemLog.View"><SetupSystemLogs /></Guarded>} />
+              <Route path="webhooks" element={<Guarded permission="Webhook.View"><SetupWebhooks /></Guarded>} />
 
               <Route path="connection-access/user" element={<Guarded permission="ConnectionAccess.View"><UserPermissionsList /></Guarded>} />
               <Route path="connection-access/department" element={<Guarded permission="ConnectionAccess.View"><DepartmentPermissionsList /></Guarded>} />
             </Route>
             
-            {/* Fallback route — a real 404, distinct from Placeholder (which is
-                reserved for pages that exist in the roadmap but aren't built
-                yet, above). This is for URLs that don't correspond to
-                anything at all. */}
+            {/* Fallback route — a real 404 for URLs that don't correspond to anything. */}
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

@@ -88,6 +88,9 @@ public class ReportRowDto
     public DateTime Timestamp { get; set; }
     public string? ContactName { get; set; }
     public string? ContactPhone { get; set; }
+
+    /// <summary>The ad that first brought the contact in, if any.</summary>
+    public string? AdSource { get; set; }
     public string? CampaignName { get; set; }
 
     /// <summary>

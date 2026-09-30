@@ -110,169 +110,172 @@ public class CampaignEmailEventProcessor : ICampaignEmailEventProcessor
         }
 
         await using var db = await _contextFactory.CreateDbContextAsync(ct);
+        var when = occurredAt ?? DateTime.UtcNow;
 
-        // 2. Update CampaignContact state
-        CampaignContact? recipient = null;
+        // 2. Move the recipient forward. Each transition is one conditional UPDATE, so two workers
+        //    handling events for the same recipient cannot both believe they made the change —
+        //    which is what makes the counters below count recipients, not events. Opening an
+        //    email ten times is one open, as every mailing platform reports it.
+        var counts = true;
         if (campaignContactId.HasValue)
         {
-            recipient = await db.CampaignContacts
-                .IgnoreQueryFilters()
-                .Include(cc => cc.Contact)
-                .FirstOrDefaultAsync(cc => cc.Id == campaignContactId.Value, ct);
+            counts = await ApplyToRecipientAsync(db, campaignContactId.Value, recorded.Id, kind, when, bounceSubType, diagnosticCode, ct);
         }
 
-        string? newCampaignStatus = null;
-
-        if (recipient is not null)
-        {
-            ApplyToRecipient(recipient, kind, occurredAt ?? DateTime.UtcNow,
-                bounceType, bounceSubType, diagnosticCode);
-        }
-
-        // 3. Atomically increment Campaign counters
-        if (campaignId.HasValue)
+        // 3. Atomically increment the campaign counter — only for a real state change.
+        if (campaignId.HasValue && counts)
         {
             await IncrementCounterAsync(db, campaignId.Value, kind, ct);
         }
 
-        // 4. Save recipient state changes
-        if (recipient is not null)
+        // 4. Suppression for bounces, complaints and unsubscribes. Always global: a mailbox that
+        //    does not exist, or a person who asked to stop, must not be mailed from any connection.
+        var suppressionReason = kind switch
         {
-            try
-            {
-                await db.SaveChangesAsync(ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to save recipient state for CampaignContact {Id}.", recipient.Id);
-            }
-        }
+            EmailEventKind.Bounced when bounceType != EmailBounceType.Transient => SuppressionReason.Bounce,
+            EmailEventKind.Complained => SuppressionReason.Complaint,
+            EmailEventKind.Unsubscribed => SuppressionReason.Unsubscribe,
+            _ => (SuppressionReason?)null
+        };
 
-        // 5. Handle suppression for bounces/complaints
-        if (kind is EmailEventKind.Bounced && !string.IsNullOrWhiteSpace(recipientAddress))
-        {
-            var connectionId = campaignId.HasValue
-                ? await GetConnectionIdAsync(db, campaignId.Value, ct)
-                : null;
-            await _suppression.SuppressAsync(
-                recipientAddress, SuppressionReason.Bounce,
-                source: $"Bounce/{bounceSubType ?? "Permanent"}",
-                detail: diagnosticCode,
-                connectionId: null,  // Global — a non-existent mailbox stays non-existent
-                createdBy: "EmailEventProcessor",
-                ct: ct);
-        }
-        else if (kind is EmailEventKind.Complained && !string.IsNullOrWhiteSpace(recipientAddress))
+        if (suppressionReason is { } reason && !string.IsNullOrWhiteSpace(recipientAddress))
         {
             await _suppression.SuppressAsync(
-                recipientAddress, SuppressionReason.Complaint,
-                source: "Complaint",
-                detail: null, connectionId: null,
-                createdBy: "EmailEventProcessor",
-                ct: ct);
-        }
-        else if (kind is EmailEventKind.Unsubscribed && !string.IsNullOrWhiteSpace(recipientAddress))
-        {
-            await _suppression.SuppressAsync(
-                recipientAddress, SuppressionReason.Unsubscribe,
-                source: "UnsubscribeLink",
-                detail: null, connectionId: null,
+                recipientAddress, reason,
+                source: reason switch
+                {
+                    SuppressionReason.Bounce => $"Bounce/{bounceSubType ?? "Permanent"}",
+                    SuppressionReason.Complaint => "Complaint",
+                    _ => "UnsubscribeLink"
+                },
+                detail: reason == SuppressionReason.Bounce ? diagnosticCode : null,
+                connectionId: null,
                 createdBy: "EmailEventProcessor",
                 ct: ct);
         }
 
-        // 6. Check campaign finalization (terminal delivery events only)
+        // 5. Campaign completion (terminal delivery events only).
+        string? newCampaignStatus = null;
         if (campaignId.HasValue && IsTerminalDeliveryEvent(kind))
         {
-            newCampaignStatus = await TryFinalizeCampaignAsync(db, campaignId.Value, ct);
+            newCampaignStatus = await CampaignFinalizer.TryFinalizeAsync(db, campaignId.Value, ct);
         }
 
-        // 7. Publish real-time notification (non-blocking, best-effort)
-        if (campaignId.HasValue)
+        // 6. Real-time notification (non-blocking, best-effort). Sent even when the counter did
+        //    not move, so a status change still reaches the page; the deltas are what tell the
+        //    client whether to increment.
+        if (campaignId.HasValue && (counts || newCampaignStatus is not null))
         {
-            var (delta, _) = GetCounterDelta(kind);
+            var delta = counts ? 1 : 0;
             await _publisher.PublishEmailEventAsync(new CampaignEmailEventNotification(
                 CampaignId: campaignId.Value,
                 Kind: kind,
                 CampaignContactId: campaignContactId,
-                RecipientAddress: recipientAddress,
-                OccurredAt: occurredAt ?? DateTime.UtcNow,
-                SentDelta:          kind == EmailEventKind.Sent         ? 1 : 0,
-                FailedDelta:        kind == EmailEventKind.Failed        ? 1 : 0,
-                DeliveredDelta:     kind == EmailEventKind.Delivered     ? 1 : 0,
-                BouncedDelta:       kind == EmailEventKind.Bounced       ? 1 : 0,
-                OpenedDelta:        kind == EmailEventKind.Opened        ? 1 : 0,
-                ClickedDelta:       kind == EmailEventKind.Clicked       ? 1 : 0,
-                RepliedDelta:       kind == EmailEventKind.Replied       ? 1 : 0,
-                UnsubscribedDelta:  kind == EmailEventKind.Unsubscribed  ? 1 : 0,
-                ComplainedDelta:    kind == EmailEventKind.Complained    ? 1 : 0,
+                RecipientAddress: null,
+                OccurredAt: when,
+                SentDelta:          kind == EmailEventKind.Sent         ? delta : 0,
+                FailedDelta:        kind == EmailEventKind.Failed       ? delta : 0,
+                DeliveredDelta:     kind == EmailEventKind.Delivered    ? delta : 0,
+                BouncedDelta:       kind == EmailEventKind.Bounced      ? delta : 0,
+                OpenedDelta:        kind == EmailEventKind.Opened       ? delta : 0,
+                ClickedDelta:       kind == EmailEventKind.Clicked      ? delta : 0,
+                RepliedDelta:       kind == EmailEventKind.Replied      ? delta : 0,
+                UnsubscribedDelta:  kind == EmailEventKind.Unsubscribed ? delta : 0,
+                ComplainedDelta:    kind == EmailEventKind.Complained   ? delta : 0,
                 NewCampaignStatus: newCampaignStatus));
         }
     }
 
     /// <summary>
-    /// Moves recipient state forward. Never backwards — events arrive out of order.
+    /// Moves recipient state forward, never backwards — events arrive out of order, and an Open
+    /// must not overwrite Bounced. Returns true when this call changed the recipient, i.e. when
+    /// the event is the first of its kind for them and should move the campaign counter.
     /// </summary>
-    private static void ApplyToRecipient(
-        CampaignContact recipient,
+    private static async Task<bool> ApplyToRecipientAsync(
+        AppDbContext db,
+        int recipientId,
+        long eventId,
         EmailEventKind kind,
         DateTime occurredAt,
-        EmailBounceType? bounceType,
         string? bounceSubType,
-        string? diagnosticCode)
+        string? diagnosticCode,
+        CancellationToken ct)
     {
+        var recipients = db.CampaignContacts.IgnoreQueryFilters().Where(cc => cc.Id == recipientId);
+
         switch (kind)
         {
+            // The send recorder has already written the Sent/Failed row in the same unit of work
+            // as the chat message, and the idempotency key is per recipient, so reaching here
+            // means this is the one and only Sent (or Failed) for them.
             case EmailEventKind.Sent:
-                if (recipient.Status == MessageStatus.Pending)
-                {
-                    recipient.Status = MessageStatus.Sent;
-                    recipient.SentAt ??= occurredAt;
-                }
-                break;
-
-            case EmailEventKind.Delivered:
-                if (recipient.Status is MessageStatus.Pending or MessageStatus.Sent)
-                    recipient.Status = MessageStatus.Delivered;
-                recipient.SentAt    ??= occurredAt;
-                recipient.DeliveredAt ??= occurredAt;
-                break;
-
-            case EmailEventKind.Bounced:
-                // Always terminal, regardless of current status
-                recipient.Status = MessageStatus.Bounced;
-                recipient.ErrorMessage = BuildBounceMessage(bounceSubType, diagnosticCode);
-                break;
-
-            case EmailEventKind.Complained:
-                recipient.Status = MessageStatus.Complained;
-                recipient.ErrorMessage = "Recipient marked this message as spam.";
-                break;
+                await recipients
+                    .Where(cc => cc.Status == MessageStatus.Pending)
+                    .ExecuteUpdateAsync(u => u
+                        .SetProperty(cc => cc.Status, MessageStatus.Sent)
+                        .SetProperty(cc => cc.SentAt, cc => cc.SentAt ?? occurredAt), ct);
+                return true;
 
             case EmailEventKind.Failed:
-                if (recipient.Status is MessageStatus.Pending or MessageStatus.Sent)
-                {
-                    recipient.Status = MessageStatus.Failed;
-                }
-                break;
+                await recipients
+                    .Where(cc => cc.Status == MessageStatus.Pending || cc.Status == MessageStatus.Sent)
+                    .ExecuteUpdateAsync(u => u.SetProperty(cc => cc.Status, MessageStatus.Failed), ct);
+                return true;
 
-            // Engagement events — set timestamps, but do NOT change delivery status.
-            // An Open must not overwrite Bounced; a Reply must not overwrite Delivered.
+            case EmailEventKind.Delivered:
+                return await recipients
+                    .Where(cc => cc.DeliveredAt == null)
+                    .ExecuteUpdateAsync(u => u
+                        .SetProperty(cc => cc.Status, cc => cc.Status == MessageStatus.Pending || cc.Status == MessageStatus.Sent
+                            ? MessageStatus.Delivered : cc.Status)
+                        .SetProperty(cc => cc.SentAt, cc => cc.SentAt ?? occurredAt)
+                        .SetProperty(cc => cc.DeliveredAt, occurredAt), ct) > 0;
+
+            case EmailEventKind.Bounced:
+            {
+                var message = BuildBounceMessage(bounceSubType, diagnosticCode);
+                return await recipients
+                    .Where(cc => cc.Status != MessageStatus.Bounced)
+                    .ExecuteUpdateAsync(u => u
+                        .SetProperty(cc => cc.Status, MessageStatus.Bounced)
+                        .SetProperty(cc => cc.ErrorMessage, message), ct) > 0;
+            }
+
+            case EmailEventKind.Complained:
+                return await recipients
+                    .Where(cc => cc.Status != MessageStatus.Complained)
+                    .ExecuteUpdateAsync(u => u
+                        .SetProperty(cc => cc.Status, MessageStatus.Complained)
+                        .SetProperty(cc => cc.ErrorMessage, "Recipient marked this message as spam."), ct) > 0;
+
+            // Engagement — first occurrence only; delivery status untouched.
             case EmailEventKind.Opened:
-                recipient.OpenedAt ??= occurredAt;
-                break;
+                return await recipients
+                    .Where(cc => cc.OpenedAt == null)
+                    .ExecuteUpdateAsync(u => u.SetProperty(cc => cc.OpenedAt, occurredAt), ct) > 0;
 
             case EmailEventKind.Clicked:
-                recipient.ClickedAt ??= occurredAt;
-                break;
+                return await recipients
+                    .Where(cc => cc.ClickedAt == null)
+                    .ExecuteUpdateAsync(u => u.SetProperty(cc => cc.ClickedAt, occurredAt), ct) > 0;
 
             case EmailEventKind.Replied:
-                recipient.RepliedAt ??= occurredAt;
-                break;
+                return await recipients
+                    .Where(cc => cc.RepliedAt == null)
+                    .ExecuteUpdateAsync(u => u.SetProperty(cc => cc.RepliedAt, occurredAt), ct) > 0;
 
             case EmailEventKind.Unsubscribed:
-                // Suppression is handled separately. Status unchanged — still Sent/Delivered.
-                break;
+                // No per-recipient column, so the recipient's earliest Unsubscribed event is the
+                // one that counts. Callers use a per-recipient key today, but a second source (a
+                // List-Unsubscribe POST as well as the link) must not count the same person twice
+                // — the reconciler counts distinct recipients and would pull the figure back down.
+                return !await db.EmailEvents.AsNoTracking().AnyAsync(e =>
+                    e.CampaignContactId == recipientId
+                    && e.EventKind == EmailEventKind.Unsubscribed
+                    && e.Id < eventId, ct);
+
+            default:
+                return false;
         }
     }
 
@@ -283,104 +286,34 @@ public class CampaignEmailEventProcessor : ICampaignEmailEventProcessor
     private static async Task IncrementCounterAsync(
         AppDbContext db, int campaignId, EmailEventKind kind, CancellationToken ct)
     {
-        var (column, _) = GetCounterDelta(kind);
-        if (column is null) return;
+        var campaigns = db.Campaigns.IgnoreQueryFilters().Where(c => c.Id == campaignId && !c.IsDeleted);
+        var now = DateTime.UtcNow;
 
-        // Raw SQL for atomic increment. EF's change tracker cannot express
-        // "increment this specific column" without a read-modify-write that races.
-        var sql = $"""
-            UPDATE "Campaigns"
-               SET "{column}" = "{column}" + 1,
-                   "UpdatedAt" = now()
-             WHERE "Id" = {campaignId}
-               AND "IsDeleted" = false
-            """;
-
-        await db.Database.ExecuteSqlRawAsync(sql, ct);
+        _ = kind switch
+        {
+            EmailEventKind.Sent => await campaigns.ExecuteUpdateAsync(u => u.SetProperty(c => c.SentCount, c => c.SentCount + 1).SetProperty(c => c.UpdatedAt, now), ct),
+            EmailEventKind.Failed => await campaigns.ExecuteUpdateAsync(u => u.SetProperty(c => c.FailedCount, c => c.FailedCount + 1).SetProperty(c => c.UpdatedAt, now), ct),
+            EmailEventKind.Delivered => await campaigns.ExecuteUpdateAsync(u => u.SetProperty(c => c.DeliveredCount, c => c.DeliveredCount + 1).SetProperty(c => c.UpdatedAt, now), ct),
+            // A bounce is its own figure. It used to add to FailedCount, which made
+            // sent + failed exceed the recipient total.
+            EmailEventKind.Bounced => await campaigns.ExecuteUpdateAsync(u => u.SetProperty(c => c.BouncedCount, c => c.BouncedCount + 1).SetProperty(c => c.UpdatedAt, now), ct),
+            EmailEventKind.Opened => await campaigns.ExecuteUpdateAsync(u => u.SetProperty(c => c.OpenedCount, c => c.OpenedCount + 1).SetProperty(c => c.UpdatedAt, now), ct),
+            EmailEventKind.Clicked => await campaigns.ExecuteUpdateAsync(u => u.SetProperty(c => c.ClickedCount, c => c.ClickedCount + 1).SetProperty(c => c.UpdatedAt, now), ct),
+            EmailEventKind.Replied => await campaigns.ExecuteUpdateAsync(u => u.SetProperty(c => c.RepliedCount, c => c.RepliedCount + 1).SetProperty(c => c.UpdatedAt, now), ct),
+            EmailEventKind.Unsubscribed => await campaigns.ExecuteUpdateAsync(u => u.SetProperty(c => c.UnsubscribedCount, c => c.UnsubscribedCount + 1).SetProperty(c => c.UpdatedAt, now), ct),
+            EmailEventKind.Complained => await campaigns.ExecuteUpdateAsync(u => u.SetProperty(c => c.ComplainedCount, c => c.ComplainedCount + 1).SetProperty(c => c.UpdatedAt, now), ct),
+            _ => 0
+        };
     }
-
-    private static (string? Column, int Delta) GetCounterDelta(EmailEventKind kind) => kind switch
-    {
-        EmailEventKind.Sent         => ("SentCount",           1),
-        EmailEventKind.Failed       => ("FailedCount",         1),
-        EmailEventKind.Delivered    => ("DeliveredCount",      1),
-        EmailEventKind.Bounced      => ("FailedCount",         1),  // Bounced counts as failed
-        EmailEventKind.Opened       => ("OpenedCount",         1),
-        EmailEventKind.Clicked      => ("ClickedCount",        1),
-        EmailEventKind.Replied      => ("RepliedCount",        1),
-        EmailEventKind.Unsubscribed => ("UnsubscribedCount",   1),
-        EmailEventKind.Complained   => ("ComplainedCount",     1),
-        _                           => (null,                  0)
-    };
 
     private static bool IsTerminalDeliveryEvent(EmailEventKind kind) => kind is
         EmailEventKind.Sent or EmailEventKind.Failed or
         EmailEventKind.Delivered or EmailEventKind.Bounced or EmailEventKind.Complained;
 
-    /// <summary>
-    /// Checks whether the campaign is complete and updates its status if so.
-    /// One conditional UPDATE — does nothing if recipients are still pending.
-    /// Returns the new status string, or null if nothing changed.
-    /// </summary>
-    private static async Task<string?> TryFinalizeCampaignAsync(
-        AppDbContext db, int campaignId, CancellationToken ct)
-    {
-        // This query is intentionally minimal: it only runs after terminal delivery events,
-        // not after every send. The WHERE clause filters to campaigns that are still Sending,
-        // so it is a no-op once the campaign has already been finalized.
-        const string sql = """
-            UPDATE "Campaigns" c SET
-                "Status" = CASE
-                    WHEN s.sent = 0       THEN 'Failed'
-                    WHEN s.failed = 0     THEN 'Sent'
-                    ELSE                       'PartiallyFailed'
-                END,
-                "UpdatedAt" = now()
-            FROM (
-                SELECT
-                    count(*) FILTER (WHERE "Status" = 'Pending')                          AS pending,
-                    count(*) FILTER (WHERE "Status" IN ('Sent','Delivered','Read'))        AS sent,
-                    count(*) FILTER (WHERE "Status" IN ('Failed','Bounced','Complained'))  AS failed
-                FROM "CampaignContacts"
-                WHERE "CampaignId" = {0}
-            ) s
-            WHERE c."Id" = {0}
-              AND c."Status" = 'Sending'
-              AND s.pending = 0
-            RETURNING c."Status"
-            """;
-
-        // ExecuteSqlRaw doesn't return rows; we check affected count and re-read if needed
-        var affected = await db.Database.ExecuteSqlRawAsync(
-            sql.Replace("{0}", campaignId.ToString()), ct);
-
-        if (affected > 0)
-        {
-            var campaign = await db.Campaigns.AsNoTracking()
-                .IgnoreQueryFilters()
-                .Where(c => c.Id == campaignId)
-                .Select(c => c.Status)
-                .FirstOrDefaultAsync(ct);
-
-            var statusStr = campaign.ToString();
-            return statusStr;
-        }
-
-        return null;
-    }
-
     private static string BuildBounceMessage(string? subType, string? diagnostic)
     {
         var msg = $"Permanently bounced{(subType is null ? "" : $" ({subType})")}.";
-        return diagnostic is null ? msg : $"{msg} {diagnostic}";
-    }
-
-    private static async Task<int?> GetConnectionIdAsync(AppDbContext db, int campaignId, CancellationToken ct)
-    {
-        return await db.Campaigns.AsNoTracking()
-            .IgnoreQueryFilters()
-            .Where(c => c.Id == campaignId)
-            .Select(c => c.ConnectionId)
-            .FirstOrDefaultAsync(ct);
+        var full = diagnostic is null ? msg : $"{msg} {diagnostic}";
+        return full.Length > 500 ? full[..500] : full;
     }
 }

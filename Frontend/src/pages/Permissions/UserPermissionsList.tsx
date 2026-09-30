@@ -26,6 +26,7 @@ import { SearchableSelect } from '../../components/SearchableSelect/SearchableSe
 export const UserPermissionsList: React.FC = () => {
   const [dashboard, setDashboard] = useState<UserPermissionDashboard | null>(null)
   const [connections, setConnections] = useState<Connection[]>([])
+  const [roleNames, setRoleNames] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
 
   // Filters
@@ -40,12 +41,14 @@ export const UserPermissionsList: React.FC = () => {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [dashRes, connRes] = await Promise.all([
+      const [dashRes, connRes, candidates] = await Promise.all([
         permissionService.getUserDashboard(),
-        connectionService.getConnections()
+        connectionService.getConnections(),
+        permissionService.getCandidates()
       ])
       setDashboard(dashRes)
       setConnections(connRes)
+      setRoleNames(candidates.roles.map(r => r.name))
     } catch {
       toast.error('Failed to load user permissions dashboard.')
     } finally {
@@ -186,11 +189,7 @@ export const UserPermissionsList: React.FC = () => {
             allValue="All Departments"
             className="permission-select"
             value={selectedDept}
-            options={[
-              { value: 'Sales', label: 'Sales' },
-              { value: 'Support', label: 'Support' },
-              { value: 'Marketing', label: 'Marketing' }
-            ]}
+            options={roleNames.map(name => ({ value: name, label: name }))}
             onChange={setSelectedDept}
           />
 

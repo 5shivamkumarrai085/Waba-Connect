@@ -1,4 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useAnchoredPosition } from '../../hooks/useAnchoredPosition'
+import { ReplyButtonsPopover } from './ReplyButtonsPopover'
+import useReference from '../../hooks/useReference'
+import { referenceService } from '../../services/referenceService'
+import { ConversationOwnerControls, SlaChip } from './ConversationOwnerControls'
+import { useAuthStore } from '../../store/authStore'
 import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
 import toast from 'react-hot-toast'
@@ -9,7 +16,10 @@ import {
   AlertTriangle,
   Check,
   CheckCheck,
+  ChevronDown,
   ChevronLeft,
+  MapPin,
+  UserRound,
   ChevronRight,
   Clock,
   Clock3,
@@ -26,13 +36,14 @@ import {
   Send,
   Smile,
   X,
-  User,
   Plus,
   Trash2,
   Calendar,
   Users,
   Phone,
-  Lock
+  Lock,
+  Camera,
+  ThumbsUp
 } from 'lucide-react'
 import { Avatar } from '../../components/Avatar/Avatar'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
@@ -44,6 +55,8 @@ import type { EmailComposeMode } from '../../components/EmailComposer/EmailCompo
 import type { EmailConnection } from '../../types/email'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
 import { useChatStore, ALL_CHANNELS } from '../../store/chatStore'
+import { useShallow } from 'zustand/react/shallow'
+import { realtimeService } from '../../services/campaigns/campaignHubService'
 import { useConnectionStore } from '../../store/connectionStore'
 import { campaignService } from '../../services/campaigns/campaignService'
 import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
@@ -130,8 +143,57 @@ export const Chat: React.FC = () => {
     deleteMessages,
     setFromNumber,
     setConversationsFilter,
-    setSidebarSearchQuery
-  } = useChatStore()
+    setSidebarSearchQuery,
+    stateFilter,
+    assigneeFilter,
+    setStateFilter,
+    setAssigneeFilter,
+    hasMoreConversations,
+    isLoadingMoreConversations,
+    loadMoreConversations,
+    hasOlderMessages,
+    isLoadingOlderMessages,
+    loadOlderMessages,
+    resyncActiveMessages,
+    threadError
+  } = useChatStore(useShallow((state) => ({
+    accounts: state.accounts,
+    conversations: state.conversations,
+    activeConversationId: state.activeConversationId,
+    selectedConnectionId: state.selectedConnectionId,
+    messages: state.messages,
+    isLoading: state.isLoading,
+    isLoadingConversations: state.isLoadingConversations,
+    isSending: state.isSending,
+    fromNumber: state.fromNumber,
+    conversationsFilter: state.conversationsFilter,
+    channelFilter: state.channelFilter,
+    sidebarSearchQuery: state.sidebarSearchQuery,
+    setSelectedConnectionId: state.setSelectedConnectionId,
+    setChannelFilter: state.setChannelFilter,
+    loadAccounts: state.loadAccounts,
+    loadConversations: state.loadConversations,
+    refreshActiveMessages: state.refreshActiveMessages,
+    selectConversation: state.selectConversation,
+    sendMessage: state.sendMessage,
+    deleteActiveConversation: state.deleteActiveConversation,
+    deleteMessages: state.deleteMessages,
+    setFromNumber: state.setFromNumber,
+    setConversationsFilter: state.setConversationsFilter,
+    setSidebarSearchQuery: state.setSidebarSearchQuery,
+    stateFilter: state.stateFilter,
+    assigneeFilter: state.assigneeFilter,
+    setStateFilter: state.setStateFilter,
+    setAssigneeFilter: state.setAssigneeFilter,
+    hasMoreConversations: state.hasMoreConversations,
+    isLoadingMoreConversations: state.isLoadingMoreConversations,
+    loadMoreConversations: state.loadMoreConversations,
+    hasOlderMessages: state.hasOlderMessages,
+    isLoadingOlderMessages: state.isLoadingOlderMessages,
+    loadOlderMessages: state.loadOlderMessages,
+    resyncActiveMessages: state.resyncActiveMessages,
+    threadError: state.threadError
+  })))
 
 
   // Email connections come from their own endpoint: the WhatsApp connection store is shaped
@@ -260,7 +322,13 @@ export const Chat: React.FC = () => {
   // Popover & Upload States
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showCannedReplies, setShowCannedReplies] = useState(false)
+  // Reply buttons to send under the next message (WhatsApp interactive, max three).
+  const [replyButtons, setReplyButtons] = useState<string[]>([])
+  const [showReplyButtons, setShowReplyButtons] = useState(false)
+  // Inbox filters and conversation states, as the server defines them.
+  const chatOptions = useReference(referenceService.getChatOptions, 'chat-options')
   const [cannedReplies, setCannedReplies] = useState<CannedReply[]>([])
+  const currentUser = useAuthStore(state => state.user)
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false)
   const [uploadingMedia, setUploadingMedia] = useState(false)
   const mediaFileInputRef = useRef<HTMLInputElement>(null)
@@ -378,45 +446,55 @@ export const Chat: React.FC = () => {
     }
   }, [senderOptions, fromNumber, setFromNumber])
 
-  // Two independent streams at different cadences, replacing a single 2-second timer that
-  // refreshed whichever was in front. The open conversation is small and cheap, so it stays
-  // near-live; the conversation list is the expensive one, so it ticks slowly.
-  //
-  // Both pause when the tab is hidden — a background tab polling every 2 seconds was a large
-  // share of the load for no one's benefit — and catch up immediately on return.
+  // Live inbox. The server pushes "something changed in conversation N"; the page then fetches
+  // only what is new. This replaces a 1-second poll of the open thread (which re-downloaded the
+  // whole history each time) and a 5-second poll of the whole inbox. While the real-time
+  // connection is down, a slow poll stands in, and a reconnect triggers one full re-sync because
+  // events sent while offline are not replayed.
   useEffect(() => {
-    // Email threads have no phoneNumber check — polling must work for both channels.
-    // The old guard blocked all email thread refresh: email connections never have a phoneNumber.
-    if (!activeConversationId) return
+    const unsubscribeInbox = realtimeService.subscribeInbox((event) => {
+      const activeId = useChatStore.getState().activeConversationId
+      if (event.type === 'messageReceived') {
+        if (event.conversationId === activeId) void refreshActiveMessages()
+        void loadConversations()
+      } else if (event.type === 'messageStatus' && event.conversationId === activeId) {
+        void resyncActiveMessages()
+      } else if (event.type === 'conversationUpdated') {
+        // Owner, status or SLA changed (routing, another agent, the SLA worker).
+        void loadConversations()
+      }
+    })
 
+    let fallback: number | null = null
     const tick = () => {
-      if (document.visibilityState === 'visible') refreshActiveMessages()
+      if (document.visibilityState !== 'visible') return
+      void refreshActiveMessages()
+      void loadConversations()
     }
 
-    const interval = window.setInterval(tick, ACTIVE_THREAD_POLL_MS)
+    const unsubscribeState = realtimeService.onStateChange((state, { reconnected }) => {
+      if (state === 'connected') {
+        if (fallback !== null) window.clearInterval(fallback)
+        fallback = null
+        if (reconnected) {
+          void resyncActiveMessages()
+          void loadConversations()
+        }
+      } else if (fallback === null) {
+        fallback = window.setInterval(tick, FALLBACK_POLL_MS)
+      }
+    })
+
+    // Catch up at once when the tab comes back into view.
     document.addEventListener('visibilitychange', tick)
 
     return () => {
-      window.clearInterval(interval)
+      if (fallback !== null) window.clearInterval(fallback)
       document.removeEventListener('visibilitychange', tick)
+      unsubscribeState()
+      unsubscribeInbox()
     }
-  }, [activeConversationId, refreshActiveMessages])
-
-  useEffect(() => {
-    // Inbox polling works for all channels — the phoneNumber guard was
-    // skipping email-connection inbox refreshes entirely.
-    const tick = () => {
-      if (document.visibilityState === 'visible') loadConversations()
-    }
-
-    const interval = window.setInterval(tick, INBOX_POLL_MS)
-    document.addEventListener('visibilitychange', tick)
-
-    return () => {
-      window.clearInterval(interval)
-      document.removeEventListener('visibilitychange', tick)
-    }
-  }, [loadConversations])
+  }, [loadConversations, refreshActiveMessages, resyncActiveMessages])
 
   // "Latest requested contact wins, exactly once" guard. Without this, since the
   // ?contactId= param was never cleared, ANY change to activeConversationId (including
@@ -532,8 +610,10 @@ export const Chat: React.FC = () => {
     })
   }, [conversations, conversationsFilter, sidebarSearchQuery])
 
-  const conversationPageCount = Math.max(
-    1, Math.ceil(filteredConversations.length / conversationPageSize))
+  // Pages over what is loaded; when the server has more, one extra page is offered and fetched
+  // on demand, so the inbox never downloads every conversation up front.
+  const loadedPageCount = Math.max(1, Math.ceil(filteredConversations.length / conversationPageSize))
+  const conversationPageCount = loadedPageCount + (hasMoreConversations ? 1 : 0)
   const currentConversationPage = Math.min(conversationPage, conversationPageCount)
 
   const pagedConversations = filteredConversations.slice(
@@ -588,6 +668,20 @@ export const Chat: React.FC = () => {
     return conversations.find(c => c.id === activeConversationId) || null
   }, [conversations, activeConversationId])
 
+  // Canned replies may contain {{first_name}}, {{name}}, {{phone}}, {{email}} and {{agent_name}},
+  // filled from the open conversation and the signed-in agent. Unknown fields are left visible.
+  const fillCannedVariables = (text: string) => {
+    const contactName = activeConversation?.name ?? ''
+    const values: Record<string, string> = {
+      name: contactName,
+      first_name: contactName.split(' ')[0] ?? '',
+      phone: activeConversation?.phone ?? '',
+      email: activeConversation?.email ?? '',
+      agent_name: [currentUser?.firstName, currentUser?.lastName].filter(Boolean).join(' '),
+    }
+    return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (whole, key: string) => values[key.toLowerCase()] || whole)
+  }
+
   const lastActiveMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]
@@ -600,7 +694,7 @@ export const Chat: React.FC = () => {
 
   const windowStatus = useMemo(() => {
     if (!lastActiveMessage) return { active: false, text: 'No messages exchange yet' }
-    
+
     const lastTime = new Date(lastActiveMessage.createdAt).getTime()
     const limit = lastTime + 24 * 60 * 60 * 1000
     const now = Date.now()
@@ -612,9 +706,9 @@ export const Chat: React.FC = () => {
 
     const hours = Math.floor(remainingMs / (60 * 60 * 1000))
     const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000))
-    return { 
-      active: true, 
-      text: `Reply within ${hours} hours and ${minutes} minutes remaining` 
+    return {
+      active: true,
+      text: `Reply within ${hours} hours and ${minutes} minutes remaining`
     }
   }, [lastActiveMessage])
 
@@ -698,12 +792,13 @@ export const Chat: React.FC = () => {
 
     if (!search.trim()) return cleanText
 
-    const parts = cleanText.split(new RegExp(`(${search})`, 'gi'))
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const parts = cleanText.split(new RegExp(`(${escaped})`, 'gi'))
     return (
       <>
-        {parts.map((part, i) => 
-          part.toLowerCase() === search.toLowerCase() 
-            ? <mark key={i} className="search-highlight">{part}</mark> 
+        {parts.map((part, i) =>
+          part.toLowerCase() === search.toLowerCase()
+            ? <mark key={i} className="search-highlight">{part}</mark>
             : part
         )}
       </>
@@ -712,7 +807,7 @@ export const Chat: React.FC = () => {
 
   const renderRichMessageContent = (text: string, searchQuery: string) => {
     if (!text) return '';
-    
+
     if (text.startsWith('[Location|') && text.endsWith(']')) {
       const parts = text.slice(10, -1).split('|');
       const locationData: Record<string, string> = {};
@@ -729,36 +824,20 @@ export const Chat: React.FC = () => {
       const addr = locationData['Addr'] || '';
       const lat = locationData['Lat'] || '';
       const lng = locationData['Lng'] || '';
-      const mapUrl = (lat && lng) 
+      const mapUrl = (lat && lng)
         ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
         : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + ' ' + addr)}`;
 
       return (
-        <div className="chat-rich-location-card" style={{ padding: '4px', minWidth: '200px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <span style={{ fontSize: '18px' }}>📍</span>
-            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: '#1f2937' }}>{name}</span>
-              {addr && <span style={{ fontSize: '11px', color: '#4b5563' }}>{addr}</span>}
+        <div className="chat-rich-card">
+          <div className="chat-rich-card-head">
+            <span className="chat-rich-card-icon" aria-hidden="true"><MapPin size={16} /></span>
+            <div className="chat-rich-card-title">
+              <span>{name}</span>
+              {addr && <small>{addr}</small>}
             </div>
           </div>
-          <a 
-            href={mapUrl} 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            style={{ 
-              display: 'block', 
-              textAlign: 'center', 
-              backgroundColor: '#10b981', 
-              color: 'white', 
-              fontSize: '11.5px', 
-              fontWeight: 600, 
-              padding: '6px 12px', 
-              borderRadius: '4px', 
-              textDecoration: 'none',
-              marginTop: '8px'
-            }}
-          >
+          <a className="chat-rich-card-action" href={mapUrl} target="_blank" rel="noopener noreferrer">
             View on Google Maps
           </a>
         </div>
@@ -783,18 +862,18 @@ export const Chat: React.FC = () => {
       const org = contactData['Org'] || '';
 
       return (
-        <div className="chat-rich-contact-card" style={{ padding: '4px', minWidth: '200px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', borderBottom: '1px solid #e5e7eb', paddingBottom: '6px', textAlign: 'left' }}>
-            <span style={{ fontSize: '20px' }}>👤</span>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: '#1f2937' }}>{name}</span>
-              {org && org.trim() !== '-' && <span style={{ fontSize: '11px', color: '#4b5563' }}>{org}</span>}
+        <div className="chat-rich-card">
+          <div className="chat-rich-card-head has-divider">
+            <span className="chat-rich-card-icon" aria-hidden="true"><UserRound size={16} /></span>
+            <div className="chat-rich-card-title">
+              <span>{name}</span>
+              {org && org.trim() !== '-' && <small>{org}</small>}
             </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: '#374151', textAlign: 'left' }}>
-            {phone && <div><strong>Phone:</strong> {phone}</div>}
-            {email && <div><strong>Email:</strong> {email}</div>}
-          </div>
+          <dl className="chat-rich-card-details">
+            {phone && <div><dt>Phone</dt><dd>{phone}</dd></div>}
+            {email && <div><dt>Email</dt><dd>{email}</dd></div>}
+          </dl>
         </div>
       );
     }
@@ -823,8 +902,11 @@ export const Chat: React.FC = () => {
       return
     }
 
+    const buttons = replyButtons.map(b => b.trim()).filter(Boolean)
     setMessageText('')
-    await sendMessage(text)
+    setReplyButtons([])
+    setShowReplyButtons(false)
+    await sendMessage(text, undefined, undefined, undefined, buttons)
   }
 
   // --- Message selection & deletion (WhatsApp-style) -------------------------------------
@@ -905,7 +987,27 @@ export const Chat: React.FC = () => {
     await sendCurrentMessage()
   }
 
+  // "/shortcut": typing a slash and part of a canned reply's title offers it; Enter or Tab uses it.
+  const slashQuery = /^\/(\S*)$/.exec(messageText)?.[1]?.toLowerCase()
+  const slashMatches = slashQuery === undefined
+    ? []
+    : cannedReplies.filter(r => r.title.toLowerCase().replace(/\s+/g, '').includes(slashQuery)).slice(0, 6)
+
+  const applySlashReply = (reply: CannedReply) => {
+    const text = fillCannedVariables(reply.description)
+    setMessageText(text)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(text.length, text.length)
+    })
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashMatches.length > 0 && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
+      e.preventDefault()
+      applySlashReply(slashMatches[0])
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       void sendCurrentMessage()
@@ -927,6 +1029,7 @@ export const Chat: React.FC = () => {
       if (e.key === 'Escape') {
         setShowEmojiPicker(false)
         setShowAttachmentMenu(false)
+        setShowReplyButtons(false)
         setShowDeleteMenu(false)
         setShowMsgSearch(false)
         setShowTimeBanner(false)
@@ -946,6 +1049,9 @@ export const Chat: React.FC = () => {
       if (showAttachmentMenu && !target.closest('.chat-composer-popover-anchor')) {
         setShowAttachmentMenu(false)
       }
+      if (showReplyButtons && !target.closest('.chat-composer-popover-anchor')) {
+        setShowReplyButtons(false)
+      }
       if (showDeleteMenu && !target.closest('.chat-header-more-menu-wrapper')) {
         setShowDeleteMenu(false)
       }
@@ -957,7 +1063,7 @@ export const Chat: React.FC = () => {
       document.removeEventListener('keydown', handleEscape)
       document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [showEmojiPicker, showAttachmentMenu, showDeleteMenu, showCannedReplies])
+  }, [showEmojiPicker, showAttachmentMenu, showDeleteMenu, showCannedReplies, showReplyButtons])
 
   // Loaded once. activeOnly=true so the composer only offers replies that are switched on —
   // the management list is where inactive ones remain visible.
@@ -969,7 +1075,8 @@ export const Chat: React.FC = () => {
    * Inserts a canned reply at the caret rather than replacing the box, so an agent can type a
    * greeting, drop in a saved paragraph, and keep going.
    */
-  const insertCannedReply = (text: string) => {
+  const insertCannedReply = (raw: string) => {
+    const text = fillCannedVariables(raw)
     const textarea = textareaRef.current
     const start = textarea?.selectionStart ?? messageText.length
     const end = textarea?.selectionEnd ?? messageText.length
@@ -987,18 +1094,18 @@ export const Chat: React.FC = () => {
   }
 
   const EmptyStateIllustration = () => (
-    <svg className="chat-empty-state-illustration" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="65" y="20" width="70" height="140" rx="12" fill="#E2E8F0" stroke="#94A3B8" strokeWidth="3" />
-      <line x1="90" y1="26" x2="110" y2="26" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" />
-      <circle cx="100" cy="150" r="5" fill="#94A3B8" />
-      <rect x="25" y="50" width="35" height="15" rx="6" fill="#D9FDD3" stroke="#A7F3D0" />
-      <rect x="30" y="55" width="20" height="2" rx="1" fill="#047857" opacity="0.3" />
-      <rect x="30" y="60" width="10" height="2" rx="1" fill="#047857" opacity="0.3" />
-      <line x1="57" y1="62" x2="65" y2="65" stroke="#A7F3D0" />
-      <rect x="140" y="80" width="35" height="15" rx="6" fill="#FFFFFF" stroke="#CBD5E1" />
-      <rect x="145" y="85" width="20" height="2" rx="1" fill="#475569" opacity="0.2" />
-      <rect x="145" y="90" width="15" height="2" rx="1" fill="#475569" opacity="0.2" />
-      <line x1="140" y1="92" x2="135" y2="95" stroke="#CBD5E1" />
+    <svg className="chat-empty-state-illustration" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect className="ces-phone" x="65" y="20" width="70" height="140" rx="12" strokeWidth="3" />
+      <line className="ces-phone-detail" x1="90" y1="26" x2="110" y2="26" strokeWidth="2" strokeLinecap="round" />
+      <circle className="ces-phone-button" cx="100" cy="150" r="5" />
+      <rect className="ces-bubble-out" x="25" y="50" width="35" height="15" rx="6" />
+      <rect className="ces-bubble-out-line" x="30" y="55" width="20" height="2" rx="1" />
+      <rect className="ces-bubble-out-line" x="30" y="60" width="10" height="2" rx="1" />
+      <line className="ces-bubble-out-tail" x1="57" y1="62" x2="65" y2="65" />
+      <rect className="ces-bubble-in" x="140" y="80" width="35" height="15" rx="6" />
+      <rect className="ces-bubble-in-line" x="145" y="85" width="20" height="2" rx="1" />
+      <rect className="ces-bubble-in-line" x="145" y="90" width="15" height="2" rx="1" />
+      <line className="ces-bubble-in-tail" x1="140" y1="92" x2="135" y2="95" />
     </svg>
   )
 
@@ -1018,7 +1125,7 @@ export const Chat: React.FC = () => {
         Unavailable channels are listed but disabled, which is deliberate: it answers "does this
         product do SMS?" without pretending that it does.
       */}
-      <div className="chat-page-header">
+      <div className="chat-page-header omni-page-hero">
         <div className="chat-page-heading">
           <h1>Omnichannel Inbox</h1>
           <p>Manage customer conversations across all your communication channels in one place.</p>
@@ -1035,7 +1142,8 @@ export const Chat: React.FC = () => {
         </div>
       </div>
 
-      <div className="chat-container-layout">
+      {/* On narrow screens one pane shows at a time: the list, or the open conversation. */}
+      <div className={`chat-container-layout${activeConversation ? ' has-active' : ''}`}>
       <div className="chat-sidebar">
         <div className="chat-sidebar-header">
 
@@ -1113,6 +1221,26 @@ export const Chat: React.FC = () => {
               { value: 'Unread Chats', label: 'Unread Chats' }
             ]}
             onChange={setConversationsFilter}
+          />
+
+          <SearchableSelect
+            label="Status"
+            placeholder="Active"
+            allValue="all"
+            hideAllOption
+            value={stateFilter}
+            options={(chatOptions.data?.stateFilters ?? []).map(o => ({ value: o.value, label: o.label }))}
+            onChange={setStateFilter}
+          />
+
+          <SearchableSelect
+            label="Owner"
+            placeholder="Anyone"
+            allValue=""
+            hideAllOption
+            value={assigneeFilter}
+            options={(chatOptions.data?.assigneeFilters ?? []).map(o => ({ value: o.value, label: o.label }))}
+            onChange={setAssigneeFilter}
           />
         </div>
 
@@ -1203,6 +1331,12 @@ export const Chat: React.FC = () => {
                       </div>
                       <ContactTypeBadge value={conversation.status} typeMap={typeMap} />
                     </div>
+                    {(conversation.assignedUserName || conversation.slaBreached || conversation.firstResponseDueAt) && (
+                      <div className="conversation-ops-row">
+                        <SlaChip conversation={conversation} />
+                        {conversation.assignedUserName && <span className="conversation-owner">{conversation.assignedUserName}</span>}
+                      </div>
+                    )}
                     <div className="conversation-msg-preview-row">
                       <span className="conversation-preview-text">{conversation.lastMessage || 'No messages yet'}</span>
                       <div className="contacts-controls-left">
@@ -1226,7 +1360,7 @@ export const Chat: React.FC = () => {
               {((currentConversationPage - 1) * conversationPageSize + 1).toLocaleString()}–
               {Math.min(currentConversationPage * conversationPageSize, filteredConversations.length).toLocaleString()}
               {' '}of{' '}
-              {filteredConversations.length.toLocaleString()}
+              {filteredConversations.length.toLocaleString()}{hasMoreConversations ? '+' : ''}
             </span>
 
             <div className="chat-sidebar-footer-nav">
@@ -1245,8 +1379,12 @@ export const Chat: React.FC = () => {
               <button
                 type="button"
                 className="chat-sidebar-footer-nav-btn"
-                onClick={() => setConversationPage(currentConversationPage + 1)}
-                disabled={currentConversationPage >= conversationPageCount}
+                onClick={() => {
+                  const next = currentConversationPage + 1
+                  if (next > loadedPageCount) void loadMoreConversations()
+                  setConversationPage(next)
+                }}
+                disabled={currentConversationPage >= conversationPageCount || isLoadingMoreConversations}
                 aria-label="Next page"
               >
                 <ChevronRight size={14} />
@@ -1276,13 +1414,17 @@ export const Chat: React.FC = () => {
               <div className="chat-disconnected-icon">
                 <AlertCircle size={48} />
               </div>
-              <h2 className="chat-disconnected-title">Your Account Is Disconnected!</h2>
+              <h2 className="chat-disconnected-title">This connection is disconnected</h2>
               <p className="chat-disconnected-desc">
-                Your account is no longer connected to our system. This may be due to an expired token, a disconnected webhook, invalid token, or changes in your Meta account settings.
+                {selectedConnectionChannel === 'email'
+                  ? 'This email connection is inactive or its credentials no longer work. Reconnect it to send and receive email.'
+                  : 'This WhatsApp account is no longer connected. This can be caused by an expired or invalid token, a disconnected webhook, or a change in the Meta account settings.'}
               </p>
               <button
                 className="chat-disconnected-connect-btn"
-                onClick={() => navigate(`/connect-waba?connectionId=${selectedConnectionId}`)}
+                onClick={() => navigate(selectedConnectionChannel === 'email'
+                  ? '/connections'
+                  : `/connect-waba?connectionId=${selectedConnectionId}`)}
               >
                 <Link2 size={16} />
                 Connect Account
@@ -1293,6 +1435,10 @@ export const Chat: React.FC = () => {
           <div className="chat-window-inner-layout">
             <div className="chat-window-header">
               <div className="chat-header-user-info">
+                <button type="button" className="chat-icon-btn chat-mobile-back" aria-label="Back to conversations"
+                  onClick={() => void selectConversation(null)}>
+                  <ChevronLeft size={18} aria-hidden="true" />
+                </button>
                 <Avatar name={activeConversation.name} size="medium" />
                 <div>
                   <div className="chat-header-name-row">
@@ -1335,11 +1481,7 @@ export const Chat: React.FC = () => {
                   />
                 )}
 
-                {activeConversation.assignedTo && (
-                  <div className="chat-header-assigned-user" title={`Assigned Member: ${activeConversation.assignedTo}`}>
-                    <User size={18} className="assigned-user-icon" />
-                  </div>
-                )}
+                <ConversationOwnerControls conversation={activeConversation} onChanged={() => void loadConversations()} />
 
                 <button
                   type="button"
@@ -1409,16 +1551,16 @@ export const Chat: React.FC = () => {
                         autoFocus
                       />
                       {msgSearchQuery && (
-                        <X 
-                          size={16} 
-                          className="chat-window-search-clear-icon" 
-                          onClick={() => setMsgSearchQuery('')} 
+                        <X
+                          size={16}
+                          className="chat-window-search-clear-icon"
+                          onClick={() => setMsgSearchQuery('')}
                         />
                       )}
                     </div>
-                    <button 
-                      type="button" 
-                      className="chat-window-search-close-btn" 
+                    <button
+                      type="button"
+                      className="chat-window-search-close-btn"
                       onClick={() => { setMsgSearchQuery(''); setShowMsgSearch(false); }}
                     >
                       <X size={18} />
@@ -1427,6 +1569,20 @@ export const Chat: React.FC = () => {
                 )}
 
                 <div className={`chat-messages-container${isEmailThread ? ' email-mode' : ''}`}>
+                  {threadError && (
+                    <div className="chat-thread-error" role="status">
+                      <AlertCircle size={14} />
+                      <span>{threadError} Showing the messages already loaded.</span>
+                      <button type="button" onClick={() => void resyncActiveMessages()}>Retry</button>
+                    </div>
+                  )}
+                  {hasOlderMessages && !isLoading && !msgSearchQuery.trim() && (
+                    <div className="chat-load-older">
+                      <button type="button" onClick={() => void loadOlderMessages()} disabled={isLoadingOlderMessages}>
+                        {isLoadingOlderMessages ? 'Loading…' : 'Load earlier messages'}
+                      </button>
+                    </div>
+                  )}
                   {isLoading ? (
                     <div className="chat-thread-loader">
                       <div className="chat-spinner" />
@@ -1662,6 +1818,18 @@ export const Chat: React.FC = () => {
                 ) : (
                   <form onSubmit={handleSend} className="chat-composer-container">
                     <div className="chat-composer-input-row">
+                      {slashMatches.length > 0 && (
+                        <ul className="chat-slash-menu" role="listbox" aria-label="Canned replies">
+                          {slashMatches.map((reply, i) => (
+                            <li key={reply.id} role="option" aria-selected={i === 0}>
+                              <button type="button" onMouseDown={e => { e.preventDefault(); applySlashReply(reply) }}>
+                                <strong>/{reply.title}</strong>
+                                <span>{reply.description}</span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                       <textarea
                         ref={textareaRef}
                         className="chat-composer-textarea"
@@ -1678,7 +1846,7 @@ export const Chat: React.FC = () => {
                       <input
                         ref={mediaFileInputRef}
                         type="file"
-                        style={{ display: 'none' }}
+                        hidden
                         onChange={handleMediaFileChange}
                         accept={getAcceptTypes(attachmentType)}
                       />
@@ -1728,6 +1896,22 @@ export const Chat: React.FC = () => {
                               </button>
                             </div>
                           )}
+                        </div>
+
+                        <div className="chat-composer-popover-anchor">
+                          <ReplyButtonsPopover
+                            open={showReplyButtons}
+                            onOpenChange={open => {
+                              setShowReplyButtons(open)
+                              if (open) {
+                                setShowCannedReplies(false)
+                                setShowEmojiPicker(false)
+                                setShowAttachmentMenu(false)
+                              }
+                            }}
+                            value={replyButtons}
+                            onChange={setReplyButtons}
+                          />
                         </div>
 
                         <div className="chat-composer-popover-anchor">
@@ -1841,8 +2025,8 @@ export const Chat: React.FC = () => {
                             <span className="info-detail-label">Creation Time</span>
                           </div>
                           <div className="info-detail-value text-purple block">
-                            {activeConversation.contactCreatedAt 
-                              ? new Date(activeConversation.contactCreatedAt).toLocaleString() 
+                            {activeConversation.contactCreatedAt
+                              ? new Date(activeConversation.contactCreatedAt).toLocaleString()
                               : '-'}
                           </div>
                         </div>
@@ -1852,8 +2036,8 @@ export const Chat: React.FC = () => {
                             <span className="info-detail-label">Last Activity</span>
                           </div>
                           <div className="info-detail-value text-purple block">
-                            {activeConversation.lastMessageAt 
-                              ? new Date(activeConversation.lastMessageAt).toLocaleString() 
+                            {activeConversation.lastMessageAt
+                              ? new Date(activeConversation.lastMessageAt).toLocaleString()
                               : activeConversation.lastMessageTime || '-'}
                           </div>
                         </div>
@@ -2047,8 +2231,8 @@ export const Chat: React.FC = () => {
  * The old 15 s inbox cadence meant a sent email could take 15 s to appear — tightened to 5 s
  * here so the inbox preview updates quickly without hammering the server.
  */
-const ACTIVE_THREAD_POLL_MS = 1000
-const INBOX_POLL_MS = 5000
+/** Only while the real-time connection is down; normally the server pushes changes. */
+const FALLBACK_POLL_MS = 20_000
 const ACCOUNT_RETRY_MS = 5000
 const ACCOUNT_RETRY_LIMIT = 6
 
@@ -2154,18 +2338,26 @@ const CHANNEL_ICON_MAP: Record<string, React.ReactNode> = {
       <path d="M12 0C5.373 0 0 5.373 0 12c0 2.128.557 4.122 1.528 5.855L0 24l6.345-1.498A11.956 11.956 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.92 0-3.722-.497-5.28-1.37l-.379-.215-3.766.888.934-3.65-.248-.396A9.935 9.935 0 012 12c0-5.514 4.486-10 10-10s10 4.486 10 10-4.486 10-10 10z" fill="#25D366"/>
     </svg>
   ),
-  email: <Mail size={15} color="#f97316" />,
-  sms: <MessageSquare size={15} color="#8b5cf6" />,
-  instagram: <span style={{ fontSize: 13 }}>📷</span>,
-  facebook: <span style={{ fontSize: 13 }}>👍</span>,
+  email: <Mail size={15} color="var(--channel-email)" />,
+  sms: <MessageSquare size={15} color="var(--channel-sms, #8b5cf6)" />,
+  instagram: <Camera size={15} color="var(--channel-instagram, #e1306c)" />,
+  facebook: <ThumbsUp size={15} color="var(--channel-facebook, #1877f2)" />,
 }
 
+/**
+ * The inbox's channel filter. The menu renders in a portal, positioned against the trigger in
+ * viewport coordinates: the page banner clips its contents (overflow: hidden, for its decorative
+ * circles), and a menu inside it was cut off at the banner's edge whatever its z-index. Arrow keys
+ * move between options, Enter or Space picks one, Escape closes and returns focus to the button.
+ */
 const ChannelPicker: React.FC<{
   value: string
   onChange: (value: string) => void
 }> = ({ value, onChange }) => {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const position = useAnchoredPosition(triggerRef, menuRef, open, { side: 'bottom', align: 'end', offset: 6 })
 
   const activeLabel = value === ALL_CHANNELS
     ? 'All Channels'
@@ -2178,39 +2370,76 @@ const ChannelPicker: React.FC<{
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
+  // Focus the selected option when the menu opens, so the keyboard starts where the value is.
+  useEffect(() => {
+    if (!open) return
+    const frame = requestAnimationFrame(() => {
+      const options = menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)')
+      const selected = menuRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')
+      ;(selected ?? options?.[0])?.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [open])
+
   const available = CHANNELS.filter(c => c.available)
   const planned = CHANNELS.filter(c => !c.available)
 
+  const close = (restoreFocus = true) => {
+    setOpen(false)
+    if (restoreFocus) triggerRef.current?.focus()
+  }
+
   const select = (v: string) => {
     onChange(v)
-    setOpen(false)
+    close()
+  }
+
+  const onMenuKeyDown = (e: React.KeyboardEvent) => {
+    const options = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [])
+    const index = options.indexOf(document.activeElement as HTMLButtonElement)
+    if (e.key === 'Escape') { e.preventDefault(); close() }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); options[(index + 1) % options.length]?.focus() }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); options[(index - 1 + options.length) % options.length]?.focus() }
+    else if (e.key === 'Home') { e.preventDefault(); options[0]?.focus() }
+    else if (e.key === 'End') { e.preventDefault(); options[options.length - 1]?.focus() }
+    else if (e.key === 'Tab') close(false)
   }
 
   return (
-    <div className="channel-picker" ref={ref}>
+    <div className="channel-picker">
       <button
+        ref={triggerRef}
         type="button"
         className={`channel-picker-trigger${open ? ' open' : ''}`}
         onClick={() => setOpen(o => !o)}
+        onKeyDown={e => { if (e.key === 'ArrowDown' && !open) { e.preventDefault(); setOpen(true) } }}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-label={`Channel: ${activeLabel}`}
       >
-        <span className="channel-picker-icon-wrap">
-          {activeIcon ?? <MessageCircle size={15} color="#64748b" />}
+        <span className="channel-picker-icon-wrap" aria-hidden="true">
+          {activeIcon ?? <MessageCircle size={15} />}
         </span>
         <span className="channel-picker-label">{activeLabel}</span>
-        <svg className="channel-picker-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg>
+        <ChevronDown size={14} className="channel-picker-caret" aria-hidden="true" />
       </button>
 
-      {open && (
-        <div className="channel-picker-menu" role="listbox">
-          {/* All Channels */}
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          className="channel-picker-menu is-floating"
+          role="listbox"
+          aria-label="Channel"
+          onKeyDown={onMenuKeyDown}
+          style={position ? { top: position.top, left: position.left, maxHeight: position.maxHeight, transformOrigin: position.transformOrigin } : { visibility: 'hidden' }}
+        >
           <button
             type="button"
             role="option"
@@ -2218,12 +2447,11 @@ const ChannelPicker: React.FC<{
             className={`channel-picker-item${value === ALL_CHANNELS ? ' selected' : ''}`}
             onClick={() => select(ALL_CHANNELS)}
           >
-            <span className="channel-picker-item-icon"><MessageCircle size={15} color="#64748b" /></span>
+            <span className="channel-picker-item-icon" aria-hidden="true"><MessageCircle size={15} /></span>
             <span className="channel-picker-item-label">All Channels</span>
-            {value === ALL_CHANNELS && <Check size={14} className="channel-picker-check" />}
+            {value === ALL_CHANNELS && <Check size={14} className="channel-picker-check" aria-hidden="true" />}
           </button>
 
-          {/* Available channels */}
           {available.map(ch => (
             <button
               key={ch.key}
@@ -2233,16 +2461,15 @@ const ChannelPicker: React.FC<{
               className={`channel-picker-item${value === ch.key ? ' selected' : ''}`}
               onClick={() => select(ch.key)}
             >
-              <span className="channel-picker-item-icon">{CHANNEL_ICON_MAP[ch.key]}</span>
+              <span className="channel-picker-item-icon" aria-hidden="true">{CHANNEL_ICON_MAP[ch.key]}</span>
               <span className="channel-picker-item-label">{ch.label}</span>
-              {value === ch.key && <Check size={14} className="channel-picker-check" />}
+              {value === ch.key && <Check size={14} className="channel-picker-check" aria-hidden="true" />}
             </button>
           ))}
 
-          {/* Coming Soon divider + planned channels */}
           {planned.length > 0 && (
             <>
-              <div className="channel-picker-divider">
+              <div className="channel-picker-divider" role="presentation">
                 <span>Coming Soon</span>
               </div>
               {planned.map(ch => (
@@ -2251,17 +2478,19 @@ const ChannelPicker: React.FC<{
                   type="button"
                   role="option"
                   aria-selected={false}
+                  aria-disabled="true"
                   className="channel-picker-item disabled"
                   disabled
                 >
-                  <span className="channel-picker-item-icon">{CHANNEL_ICON_MAP[ch.key]}</span>
+                  <span className="channel-picker-item-icon" aria-hidden="true">{CHANNEL_ICON_MAP[ch.key]}</span>
                   <span className="channel-picker-item-label">{ch.label}</span>
                   <span className="channel-picker-coming-soon">Soon</span>
                 </button>
               ))}
             </>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

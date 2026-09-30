@@ -20,11 +20,10 @@
         "run",
         "--project",
         "Backend",
-        "--no-launch-profile",
-        "--urls",
-        "http://localhost:5255"
+        "--launch-profile",
+        "http"
       ],
-      "port": 5255,
+      "port": 5155,
       "autoPort": false
     }
   ]

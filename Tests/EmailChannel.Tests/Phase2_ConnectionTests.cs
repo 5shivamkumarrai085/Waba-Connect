@@ -64,10 +64,7 @@ public static class Phase2_ConnectionTests
             run.Check("a first sender identity was created with it",
                 created.Senders.Count == 1, $"{created.Senders.Count}");
             run.Check("that sender is the default", created.Senders.FirstOrDefault()?.IsDefault == true);
-            run.Check("the sender starts unverified, so the send gate stays closed",
-                created.Senders.FirstOrDefault()?.VerificationStatus == "NotStarted",
-                created.Senders.FirstOrDefault()?.VerificationStatus);
-            run.Check("and therefore cannot send yet",
+            run.Check("the sender cannot send until an SMTP server is configured",
                 created.Senders.FirstOrDefault()?.CanSend == false);
 
             run.Check("a nickname was derived for the shared connection UI",
@@ -141,57 +138,38 @@ public static class Phase2_ConnectionTests
             run.Check("the stored secret survives an edit that omits it", afterBlank == storedCipher);
             run.Check("the non-secret field did change", portAfter == "2525", portAfter);
 
-            run.Section("Switching to an IAM role leaves no usable key behind");
+            run.Section("SMTP is the only transport, and it needs a server");
 
-            await connections.SaveProviderAsync(configId, new SaveEmailProviderRequest
-            {
-                Provider = "AmazonSes",
-                Region = "ap-southeast-1",
-                AuthMode = "AccessKey",
-                AccessKeyId = "AKIAIOSFODNN7EXAMPLE",
-                SecretAccessKey = "an-aws-secret-value",
-                IsActive = true
-            });
-
-            var sesCipher = await harness.ScalarAsync(
-                """SELECT "SecretAccessKeyEncrypted" FROM "EmailConfigurations" WHERE "Id" = @id""",
-                ("id", configId));
-            run.Check("the AWS secret is stored encrypted",
-                !string.IsNullOrEmpty(sesCipher) && sesCipher != "an-aws-secret-value");
-
-            await connections.SaveProviderAsync(configId, new SaveEmailProviderRequest
-            {
-                Provider = "AmazonSes", Region = "ap-southeast-1", AuthMode = "IamRole", IsActive = true
-            });
-
-            var afterRole = await harness.ScalarAsync(
-                """SELECT "SecretAccessKeyEncrypted" FROM "EmailConfigurations" WHERE "Id" = @id""",
-                ("id", configId));
-            var keyIdAfterRole = await harness.ScalarAsync(
-                """SELECT "AccessKeyId" FROM "EmailConfigurations" WHERE "Id" = @id""", ("id", configId));
-
-            // A credential nobody believes is in use, still decryptable in the database, is worse
-            // than no credential at all.
-            run.Check("the secret is cleared when switching to an IAM role", afterRole is null, afterRole);
-            run.Check("the access key id is cleared too", keyIdAfterRole is null, keyIdAfterRole);
-
-            var incompleteRejected = false;
+            var noHostRejected = false;
             try
             {
                 await connections.SaveProviderAsync(configId, new SaveEmailProviderRequest
                 {
-                    Provider = "AmazonSes", Region = "ap-southeast-1",
-                    AuthMode = "AccessKey", AccessKeyId = "AKIA", IsActive = true
+                    Provider = "Smtp", SmtpHost = "  ", SmtpPort = 587, IsActive = true
                 });
             }
-            catch (ArgumentException) { incompleteRejected = true; }
-            run.Check("access-key mode without a secret is rejected", incompleteRejected);
+            catch (ArgumentException) { noHostRejected = true; }
+            run.Check("saving without an SMTP host is rejected", noHostRejected);
+
+            var unknownRejected = false;
+            try
+            {
+                await connections.SaveProviderAsync(configId, new SaveEmailProviderRequest
+                {
+                    Provider = "AmazonSes", SmtpHost = "smtp.example.test", SmtpPort = 587, IsActive = true
+                });
+            }
+            catch (ArgumentException) { unknownRejected = true; }
+            run.Check("the removed Amazon SES provider is refused", unknownRejected);
+
+            var readable = (await connections.GetByIdAsync(configId)).CredentialsReadable;
+            run.Check("a stored password this server can read is reported as readable", readable);
 
             run.Section("The rate-limiter bucket follows the configured rate");
 
             await connections.SaveProviderAsync(configId, new SaveEmailProviderRequest
             {
-                Provider = "AmazonSes", Region = "ap-southeast-1", AuthMode = "IamRole",
+                Provider = "Smtp", SmtpHost = "smtp.example.test", SmtpPort = 2525,
                 MaxSendRatePerSecond = 14, IsActive = true
             });
 
@@ -205,7 +183,7 @@ public static class Phase2_ConnectionTests
 
             await connections.SaveProviderAsync(configId, new SaveEmailProviderRequest
             {
-                Provider = "AmazonSes", Region = "ap-southeast-1", AuthMode = "IamRole",
+                Provider = "Smtp", SmtpHost = "smtp.example.test", SmtpPort = 2525,
                 MaxSendRatePerSecond = 3, IsActive = true
             });
 

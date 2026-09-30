@@ -17,8 +17,11 @@ public class ChatController : ControllerBase
     private readonly IChatService _chatService;
     private readonly IEmailReplyService _emailReply;
 
-    public ChatController(IChatService chatService, IEmailReplyService emailReply)
+    private readonly WhatsAppCampaignApi.Services.Chat.IConversationOperations _conversationOps;
+
+    public ChatController(IChatService chatService, IEmailReplyService emailReply, WhatsAppCampaignApi.Services.Chat.IConversationOperations conversationOps)
     {
+        _conversationOps = conversationOps;
         _chatService = chatService;
         _emailReply = emailReply;
     }
@@ -39,10 +42,25 @@ public class ChatController : ControllerBase
         [FromQuery] int? connectionId = null,
         // Absent means every channel, so a caller written before the email channel existed still
         // gets exactly what it got before.
-        [FromQuery] string? channel = null)
+        [FromQuery] string? channel = null,
+        [FromQuery] string? cursor = null,
+        [FromQuery] int limit = ChatPaging.DefaultConversationPageSize,
+        // Status tab (active, open, pending, resolved, closed) and owner (me, unassigned, user id).
+        [FromQuery] string? state = null,
+        [FromQuery] string? assignee = null)
     {
-        var data = await _chatService.GetConversationsAsync(search, filter, connectionId, channel);
-        return Ok(new ApiResponse<List<ChatConversationResponse>> { Success = true, Data = data });
+        var page = await _chatService.GetConversationsAsync(search, filter, connectionId, channel, cursor, limit, state, assignee);
+
+        // The body keeps its original shape (a list) so existing clients are unaffected; paging
+        // metadata travels in headers, which CORS exposes.
+        WritePageHeaders(page.NextCursor, page.HasMore);
+        return Ok(new ApiResponse<List<ChatConversationResponse>> { Success = true, Data = page.Items });
+    }
+
+    private void WritePageHeaders(string? nextCursor, bool hasMore)
+    {
+        Response.Headers["X-Has-More"] = hasMore ? "true" : "false";
+        if (nextCursor is not null) Response.Headers["X-Next-Cursor"] = nextCursor;
     }
 
     /// <summary>
@@ -75,6 +93,10 @@ public class ChatController : ControllerBase
             })
             .ToList();
 
+        // The same visibility rule as every other per-conversation action (agent restriction and
+        // connection scope): throws 404 when this caller may not see the conversation.
+        await _chatService.GetConversationAsync(id);
+
         var result = await _emailReply.SendAsync(id, new EmailReplyRequest(
             Subject: request.Subject ?? string.Empty,
             BodyHtml: request.BodyHtml ?? string.Empty,
@@ -83,6 +105,8 @@ public class ChatController : ControllerBase
             Bcc: request.Bcc,
             InReplyToMessageId: request.InReplyToMessageId,
             Attachments: attachments.Count > 0 ? attachments : null), ct);
+
+        if (result.Success) await _conversationOps.OnAgentReplyAsync(id, ct);
 
         // A refused send is a 200 with Success=false, matching how the rest of this controller
         // reports an outcome the caller asked for and did not get. The composer needs the reason
@@ -95,6 +119,38 @@ public class ChatController : ControllerBase
         });
     }
 
+    /// <summary>Agents who can take conversations on a connection, with their open workload.</summary>
+    [HttpGet("assignable-agents")]
+    [RequiresPermission("Chat.View")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<WhatsAppCampaignApi.Services.Chat.AssignableAgent>>>> AssignableAgents(
+        [FromQuery] int? connectionId, CancellationToken ct)
+    {
+        var data = await _conversationOps.GetAssignableAgentsAsync(connectionId, ct);
+        return Ok(new ApiResponse<IReadOnlyList<WhatsAppCampaignApi.Services.Chat.AssignableAgent>> { Success = true, Data = data });
+    }
+
+    /// <summary>Assigns (or with null, unassigns) a conversation.</summary>
+    [HttpPost("conversations/{id}/assign")]
+    [RequiresPermission("Chat.Assign")]
+    public async Task<ActionResult<ApiResponse<ChatConversationResponse>>> Assign(int id, [FromBody] AssignConversationRequest request, CancellationToken ct)
+    {
+        await _chatService.GetConversationAsync(id); // visibility: 404 when out of scope
+        await _conversationOps.AssignAsync(id, request.UserId, ct);
+        return Ok(new ApiResponse<ChatConversationResponse> { Success = true, Data = await _chatService.GetConversationAsync(id) });
+    }
+
+    /// <summary>Open, Pending, Resolved or Closed.</summary>
+    [HttpPost("conversations/{id}/status")]
+    [RequiresPermission("Chat.Send")]
+    public async Task<ActionResult<ApiResponse<ChatConversationResponse>>> SetStatus(int id, [FromBody] ConversationStatusRequest request, CancellationToken ct)
+    {
+        if (!Enum.TryParse<WhatsAppCampaignApi.Models.Enums.ConversationStatus>(request.Status, true, out var status))
+            throw new ArgumentException("Status must be Open, Pending, Resolved or Closed.");
+        await _chatService.GetConversationAsync(id);
+        await _conversationOps.SetStatusAsync(id, status, ct);
+        return Ok(new ApiResponse<ChatConversationResponse> { Success = true, Data = await _chatService.GetConversationAsync(id) });
+    }
+
     [HttpGet("conversations/{id}")]
     [RequiresPermission("Chat.View")]
     public async Task<ActionResult<ApiResponse<ChatConversationResponse>>> GetConversation(int id)
@@ -105,10 +161,15 @@ public class ChatController : ControllerBase
 
     [HttpGet("conversations/{id}/messages")]
     [RequiresPermission("Chat.View")]
-    public async Task<ActionResult<ApiResponse<List<ChatMessageResponse>>>> GetMessages(int id)
+    public async Task<ActionResult<ApiResponse<List<ChatMessageResponse>>>> GetMessages(
+        int id,
+        [FromQuery] int? beforeId = null,
+        [FromQuery] int? afterId = null,
+        [FromQuery] int limit = ChatPaging.DefaultMessagePageSize)
     {
-        var data = await _chatService.GetMessagesAsync(id);
-        return Ok(new ApiResponse<List<ChatMessageResponse>> { Success = true, Data = data });
+        var page = await _chatService.GetMessagesAsync(id, beforeId, afterId, limit);
+        WritePageHeaders(page.NextCursor, page.HasMore);
+        return Ok(new ApiResponse<List<ChatMessageResponse>> { Success = true, Data = page.Items });
     }
 
     [HttpPost("conversations/{id}/messages")]

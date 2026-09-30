@@ -2,6 +2,7 @@ using FluentValidation;
 using System.Text.Json;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Services.Interfaces;
+using WhatsAppCampaignApi.Services.Security;
 
 namespace WhatsAppCampaignApi.Middleware;
 
@@ -24,6 +25,15 @@ public class ExceptionHandlingMiddleware
         {
             await _next(context);
         }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // The client went away (closed the tab, navigated, timed out). Not a server fault:
+            // no error log, no audit row, and nobody is listening for a response body.
+            if (!context.Response.HasStarted)
+            {
+                context.Response.StatusCode = 499;
+            }
+        }
         catch (Exception ex)
         {
             // Logged inside HandleExceptionAsync, once the exception has been classified.
@@ -39,12 +49,26 @@ public class ExceptionHandlingMiddleware
     /// a caller no, not the server failing, so they are recorded as warnings without a stack
     /// trace.
     /// </summary>
-    private static bool IsExpectedClientError(Exception exception) => exception
-        is ValidationException
-        or KeyNotFoundException
-        or ArgumentException
-        or UnauthorizedAccessException
-        or InvalidOperationException;
+    private static bool IsExpectedClientError(Exception exception) => exception switch
+    {
+        ValidationException or UnauthorizedAccessException or ForbiddenException => true,
+        KeyNotFoundException or ArgumentException or InvalidOperationException => ThrownByThisApplication(exception),
+        _ => IsUniqueViolation(exception)
+    };
+
+    /// <summary>
+    /// Whether the exception came from this application's own code. Services throw
+    /// InvalidOperationException, ArgumentException and KeyNotFoundException deliberately, with a
+    /// message written for the operator; the framework and EF throw the same types with internal
+    /// detail (entity names, SQL state, parameter names) that must not reach a client. Only the
+    /// first kind is mapped to a 4xx with its message; the second is a 500.
+    /// </summary>
+    private static bool ThrownByThisApplication(Exception exception) =>
+        exception.TargetSite?.DeclaringType?.Assembly == typeof(ExceptionHandlingMiddleware).Assembly;
+
+    /// <summary>A unique-index violation: two requests created the same thing at once.</summary>
+    private static bool IsUniqueViolation(Exception exception) =>
+        exception is Microsoft.EntityFrameworkCore.DbUpdateException { InnerException: Npgsql.PostgresException { SqlState: "23505" } };
 
     /// <summary>
     /// Records a server fault as a Failed audit entry.
@@ -121,6 +145,15 @@ public class ExceptionHandlingMiddleware
 
     private async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
+        // Once the response has begun (a streamed export, say) its status and headers are gone;
+        // writing an error body would only corrupt it. Log, and let the connection end.
+        if (context.Response.HasStarted)
+        {
+            _logger.LogError(exception, "Unhandled exception after the response started on {Method} {Path}.",
+                context.Request.Method, context.Request.Path);
+            return;
+        }
+
         if (IsExpectedClientError(exception))
         {
             _logger.LogWarning(
@@ -144,7 +177,11 @@ public class ExceptionHandlingMiddleware
         }
 
         context.Response.ContentType = "application/json";
+
+        // The trace id ties what the user reports to the log entry, without exposing internals.
+        context.Response.Headers["X-Trace-Id"] = context.TraceIdentifier;
         var response = new ApiResponse { Success = false };
+        var fromThisApp = ThrownByThisApplication(exception);
 
         switch (exception)
         {
@@ -153,30 +190,41 @@ public class ExceptionHandlingMiddleware
                 response.Message = "Validation failed";
                 response.Errors = validationEx.Errors.Select(e => e.ErrorMessage).ToList();
                 break;
-                
-            case KeyNotFoundException:
+
+            case KeyNotFoundException when fromThisApp:
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
                 response.Message = exception.Message;
                 break;
-                
-            case ArgumentException:
+
+            case ArgumentException when fromThisApp:
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
                 response.Message = exception.Message;
                 break;
-                
+
+            case Microsoft.EntityFrameworkCore.DbUpdateException when IsUniqueViolation(exception):
+                context.Response.StatusCode = StatusCodes.Status409Conflict;
+                response.Message = "This record already exists or was just changed by someone else. Refresh and try again.";
+                break;
+
+            case ForbiddenException:
+                // 403, not 401: the session is fine, the action is outside the caller's scope.
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                response.Message = exception.Message;
+                break;
+
             case UnauthorizedAccessException:
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 response.Message = "Unauthorized";
                 break;
-                
-            case InvalidOperationException:
+
+            case InvalidOperationException when fromThisApp:
                 context.Response.StatusCode = StatusCodes.Status409Conflict;
                 response.Message = exception.Message;
                 break;
-                
+
             default:
                 context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-                response.Message = "An internal server error occurred.";
+                response.Message = $"An internal server error occurred. Reference: {context.TraceIdentifier}.";
                 if (_env.IsDevelopment())
                 {
                     response.Errors = [exception.Message, exception.StackTrace ?? ""];

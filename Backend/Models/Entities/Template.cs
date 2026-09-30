@@ -38,5 +38,11 @@ public class Template
     public DateTime UpdatedAt { get; set; }
 
     public ICollection<TemplateVariable> Variables { get; set; } = [];
+
+    /// <summary>Meta's components array as last synced (headers, body, buttons, carousel cards).</summary>
+    public string? ComponentsJson { get; set; }
+
+    /// <summary>The template's buttons (see TemplateButton): quick reply, URL, phone, copy code.</summary>
+    public string? ButtonsJson { get; set; }
     public ICollection<Campaign> Campaigns { get; set; } = [];
 }

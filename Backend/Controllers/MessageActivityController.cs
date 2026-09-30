@@ -56,6 +56,11 @@ public class MessageActivityController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
+        // Off the query string, so clamped: page 0 made a negative OFFSET (a 500), and an
+        // unbounded size let one request pull the whole log table.
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, Models.DTOs.Common.PagedRequest.MaxPageSize);
+
         var query = _dbContext.MessageActivityLogs.AsNoTracking().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(category) && category != "All")

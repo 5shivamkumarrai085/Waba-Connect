@@ -191,7 +191,7 @@ export const ConnectionsList: React.FC = () => {
       nickname: conn.nickname,
       description: conn.description,
       account: conn.defaultFromEmail ?? '-',
-      identifier: conn.provider === 'AmazonSes' ? 'Amazon SES' : 'SMTP',
+      identifier: conn.smtpHost ? `SMTP · ${conn.smtpHost}` : 'SMTP',
       status: conn.status,
       connectedOn: conn.configuredAt,
       isConnected: conn.status === 'Connected',
@@ -782,7 +782,7 @@ export const ConnectionsList: React.FC = () => {
                     {/* Connected On */}
                     <td>
                       <div className="conn-date-primary">
-                        {conn.connectedOn ? new Date(conn.connectedOn).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
+                        {conn.connectedOn ? new Date(conn.connectedOn).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
                       </div>
                       <div className="conn-date-time">
                         {conn.connectedOn ? new Date(conn.connectedOn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
@@ -895,17 +895,19 @@ export const ConnectionsList: React.FC = () => {
                     <td>
                       <div className="conn-phone-number">{row.identifier}</div>
                       <div className="conn-phone-id">
-                        {row.email?.region ? `Region: ${row.email.region}` : 'Email account'}
+                        {row.email?.effectiveImapHost
+                          ? `Replies: ${row.email.effectiveImapHost}${row.email.imapLastError ? ' (not receiving)' : ''}`
+                          : 'Replies not set up'}
                       </div>
                     </td>
 
                     <td>
                       <div className="conn-phone-number">{row.account}</div>
                       <div className="conn-phone-id">
-                        {/* Sender count, because one connection can hold several verified
-                            addresses and the campaign wizard offers all of them. */}
+                        {/* Sender count, because one connection can hold several addresses and
+                            the campaign wizard offers every one that can send. */}
                         {row.email
-                          ? `${row.email.senders.filter((sender) => sender.canSend).length} of ${row.email.senders.length} sender(s) verified`
+                          ? `${row.email.senders.filter((sender) => sender.canSend).length} of ${row.email.senders.length} sender(s) ready`
                           : ''}
                       </div>
                     </td>
@@ -914,21 +916,26 @@ export const ConnectionsList: React.FC = () => {
                       <span className={`conn-status-badge ${statusClass(row.status)}`}>
                         {row.status}
                       </span>
+                      {row.email && row.email.credentialsReadable === false && (
+                        <div className="conn-status-hint" title="Sends and reply checks are held until it is re-entered.">
+                          The saved password can't be read — open the connection and enter it again
+                        </div>
+                      )}
                       {row.email && row.status === 'Connected'
                         && !row.email.senders.some((sender) => sender.canSend) && (
                         <div className="conn-status-hint">
-                          No verified sender — cannot send campaigns
+                          No active sender address — cannot send campaigns
                         </div>
                       )}
-                      {row.email?.lastTestSucceeded === false && (
-                        <div className="conn-status-hint">{row.email.lastTestMessage}</div>
+                      {row.email?.lastTestSucceeded === false && row.email.credentialsReadable !== false && (
+                        <div className="conn-status-hint" title={row.email.lastTestMessage ?? undefined}>{row.email.lastTestMessage}</div>
                       )}
                     </td>
 
                     <td>
                       <div className="conn-date-primary">
                         {row.connectedOn
-                          ? new Date(row.connectedOn).toLocaleDateString('en-GB', {
+                          ? new Date(row.connectedOn).toLocaleDateString(undefined, {
                               day: '2-digit', month: 'short', year: 'numeric'
                             })
                           : '-'}

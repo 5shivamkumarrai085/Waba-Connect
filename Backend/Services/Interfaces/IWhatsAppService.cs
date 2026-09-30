@@ -33,6 +33,9 @@ public interface IWhatsAppService
     /// </summary>
     Task<WhatsAppSendResult> SendTextMessageAsync(string recipientPhone, string text, string? fromPhoneNumberId = null, int? connectionId = null);
 
+    /// <summary>Submits a template to Meta for review, on the given connection's WhatsApp Business Account.</summary>
+    Task<(bool Success, string? TemplateId, string? Status, string? Error)> SubmitTemplateAsync(int connectionId, object submission);
+
     /// <summary>
     /// Sends an outbound media message (image, video, document) to a recipient via WhatsApp Cloud API.
     /// </summary>
@@ -91,6 +94,8 @@ public class WhatsAppTemplateInfo
     public string? FooterText { get; set; }
     public string? RejectReason { get; set; }
     public string? TemplateType { get; set; }
+    public string? ComponentsJson { get; set; }
+    public string? ButtonsJson { get; set; }
 }
 
 public class WhatsAppSendResult

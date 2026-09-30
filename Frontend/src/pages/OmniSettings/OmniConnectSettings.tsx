@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import * as Icons from 'lucide-react'
+import { Settings } from 'lucide-react'
+import { iconByName } from '../../utils/iconRegistry'
 import { Check, ChevronDown, Info, X } from 'lucide-react'
 import { Menu, MenuItem, type MenuTriggerProps } from '../../components/Menu/Menu'
 import { Skeleton } from '../../components/Skeleton'
@@ -26,10 +27,7 @@ import './OmniConnectSettings.css'
  * neutral glyph rather than rendering nothing — an icon is decoration, and a missing one must not
  * cost the row it sits in.
  */
-const iconFor = (name: string): React.ComponentType<{ size?: number | string }> => {
-  const set = Icons as unknown as Record<string, React.ComponentType<{ size?: number | string }>>
-  return set[name] ?? Icons.Settings
-}
+const iconFor = (name: string): React.ComponentType<{ size?: number | string }> => iconByName(name, Settings)
 
 /** The editable state of one section, keyed by field. */
 const initialValuesFor = (section: OmniSettingsSection): OmniSettingsValues => {

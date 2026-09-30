@@ -14,7 +14,11 @@ public class CreateContactRequest
     public string? City { get; set; }
     public string? State { get; set; }
     public string? Country { get; set; }
+    /// <summary>IANA time zone, e.g. "Asia/Kolkata". Used for quiet hours and local-time sends.</summary>
+    public string? TimeZone { get; set; }
     public string? ZipCode { get; set; }
+    /// <summary>ISO date (yyyy-MM-dd).</summary>
+    public DateOnly? DateOfBirth { get; set; }
     public string? Address { get; set; }
     public string? Description { get; set; }
     public List<int>? GroupIds { get; set; }
@@ -37,7 +41,17 @@ public class ContactResponse
     public string? City { get; set; }
     public string? State { get; set; }
     public string? Country { get; set; }
+    /// <summary>IANA time zone, e.g. "Asia/Kolkata". Used for quiet hours and local-time sends.</summary>
+    public string? TimeZone { get; set; }
     public string? ZipCode { get; set; }
+    public DateOnly? DateOfBirth { get; set; }
+    /// <summary>Whole years today, from <see cref="DateOfBirth"/>.</summary>
+    public int? Age { get; set; }
+    /// <summary>The Click-to-WhatsApp ad that first brought this contact in, if any.</summary>
+    public string? AdSourceId { get; set; }
+    public string? AdSourceUrl { get; set; }
+    public string? AdHeadline { get; set; }
+    public DateTime? AdAttributedAt { get; set; }
     public string? Address { get; set; }
     public string? Description { get; set; }
     public string? Tags { get; set; }
@@ -45,15 +59,6 @@ public class ContactResponse
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public List<ContactGroupBriefResponse> Groups { get; set; } = [];
-}
-
-public class ContactBriefResponse
-{
-    public int Id { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public string Phone { get; set; } = string.Empty;
-    public string Type { get; set; } = string.Empty;
-    public bool IsActive { get; set; }
 }
 
 public class ContactGroupBriefResponse

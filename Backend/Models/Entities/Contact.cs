@@ -63,7 +63,27 @@ public class Contact
     
     [MaxLength(100)]
     public string? Country { get; set; }
+
+    /// <summary>IANA time zone (e.g. "Asia/Kolkata"). Used for quiet hours and local-time sends; the
+    /// account's default time zone applies when unset.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(64)]
+    public string? TimeZone { get; set; }
+
+    // ── Click-to-WhatsApp ad attribution (first touch) ─────────────────────────────────────
+    [System.ComponentModel.DataAnnotations.MaxLength(100)]
+    public string? AdSourceId { get; set; }
+    [System.ComponentModel.DataAnnotations.MaxLength(500)]
+    public string? AdSourceUrl { get; set; }
+    [System.ComponentModel.DataAnnotations.MaxLength(300)]
+    public string? AdHeadline { get; set; }
+    /// <summary>Meta's click id (ctwa_clid), for matching conversions back to the ad.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(200)]
+    public string? AdClickId { get; set; }
+    public DateTime? AdAttributedAt { get; set; }
     
+    /// <summary>Date of birth. The age is always computed from it, never stored, so it never goes stale.</summary>
+    public DateOnly? DateOfBirth { get; set; }
+
     [MaxLength(20)]
     public string? ZipCode { get; set; }
     

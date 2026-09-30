@@ -159,12 +159,6 @@
   overflow-y: auto;
 }
 
-.dark-theme .whatsapp-preview-pattern {
-  background-color: #0b141a;
-  background-image: radial-gradient(#1c2c35 1px, transparent 0), radial-gradient(#1c2c35 1px, #0b141a 1px);
-  border-color: #22303c;
-}
-
 .whatsapp-bubble-wrapper {
   display: flex;
   justify-content: flex-start;
@@ -178,12 +172,6 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   max-width: 85%;
   position: relative;
-}
-
-.dark-theme .whatsapp-bubble {
-  background-color: #1f2c34;
-  color: #e9edef;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .whatsapp-bubble-body {
@@ -200,10 +188,6 @@
   display: flex;
   justify-content: flex-end;
   font-weight: 500;
-}
-
-.dark-theme .whatsapp-bubble-time {
-  color: #8696a0;
 }
 
 /* Connection Picker — radio rows.

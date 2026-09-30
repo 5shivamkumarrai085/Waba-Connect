@@ -1,3 +1,4 @@
+import { fetchAllPages } from '../pagination'
 import { apiClient } from '../apiClient'
 import type {
   PermissionCatalog,
@@ -29,12 +30,7 @@ export const setupService = {
   // ── Users ────────────────────────────────────────────────────────────
 
   getUsers: async (params?: { search?: string; isActive?: boolean; roleId?: number }): Promise<SetupUserListItem[]> => {
-    const response = await apiClient.request({
-      method: 'GET',
-      url: '/setup/users',
-      params: { pageSize: 10000, ...params }
-    })
-    return response.data?.data?.items ?? []
+    return fetchAllPages<SetupUserListItem>('/setup/users', { ...params })
   },
 
   getUserDashboard: async (): Promise<UserDashboard | null> => {

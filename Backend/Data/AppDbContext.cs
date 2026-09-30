@@ -9,6 +9,7 @@ public class AppDbContext : DbContext
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<Contact> Contacts { get; set; } = null!;
+    public DbSet<ConnectionDailySendCounter> ConnectionDailySendCounters { get; set; } = null!;
     public DbSet<ContactGroup> ContactGroups { get; set; } = null!;
     public DbSet<ContactGroupMember> ContactGroupMembers { get; set; } = null!;
     public DbSet<Template> Templates { get; set; } = null!;
@@ -24,6 +25,16 @@ public class AppDbContext : DbContext
     public DbSet<Connection> Connections { get; set; } = null!;
     public DbSet<DepartmentConnection> DepartmentConnections { get; set; } = null!;
     public DbSet<UserConnection> UserConnections { get; set; } = null!;
+    public DbSet<CampaignRetryRun> CampaignRetryRuns { get; set; } = null!;
+    public DbSet<CampaignVariant> CampaignVariants { get; set; } = null!;
+    public DbSet<FollowUpRule> FollowUpRules { get; set; } = null!;
+    public DbSet<WebhookSubscription> WebhookSubscriptions { get; set; } = null!;
+    public DbSet<WebhookDelivery> WebhookDeliveries { get; set; } = null!;
+    public DbSet<ReportSchedule> ReportSchedules { get; set; } = null!;
+    public DbSet<ContactConsent> ContactConsents { get; set; } = null!;
+    public DbSet<Segment> Segments { get; set; } = null!;
+    public DbSet<CampaignSegment> CampaignSegments { get; set; } = null!;
+    public DbSet<ConsentEvent> ConsentEvents { get; set; } = null!;
 
     // WABA Configuration
     public DbSet<WabaConfiguration> WabaConfigurations { get; set; } = null!;
@@ -46,6 +57,7 @@ public class AppDbContext : DbContext
 
     // Authentication & RBAC
     public DbSet<AppUser> AppUsers { get; set; } = null!;
+    public DbSet<RefreshToken> RefreshTokens { get; set; } = null!;
     public DbSet<Role> Roles { get; set; } = null!;
     public DbSet<Permission> Permissions { get; set; } = null!;
     public DbSet<RolePermission> RolePermissions { get; set; } = null!;
@@ -74,11 +86,9 @@ public class AppDbContext : DbContext
 
     // Email channel
     public DbSet<EmailConfiguration> EmailConfigurations { get; set; } = null!;
-    public DbSet<EmailSendingDomain> EmailSendingDomains { get; set; } = null!;
     public DbSet<EmailSenderIdentity> EmailSenderIdentities { get; set; } = null!;
     public DbSet<EmailCampaignDetail> EmailCampaignDetails { get; set; } = null!;
     public DbSet<EmailMessageDetail> EmailMessageDetails { get; set; } = null!;
-    public DbSet<EmailDeliveryEvent> EmailDeliveryEvents { get; set; } = null!;
     public DbSet<EmailSuppression> EmailSuppressions { get; set; } = null!;
     public DbSet<EmailSendQuota> EmailSendQuotas { get; set; } = null!;
 
@@ -317,18 +327,112 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Nickname).IsRequired(false);
         });
 
-        // DepartmentConnection configuration (future permissions)
+        // Connection access by role (the "department" assignments). Read by IAccessScope.
         modelBuilder.Entity<DepartmentConnection>(entity =>
         {
             entity.HasIndex(e => new { e.DepartmentId, e.ConnectionId }).IsUnique();
+            entity.HasIndex(e => new { e.RoleId, e.ConnectionId }).IsUnique();
             entity.HasOne(e => e.Connection).WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Role).WithMany().HasForeignKey(e => e.RoleId).OnDelete(DeleteBehavior.Cascade);
         });
 
-        // UserConnection configuration (future permissions)
+        modelBuilder.Entity<Segment>(entity =>
+        {
+            entity.HasIndex(e => e.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<CampaignSegment>(entity =>
+        {
+            entity.HasKey(e => new { e.CampaignId, e.SegmentId });
+            entity.HasOne(e => e.Campaign).WithMany(c => c.Segments).HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Segment).WithMany().HasForeignKey(e => e.SegmentId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.SegmentId);
+            // Matches Campaign's soft-delete filter, so a deleted campaign hides its children too.
+            entity.HasQueryFilter(e => !e.Campaign.IsDeleted);
+        });
+
+        modelBuilder.Entity<ContactConsent>(entity =>
+        {
+            entity.Property(e => e.Channel).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(e => new { e.ContactId, e.Channel, e.Topic }).IsUnique();
+            entity.HasOne(e => e.Contact).WithMany().HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Cascade);
+            // Matches Contact's soft-delete filter. The append-only ConsentEvents history is unaffected.
+            entity.HasQueryFilter(e => !e.Contact.IsDeleted);
+        });
+
+        modelBuilder.Entity<ConsentEvent>(entity =>
+        {
+            entity.Property(e => e.Channel).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(e => new { e.ContactId, e.OccurredAt });
+        });
+
+        modelBuilder.Entity<ChatConversation>(entity =>
+        {
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(20).HasDefaultValue(ConversationStatus.Open).HasSentinel((ConversationStatus)(-1));
+            entity.HasOne(e => e.AssignedUser).WithMany().HasForeignKey(e => e.AssignedUserId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(e => new { e.ConnectionId, e.Status, e.AssignedUserId });
+            entity.HasIndex(e => new { e.Status, e.FirstResponseDueAt });
+        });
+
+        modelBuilder.Entity<FollowUpRule>(entity =>
+        {
+            entity.Property(e => e.Channel).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(e => new { e.Status, e.DueAt });
+            entity.HasIndex(e => e.CampaignId);
+            entity.HasOne(e => e.Campaign).WithMany().HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            // Matches Campaign's soft-delete filter, so a deleted campaign hides its children too.
+            entity.HasQueryFilter(e => !e.Campaign.IsDeleted);
+        });
+
+        modelBuilder.Entity<WebhookSubscription>(entity =>
+        {
+            // The signing secret is encrypted at rest, like every other stored credential.
+            entity.Property(e => e.Secret).HasConversion(
+                v => WhatsAppCampaignApi.Services.SecretCipher.EncryptForStorage(v),
+                v => WhatsAppCampaignApi.Services.SecretCipher.DecryptOrPassThrough(v));
+        });
+
+        modelBuilder.Entity<WebhookDelivery>(entity =>
+        {
+            entity.HasOne(e => e.Subscription).WithMany().HasForeignKey(e => e.SubscriptionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.SubscriptionId, e.Id });
+            entity.HasIndex(e => e.CreatedAt);
+        });
+
+        modelBuilder.Entity<ReportSchedule>(entity =>
+        {
+            entity.HasOne(e => e.ReportDefinition).WithMany().HasForeignKey(e => e.ReportDefinitionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.IsActive, e.NextRunAt });
+            entity.HasIndex(e => e.OwnerUserId);
+        });
+
+        modelBuilder.Entity<CampaignVariant>(entity =>
+        {
+            entity.HasIndex(e => new { e.CampaignId, e.Label }).IsUnique();
+            entity.HasOne(e => e.Campaign).WithMany(c => c.Variants).HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Template).WithMany().HasForeignKey(e => e.TemplateId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.EmailTemplate).WithMany().HasForeignKey(e => e.EmailTemplateId).OnDelete(DeleteBehavior.Restrict);
+            // Matches Campaign's soft-delete filter, so a deleted campaign hides its children too.
+            entity.HasQueryFilter(e => !e.Campaign.IsDeleted);
+        });
+
+        modelBuilder.Entity<CampaignRetryRun>(entity =>
+        {
+            entity.HasIndex(e => e.CampaignId);
+            entity.HasOne(e => e.Campaign).WithMany().HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            // Matches Campaign's soft-delete filter, so a deleted campaign hides its children too.
+            entity.HasQueryFilter(e => !e.Campaign.IsDeleted);
+        });
+
+        // Connection access per user. Read by IAccessScope.
         modelBuilder.Entity<UserConnection>(entity =>
         {
             entity.HasIndex(e => new { e.UserId, e.ConnectionId }).IsUnique();
+            entity.HasIndex(e => new { e.AppUserId, e.ConnectionId }).IsUnique();
             entity.HasOne(e => e.Connection).WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.AppUser).WithMany().HasForeignKey(e => e.AppUserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // WabaConfiguration Connection FK
@@ -341,13 +445,52 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<WabaPhoneNumber>(entity =>
         {
             entity.HasOne(e => e.Connection).WithMany(c => c.WabaPhoneNumbers).HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
+
+            // Resolved on every inbound webhook message.
+            entity.HasIndex(e => e.PhoneNumberId);
+        });
+
+        // WABA credentials are encrypted at rest, transparently: every existing reader keeps
+        // reading a plain string. Rows written before this still hold plaintext, which the
+        // converter passes through until the startup re-encryption (or the next save) upgrades it.
+        modelBuilder.Entity<WabaConfiguration>(entity =>
+        {
+            entity.Property(e => e.AccessToken).HasConversion(
+                v => WhatsAppCampaignApi.Services.SecretCipher.EncryptForStorage(v),
+                v => WhatsAppCampaignApi.Services.SecretCipher.DecryptOrPassThrough(v));
+            entity.Property(e => e.FacebookAppSecret).HasConversion(
+                v => WhatsAppCampaignApi.Services.SecretCipher.EncryptForStorage(v),
+                v => WhatsAppCampaignApi.Services.SecretCipher.DecryptOrPassThrough(v));
+        });
+
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.ToTable("RefreshTokens");
+            entity.HasIndex(e => e.TokenHash).IsUnique();
+            entity.HasIndex(e => new { e.UserId, e.RevokedAt });
+            entity.HasIndex(e => e.FamilyId);
+            entity.HasIndex(e => e.ExpiresAt);
+            entity.HasOne(e => e.User).WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ConnectionDailySendCounter>(entity =>
+        {
+            entity.ToTable("ConnectionDailySendCounters");
+            entity.HasKey(e => new { e.ConnectionId, e.Day });
         });
 
         // Contact configurations
         modelBuilder.Entity<Contact>(entity =>
         {
-            entity.HasIndex(e => e.Phone).IsUnique();
+            // Unique only among contacts that have a phone. Email-only contacts (created from an
+            // inbound reply, or imported with an address and no number) store an empty string, and
+            // an unfiltered index let only the first of them exist.
+            entity.HasIndex(e => e.Phone).IsUnique().HasFilter("\"Phone\" <> ''");
             entity.HasIndex(e => e.CreatedAt);
+            // Age segments compare the date of birth, never a stored age.
+            entity.HasIndex(e => e.DateOfBirth);
+            // The campaign wizard's audience: counts and pages of active contacts by type.
+            entity.HasIndex(e => new { e.Type, e.IsActive });
             entity.HasQueryFilter(e => !e.IsDeleted);
             // No HasConversion: Contact.Type is a plain string now, matching Status and Source.
             entity.Property(e => e.Type).HasMaxLength(50);
@@ -382,12 +525,17 @@ public class AppDbContext : DbContext
         {
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.CreatedAt);
+
+            // The scheduler's "due now" scan.
+            entity.HasIndex(e => new { e.Status, e.ScheduledAt });
             entity.HasQueryFilter(e => !e.IsDeleted);
-            // RelationType is now a plain string (comma-joined ContactType names), not an
-            // enum, so no HasConversion<string>() is needed here anymore — the column
-            // stays VARCHAR(50), unchanged.
-            entity.Property(e => e.RelationType).HasMaxLength(50);
+            // RelationType is a comma-joined list of contact type values. Types are an
+            // administrator-managed lookup now, so a campaign can name several custom types;
+            // 50 characters held barely three.
+            entity.Property(e => e.RelationType).HasMaxLength(500);
             entity.Property(e => e.ScheduleType).HasConversion<string>().HasMaxLength(50);
+            // A wall-clock time ("09:30 on 3 October" in each recipient's zone), not an instant.
+            entity.Property(e => e.LocalSendAt).HasColumnType("timestamp without time zone");
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasMany(e => e.Variables).WithOne(v => v.Campaign).HasForeignKey(v => v.CampaignId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Connection).WithMany(c => c.Campaigns).HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
@@ -445,14 +593,24 @@ public class AppDbContext : DbContext
         // CampaignContact
         modelBuilder.Entity<CampaignContact>(entity =>
         {
-            entity.HasIndex(e => e.WhatsAppMessageId);
+            // Unique: Meta's message id identifies exactly one send. Status webhooks resolve through
+            // it, and uniqueness is what makes a duplicate write fail loudly instead of splitting
+            // one message's statuses across two rows.
+            entity.HasIndex(e => e.WhatsAppMessageId).IsUnique().HasFilter("\"WhatsAppMessageId\" IS NOT NULL");
 
-            // The channel-neutral equivalent, and what the SES event webhook resolves a delivery
-            // or bounce notification back to a recipient with.
+            // The channel-neutral equivalent, and what a bounce report (DSN) read over IMAP is
+            // resolved back to a recipient with.
             entity.HasIndex(e => e.ProviderMessageId);
 
             entity.HasIndex(e => new { e.CampaignId, e.ContactId }).IsUnique();
             entity.HasIndex(e => new { e.SentAt, e.Status });
+
+            // Frequency cap: "how many messages did these contacts get in the last N days".
+            entity.HasIndex(e => new { e.ContactId, e.SentAt });
+
+            // "Is anything in this campaign still pending?", keyset paging of a campaign's
+            // recipients by status, and the per-status counts — all per campaign, all hot.
+            entity.HasIndex(e => new { e.CampaignId, e.Status, e.Id });
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasOne(e => e.Campaign).WithMany(c => c.CampaignContacts).HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Contact).WithMany(c => c.CampaignContacts).HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Restrict);
@@ -484,8 +642,16 @@ public class AppDbContext : DbContext
         // Chat messages
         modelBuilder.Entity<ChatMessage>(entity =>
         {
-            entity.HasIndex(e => e.WhatsAppMessageId);
+            // Unique: the webhook's "already stored?" check is only race-free with this behind it —
+            // Meta can deliver the same inbound message to two requests at once.
+            entity.HasIndex(e => e.WhatsAppMessageId).IsUnique().HasFilter("\"WhatsAppMessageId\" IS NOT NULL");
             entity.HasIndex(e => new { e.ConversationId, e.CreatedAt });
+
+            // Keyset paging of one thread (newest page, older pages, "since id").
+            entity.HasIndex(e => new { e.ConversationId, e.Id });
+
+            // The daily-limit seed and per-connection reporting.
+            entity.HasIndex(e => new { e.ConnectionId, e.Direction, e.CreatedAt });
             entity.HasIndex(e => e.CampaignContactId);
 
             // Reporting reads this table across every conversation at once, which the composite
@@ -502,8 +668,8 @@ public class AppDbContext : DbContext
             // middle so it is an equality seek before the range scan on CreatedAt.
             entity.HasIndex(e => new { e.ConversationId, e.Direction, e.CreatedAt });
 
-            // The email channel's equivalent of WhatsAppMessageId, and the key the SES event
-            // webhook correlates on.
+            // The email channel's equivalent of WhatsAppMessageId, and the key inbound replies and
+            // bounce reports correlate on.
             entity.HasIndex(e => e.ProviderMessageId);
 
             entity.Property(e => e.Channel).HasConversion<string>().HasMaxLength(50).HasDefaultValue(MessageChannel.WhatsApp);
@@ -520,7 +686,6 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<EmailConfiguration>(entity =>
         {
             entity.Property(e => e.Provider).HasConversion<string>().HasMaxLength(50);
-            entity.Property(e => e.AuthMode).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.SmtpSecurity).HasConversion<string>().HasMaxLength(50);
 
             // One email configuration per connection. A connection is either a WhatsApp sender or
@@ -533,32 +698,14 @@ public class AppDbContext : DbContext
             entity.HasOne(e => e.Connection).WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.SetNull);
         });
 
-        modelBuilder.Entity<EmailSendingDomain>(entity =>
-        {
-            entity.Property(e => e.VerificationStatus).HasConversion<string>().HasMaxLength(50);
-            entity.Property(e => e.DkimStatus).HasConversion<string>().HasMaxLength(50);
-            entity.Property(e => e.MailFromStatus).HasConversion<string>().HasMaxLength(50);
-            entity.Property(e => e.DkimTokensJson).HasColumnType("jsonb");
-
-            entity.HasIndex(e => new { e.EmailConfigurationId, e.DomainName }).IsUnique();
-            entity.HasOne(e => e.EmailConfiguration).WithMany(c => c.SendingDomains)
-                  .HasForeignKey(e => e.EmailConfigurationId).OnDelete(DeleteBehavior.Cascade);
-        });
-
         modelBuilder.Entity<EmailSenderIdentity>(entity =>
         {
-            entity.Property(e => e.VerificationStatus).HasConversion<string>().HasMaxLength(50);
-
             // The same address may legitimately be configured on two different connections, so
             // uniqueness is scoped to the configuration rather than global.
             entity.HasIndex(e => new { e.EmailConfigurationId, e.EmailAddress }).IsUnique();
 
             entity.HasOne(e => e.EmailConfiguration).WithMany(c => c.SenderIdentities)
                   .HasForeignKey(e => e.EmailConfigurationId).OnDelete(DeleteBehavior.Cascade);
-
-            // Restrict: a domain still backing a usable sender must not disappear underneath it.
-            entity.HasOne(e => e.SendingDomain).WithMany(d => d.SenderIdentities)
-                  .HasForeignKey(e => e.SendingDomainId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<EmailCampaignDetail>(entity =>
@@ -590,28 +737,6 @@ public class AppDbContext : DbContext
 
             // Matches the filter on ChatMessage's principal chain.
             entity.HasQueryFilter(e => !e.ChatMessage.Conversation.Contact.IsDeleted);
-        });
-
-        modelBuilder.Entity<EmailDeliveryEvent>(entity =>
-        {
-            entity.Property(e => e.EventType).HasConversion<string>().HasMaxLength(50);
-            entity.Property(e => e.BounceType).HasConversion<string>().HasMaxLength(50);
-            entity.Property(e => e.PayloadJson).HasColumnType("jsonb");
-
-            // What makes the SNS handler idempotent: SNS redelivers freely, and a replayed
-            // notification must not be counted twice.
-            entity.HasIndex(e => e.SnsMessageId).IsUnique();
-
-            entity.HasIndex(e => e.ProviderMessageId);
-            entity.HasIndex(e => new { e.CampaignContactId, e.EventType });
-            entity.HasIndex(e => e.OccurredAt);
-
-            // SetNull, not Cascade: the event log is the audit trail for what a provider told us,
-            // and it stays true even once the recipient row is gone.
-            entity.HasOne(e => e.CampaignContact).WithMany()
-                  .HasForeignKey(e => e.CampaignContactId).OnDelete(DeleteBehavior.SetNull);
-            entity.HasOne(e => e.ChatMessage).WithMany()
-                  .HasForeignKey(e => e.ChatMessageId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<EmailSuppression>(entity =>
@@ -810,11 +935,9 @@ public class AppDbContext : DbContext
         });
     }
 
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        base.OnConfiguring(optionsBuilder);
-        optionsBuilder.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
-    }
+    // PendingModelChangesWarning is deliberately NOT suppressed any more. Suppressing it is how a
+    // hand-written migration shipped without its snapshot update and nobody noticed: a model that
+    // disagrees with the migrations must fail loudly at `dotnet ef` time.
 
     /// <summary>
     /// Receives field-level changes observed during a save, for the audit trail.

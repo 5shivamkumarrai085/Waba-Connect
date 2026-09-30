@@ -8,6 +8,11 @@ public class DepartmentConnection
     [Key]
     public int Id { get; set; }
 
+    /// <summary>The role ("department") whose members get this connection.</summary>
+    public int RoleId { get; set; }
+    public virtual Role Role { get; set; } = null!;
+
+    /// <summary>The role id as text, kept for API compatibility (same value as <see cref="RoleId"/>).</summary>
     [Required]
     public string DepartmentId { get; set; } = string.Empty;
 

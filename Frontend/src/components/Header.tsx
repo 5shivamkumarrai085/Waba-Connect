@@ -69,10 +69,10 @@ export const Header: React.FC = () => {
     { label: 'Message Bot', icon: MessageSquare, path: '/message-bot/bot' },
     { label: 'Template Bot', icon: Tag, path: '/template-bot/bot' },
     { label: 'Bot Flow', icon: GitBranch, path: '/bot-flow' },
-    { label: 'User', icon: Users, path: '/admin/permissions/user' },
-    { label: 'Role', icon: ShieldCheck, path: '/admin/permissions/department' },
-    { label: 'Status', icon: Sliders, path: '/contacts' },
-    { label: 'Source', icon: Layers, path: '/contacts' },
+    { label: 'User', icon: Users, path: '/setup/users/new' },
+    { label: 'Role', icon: ShieldCheck, path: '/setup/roles/new' },
+    { label: 'Status', icon: Sliders, path: '/setup/status' },
+    { label: 'Source', icon: Layers, path: '/setup/source' },
   ]
 
   const handleNavigate = (path: string) => {

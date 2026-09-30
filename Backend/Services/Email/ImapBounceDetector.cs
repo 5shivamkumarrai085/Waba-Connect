@@ -16,8 +16,7 @@ namespace WhatsAppCampaignApi.Services.Email;
 ///
 /// <para>
 /// SMTP only tells us the next hop accepted the message. A DSN/bounce in the mailbox is the only
-/// way to learn that delivery ultimately failed. This is fundamentally different from SES, which
-/// pushes that information via SNS webhooks.
+/// way to learn that delivery ultimately failed, so the connection's mailbox is polled for them.
 /// </para>
 /// </summary>
 public static class ImapBounceDetector
@@ -81,16 +80,21 @@ public static class ImapBounceDetector
             if (!string.IsNullOrEmpty(finalRecipient)) break;
         }
 
-        // Message-ID of the original sent message (from the per-message block at index 0)
-        var msgBlock = dsnPart.StatusGroups.FirstOrDefault();
-        if (msgBlock is not null)
+        // Message-ID of the original sent message, most reliable source first:
+        // 1. The returned copy of the original message (RFC 3462 third part) — either the full
+        //    message (message/rfc822) or its headers only (text/rfc822-headers). Almost every MTA
+        //    includes one, and it is our own Message-ID verbatim.
+        // 2. Original-Message-ID in the per-message block, which some MTAs add.
+        // 3. In-Reply-To on the report itself, which a few MTAs set.
+        // Reporting-MTA is deliberately not used: it names the reporting server, not a message.
+        originalMsgId = ExtractReturnedMessageId(report) ?? string.Empty;
+
+        if (string.IsNullOrEmpty(originalMsgId))
         {
-            var orig = msgBlock["Original-Message-ID"] ?? msgBlock["Reporting-MTA"];
-            originalMsgId = orig?.Trim() ?? string.Empty;
+            var msgBlock = dsnPart.StatusGroups.FirstOrDefault();
+            originalMsgId = msgBlock?["Original-Message-ID"]?.Trim() ?? string.Empty;
         }
 
-        // Also check the RFC 2822 In-Reply-To header on the outer message, which many MTAs
-        // set to the original Message-ID header value
         if (string.IsNullOrEmpty(originalMsgId) && mime.InReplyTo is not null)
             originalMsgId = mime.InReplyTo;
 
@@ -106,6 +110,33 @@ public static class ImapBounceDetector
             OriginalMessageId: NormaliseMsgId(originalMsgId),
             ReceivedAt:      mime.Date != default ? mime.Date.UtcDateTime : DateTime.UtcNow
         );
+    }
+
+    /// <summary>Reads the Message-ID from the copy of the original message returned in the report.</summary>
+    private static string? ExtractReturnedMessageId(MultipartReport report)
+    {
+        foreach (var part in report)
+        {
+            if (part is MessagePart { Message: { } returned } && !string.IsNullOrWhiteSpace(returned.MessageId))
+                return returned.MessageId;
+
+            if (part is TextPart text && text.ContentType.IsMimeType("text", "rfc822-headers"))
+            {
+                try
+                {
+                    using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text.Text ?? string.Empty));
+                    var headers = HeaderList.Load(stream);
+                    var id = headers[HeaderId.MessageId];
+                    if (!string.IsNullOrWhiteSpace(id)) return id.Trim();
+                }
+                catch (FormatException)
+                {
+                    // Malformed headers block — fall through to the other sources.
+                }
+            }
+        }
+
+        return null;
     }
 
     private static EmailBounceType ClassifyBounce(string statusCode, string action)

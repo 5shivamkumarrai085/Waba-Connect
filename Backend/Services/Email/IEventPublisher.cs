@@ -50,6 +50,9 @@ public sealed record CampaignEmailEventNotification(
     int UnsubscribedDelta = 0,
     int ComplainedDelta = 0,
 
+    /// <summary>WhatsApp "read" receipts — the WhatsApp counterpart of an email open.</summary>
+    int ReadDelta = 0,
+
     /// <summary>New campaign status, if it changed as a result of this event.</summary>
     string? NewCampaignStatus = null
 );

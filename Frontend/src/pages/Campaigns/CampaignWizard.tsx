@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useCampaignStore } from '../../store/campaignStore'
 import { useConnectionStore } from '../../store/connectionStore'
 import { campaignService } from '../../services/campaigns/campaignService'
@@ -15,12 +15,18 @@ import { ChoicePills } from '../../components/ChoicePills/ChoicePills'
 import { EmailPreview } from '../../components/EmailPreview/EmailPreview'
 import { emailConnectionService } from '../../services/email/emailConnectionService'
 import { emailTemplateService } from '../../services/email/emailTemplateService'
+import { referenceService } from '../../services/referenceService'
+import { segmentService, type Segment } from '../../services/segments/segmentService'
+import { PreflightPanel } from './PreflightPanel'
+import { AudienceContactPicker } from './AudienceContactPicker'
+import { AbTestEditor } from './AbTestEditor'
+import { emptyAbTest } from './abTestForm'
+import { FollowUpEditor } from './FollowUpEditor'
 import { AVAILABLE_CHANNELS, PLANNED_CHANNELS } from '../../types/channel'
 import type { MessageChannel } from '../../types/channel'
 import type { EmailConnection, EmailTemplate, EmailTemplatePreview } from '../../types/email'
-import type { Contact, ContactStatus, ContactSource } from '../../types/contacts'
+import type { ContactStatus, ContactSource } from '../../types/contacts'
 import type { Template } from '../../types/templates'
-import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { 
   Play, 
   Clock,
@@ -29,7 +35,8 @@ import {
   Trash2,
   Loader2,
   Plus,
-  Image as ImageIcon
+  Image as ImageIcon,
+  ShieldCheck,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import './CampaignWizard.css'
@@ -75,16 +82,18 @@ export const CampaignWizard: React.FC = () => {
 
   // Form selections options
   const [templatesList, setTemplatesList] = useState<Template[]>([])
-  const [contactsList, setContactsList] = useState<Contact[]>([])
+  // Contact types from the managed list (Setup › Contact types), and how many contacts
+  // "send to every contact of these types" would include (reported by the audience picker).
+  const [contactTypes, setContactTypes] = useState<{ id: string; name: string }[]>([])
+  const [selectAllCount, setSelectAllCount] = useState(0)
   const [statuses, setStatuses] = useState<ContactStatus[]>([])
   const [sources, setSources] = useState<ContactSource[]>([])
 
   // Local search in Step 2 Contact checklist
-  const [contactSearch, setContactSearch] = useState('')
 
   // Variable inputs in Step 3
-  const [var1, setVar1] = useState('')
-  const [var2, setVar2] = useState('')
+  // Values for the WhatsApp template's numbered placeholders ({{1}}, {{2}}, …), keyed by number.
+  const [waVariables, setWaVariables] = useState<Record<string, string>>({})
 
   // File Upload states in Step 3
   const [uploading, setUploading] = useState(false)
@@ -100,8 +109,24 @@ export const CampaignWizard: React.FC = () => {
   // Email-channel options. Loaded only once the email channel is actually selected — a WhatsApp
   // campaign should not pay for two requests it will never use.
   const [emailConnections, setEmailConnections] = useState<EmailConnection[]>([])
+  const [consentTopics, setConsentTopics] = useState<string[]>([])
+  const [preflightFailed, setPreflightFailed] = useState(false)
+  const [segmentOptions, setSegmentOptions] = useState<Segment[]>([])
+  const [groupOptions, setGroupOptions] = useState<{ id: number; name: string }[]>([])
+
+  // Segments and groups for the audience step. Either list failing leaves that picker empty.
+  useEffect(() => {
+    segmentService.list({ pageSize: 200 }).then(r => setSegmentOptions(r.items)).catch(() => setSegmentOptions([]))
+    contactService.getContactGroups()
+      .then((g: any[]) => setGroupOptions((g ?? []).map(x => ({ id: Number(x.id), name: x.name }))))
+      .catch(() => setGroupOptions([]))
+  }, [])
+
+  // The topics configured under Settings › Compliance, for the consent-topic picker.
+  useEffect(() => {
+    referenceService.getConsentTopics().then(setConsentTopics).catch(() => setConsentTopics([]))
+  }, [])
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
-  const [isRecheckingSender, setIsRecheckingSender] = useState(false)
   const [isLoadingEmailOptions, setIsLoadingEmailOptions] = useState(false)
 
   // The preview is rendered server-side, by the same renderer the send path uses. A client-side
@@ -130,23 +155,22 @@ export const CampaignWizard: React.FC = () => {
     const fetchWizardOptions = async () => {
       // Clear previous state immediately to prevent stale data
       resetWizard()
-      setVar1('')
-      setVar2('')
+      setWaVariables({})
       setFileUrl('')
       setFileName('')
       setActiveStep(0)
 
       try {
         fetchConnectionDashboard()
-        const [cts, stats, srcs] = await Promise.all([
-          contactService.getContacts(),
+        const [types, stats, srcs] = await Promise.all([
+          contactService.getContactTypes(),
           contactService.getContactStatuses(),
           contactService.getContactSources(),
           wabaService.getDashboard()
         ])
 
         if (!isMounted) return
-        setContactsList(cts.filter((c: any) => c.active !== false))
+        setContactTypes(types.map(t => ({ id: String(t.id), name: t.name })))
         setStatuses(stats)
         setSources(srcs)
 
@@ -176,13 +200,13 @@ export const CampaignWizard: React.FC = () => {
           const template = editTemplates.find((t: Template) => t.name === details.campaign.templateName)
 
           const vars = (details as any).variables || []
-          const v1 = vars.find((v: any) => v.variableName === '1')?.variableValue || ''
-          const v2 = vars.find((v: any) => v.variableName === '2')?.variableValue || ''
           const fUrl = vars.find((v: any) => v.variableName === 'file')?.variableValue || ''
           const fName = fUrl ? fUrl.substring(fUrl.lastIndexOf('/') + 1).split('_').slice(1).join('_') : ''
 
-          setVar1(v1)
-          setVar2(v2)
+          // Every numbered placeholder the campaign saved, not just the first two.
+          setWaVariables(Object.fromEntries(
+            vars.filter((v: any) => /^\d+$/.test(v.variableName)).map((v: any) => [v.variableName, v.variableValue ?? ''])
+          ))
           setFileUrl(fUrl)
           setFileName(fName)
 
@@ -196,7 +220,12 @@ export const CampaignWizard: React.FC = () => {
             selectedContactIds: details.recipients.map(recipient => recipient.contactId),
             selectAllContacts: false,
             sendImmediately: !details.campaign.scheduledAt,
-            scheduledTime: details.campaign.scheduledAt ? toDateTimeLocalValue(details.campaign.scheduledAt) : '',
+            scheduledTime: details.campaign.localSendAt
+              ? details.campaign.localSendAt.slice(0, 16)
+              : details.campaign.scheduledAt ? toDateTimeLocalValue(details.campaign.scheduledAt) : '',
+            recipientLocalTime: Boolean(details.campaign.localSendAt),
+            topic: details.campaign.topic ?? '',
+            isTransactional: details.campaign.isTransactional ?? false,
             variables: vars
           })
           setActiveStep(0)
@@ -233,25 +262,36 @@ export const CampaignWizard: React.FC = () => {
     return () => clearTimeout(timer)
   }, [wizardForm.name, campaignId])
 
-  // Loads the email channel's options the first time it is selected.
+  // Email connections load up front: the channel card's "configured" badge is derived from
+  // them, and loading them only after Email was picked made that card always read "No verified
+  // sender yet".
+  useEffect(() => {
+    let isMounted = true
+    emailConnectionService.getConnections()
+      .then(connections => {
+        if (isMounted) setEmailConnections(connections)
+      })
+      .catch(() => { /* the card simply shows as not configured */ })
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  // Templates load the first time the email channel is selected.
   useEffect(() => {
     if (!isEmailChannel) return
-    if (emailConnections.length > 0 || emailTemplates.length > 0) return
+    if (emailTemplates.length > 0) return
 
     let isMounted = true
     setIsLoadingEmailOptions(true)
 
-    Promise.all([
-      emailConnectionService.getConnections(),
-      // enabledOnly, because offering a disabled template would produce a campaign that is
-      // refused at dispatch — after the operator has already finished the wizard.
-      emailTemplateService.getTemplates(true)
-    ])
-      .then(([connections, templates]) => {
-        if (!isMounted) return
-        setEmailConnections(connections)
-        setEmailTemplates(templates)
+    // enabledOnly, because offering a disabled template would produce a campaign that is
+    // refused at dispatch — after the operator has already finished the wizard.
+    emailTemplateService.getTemplates(true)
+      .then(templates => {
+        if (isMounted) setEmailTemplates(templates)
       })
+      .catch(() => { /* the template picker shows its empty state */ })
       .finally(() => {
         if (isMounted) setIsLoadingEmailOptions(false)
       })
@@ -260,39 +300,6 @@ export const CampaignWizard: React.FC = () => {
       isMounted = false
     }
   }, [isEmailChannel])
-
-  /**
-   * Asks the server to re-read the selected sender's verification state from SES.
-   *
-   * Verifying an address in the AWS console and then coming back here is the ordinary order of
-   * events, and without this the operator's only options were to wait out the server's staleness
-   * window or re-add the sender.
-   */
-  const handleRecheckSender = async () => {
-    if (!selectedEmailSender) return
-
-    const connectionId = selectedEmailSender.connection.id
-    const senderId = selectedEmailSender.sender.id
-
-    setIsRecheckingSender(true)
-    try {
-      const { senders, message } = await emailConnectionService.refreshSender(connectionId, senderId)
-
-      // An empty list means the call failed, not that the connection lost its senders — replacing
-      // good state with it would empty the dropdown the operator is looking at.
-      if (senders.length > 0) {
-        setEmailConnections(prev =>
-          prev.map(c => (c.id === connectionId ? { ...c, senders } : c))
-        )
-      }
-
-      const refreshed = senders.find(s => s.id === senderId)
-      if (refreshed?.canSend) toast.success(`${refreshed.emailAddress} is verified.`)
-      else toast.error(message)
-    } finally {
-      setIsRecheckingSender(false)
-    }
-  }
 
   // Every sender across every usable email connection, flattened for the Sender Email picker.
   const emailSenders = React.useMemo(
@@ -344,56 +351,32 @@ export const CampaignWizard: React.FC = () => {
   // Get active template body for live preview
   const selectedTemplate = templatesList.find(t => t.name === wizardForm.templateName)
   
-  // Format body text substituting variables dynamically if selected
+  // The numbered placeholders the selected WhatsApp template actually uses, in order. Read from
+  // the template itself, so any approved template with variables gets its inputs.
+  const waPlaceholders = React.useMemo(() => {
+    const text = selectedTemplate?.bodyText ?? ''
+    return Array.from(new Set(Array.from(text.matchAll(/\{\{\s*(\d+)\s*\}\}/g), m => m[1])))
+      .sort((a, b) => Number(a) - Number(b))
+  }, [selectedTemplate])
+
+  // The body with the values typed so far; an unfilled placeholder stays visible.
   const getPreviewBody = () => {
     if (!selectedTemplate) return ''
-    let body = selectedTemplate.bodyText || ''
-    if (selectedTemplate.name === 'test_valid_var_template') {
-      body = body.replace('{{1}}', var1 || '{{1}}').replace('{{2}}', var2 || '{{2}}')
-    }
-    return body
+    return (selectedTemplate.bodyText || '').replace(/\{\{\s*(\d+)\s*\}\}/g, (match, n: string) => waVariables[n] || match)
   }
 
   // Multi-step configurations
   const steps = WIZARD_STEPS
 
-  // Step 2 Filtered contacts logic
-  const filteredContacts = contactsList.filter((c) => {
-    if (wizardForm.relationType && wizardForm.relationType.length > 0) {
-      const selectedTypesLower = wizardForm.relationType.map(rt => rt.toLowerCase().trim())
-      const contactType = (c.type || (c as any).relationType || '').toLowerCase().trim()
-      if (!selectedTypesLower.includes(contactType)) return false
-    }
-    if (wizardForm.contactsFilterStatus !== 'All') {
-      if (c.status !== wizardForm.contactsFilterStatus) return false
-    }
-    if (wizardForm.contactsFilterSource !== 'All') {
-      if (c.source !== wizardForm.contactsFilterSource) return false
-    }
-    if (contactSearch) {
-      const q = contactSearch.toLowerCase()
-      const matchesSearch = 
-        (c.name || '').toLowerCase().includes(q) ||
-        (c.firstName || '').toLowerCase().includes(q) ||
-        (c.lastName || '').toLowerCase().includes(q) ||
-        c.phone.includes(q)
-      if (!matchesSearch) return false
-    }
-    return true
-  })
-
   // Sync local variable states to store's wizardForm.variables
   useEffect(() => {
-    const newVars = []
-    if (wizardForm.templateName === 'test_valid_var_template') {
-      newVars.push({ variableName: '1', variableValue: var1 })
-      newVars.push({ variableName: '2', variableValue: var2 })
-    }
+    if (isEmailChannel) return
+    const newVars: { variableName: string; variableValue: string }[] = waPlaceholders.map(n => ({ variableName: n, variableValue: waVariables[n] ?? '' }))
     if (fileUrl) {
       newVars.push({ variableName: 'file', variableValue: fileUrl })
     }
     setWizardForm({ variables: newVars })
-  }, [var1, var2, fileUrl, wizardForm.templateName])
+  }, [isEmailChannel, waPlaceholders, waVariables, fileUrl, wizardForm.templateName])
 
   const handleFileUpload = async (file: File) => {
     setUploading(true)
@@ -529,6 +512,17 @@ export const CampaignWizard: React.FC = () => {
       return
     }
 
+    if (wizardForm.abTest?.enabled
+      && wizardForm.abTest.variants.some(v => !(isEmailChannel ? v.emailTemplateId : v.templateId))) {
+      toast.error('Choose a template for every A/B variant, or turn the A/B test off.')
+      return
+    }
+
+    if (preflightFailed && !wizardForm.overridePrecheck) {
+      toast.error('The pre-flight check failed. Fix the items marked in red before sending.')
+      return
+    }
+
     if (!wizardForm.name || wizardForm.relationType.length === 0) {
       toast.error('Please complete campaign name and relation type.')
       return
@@ -545,8 +539,8 @@ export const CampaignWizard: React.FC = () => {
       return
     }
 
-    if (finalRecipientsCount === 0) {
-      toast.error('Please select at least one contact.')
+    if (!hasAudience) {
+      toast.error('Choose who receives the campaign: contacts, groups, segments or all contacts.')
       return
     }
 
@@ -577,30 +571,24 @@ export const CampaignWizard: React.FC = () => {
     }
   }
 
-  const toggleContactSelection = (id: number) => {
-    const selected = wizardForm.selectedContactIds
-    if (selected.includes(id)) {
-      setWizardForm({ selectedContactIds: selected.filter(x => x !== id) })
-    } else {
-      setWizardForm({ selectedContactIds: [...selected, id] })
-    }
-  }
-
-  const toggleSelectAllListed = (checked: boolean) => {
-    if (checked) {
-      setWizardForm({ selectedContactIds: filteredContacts.map(c => c.id) })
-    } else {
-      setWizardForm({ selectedContactIds: [] })
-    }
-  }
-
-  // Count final recipients count based on selection states
-  const finalRecipientsCount = wizardForm.selectAllContacts ? filteredContacts.length : wizardForm.selectedContactIds.length
+  // Count final recipients count based on selection states. Segment sizes are their last count
+  // (they are re-resolved at send time), so the total is an estimate when segments are chosen.
+  const selectedSegmentIds = wizardForm.selectedSegmentIds ?? []
+  const selectedGroupIds = wizardForm.selectedGroupIds ?? []
+  const segmentEstimate = segmentOptions
+    .filter(s => selectedSegmentIds.includes(s.id))
+    .reduce((sum, s) => sum + (s.cachedCount ?? 0), 0)
+  const finalRecipientsCount = wizardForm.selectAllContacts
+    ? selectAllCount
+    : wizardForm.selectedContactIds.length + segmentEstimate
+  const hasAudience = wizardForm.selectAllContacts
+    || wizardForm.selectedContactIds.length > 0 || selectedSegmentIds.length > 0 || selectedGroupIds.length > 0
+  const toggleId = (list: number[], id: number) => (list.includes(id) ? list.filter(x => x !== id) : [...list, id])
 
   return (
     <motion.div {...pageTransitionProps}>
       {/* Page Title with horizontal badges row */}
-      <div className="wizard-title-row">
+      <div className="wizard-title-row omni-page-hero form-page-hero">
         <h2 className="wizard-title">{isEditMode ? 'Edit Campaign' : 'Create Campaign'}</h2>
         <div className="wizard-badges-row">
           <div className="wizard-badge blue">
@@ -791,19 +779,9 @@ export const CampaignWizard: React.FC = () => {
 
                         {selectedEmailSender && !selectedEmailSender.sender.canSend && (
                           <span className="error-text-warning wizard-sender-warning">
-                            {/* Names the address, not the domain. An address verified individually
-                                in SES needs no verified domain, so blaming the domain sent people
-                                off to fix something that was not broken. */}
-                            * {selectedEmailSender.sender.emailAddress} is not verified in SES yet,
-                            so it cannot send. Verify it in SES, then re-check.
-                            <button
-                              type="button"
-                              className="btn-toolbar-tertiary wizard-inline-action"
-                              onClick={handleRecheckSender}
-                              disabled={isRecheckingSender}
-                            >
-                              {isRecheckingSender ? 'Checking…' : 'Re-check'}
-                            </button>
+                            * {selectedEmailSender.sender.emailAddress} cannot send right now: the sender or its
+                            connection is switched off, or the connection has no SMTP server yet.{' '}
+                            <Link to="/connections" className="wizard-inline-action">Open Connections</Link>
                           </span>
                         )}
                       </div>
@@ -921,10 +899,7 @@ export const CampaignWizard: React.FC = () => {
                         multiple
                         ariaLabel="Relation type"
                         selected={wizardForm.relationType}
-                        options={(['Lead', 'Customer', 'Vendor'] as const).map(rel => ({
-                          value: rel,
-                          label: rel
-                        }))}
+                        options={contactTypes.map(t => ({ value: t.id, label: t.name }))}
                         onChange={(next) => setWizardForm({ relationType: next as string[] })}
                       />
                     </div>
@@ -969,6 +944,21 @@ export const CampaignWizard: React.FC = () => {
                       )
                     )}
                   </div>
+
+                  <AbTestEditor
+                    channel={isEmailChannel ? 'email' : 'whatsapp'}
+                    templates={isEmailChannel
+                      ? emailTemplates.filter(t => t.id !== wizardForm.emailTemplateId).map(t => ({ id: t.id, name: t.name }))
+                      : templatesList
+                          .filter(t => t.status?.toLowerCase() === 'approved' && t.id !== wizardForm.templateId)
+                          .map(t => ({ id: t.id, name: t.name }))}
+                    value={wizardForm.abTest ?? emptyAbTest()}
+                    onChange={(abTest) => setWizardForm({ abTest })}
+                    baseTemplateName={isEmailChannel
+                      ? emailTemplates.find(t => t.id === wizardForm.emailTemplateId)?.name
+                      : wizardForm.templateName}
+                    audienceSize={finalRecipientsCount}
+                  />
                 </div>
               )}
 
@@ -980,132 +970,54 @@ export const CampaignWizard: React.FC = () => {
                     <p className="upload-sub-text">Choose your target audience</p>
                   </div>
 
-                  {/* Select all contacts panel card */}
-                  <div className="contacts-selection-card margin-top-20">
-                    <div className="contacts-controls-row">
-                      <div className="contacts-controls-left">
-                        <input
-                          type="checkbox"
-                          id="select-all-contacts"
-                          checked={wizardForm.selectAllContacts}
-                          onChange={(e) => setWizardForm({ selectAllContacts: e.target.checked })}
-                        />
-                        <div className="wizard-label-spacer">
-                          <label htmlFor="select-all-contacts" className="upload-main-text">Select all contacts</label>
-                          <p className="upload-sub-text margin-zero">Automatically include all matching contacts</p>
-                        </div>
-                      </div>
-                      <div className="contacts-controls-right">
-                        <span className="contacts-count-val">{filteredContacts.length}</span>
-                        <span className="upload-sub-text">Contacts</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Display list filters only if select all is unchecked */}
-                  {!wizardForm.selectAllContacts && (
-                    <div className="fade-in">
-                      <div className="contacts-filter-row">
+                  {!wizardForm.selectAllContacts && (segmentOptions.length > 0 || groupOptions.length > 0) && (
+                    <div className="wizard-audience-sources margin-top-20">
+                      {segmentOptions.length > 0 && (
                         <div className="form-group">
-                          <label className="form-label">Filter by status</label>
-                          <select
-                            className="form-control"
-                            value={wizardForm.contactsFilterStatus}
-                            onChange={(e) => setWizardForm({ contactsFilterStatus: e.target.value })}
-                          >
-                            <option value="All">All Statuses</option>
-                            {statuses.map(s => (
-                              <option key={s.id} value={s.name}>{s.name}</option>
+                          <label className="form-label">Segments <small>(re-evaluated when the campaign sends)</small></label>
+                          <div className="wizard-chip-list">
+                            {segmentOptions.map(s => (
+                              <button key={s.id} type="button"
+                                className={`wizard-chip${selectedSegmentIds.includes(s.id) ? ' is-selected' : ''}`}
+                                aria-pressed={selectedSegmentIds.includes(s.id)}
+                                onClick={() => setWizardForm({ selectedSegmentIds: toggleId(selectedSegmentIds, s.id) })}>
+                                {s.name}{s.cachedCount != null ? ` · ${s.cachedCount.toLocaleString()}` : ''}
+                              </button>
                             ))}
-                          </select>
+                          </div>
                         </div>
-
+                      )}
+                      {groupOptions.length > 0 && (
                         <div className="form-group">
-                          <label className="form-label">Filter By Source</label>
-                          <select
-                            className="form-control"
-                            value={wizardForm.contactsFilterSource}
-                            onChange={(e) => setWizardForm({ contactsFilterSource: e.target.value })}
-                          >
-                            <option value="All">All Sources</option>
-                            {sources.map(s => (
-                              <option key={s.id} value={s.name}>{s.name}</option>
+                          <label className="form-label">Groups</label>
+                          <div className="wizard-chip-list">
+                            {groupOptions.map(g => (
+                              <button key={g.id} type="button"
+                                className={`wizard-chip${selectedGroupIds.includes(g.id) ? ' is-selected' : ''}`}
+                                aria-pressed={selectedGroupIds.includes(g.id)}
+                                onClick={() => setWizardForm({ selectedGroupIds: toggleId(selectedGroupIds, g.id) })}>
+                                {g.name}
+                              </button>
                             ))}
-                          </select>
+                          </div>
                         </div>
-                      </div>
-
-                      {/* Contacts list table check */}
-                      <div className="contacts-selection-card">
-                        <div className="contacts-controls-row">
-                          <span className="contacts-count-label">{wizardForm.selectedContactIds.length} Selected</span>
-                          <SearchBar
-                            value={contactSearch}
-                            onChange={setContactSearch}
-                            placeholder="Search Contacts"
-                          />
-                        </div>
-
-                        <div className="data-table-wrapper margin-top-20">
-                          {filteredContacts.length === 0 ? (
-                            <div className="data-table-empty">
-                              <p>No Contacts Found</p>
-                            </div>
-                          ) : (
-                            <table className="data-table">
-                              <thead>
-                                <tr>
-                                  <th className="checkbox-cell">
-                                    <input
-                                      type="checkbox"
-                                      onChange={(e) => toggleSelectAllListed(e.target.checked)}
-                                      checked={filteredContacts.length > 0 && filteredContacts.every(c => wizardForm.selectedContactIds.includes(c.id))}
-                                    />
-                                  </th>
-                                  <th>Name</th>
-                                  {/*
-                                    The column follows the channel, because it is the address the
-                                    campaign will actually use. Showing Phone for an email
-                                    campaign would hide the one field that decides whether a
-                                    recipient is reachable.
-                                  */}
-                                  <th>{isEmailChannel ? 'Email' : 'Phone'}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {filteredContacts.map(c => (
-                                  <tr key={c.id}>
-                                    <td className="checkbox-cell">
-                                      <input
-                                        type="checkbox"
-                                        checked={wizardForm.selectedContactIds.includes(c.id)}
-                                        onChange={() => toggleContactSelection(c.id)}
-                                      />
-                                    </td>
-                                    <td>{c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim()}</td>
-                                    <td>
-                                      {isEmailChannel ? (
-                                        c.email ? (
-                                          c.email
-                                        ) : (
-                                          // Called out rather than left blank: this contact will
-                                          // be skipped, and the operator should see that before
-                                          // the campaign reports it as a failure.
-                                          <span className="contacts-missing-value">No email address</span>
-                                        )
-                                      ) : (
-                                        c.phone
-                                      )}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          )}
-                        </div>
-                      </div>
+                      )}
                     </div>
                   )}
+
+                  <AudienceContactPicker
+                    relationTypes={wizardForm.relationType}
+                    typeLabels={Object.fromEntries(contactTypes.map(t => [t.id, t.name]))}
+                    isEmailChannel={isEmailChannel}
+                    statuses={statuses}
+                    sources={sources}
+                    selectAll={wizardForm.selectAllContacts}
+                    onSelectAllChange={(value) => setWizardForm({ selectAllContacts: value })}
+                    selectedIds={wizardForm.selectedContactIds}
+                    onSelectedIdsChange={(ids) => setWizardForm({ selectedContactIds: ids })}
+                    onSelectAllCountChange={setSelectAllCount}
+                    onEditTypes={() => setActiveStep(STEP_BASIC_INFO)}
+                  />
                 </div>
               )}
 
@@ -1225,7 +1137,7 @@ export const CampaignWizard: React.FC = () => {
                             /* Several at once, unlike the WhatsApp media header, which is one
                                file by protocol. */
                             multiple
-                            style={{ display: 'none' }}
+                            hidden
                             onChange={async (e) => {
                               for (const file of Array.from(e.target.files ?? [])) {
                                 await handleEmailAttachmentUpload(file)
@@ -1315,7 +1227,7 @@ export const CampaignWizard: React.FC = () => {
                             ref={fileInputRef}
                             type="file"
                             className="hidden-input"
-                            style={{ display: 'none' }}
+                            hidden
                             onChange={async (e) => {
                               if (e.target.files && e.target.files[0]) {
                                 await handleFileUpload(e.target.files[0]);
@@ -1360,30 +1272,26 @@ export const CampaignWizard: React.FC = () => {
                         )}
                       </div>
 
-                      {/* Render dynamic inputs if variables template is selected */}
-                      {wizardForm.templateName === 'test_valid_var_template' && (
-                        <div className="contacts-selection-card margin-top-20">
-                          <div className="form-group margin-top-20">
-                            <label className="form-label">Variable 1 Value ({"{{1}}"})</label>
-                            <input
-                              type="text"
-                              className="form-control"
-                              placeholder="e.g. Tushar"
-                              value={var1}
-                              onChange={(e) => setVar1(e.target.value)}
-                            />
+                      {/* One input per numbered placeholder in the chosen template. */}
+                      {waPlaceholders.length > 0 && (
+                        <fieldset className="wizard-panel margin-top-20">
+                          <legend className="wizard-panel-legend">Template variables</legend>
+                          <p className="ab-editor-note">Every recipient gets the same values. The preview on the right shows them in place.</p>
+                          <div className="wizard-variable-grid">
+                            {waPlaceholders.map(n => (
+                              <div className="form-group" key={n}>
+                                <label className="form-label" htmlFor={`wa-var-${n}`}>{`Value for {{${n}}}`}</label>
+                                <input
+                                  id={`wa-var-${n}`}
+                                  type="text"
+                                  className="form-control"
+                                  value={waVariables[n] ?? ''}
+                                  onChange={(e) => setWaVariables(prev => ({ ...prev, [n]: e.target.value }))}
+                                />
+                              </div>
+                            ))}
                           </div>
-                          <div className="form-group margin-top-20">
-                            <label className="form-label">Variable 2 Value ({"{{2}}"})</label>
-                            <input
-                              type="text"
-                              className="form-control"
-                              placeholder="e.g. 10052"
-                              value={var2}
-                              onChange={(e) => setVar2(e.target.value)}
-                            />
-                          </div>
-                        </div>
+                        </fieldset>
                       )}
                     </>
                   )}
@@ -1454,8 +1362,78 @@ export const CampaignWizard: React.FC = () => {
                         onChange={(e) => setWizardForm({ scheduledTime: e.target.value })}
                         required={!wizardForm.sendImmediately}
                       />
+                      <label className="wizard-inline-check">
+                        <input
+                          type="checkbox"
+                          checked={wizardForm.recipientLocalTime ?? false}
+                          onChange={(e) => setWizardForm({ recipientLocalTime: e.target.checked })}
+                        />
+                        <span>
+                          Deliver at this time in each recipient's own time zone
+                          <small>Contacts without a time zone use the default set under Settings › Compliance.</small>
+                        </span>
+                      </label>
                     </div>
                   )}
+
+                  <section className="wizard-panel" aria-labelledby="campaign-consent-title">
+                    <header className="wizard-panel-head">
+                      <span className="wizard-panel-icon" aria-hidden="true"><ShieldCheck size={18} /></span>
+                      <div className="wizard-panel-intro">
+                        <h4 id="campaign-consent-title" className="ab-editor-title">Consent and message type</h4>
+                        <p className="ab-editor-note">
+                          Recipients who opted out of this topic (or of everything) are skipped. Quiet hours and the frequency cap apply to marketing messages.
+                        </p>
+                      </div>
+                    </header>
+                    <div className="wizard-compliance-row">
+                      <div className="form-group">
+                        <label className="form-label" htmlFor="campaign-topic">Consent topic</label>
+                        {/* The topics configured under OmniConnect Settings › Compliance; the first is the default. */}
+                        <select
+                          id="campaign-topic"
+                          className="form-control"
+                          value={wizardForm.topic || consentTopics[0] || ''}
+                          onChange={(e) => setWizardForm({ topic: e.target.value })}
+                          disabled={consentTopics.length === 0}
+                        >
+                          {consentTopics.map(t => (
+                            <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <label className="wizard-inline-check">
+                        <input
+                          type="checkbox"
+                          checked={wizardForm.isTransactional ?? false}
+                          onChange={(e) => setWizardForm({ isTransactional: e.target.checked })}
+                        />
+                        <span>
+                          Transactional (service) message
+                          <small>Account alerts and statements: not held for quiet hours or counted toward the frequency cap. Opt-outs still apply.</small>
+                        </span>
+                      </label>
+                    </div>
+                  </section>
+
+                  <FollowUpEditor
+                    channel={isEmailChannel ? 'email' : 'whatsapp'}
+                    value={wizardForm.followUps ?? []}
+                    onChange={(followUps) => setWizardForm({ followUps })}
+                  />
+
+                  <PreflightPanel
+                    channel={isEmailChannel ? 'email' : 'whatsapp'}
+                    emailTemplateId={wizardForm.emailTemplateId}
+                    senderIdentityId={wizardForm.senderIdentityId}
+                    subjectOverride={wizardForm.subjectOverride}
+                    templateId={wizardForm.templateId}
+                    isTransactional={wizardForm.isTransactional}
+                    variableNames={(wizardForm.variables ?? []).map(v => v.variableName)}
+                    override={wizardForm.overridePrecheck ?? false}
+                    onOverrideChange={(value) => setWizardForm({ overridePrecheck: value })}
+                    onResult={setPreflightFailed}
+                  />
                 </div>
               )}
 

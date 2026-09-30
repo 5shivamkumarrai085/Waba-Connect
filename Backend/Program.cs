@@ -28,7 +28,16 @@ using WhatsAppCampaignApi.Validators;
 using WhatsAppCampaignApi.Executors;
 using WhatsAppCampaignApi.Hubs;
 
+// Log output contains non-ASCII text (dashes, names); without this the Windows console shows mojibake.
+Console.OutputEncoding = Encoding.UTF8;
+
 var builder = WebApplication.CreateBuilder(args);
+
+// Secrets are not in appsettings.json. Load the developer's user-secrets in any non-Production
+// environment (the host alone loads them only for "Development", and only via APPDATA), then fail
+// with a diagnosis — environment, locations checked, fix — if any required secret is still missing.
+StartupConfiguration.AddDeveloperSecrets(builder, args);
+StartupConfiguration.RequireSecrets(builder.Configuration, builder.Environment);
 
 // The unsubscribe signing key, derived when nobody configured one.
 //
@@ -43,21 +52,22 @@ var builder = WebApplication.CreateBuilder(args);
 //
 // An explicit Email:Unsubscribe:SigningKey still wins, for deployments that rotate the two
 // independently.
-if (string.IsNullOrWhiteSpace(builder.Configuration["Email:Unsubscribe:SigningKey"]))
-{
-    var rootKey = builder.Configuration["Encryption:Key"];
+StartupConfiguration.DeriveSecret(builder.Configuration, "Email:Unsubscribe:SigningKey", "WabaConnect.Email.Unsubscribe.v1");
+StartupConfiguration.DeriveSecret(builder.Configuration, "Email:Tracking:SigningSecret", "WabaConnect.Email.Tracking.v1");
 
-    if (!string.IsNullOrWhiteSpace(rootKey))
-    {
-        var derived = System.Security.Cryptography.HKDF.DeriveKey(
-            System.Security.Cryptography.HashAlgorithmName.SHA256,
-            ikm: System.Text.Encoding.UTF8.GetBytes(rootKey),
-            outputLength: 32,
-            info: System.Text.Encoding.UTF8.GetBytes("WabaConnect.Email.Unsubscribe.v1"));
+// One public base URL for every link that leaves the building: tracking pixels, click redirects,
+// unsubscribe links and media URLs handed to Meta. The per-feature keys still win when set, so an
+// existing deployment keeps working, but a new one configures App:PublicBaseUrl once.
+StartupConfiguration.DefaultFrom(builder.Configuration, "Email:Tracking:BaseUrl", "App:PublicBaseUrl");
+StartupConfiguration.DefaultFrom(builder.Configuration, "Email:Unsubscribe:PublicBaseUrl", "App:PublicBaseUrl");
 
-        builder.Configuration["Email:Unsubscribe:SigningKey"] = Convert.ToBase64String(derived);
-    }
-}
+// Refuse to start a production host on committed or placeholder secrets. A bank deployment that
+// boots with the sample JWT key or admin password is worse than one that does not boot.
+StartupConfiguration.ValidateProductionSecrets(builder.Configuration, builder.Environment);
+
+// Field encryption key, needed before any credential is read — including by the EF converters
+// that decrypt WABA tokens. Fails the boot when Encryption:Key is missing.
+SecretCipher.Initialize(builder.Configuration["Encryption:Key"]);
 
 // 1. Serilog configuration
 // The file sink writes compact JSON (CLEF) rather than plain text so the Setup > System Logs
@@ -68,6 +78,8 @@ Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
     .Enrich.WithProperty("Environment", builder.Environment.EnvironmentName)
+    // Phone numbers and email addresses are masked in every sink (see PiiMaskingEnricher).
+    .Enrich.With(new PiiMaskingEnricher())
     .WriteTo.Console()
     .WriteTo.File(
         new CompactJsonFormatter(),
@@ -86,9 +98,34 @@ builder.Host.UseSerilog();
 // concurrently can create their own short-lived contexts on demand (DbContext itself isn't thread-safe).
 // AddDbContext and AddDbContextFactory can't coexist for the same context (their DbContextOptions
 // lifetimes conflict), so the regular scoped AppDbContext used everywhere else is derived from the factory.
+//
+// One NpgsqlDataSource for the whole process: EF, the job queue and the rate limiter share its
+// connection pool instead of each building connections from a string. Pool size, timeouts and
+// keep-alive come from the connection string (Maximum Pool Size, Timeout, Command Timeout,
+// Keepalive), so they are tuned per deployment rather than in code.
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:DefaultConnection is not set. Provide it through an environment variable "
+      + "(ConnectionStrings__DefaultConnection), user-secrets in development, or your secret store.");
+}
+
+var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(connectionString);
+dataSourceBuilder.ConnectionStringBuilder.ApplicationName ??= "WabaConnect";
+var npgsqlDataSource = dataSourceBuilder.Build();
+builder.Services.AddSingleton(npgsqlDataSource);
+
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
 {
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.UseNpgsql(npgsqlDataSource, npgsql =>
+    {
+        // Retries transient failures (dropped connection, failover, serialization conflict) with
+        // backoff. Safe here because nothing opens an explicit transaction outside an execution
+        // strategy; one that does must wrap it in Database.CreateExecutionStrategy().
+        npgsql.EnableRetryOnFailure(maxRetryCount: 3, maxRetryDelay: TimeSpan.FromSeconds(5), errorCodesToAdd: null);
+        npgsql.CommandTimeout(builder.Configuration.GetValue("Database:CommandTimeoutSeconds", 60));
+    });
 
     // Query splitting is deliberately NOT global. It trades one wide result set for one round
     // trip per collection, which is a win on a local database and a loss on this one — the
@@ -159,6 +196,16 @@ builder.Services.AddScoped<INodeExecutor, AIAssistantExecutor>();
 builder.Services.AddScoped<INodeExecutor, CallToActionExecutor>();
 
 builder.Services.AddScoped<IEncryptionService, EncryptionService>();
+builder.Services.AddHostedService<CredentialEncryptionMigrator>();
+
+// File storage: the single gatekeeper for uploads and attachment reads (path confinement, content
+// allow-list, SSRF-safe remote fetches). Redirects are not followed, so an allow-listed host cannot
+// bounce a fetch to an internal address.
+builder.Services.AddOptions<WhatsAppCampaignApi.Services.Storage.StorageOptions>()
+    .Bind(builder.Configuration.GetSection(WhatsAppCampaignApi.Services.Storage.StorageOptions.SectionName));
+builder.Services.AddSingleton<WhatsAppCampaignApi.Services.Storage.IFileStorage, WhatsAppCampaignApi.Services.Storage.FileStorage>();
+builder.Services.AddHttpClient(WhatsAppCampaignApi.Services.Storage.FileStorage.HttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 
 // ---- Email channel configuration -------------------------------------------------------------
 // Bound and validated once at startup, unlike the inline IConfiguration reads used elsewhere in
@@ -188,13 +235,6 @@ builder.Services.AddOptions<EmailOptions>()
         if (string.IsNullOrWhiteSpace(options.Unsubscribe.SigningKey)) return false;
         if (string.IsNullOrWhiteSpace(options.Unsubscribe.PublicBaseUrl)) return false;
 
-        // An anonymous webhook with no topic allowlist would accept any validly-signed SNS
-        // notification from any AWS account. Only required for SES — SMTP inbound uses IMAP
-        // polling and has no SNS dependency.
-        if (options.Inbound.Enabled
-            && options.DefaultProvider.Equals("AmazonSes", StringComparison.OrdinalIgnoreCase)
-            && options.Ses.AllowedSnsTopicArns.Length == 0) return false;
-
         return true;
     }, DescribeEmailConfigurationProblem(builder.Configuration))
     .ValidateOnStart();
@@ -218,9 +258,11 @@ switch (queueTransport.ToLowerInvariant())
 
 // Email background workers only run when the channel is switched on. A half-configured
 // deployment should do nothing rather than accept campaigns it cannot send.
+// Queue housekeeping serves every queue (WhatsApp too), so it always runs.
+builder.Services.AddHostedService<JobQueueMaintenanceWorker>();
+
 if (builder.Configuration.GetValue("Email:Enabled", false))
 {
-    builder.Services.AddHostedService<JobQueueMaintenanceWorker>();
 
     // Two stages rather than one worker doing both: expansion is a database operation that
     // either works or does not, while dispatch is hundreds of independent network calls each
@@ -237,27 +279,22 @@ if (builder.Configuration.GetValue("Email:Enabled", false))
     }
 }
 
-// Both email providers are registered against IEmailProvider, and EmailProviderFactory picks by
-// ProviderName — the same arrangement as IAiProvider above. That is what makes the provider a
-// per-connection setting rather than a deployment decision, and what lets a third provider be
-// added later by registering it here and nowhere else.
+// Tenant mail: every connection sends through its own SMTP account (MailKit), resolved per
+// connection by EmailProviderFactory. Providers are registered against IEmailProvider and picked
+// by ProviderName, so another transport could be added here and nowhere else.
 builder.Services.AddSingleton<IMimeMessageBuilder, MimeMessageBuilder>();
-builder.Services.AddScoped<IEmailProvider, SesEmailProvider>();
 builder.Services.AddScoped<IEmailProvider, SmtpEmailProvider>();
 builder.Services.AddScoped<IEmailProviderFactory, EmailProviderFactory>();
 builder.Services.AddScoped<IEmailConnectionService, EmailConnectionService>();
 builder.Services.AddScoped<IEmailTemplateService, EmailTemplateService>();
-builder.Services.AddScoped<IEmailDomainService, EmailDomainService>();
-builder.Services.AddScoped<IEmailEventProcessor, EmailEventProcessor>();
+builder.Services.AddScoped<IEmailSenderGate, EmailSenderGate>();
 
-// SNS signature verification. Its own named client with a short timeout: fetching the signing
-// certificate happens inline on a webhook request, and a slow AWS endpoint must not hold the
-// request open while SNS waits for an acknowledgement.
-builder.Services.AddScoped<ISnsMessageValidator, SnsMessageValidator>();
-builder.Services.AddHttpClient(SnsMessageValidator.HttpClientName, client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(10);
-});
+// System mail (welcome emails, scheduled reports with no sender chosen): one platform SMTP
+// account from the "Smtp" configuration section, exactly as in the OmniConnect AuthService.
+// Inert without settings — IsEnabled is false and nothing is sent.
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.AddScoped<ISystemMailService, SystemMailService>();
 builder.Services.AddScoped<IEmailSuppressionService, EmailSuppressionService>();
 builder.Services.AddScoped<IEmailSendRecorder, EmailSendRecorder>();
 
@@ -275,6 +312,10 @@ builder.Services.AddScoped<ICampaignEmailEventProcessor, CampaignEmailEventProce
 builder.Services.AddSingleton<InProcessEventPublisher>();
 builder.Services.AddSingleton<IEventPublisher>(sp => sp.GetRequiredService<InProcessEventPublisher>());
 builder.Services.AddHostedService<EventPublisherConsumer>();
+
+// Pushes "something changed in this conversation" to open inboxes, replacing tight polling.
+builder.Services.AddSingleton<WhatsAppCampaignApi.Services.Realtime.IDashboardNotifier, WhatsAppCampaignApi.Services.Realtime.DashboardNotifier>();
+builder.Services.AddSingleton<WhatsAppCampaignApi.Services.Realtime.IInboxNotifier, WhatsAppCampaignApi.Services.Realtime.SignalRInboxNotifier>();
 
 // SMTP connection pool manager — Singleton: pools must outlive request scopes
 builder.Services.AddSingleton<SmtpConnectionPoolManager>();
@@ -296,11 +337,18 @@ builder.Services.AddSingleton<IEmailRateLimiter, PostgresEmailRateLimiter>();
 // Who authorises a campaign to run. "none" is the built-in pass-through and this deployment's
 // setting; a host application that owns maker-checker replaces this one registration and the
 // campaign pipeline starts deferring to it, with no change to the workers or the queue.
-var executionGate = builder.Configuration["Email:ExecutionGate:Provider"] ?? "none";
+// Campaigns:Approval:Required switches on the built-in maker-checker gate for every campaign, on
+// both channels: a second user must approve before anything is sent.
+var executionGate = builder.Configuration.GetValue("Campaigns:Approval:Required", false)
+    ? WhatsAppCampaignApi.Services.Campaigns.InternalApprovalGate.Name
+    : builder.Configuration["Email:ExecutionGate:Provider"] ?? "none";
 switch (executionGate.ToLowerInvariant())
 {
     case "none":
         builder.Services.AddScoped<ICampaignExecutionGate, AutoApproveCampaignExecutionGate>();
+        break;
+    case WhatsAppCampaignApi.Services.Campaigns.InternalApprovalGate.Name:
+        builder.Services.AddScoped<ICampaignExecutionGate, WhatsAppCampaignApi.Services.Campaigns.InternalApprovalGate>();
         break;
     default:
         // Fails at startup rather than silently auto-approving. A deployment that believes it has
@@ -326,6 +374,19 @@ builder.Services.AddScoped<MessageBotExecutor>();
 builder.Services.AddScoped<IBotRouterService, BotRouterService>();
 
 builder.Services.AddHttpClient<IWhatsAppService, WhatsAppCloudApiService>();
+
+// Meta webhook: verified and stored by the controller, processed here. Always on — inbound
+// WhatsApp does not depend on the email channel being enabled.
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.WhatsApp.IWhatsAppWebhookSignatureVerifier, WhatsAppCampaignApi.Services.WhatsApp.WhatsAppWebhookSignatureVerifier>();
+builder.Services.AddHostedService<WhatsAppCampaignApi.Services.WhatsApp.WhatsAppWebhookWorker>();
+
+// WhatsApp campaigns: durable queue delivery (expansion + multi-loop sender), in place of the
+// in-memory Task.Run loop that did not survive a restart or a second instance.
+builder.Services.AddOptions<WhatsAppCampaignApi.Services.WhatsApp.WhatsAppDispatchOptions>()
+    .Bind(builder.Configuration.GetSection(WhatsAppCampaignApi.Services.WhatsApp.WhatsAppDispatchOptions.SectionName));
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.WhatsApp.IWhatsAppCampaignDispatcher, WhatsAppCampaignApi.Services.WhatsApp.WhatsAppCampaignDispatcher>();
+builder.Services.AddHostedService<WhatsAppCampaignApi.Services.WhatsApp.WhatsAppCampaignExpansionWorker>();
+builder.Services.AddHostedService<WhatsAppCampaignApi.Services.WhatsApp.WhatsAppCampaignSendWorker>();
 builder.Services.AddHostedService<CampaignSchedulerService>();
 
 // Safety net for chat conversation rows. They are created when a contact is created; this
@@ -344,6 +405,7 @@ builder.Services.AddHostedService<ChatHistoryCleanupService>();
 builder.Services.AddScoped<IPermissionResolver, PermissionResolver>();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddSingleton<ISecurityStampCache, SecurityStampCache>();
 builder.Services.AddScoped<IAuditChangeBuffer, AuditChangeBuffer>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<ISetupSeeder, SetupSeeder>();
@@ -357,6 +419,52 @@ builder.Services.AddScoped<ILogFileService, LogFileService>();
 // rather than which features they may use). Kept as-is.
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<IPermissionManagementService, PermissionManagementService>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Security.IAccessScope, WhatsAppCampaignApi.Services.Security.AccessScope>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Compliance.IComplianceGuard, WhatsAppCampaignApi.Services.Compliance.ComplianceGuard>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Compliance.IConsentService, WhatsAppCampaignApi.Services.Compliance.ConsentService>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Segments.ISegmentService, WhatsAppCampaignApi.Services.Segments.SegmentService>();
+
+// Deliverability pre-checks. DNS lookups use the host's resolver with a short timeout: a slow
+// resolver must degrade the check to "could not read DNS", never hold up campaign creation.
+builder.Services.AddSingleton<DnsClient.ILookupClient>(_ => new DnsClient.LookupClient(new DnsClient.LookupClientOptions
+{
+    Timeout = TimeSpan.FromSeconds(3),
+    Retries = 1,
+    UseCache = true
+}));
+builder.Services.AddScoped<IDeliverabilityService, DeliverabilityService>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Campaigns.IAbTestService, WhatsAppCampaignApi.Services.Campaigns.AbTestService>();
+builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Campaigns.AbTestWinnerWorker>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Campaigns.IFollowUpService, WhatsAppCampaignApi.Services.Campaigns.FollowUpService>();
+builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Campaigns.FollowUpWorker>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Chat.IConversationOperations, WhatsAppCampaignApi.Services.Chat.ConversationOperations>();
+builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Chat.ChatSlaWorker>();
+
+// Outbound webhooks: signed (HMAC-SHA256), queued and retried, and never allowed to reach the
+// server's own network: the guard runs when a URL is saved and again on every connection.
+var webhookGuard = WhatsAppCampaignApi.Services.Integrations.WebhookUrlGuard.FromConfiguration(builder.Configuration, builder.Environment);
+builder.Services.AddSingleton(webhookGuard);
+builder.Services.AddHttpClient(WhatsAppCampaignApi.Services.Integrations.WebhookSender.HttpClientName, client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(10);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("WabaConnect-Webhooks/1.0");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectCallback = webhookGuard.ConnectAsync,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+    });
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Integrations.WebhookSender>();
+builder.Services.AddSingleton<WhatsAppCampaignApi.Services.Integrations.WebhookEmitter>();
+builder.Services.AddSingleton<WhatsAppCampaignApi.Services.Integrations.IWebhookEmitter>(sp => sp.GetRequiredService<WhatsAppCampaignApi.Services.Integrations.WebhookEmitter>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<WhatsAppCampaignApi.Services.Integrations.WebhookEmitter>());
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Integrations.IWebhookSubscriptionService, WhatsAppCampaignApi.Services.Integrations.WebhookSubscriptionService>();
+builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Integrations.WebhookDeliveryWorker>();
+
+// Saved reports emailed on a timetable, each run under its owner's access.
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Integrations.IReportScheduleService, WhatsAppCampaignApi.Services.Integrations.ReportScheduleService>();
+builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Integrations.ReportScheduleWorker>();
 builder.Services.AddScoped<IConnectionService, ConnectionService>();
 builder.Services.AddScoped<IWabaRepository, WabaRepository>();
 builder.Services.AddScoped<IBusinessRepository, BusinessRepository>();
@@ -463,6 +571,16 @@ builder.Services.AddRateLimiter(options =>
             return RateLimitPartition.GetNoLimiter("health");
         }
 
+        // Machine traffic that arrives from a handful of shared addresses: Meta's webhook
+        // deliveries, and open/click tracking hits, which Gmail and Outlook fetch through their
+        // image proxies. A per-IP limit would throttle inbound WhatsApp and silently drop opens
+        // at exactly the volume a bank campaign produces. Both are cheap and idempotent, and the
+        // webhook is signature-verified.
+        if (context.Request.Path.StartsWithSegments("/api/webhook") || context.Request.Path.StartsWithSegments("/api/t"))
+        {
+            return RateLimitPartition.GetNoLimiter("machine");
+        }
+
         return RateLimitPartition.GetFixedWindowLimiter(PartitionKey(context), _ =>
             new FixedWindowRateLimiterOptions
             {
@@ -518,24 +636,52 @@ builder.Services.AddResponseCompression(options =>
 
 // 3e. Health checks — how a load balancer decides to drain this node.
 builder.Services.AddHealthChecks()
-    .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "ready" });
+    .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "ready" })
+    .AddCheck<QueueHealthCheck>("job-queue", tags: new[] { "ready" });
 
 // 4. Configure CORS
-// AllowAnyOrigin stays valid because auth uses a bearer header rather than cookies —
-// AllowAnyOrigin and AllowCredentials cannot be combined, so a cookie scheme would force
-// an explicit origin list here.
+// An explicit origin allow-list from Cors:AllowedOrigins. A wildcard is not acceptable for a
+// banking deployment, and it also broke the SignalR negotiate request: the browser client sends
+// credentials, and a credentialed request is refused when the answer is "*".
+//
+// With no list configured, Development still accepts any localhost origin (the Vite dev server
+// runs on a different port from the API); any other environment then accepts same-origin calls
+// only, which is correct when the SPA is served from the API's own host.
+var allowedOrigins = (builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>())
+    .Where(o => !string.IsNullOrWhiteSpace(o))
+    .Select(o => o.Trim().TrimEnd('/'))
+    .ToArray();
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend",
-        policy => policy
-            .AllowAnyOrigin()
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        if (allowedOrigins.Length > 0)
+        {
+            policy.WithOrigins(allowedOrigins);
+        }
+        else if (builder.Environment.IsDevelopment())
+        {
+            policy.SetIsOriginAllowed(origin =>
+                Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+                && (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)));
+        }
+        else
+        {
+            policy.SetIsOriginAllowed(_ => false);
+        }
+
+        policy
             .AllowAnyMethod()
             .AllowAnyHeader()
+            .AllowCredentials()
             // AllowAnyHeader covers REQUEST headers only. A cross-origin response exposes just
             // the CORS-safelisted headers to JavaScript unless named here — so without this the
             // file downloads could read no Content-Disposition and every export saved under a
             // generic client-side fallback name instead of the server's timestamped one.
-            .WithExposedHeaders("Content-Disposition"));
+            .WithExposedHeaders("Content-Disposition", "X-Total-Count", "X-Next-Cursor")
+            .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
+    });
 });
 
 // 4b. Authentication (JWT bearer)
@@ -570,6 +716,45 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             NameClaimType = AuthClaims.Name,
             RoleClaimType = AuthClaims.RoleName
         };
+
+        options.Events = new JwtBearerEvents
+        {
+            // Every request re-checks that the session is still valid: the account is active and
+            // its security stamp matches the token's. A password change, deactivation or role
+            // change therefore ends existing sessions immediately, not when their tokens expire.
+            OnTokenValidated = async context =>
+            {
+                var principal = context.Principal;
+                if (!int.TryParse(principal?.FindFirst(AuthClaims.UserId)?.Value, out var userId))
+                {
+                    context.Fail("The token has no user id.");
+                    return;
+                }
+
+                var stamps = context.HttpContext.RequestServices.GetRequiredService<ISecurityStampCache>();
+                var (active, stamp) = await stamps.GetAsync(userId, context.HttpContext.RequestAborted);
+                var tokenStamp = principal!.FindFirst(AuthClaims.SecurityStamp)?.Value;
+
+                if (!active || stamp is null || !string.Equals(stamp, tokenStamp, StringComparison.Ordinal))
+                {
+                    context.Fail("The session has ended.");
+                }
+            },
+
+            // Browsers cannot set an Authorization header on a WebSocket or EventSource request,
+            // so the SignalR client sends the token as ?access_token=. Accepted on hub paths only;
+            // everywhere else a token in a URL would end up in proxy and access logs.
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(accessToken) && context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -581,16 +766,33 @@ builder.Services.AddAuthorization();
 // both reject the request before any controller runs -- so a large upload surfaced as a bare
 // network error with nothing to explain it. Raised to the single limit the endpoint declares, so
 // the transport, the form reader and the action attribute all agree.
+//
+// The large limit is granted per endpoint ([RequestSizeLimit] on the CSV and media uploads), not
+// globally: a 256 MB ceiling on every route let any authenticated caller tie up memory and
+// bandwidth with an oversized body to an endpoint that expects a few kilobytes.
 builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
 {
-    options.Limits.MaxRequestBodySize = WhatsAppCampaignApi.Helpers.CsvUploadLimits.MaxBytes;
+    options.Limits.MaxRequestBodySize = builder.Configuration.GetValue<long>("Limits:MaxRequestBodyBytes", 30L * 1024 * 1024);
+    options.Limits.MaxRequestHeadersTotalSize = 64 * 1024;
+    options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
+    options.AddServerHeader = false;
 });
 
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = WhatsAppCampaignApi.Helpers.CsvUploadLimits.MaxBytes;
-    options.ValueLengthLimit = int.MaxValue;
-    options.MemoryBufferThreshold = int.MaxValue;
+    options.ValueLengthLimit = 4 * 1024 * 1024;
+
+    // Uploads above 64 KB are buffered to a temp file rather than held in memory; the previous
+    // int.MaxValue kept every multipart upload entirely in RAM.
+    options.MemoryBufferThreshold = 64 * 1024;
+});
+
+// HSTS for production: browsers refuse plain HTTP to this host for a year once seen.
+builder.Services.AddHsts(options =>
+{
+    options.MaxAge = TimeSpan.FromDays(365);
+    options.IncludeSubDomains = true;
 });
 
 builder.Services.AddControllers(options =>
@@ -599,6 +801,8 @@ builder.Services.AddControllers(options =>
     // Gates the pre-auth controllers. Inert until Auth:EnforceOnLegacyEndpoints is turned on,
     // so no existing endpoint changes behaviour today.
     options.Filters.Add<LegacyAuthGateFilter>();
+    // A user flagged to change their password may do only that until they have.
+    options.Filters.Add<MustChangePasswordFilter>();
 });
 
 // Register FluentValidation.
@@ -608,22 +812,37 @@ builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<CreateContactValidator>();
 builder.Services.AddScoped<ContactLookupValidatorCache>();
 
-// SignalR — real-time campaign progress updates.
-// No Redis backplane now; add one here when horizontal scaling requires it:
-// .AddStackExchangeRedis(connectionString)
-// No code changes to CampaignHub or EventPublisherConsumer are needed when that happens.
-builder.Services.AddSignalR(options =>
+// SignalR — real-time campaign progress and inbox updates.
+// With more than one API instance, set SignalR:Redis to a Redis connection string so a message
+// published on one node reaches clients connected to another. Single-node deployments leave it
+// empty and need nothing else.
+var signalR = builder.Services.AddSignalR(options =>
 {
     // Keep-alive: detect dead connections faster than the default 15s interval.
     options.KeepAliveInterval = TimeSpan.FromSeconds(10);
     options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+    // Clients only ever send small method calls (JoinCampaign); cap what one may send.
+    options.MaximumReceiveMessageSize = 32 * 1024;
 });
+
+var signalRRedis = builder.Configuration["SignalR:Redis"];
+if (!string.IsNullOrWhiteSpace(signalRRedis))
+{
+    signalR.AddStackExchangeRedis(signalRRedis, redis =>
+    {
+        redis.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal("wabaconnect");
+    });
+}
 
 // 5. Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+
+// A wrong Encryption:Key would otherwise start cleanly and then fail every send that needs a
+// stored credential. Checked once, before any worker takes work.
+await EncryptionKeyGuard.VerifyAsync(app.Services);
 
 // Configure the HTTP request pipeline.
 //
@@ -679,7 +898,14 @@ app.UseSerilogRequestLogging(options =>
     };
 });
 
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
 
 if (app.Environment.IsDevelopment())
 {
@@ -693,7 +919,37 @@ if (app.Environment.IsDevelopment())
 app.UseResponseCompression();
 
 app.UseCors("AllowFrontend");
-app.UseStaticFiles();
+
+// Customer CSV uploads used to be saved under wwwroot/uploads/csv, where anyone with a link could
+// download them. New uploads go to private storage; older files there are refused outright.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/uploads/csv", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    await next();
+});
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    // Uploaded files are data, not pages: anything that is not an image is delivered as a
+    // download, so a document can never be rendered in the browser in our origin's context.
+    OnPrepareResponse = ctx =>
+    {
+        if (!ctx.Context.Request.Path.StartsWithSegments("/uploads")) return;
+
+        var contentType = ctx.Context.Response.ContentType ?? string.Empty;
+        if (!contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Context.Response.Headers.ContentDisposition = "attachment";
+        }
+
+        ctx.Context.Response.Headers.CacheControl = "private, max-age=3600";
+    }
+});
 // Order matters: authentication populates HttpContext.User, which authorization then reads.
 app.UseAuthentication();
 app.UseAuthorization();
@@ -709,23 +965,35 @@ if (rateLimitingEnabled)
 // Unauthenticated by design: a load balancer has no credentials, and a health endpoint that needs
 // a token cannot do its job. The body is deliberately thin — status, per-check state and latency,
 // nothing about why a check failed, since anyone can read it.
-app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+//   /health/live  — the process is up (no dependencies): restart it if this fails.
+//   /health/ready — the database answers and the queue is not backed up: route traffic to it.
+//   /health       — everything, for dashboards.
+static Task WriteHealthAsync(HttpContext context, Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)
 {
-    ResponseWriter = async (context, report) =>
+    context.Response.ContentType = "application/json";
+    return context.Response.WriteAsync(JsonSerializer.Serialize(new
     {
-        context.Response.ContentType = "application/json";
-        await context.Response.WriteAsync(JsonSerializer.Serialize(new
+        status = report.Status.ToString(),
+        totalDurationMs = (int)report.TotalDuration.TotalMilliseconds,
+        checks = report.Entries.Select(entry => new
         {
-            status = report.Status.ToString(),
-            totalDurationMs = (int)report.TotalDuration.TotalMilliseconds,
-            checks = report.Entries.Select(entry => new
-            {
-                name = entry.Key,
-                status = entry.Value.Status.ToString(),
-                durationMs = (int)entry.Value.Duration.TotalMilliseconds
-            })
-        }));
-    }
+            name = entry.Key,
+            status = entry.Value.Status.ToString(),
+            durationMs = (int)entry.Value.Duration.TotalMilliseconds
+        })
+    }));
+}
+
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions { ResponseWriter = WriteHealthAsync });
+app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false,
+    ResponseWriter = WriteHealthAsync
+});
+app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready"),
+    ResponseWriter = WriteHealthAsync
 });
 
 app.MapControllers();
@@ -798,9 +1066,9 @@ static string DescribeEmailConfigurationProblem(IConfiguration configuration)
 
     if (string.IsNullOrWhiteSpace(configuration["Email:Unsubscribe:PublicBaseUrl"]))
     {
-        problems.Add("Email:Unsubscribe:PublicBaseUrl is not set. It is the address recipients "
-                   + "reach to unsubscribe, so it has to be a URL that resolves from outside this "
-                   + "machine \u2014 for local development, http://localhost:5255.");
+        problems.Add("Email:Unsubscribe:PublicBaseUrl is not set. Set App:PublicBaseUrl (it is used for "
+                   + "unsubscribe, tracking and media links) to a URL that resolves from outside this "
+                   + "machine \u2014 appsettings.Development.json sets http://localhost:5155 for local runs.");
     }
 
     if (problems.Count == 0)
@@ -808,9 +1076,8 @@ static string DescribeEmailConfigurationProblem(IConfiguration configuration)
         // The remaining rules are about the queue and inbound handling, and each is a relationship
         // between two values rather than a missing one.
         problems.Add("Check that Email:Queue:MaxBackoffSeconds is at least "
-                   + "Email:Queue:BaseBackoffSeconds, that Email:Queue:PerPartitionCap does not "
-                   + "exceed Email:Queue:ClaimBatchSize, and that SES inbound handling has at least "
-                   + "one entry in Email:Ses:AllowedSnsTopicArns (not required for SMTP/IMAP).");
+                   + "Email:Queue:BaseBackoffSeconds, and that Email:Queue:PerPartitionCap does not "
+                   + "exceed Email:Queue:ClaimBatchSize.");
     }
 
     return "Email:Enabled is true but the email configuration is incomplete. "

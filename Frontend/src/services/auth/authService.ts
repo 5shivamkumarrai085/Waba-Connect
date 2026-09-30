@@ -1,4 +1,4 @@
-import { apiClient } from '../apiClient'
+import { apiClient, REFRESH_TOKEN_STORAGE_KEY } from '../apiClient'
 import type { ChangePasswordPayload, CurrentUser, LoginPayload, LoginResult } from '../../types/auth'
 
 /**
@@ -15,29 +15,30 @@ export const authService = {
 
   /**
    * Re-reads the signed-in user and their current permissions. Called on app start to
-   * revalidate a stored token, and after a password change.
+   * revalidate a stored session, and after a password change.
    */
   getCurrentUser: async (): Promise<CurrentUser> => {
-    // Deliberately apiClient.request, not apiClient.get: the patched getter dedupes by URL and
-    // would hand a session-restore call the response from an unrelated in-flight /auth/me. It
-    // also aborts in-flight GETs on sign-in via resetApiClientCaches() — which is exactly when
-    // this call runs, so routing it through the patch would cancel the request the login flow
-    // is waiting on. Every other GET does want the patch; this one is the deliberate exception.
+    // apiClient.request rather than the de-duplicated get: this runs right after sign-in, when
+    // the session reset aborts in-flight GETs, and must not be one of them.
     const response = await apiClient.request({ method: 'GET', url: '/auth/me' })
     return response.data?.data as CurrentUser
   },
 
-  changePassword: async (payload: ChangePasswordPayload): Promise<void> => {
-    await apiClient.post('/auth/change-password', payload)
+  /** Changes the password. The server ends every other session and returns fresh tokens. */
+  changePassword: async (payload: ChangePasswordPayload): Promise<LoginResult> => {
+    const response = await apiClient.post('/auth/change-password', payload)
+    return response.data?.data as LoginResult
   },
 
   logout: async (): Promise<void> => {
-    // Best-effort: tokens are stateless, so the client discarding its copy is what actually
-    // ends the session. The call exists so the event reaches the audit trail.
+    // Revokes this session's refresh token on the server, so it can never mint another access
+    // token. Best-effort: signing out locally must succeed even when the server is unreachable.
     try {
-      await apiClient.post('/auth/logout')
+      await apiClient.post('/auth/logout', {
+        refreshToken: localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY) ?? undefined,
+      })
     } catch {
-      // An expired token is the most likely failure and is irrelevant here.
+      // An expired session is the most likely failure and is irrelevant here.
     }
-  }
+  },
 }

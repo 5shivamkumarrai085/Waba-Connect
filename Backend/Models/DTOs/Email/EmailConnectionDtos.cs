@@ -49,27 +49,9 @@ public class CreateEmailConnectionRequest
 /// </summary>
 public class SaveEmailProviderRequest
 {
-    /// <summary>"AmazonSes" or "Smtp".</summary>
-    [Required, MaxLength(40)]
-    public string Provider { get; set; } = "AmazonSes";
-
-    // ── Amazon SES ───────────────────────────────────────────────────────────────────────────
+    /// <summary>The transport. Standard SMTP is the only one; the field stays for API stability.</summary>
     [MaxLength(40)]
-    public string? Region { get; set; }
-
-    /// <summary>"IamRole" or "AccessKey". IamRole stores nothing and is preferred in production.</summary>
-    [MaxLength(20)]
-    public string? AuthMode { get; set; }
-
-    [MaxLength(200)]
-    public string? AccessKeyId { get; set; }
-
-    /// <summary>Write-only. Blank means "keep the stored key".</summary>
-    [MaxLength(500)]
-    public string? SecretAccessKey { get; set; }
-
-    [MaxLength(100)]
-    public string? ConfigurationSet { get; set; }
+    public string Provider { get; set; } = nameof(Enums.EmailProviderType.Smtp);
 
     // ── SMTP ─────────────────────────────────────────────────────────────────────────────────
     [MaxLength(255)]
@@ -93,9 +75,9 @@ public class SaveEmailProviderRequest
 
     /// <summary>
     /// Messages per second. Left empty, the configured default applies — deliberately not
-    /// "unlimited", because an unbounded rate is how an SES account gets throttled.
+    /// "unlimited", because an unbounded rate is how a mail account gets throttled.
     /// </summary>
-    [Range(0.1, 1000)]
+    [Range(Services.Catalogs.EmailConnectionCatalog.MinSendRatePerSecond, Services.Catalogs.EmailConnectionCatalog.MaxSendRatePerSecond)]
     public decimal? MaxSendRatePerSecond { get; set; }
 
     [MaxLength(200)]
@@ -162,27 +144,18 @@ public class EmailConnectionResponse
     public string Provider { get; set; } = string.Empty;
     public bool IsActive { get; set; }
 
-    public string? Region { get; set; }
-    public string AuthMode { get; set; } = string.Empty;
-
-    /// <summary>Not a secret — the key id is an identifier, and showing it lets an operator
-    /// confirm which credential is in use.</summary>
-    public string? AccessKeyId { get; set; }
-
-    /// <summary>
-    /// Whether a secret is stored. The value itself is never returned: the reference UI rendered
-    /// live credentials into a readable input, which puts a working key in front of anyone who
-    /// can open the page or screenshot it.
-    /// </summary>
-    public bool HasSecretAccessKey { get; set; }
-
-    public string? ConfigurationSet { get; set; }
-
     public string? SmtpHost { get; set; }
     public int? SmtpPort { get; set; }
     public string? SmtpSecurity { get; set; }
     public string? SmtpUsername { get; set; }
     public bool HasSmtpPassword { get; set; }
+
+    /// <summary>
+    /// False when a stored password (SMTP or IMAP) cannot be decrypted with this server's key, so
+    /// the page can ask for it to be re-entered before a send fails. The password itself is never
+    /// returned.
+    /// </summary>
+    public bool CredentialsReadable { get; set; } = true;
 
     // ── IMAP (inbound reply polling) ─────────────────────────────────────────────────────────
     public string? ImapHost { get; set; }
@@ -190,6 +163,19 @@ public class EmailConnectionResponse
     public string? ImapSecurity { get; set; }
     public string? ImapUsername { get; set; }
     public bool HasImapPassword { get; set; }
+    public bool ImapAllowInvalidCertificate { get; set; }
+
+    /// <summary>
+    /// The mailbox replies are actually read from: the saved IMAP host, or the one derived from the
+    /// SMTP host when none is saved. Null when this connection cannot receive replies.
+    /// </summary>
+    public string? EffectiveImapHost { get; set; }
+
+    /// <summary>True when <see cref="EffectiveImapHost"/> was derived rather than saved.</summary>
+    public bool ImapHostIsDerived { get; set; }
+
+    public DateTime? ImapLastPolledAt { get; set; }
+    public string? ImapLastError { get; set; }
 
     public decimal? MaxSendRatePerSecond { get; set; }
     public string? DefaultFromName { get; set; }
@@ -213,7 +199,6 @@ public class EmailConnectionResponse
     public EmailProviderCapabilitiesResponse? Capabilities { get; set; }
 
     public List<EmailSenderIdentityResponse> Senders { get; set; } = [];
-    public List<EmailSendingDomainResponse> Domains { get; set; } = [];
 
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -237,9 +222,6 @@ public class EmailSenderIdentityResponse
     public string? ReplyTo { get; set; }
     public bool IsDefault { get; set; }
     public bool IsActive { get; set; }
-    public string VerificationStatus { get; set; } = string.Empty;
-    public int? SendingDomainId { get; set; }
-    public string? DomainName { get; set; }
 
     /// <summary>
     /// Whether this sender may actually be used. Campaigns check the same rule server-side; this
@@ -247,36 +229,6 @@ public class EmailSenderIdentityResponse
     /// </summary>
     public bool CanSend { get; set; }
 }
-
-public class EmailSendingDomainResponse
-{
-    public int Id { get; set; }
-    public string DomainName { get; set; } = string.Empty;
-    public string VerificationStatus { get; set; } = string.Empty;
-    public string DkimStatus { get; set; } = string.Empty;
-    public string? MailFromDomain { get; set; }
-    public string MailFromStatus { get; set; } = string.Empty;
-    public DateTime? LastCheckedAt { get; set; }
-    public string? LastCheckMessage { get; set; }
-
-    /// <summary>The DNS records that still need publishing, for the setup screen.</summary>
-    public List<DnsRecordResponse> RequiredDnsRecords { get; set; } = [];
-}
-
-/// <param name="Type">"CNAME", "TXT" or "MX".</param>
-/// <param name="Name">Host name to create.</param>
-/// <param name="Value">Value to publish.</param>
-/// <param name="Purpose">"DKIM", "SPF", "DMARC" or "MAIL FROM" — what breaks without it.</param>
-/// <param name="Required">
-/// False for records that improve deliverability but are not needed to send, so the UI can
-/// separate "do this now" from "do this soon".
-/// </param>
-public record DnsRecordResponse(
-    string Type,
-    string Name,
-    string Value,
-    string Purpose,
-    bool Required = true);
 
 public class EmailProviderTestResponse
 {
@@ -307,4 +259,10 @@ public class SaveImapSettingsRequest
     /// <summary>Write-only. Defaults to SMTP password when blank.</summary>
     [MaxLength(500)]
     public string? ImapPassword { get; set; }
+
+    /// <summary>
+    /// Accept a certificate that fails validation. Only for mail hosts that present a certificate
+    /// for another name (common on shared hosting); leave off otherwise. Null keeps the saved value.
+    /// </summary>
+    public bool? ImapAllowInvalidCertificate { get; set; }
 }

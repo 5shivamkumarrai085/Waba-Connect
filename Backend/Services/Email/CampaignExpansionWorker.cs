@@ -126,7 +126,7 @@ public class CampaignExpansionWorker : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var suppression = scope.ServiceProvider.GetRequiredService<IEmailSuppressionService>();
-        var domains = scope.ServiceProvider.GetRequiredService<IEmailDomainService>();
+        var senderGate = scope.ServiceProvider.GetRequiredService<IEmailSenderGate>();
         var executionGate = scope.ServiceProvider.GetRequiredService<ICampaignExecutionGate>();
 
         try
@@ -198,7 +198,7 @@ public class CampaignExpansionWorker : BackgroundService
 
             // The send gate. Checked once here so a misconfigured campaign fails immediately and
             // with an explanation, rather than producing one identical failure per recipient.
-            var (canSend, reason) = await domains.CanSenderSendAsync(detail.SenderIdentityId, ct);
+            var (canSend, reason) = await senderGate.CanSenderSendAsync(detail.SenderIdentityId, ct);
             if (!canSend)
             {
                 await FailCampaignAsync(dbContext, campaign, reason ?? "The sender cannot send.", ct);
@@ -211,7 +211,15 @@ public class CampaignExpansionWorker : BackgroundService
             campaign.Status = CampaignStatus.Sending;
             await dbContext.SaveChangesAsync(ct);
 
-            var enqueued = await ExpandAsync(dbContext, suppression, campaign, lease, ct);
+            // Segment audiences are re-resolved now, at send time, so the campaign reaches the
+            // segment as it is today rather than as it was when the campaign was created.
+            await WhatsAppCampaignApi.Services.Segments.CampaignAudienceRefresher.RefreshAsync(
+                dbContext, scope.ServiceProvider.GetRequiredService<WhatsAppCampaignApi.Services.Segments.ISegmentService>(), campaign, ct);
+
+            // A/B tests: recipients who joined a segment since creation get a variant (or the winner).
+            await WhatsAppCampaignApi.Services.Campaigns.AbTestService.AssignLateJoinersAsync(dbContext, campaign, ct);
+
+            var enqueued = await ExpandAsync(dbContext, suppression, campaign, job.RunId, lease, ct);
 
             _logger.LogInformation(
                 "Campaign {CampaignId} expanded: {Enqueued} send job(s) queued.", campaign.Id, enqueued);
@@ -238,6 +246,7 @@ public class CampaignExpansionWorker : BackgroundService
         AppDbContext dbContext,
         IEmailSuppressionService suppression,
         Campaign campaign,
+        string? runId,
         QueueLease lease,
         CancellationToken ct)
     {
@@ -248,6 +257,7 @@ public class CampaignExpansionWorker : BackgroundService
         // Resolve the tracking service for generating per-recipient tracking IDs
         using var trackingScope = _scopeFactory.CreateScope();
         var trackingService = trackingScope.ServiceProvider.GetRequiredService<IEmailTrackingService>();
+        var compliance = trackingScope.ServiceProvider.GetRequiredService<Compliance.IComplianceGuard>();
 
         var totalEnqueued = 0;
         var lastId = 0;
@@ -261,7 +271,8 @@ public class CampaignExpansionWorker : BackgroundService
                 .IgnoreQueryFilters()
                 .Where(cc => cc.CampaignId == campaign.Id
                           && cc.Id > lastId
-                          && cc.Status == MessageStatus.Pending)
+                          && cc.Status == MessageStatus.Pending
+                          && !cc.HeldForWinner)
                 .OrderBy(cc => cc.Id)
                 .Take(pageSize)
                 .Select(cc => new
@@ -270,7 +281,8 @@ public class CampaignExpansionWorker : BackgroundService
                     cc.ContactId,
                     Email = cc.Contact.Email,
                     cc.Contact.IsActive,
-                    cc.Contact.IsDeleted
+                    cc.Contact.IsDeleted,
+                    cc.Contact.TimeZone
                 })
                 .ToListAsync(ct);
 
@@ -286,7 +298,7 @@ public class CampaignExpansionWorker : BackgroundService
 
             var suppressed = await suppression.FilterSuppressedAsync(addresses, campaign.ConnectionId, ct);
 
-            var messages = new List<QueueMessage>(batchSize);
+            var sendable = new List<int>(page.Count);
             var skipped = new List<(int Id, MessageStatus Status, string Reason)>();
 
             foreach (var recipient in page)
@@ -315,57 +327,71 @@ public class CampaignExpansionWorker : BackgroundService
                     continue;
                 }
 
-                messages.Add(new QueueMessage
-                {
-                    QueueName = QueueNames.EmailSend,
-                    Payload = JsonSerializer.Serialize(new EmailSendJob(campaign.Id, recipient.Id)),
-                    IdempotencyKey = $"send:campaign:{campaign.Id}:recipient:{recipient.Id}",
-                    PartitionKey = campaign.Id.ToString()
-                });
-
-                // Generate a tracking ID for this recipient if not already set.
-                // This is done at expansion time (not send time) so the tracking URL is stable
-                // across retries — the same URL regardless of how many times the job is retried.
-                // The page query above is a projection (no TrackingId), so we load the entity to update it.
-                var recipientRow = await dbContext.CampaignContacts
-                    .IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(cc => cc.Id == recipient.Id, ct);
-                if (recipientRow is not null && string.IsNullOrEmpty(recipientRow.TrackingId))
-                {
-                    recipientRow.TrackingId = trackingService.GenerateTrackingId();
-                }
-
-                if (messages.Count >= batchSize)
-                {
-                    totalEnqueued += (await _queue.EnqueueAsync(messages, ct)).Enqueued;
-                    messages.Clear();
-
-                    // Expanding a very large campaign can outlast the visibility timeout. The
-                    // heartbeat keeps the lease alive; losing it means another worker has taken
-                    // over, so this one stops rather than competing with it.
-                    if (!await _queue.ExtendLeaseAsync(lease, TimeSpan.FromSeconds(
-                        _options.CurrentValue.Queue.VisibilityTimeoutSeconds), ct))
-                    {
-                        _logger.LogWarning(
-                            "Lost the expansion lease for campaign {CampaignId} mid-run; another worker has it.",
-                            campaign.Id);
-                        return totalEnqueued;
-                    }
-                }
+                sendable.Add(recipient.Id);
             }
 
-            // Save any generated TrackingIds for the batch
-            await dbContext.SaveChangesAsync(ct);
+            // Compliance: consent, the frequency cap, and when each recipient may be sent to (a
+            // local-time schedule, quiet hours). Excluded recipients are Skipped with the reason.
+            var decisions = await compliance.EvaluateAsync(
+                campaign,
+                page.Where(r => sendable.Contains(r.Id))
+                    .Select(r => new Compliance.ComplianceCandidate(r.Id, r.ContactId, r.TimeZone))
+                    .ToList(),
+                DateTime.UtcNow,
+                ct);
 
-            if (messages.Count > 0)
+            foreach (var (recipientId, decision) in decisions)
             {
+                if (!decision.IsExcluded) continue;
+                sendable.Remove(recipientId);
+                skipped.Add((recipientId, MessageStatus.Skipped, decision.ExclusionReason!));
+            }
+
+            // Tracking ids are assigned for the whole page in one statement, and BEFORE any job
+            // for the page is enqueued. The old order (enqueue every hundred, save ids at the end
+            // of the page) let a send worker mint its own id and mail it, only for this save to
+            // overwrite it — so that recipient's opens and clicks matched nothing.
+            await AssignTrackingIdsAsync(dbContext, sendable, trackingService, ct);
+
+            foreach (var chunk in sendable.Chunk(batchSize))
+            {
+                var messages = chunk.Select(id => new QueueMessage
+                {
+                    QueueName = QueueNames.EmailSend,
+                    Payload = JsonSerializer.Serialize(new EmailSendJob(campaign.Id, id)),
+                    // Per run, so a resumed campaign can queue recipients whose earlier job ended
+                    // while it was paused. The dispatch worker's compare-and-set on the recipient
+                    // is what guarantees nobody is mailed twice.
+                    IdempotencyKey = runId is null
+                        ? $"send:campaign:{campaign.Id}:recipient:{id}"
+                        : $"send:campaign:{campaign.Id}:recipient:{id}:{runId}",
+                    PartitionKey = campaign.Id.ToString(),
+                    AvailableAt = decisions.TryGetValue(id, out var timing) ? timing.NotBeforeUtc : null
+                }).ToList();
+
                 totalEnqueued += (await _queue.EnqueueAsync(messages, ct)).Enqueued;
+
+                // Expanding a very large campaign can outlast the visibility timeout. The
+                // heartbeat keeps the lease alive; losing it means another worker has taken
+                // over, so this one stops rather than competing with it.
+                if (!await _queue.ExtendLeaseAsync(lease, TimeSpan.FromSeconds(
+                    _options.CurrentValue.Queue.VisibilityTimeoutSeconds), ct))
+                {
+                    _logger.LogWarning(
+                        "Lost the expansion lease for campaign {CampaignId} mid-run; another worker has it.",
+                        campaign.Id);
+                    return totalEnqueued;
+                }
             }
 
             if (skipped.Count > 0)
             {
                 await MarkSkippedAsync(dbContext, skipped, ct);
             }
+
+            // Nothing from this page is needed again; keep the change tracker from growing with
+            // every page of a million-recipient campaign.
+            dbContext.ChangeTracker.Clear();
 
             // A short page means the end of the recipients.
             if (page.Count < pageSize) break;
@@ -375,70 +401,68 @@ public class CampaignExpansionWorker : BackgroundService
         return totalEnqueued;
     }
 
+    /// <summary>Gives every recipient in <paramref name="recipientIds"/> a tracking id, if it has none.</summary>
+    private static async Task AssignTrackingIdsAsync(
+        AppDbContext dbContext,
+        IReadOnlyList<int> recipientIds,
+        IEmailTrackingService trackingService,
+        CancellationToken ct)
+    {
+        if (recipientIds.Count == 0) return;
+
+        var ids = recipientIds.ToArray();
+        var tokens = ids.Select(_ => trackingService.GenerateTrackingId()).ToArray();
+
+        // Set-based and conditional: one round trip per page, and an id that already exists (a
+        // re-expansion after a crash) is never replaced, so links already mailed keep working.
+        await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE "CampaignContacts" cc
+               SET "TrackingId" = t.tracking_id
+              FROM unnest({ids}::int[], {tokens}::text[]) AS t(id, tracking_id)
+             WHERE cc."Id" = t.id
+               AND cc."TrackingId" IS NULL
+            """, ct);
+    }
+
     private static async Task MarkSkippedAsync(
         AppDbContext dbContext,
         List<(int Id, MessageStatus Status, string Reason)> skipped,
         CancellationToken ct)
     {
-        var ids = skipped.Select(s => s.Id).ToList();
-
-        var rows = await dbContext.CampaignContacts
-            .IgnoreQueryFilters()
-            .Where(cc => ids.Contains(cc.Id))
-            .ToListAsync(ct);
-
-        var byId = skipped.ToDictionary(s => s.Id);
-
-        foreach (var row in rows)
+        // One UPDATE per distinct outcome instead of loading every row.
+        foreach (var group in skipped.GroupBy(s => (s.Status, s.Reason)))
         {
-            if (!byId.TryGetValue(row.Id, out var skip)) continue;
+            var ids = group.Select(s => s.Id).ToList();
+            var status = group.Key.Status;
+            var reason = group.Key.Reason.Length > 500 ? group.Key.Reason[..500] : group.Key.Reason;
 
-            row.Status = skip.Status;
-            row.ErrorMessage = skip.Reason.Length > 500 ? skip.Reason[..500] : skip.Reason;
+            await dbContext.CampaignContacts
+                .IgnoreQueryFilters()
+                .Where(cc => ids.Contains(cc.Id) && cc.Status == MessageStatus.Pending)
+                .ExecuteUpdateAsync(u => u
+                    .SetProperty(cc => cc.Status, status)
+                    .SetProperty(cc => cc.ErrorMessage, reason), ct);
         }
-
-        await dbContext.SaveChangesAsync(ct);
     }
 
     /// <summary>
-    /// Recomputes the campaign's counters from the recipient rows.
-    ///
-    /// <para>
-    /// Derived rather than incremented. Incrementing a counter from several workers is exactly the
-    /// kind of arithmetic that drifts, and a campaign whose header disagrees with its recipient
-    /// list is the bug this project has already had once on the WhatsApp side.
-    /// </para>
+    /// Sets the recipient total, reconciles the counters from the recipient rows (the skipped ones
+    /// were never events), and finishes the campaign if nothing is left to send — which is the
+    /// only way a campaign whose every recipient was skipped ever reaches a final status.
     /// </summary>
     private static async Task RecalculateTotalsAsync(AppDbContext dbContext, int campaignId, CancellationToken ct)
     {
-        var counts = await dbContext.CampaignContacts
+        var total = await dbContext.CampaignContacts
             .IgnoreQueryFilters()
-            .Where(cc => cc.CampaignId == campaignId)
-            .GroupBy(cc => cc.Status)
-            .Select(g => new { Status = g.Key, Count = g.Count() })
-            .ToListAsync(ct);
+            .CountAsync(cc => cc.CampaignId == campaignId, ct);
 
-        var campaign = await dbContext.Campaigns
+        await dbContext.Campaigns
             .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(c => c.Id == campaignId, ct);
+            .Where(c => c.Id == campaignId)
+            .ExecuteUpdateAsync(u => u.SetProperty(c => c.TotalRecipients, total), ct);
 
-        if (campaign is null) return;
-
-        int CountOf(MessageStatus status) => counts.FirstOrDefault(c => c.Status == status)?.Count ?? 0;
-
-        campaign.TotalRecipients = counts.Sum(c => c.Count);
-
-        // Delivered counts Delivered and Read, matching how the WhatsApp side already reports it,
-        // so one campaigns list can show both channels without two sets of rules.
-        campaign.DeliveredCount = CountOf(MessageStatus.Delivered) + CountOf(MessageStatus.Read);
-
-        // Bounces and complaints are failures for the header count. They are told apart from
-        // ordinary send failures in the email-specific stats, where the distinction is useful.
-        campaign.FailedCount = CountOf(MessageStatus.Failed)
-                             + CountOf(MessageStatus.Bounced)
-                             + CountOf(MessageStatus.Complained);
-
-        await dbContext.SaveChangesAsync(ct);
+        await CampaignFinalizer.ReconcileEmailCountersAsync(dbContext, campaignId, ct);
+        await CampaignFinalizer.TryFinalizeAsync(dbContext, campaignId, ct);
     }
 
     private static async Task FailCampaignAsync(
@@ -447,25 +471,22 @@ public class CampaignExpansionWorker : BackgroundService
         string reason,
         CancellationToken ct)
     {
-        campaign.Status = CampaignStatus.Failed;
+        var trimmed = reason.Length > 500 ? reason[..500] : reason;
+        var campaignId = campaign.Id;
 
         // Written onto every pending recipient too, so the reason is visible on the campaign's
-        // own detail screen rather than only in the logs.
-        var pending = await dbContext.CampaignContacts
+        // own detail screen rather than only in the logs. Set-based: a failed million-recipient
+        // campaign must not be loaded into memory to be marked failed.
+        await dbContext.CampaignContacts
             .IgnoreQueryFilters()
-            .Where(cc => cc.CampaignId == campaign.Id && cc.Status == MessageStatus.Pending)
-            .ToListAsync(ct);
+            .Where(cc => cc.CampaignId == campaignId && cc.Status == MessageStatus.Pending)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(cc => cc.Status, MessageStatus.Failed)
+                .SetProperty(cc => cc.ErrorMessage, trimmed), ct);
 
-        foreach (var recipient in pending)
-        {
-            recipient.Status = MessageStatus.Failed;
-            recipient.ErrorMessage = reason.Length > 500 ? reason[..500] : reason;
-        }
-
-        campaign.FailedCount = await dbContext.CampaignContacts
-            .IgnoreQueryFilters()
-            .CountAsync(cc => cc.CampaignId == campaign.Id && cc.Status == MessageStatus.Failed, ct);
-
+        campaign.Status = CampaignStatus.Failed;
         await dbContext.SaveChangesAsync(ct);
+
+        await CampaignFinalizer.ReconcileEmailCountersAsync(dbContext, campaignId, ct);
     }
 }

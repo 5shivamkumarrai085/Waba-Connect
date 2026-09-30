@@ -48,7 +48,7 @@ export const ConnectNewWabaPage: React.FC = () => {
     <motion.div className="waba-wizard-wrapper" {...pageTransitionProps}>
       <div className="waba-wizard-card">
         {/* Header */}
-        <div className="waba-wizard-header">
+        <div className="waba-wizard-header omni-page-hero form-card-hero">
           <h2 className="waba-wizard-title">Connect New WABA</h2>
           <button
             type="button"

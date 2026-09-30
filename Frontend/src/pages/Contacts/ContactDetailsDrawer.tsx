@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { ContactConsentPanel } from './ContactConsentPanel'
 import {
   AtSign,
   Building2,
@@ -15,8 +16,10 @@ import {
   Tag,
   User,
   UserCheck,
-  Users
+  Users,
+  ExternalLink,
 } from 'lucide-react'
+import { formatAbsoluteDateTime } from '../../utils/dateHelper'
 import { Modal } from '../../components/Modal/Modal'
 import { Stepper } from '../../components/Stepper/Stepper'
 import { DetailRow } from '../../components/AuditEventDetails/AuditEventDetails'
@@ -65,14 +68,16 @@ const has = (value?: string | null): boolean => (value ?? '').trim().length > 0
  * passes through, an id is looked up.
  */
 const labelFor = (
-  value: string | undefined,
-  options: { id: string; name: string }[]
+  value: string | number | null | undefined,
+  options: { id: string | number; name: string }[]
 ): string => {
-  const raw = (value ?? '').trim()
+  // Ids arrive as numbers for some lists (groups) and strings for others; compare as text. Calling
+  // .trim() on a number used to crash the whole drawer for any contact in a group.
+  const raw = String(value ?? '').trim()
   if (!raw) return EMPTY
 
   const match = options.find(
-    (option) => option.id === raw || option.name.toLowerCase() === raw.toLowerCase()
+    (option) => String(option.id) === raw || String(option.name ?? '').toLowerCase() === raw.toLowerCase()
   )
 
   // Falls back to the raw value rather than the dash: the option list may not have loaded, or the
@@ -109,7 +114,7 @@ export const ContactDetailsDrawer: React.FC<ContactDetailsDrawerProps> = ({
   contactId,
   onClose
 }) => {
-  const steps = ['Contact Details', 'Other Details', 'Notes']
+  const steps = ['Contact Details', 'Other Details', 'Notes', 'Consent']
   const [activeStep, setActiveStep] = useState(0)
 
   const [contact, setContact] = useState<any | null>(null)
@@ -225,7 +230,7 @@ export const ContactDetailsDrawer: React.FC<ContactDetailsDrawerProps> = ({
       placement="right"
       size="custom"
       title="Contact Details"
-      subtitle="Contact information, other details, and notes"
+      subtitle="Contact information, other details, notes and consent"
       showCloseButton
     >
       <div className="contact-drawer">
@@ -372,6 +377,10 @@ export const ContactDetailsDrawer: React.FC<ContactDetailsDrawerProps> = ({
                       {show(contact.country)}
                     </DetailRow>
 
+                    <DetailRow icon={<Globe size={15} />} tone="neutral" label="Time zone">
+                      {show(contact.timeZone)}
+                    </DetailRow>
+
                     <DetailRow icon={<Hash size={15} />} tone="neutral" label="Zip Code">
                       {show(contact.zipCode)}
                     </DetailRow>
@@ -397,6 +406,21 @@ export const ContactDetailsDrawer: React.FC<ContactDetailsDrawerProps> = ({
                     <DetailRow icon={<FileText size={15} />} tone="neutral" label="Description">
                       <span className="contact-drawer-prose">{show(contact.description)}</span>
                     </DetailRow>
+                    {(contact.adSourceId || contact.adHeadline) && (
+                      <DetailRow icon={<Globe size={15} />} tone="blue" label="Came from ad">
+                        <span className="contact-drawer-prose">
+                          {contact.adHeadline || `Ad ${contact.adSourceId}`}
+                          {contact.adSourceUrl && /^https:\/\//i.test(contact.adSourceUrl) && (
+                            <> · <a className="contact-ad-link" href={contact.adSourceUrl} target="_blank" rel="noopener noreferrer">
+                              Open the ad<ExternalLink size={12} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span>
+                            </a></>
+                          )}
+                          {contact.adAttributedAt && (
+                            <> · First contact <time dateTime={contact.adAttributedAt}>{formatAbsoluteDateTime(contact.adAttributedAt)}</time></>
+                          )}
+                        </span>
+                      </DetailRow>
+                    )}
                   </div>
                 </section>
               </div>
@@ -432,6 +456,9 @@ export const ContactDetailsDrawer: React.FC<ContactDetailsDrawerProps> = ({
                 </section>
               </div>
             )}
+
+            {/* ── Tab 4: Consent ─────────────────────────────────────────── */}
+            {activeStep === 3 && contactId !== null && <ContactConsentPanel contactId={contactId} />}
           </>
         )}
       </div>

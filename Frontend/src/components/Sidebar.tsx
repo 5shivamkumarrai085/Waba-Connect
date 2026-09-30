@@ -20,8 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
-  X
-} from 'lucide-react'
+  X, Filter } from 'lucide-react'
 import usePermission from '../hooks/usePermission'
 
 interface MenuItem {
@@ -77,6 +76,7 @@ export const Sidebar: React.FC = () => {
       '/connect-email': () => import('../pages/ConnectEmail/ConnectEmail'),
       '/connections/new-email': () => import('../pages/Connections/ConnectNewEmailPage'),
       '/contacts': () => import('../pages/Contacts/ContactsList'),
+      '/segments': () => import('../pages/Segments/SegmentsList'),
       '/templates': () => import('../pages/Templates/TemplatesList'),
       '/bulk-campaigns': () => import('../pages/BulkCampaign/BulkCampaign'),
       '/chat': () => import('../pages/Chat/Chat'),
@@ -104,6 +104,7 @@ export const Sidebar: React.FC = () => {
       title: 'Contact',
       items: [
         { name: 'Contact', path: '/contacts', icon: Users, permission: 'Contact.View' },
+        { name: 'Segments', path: '/segments', icon: Filter, permission: 'Segment.View' },
       ]
     },
     {

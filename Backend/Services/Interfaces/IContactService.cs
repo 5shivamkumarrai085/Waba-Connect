@@ -20,7 +20,9 @@ public interface IContactService
         string? source = null,
         int? groupId = null,
         DateTime? startDate = null,
-        DateTime? endDate = null);
+        DateTime? endDate = null,
+        string? tag = null,
+        string? groupName = null);
 
     /// <summary>
     /// Gets a single contact by ID.

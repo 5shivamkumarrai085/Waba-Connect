@@ -11,7 +11,8 @@ namespace WhatsAppCampaignApi.Services.Email;
 /// </para>
 /// </summary>
 /// <param name="CampaignId">The campaign to expand.</param>
-public sealed record CampaignExpansionJob(int CampaignId);
+/// <param name="RunId">Which run of the campaign this is; null for the original submission.</param>
+public sealed record CampaignExpansionJob(int CampaignId, string? RunId = null);
 
 /// <summary>
 /// One email to one recipient.
@@ -23,17 +24,3 @@ public sealed record CampaignExpansionJob(int CampaignId);
 /// </param>
 public sealed record EmailSendJob(int CampaignId, int CampaignContactId);
 
-/// <summary>
-/// One inbound email to parse and thread.
-/// </summary>
-/// <param name="SnsMessageId">Used to discard a redelivered SNS notification.</param>
-/// <param name="ProviderMessageId">The provider's id for the received message.</param>
-/// <param name="S3Bucket">Where the SES receipt rule wrote the raw MIME.</param>
-/// <param name="S3Key">The object key.</param>
-/// <param name="ConnectionId">Which connection received it, when it could be determined.</param>
-public sealed record InboundEmailJob(
-    string SnsMessageId,
-    string? ProviderMessageId,
-    string? S3Bucket,
-    string? S3Key,
-    int? ConnectionId);

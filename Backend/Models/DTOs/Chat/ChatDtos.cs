@@ -45,6 +45,16 @@ public class ChatConversationResponse
     public string? AvatarUrl { get; set; }
     public string? FromPhoneNumber { get; set; }
     public string? FromPhoneNumberId { get; set; }
+
+    /// <summary>Open, Pending, Resolved or Closed.</summary>
+    public string ConversationStatus { get; set; } = "Open";
+    public int? AssignedUserId { get; set; }
+    public string? AssignedUserName { get; set; }
+
+    /// <summary>When a first reply is due (null once answered, or when no SLA applies).</summary>
+    public DateTime? FirstResponseDueAt { get; set; }
+    public bool SlaBreached { get; set; }
+    public DateTime? ResolveDueAt { get; set; }
     public string? AssignedTo { get; set; }
     public string? Source { get; set; }
     public DateTime ContactCreatedAt { get; set; }
@@ -98,6 +108,12 @@ public class SendChatMessageRequest
     public string? MediaType { get; set; }
     public string? MediaFileName { get; set; }
     public int? ConnectionId { get; set; }
+
+    /// <summary>
+    /// Up to three reply buttons (20 characters each) under the text. Sent as a WhatsApp
+    /// interactive message, which is allowed inside the 24-hour customer service window.
+    /// </summary>
+    public List<string>? ReplyButtons { get; set; }
 }
 
 public class SendTemplateToContactRequest
@@ -151,4 +167,15 @@ public class EmailAttachmentDto
 
     /// <summary>Raw file bytes as a base64 string.</summary>
     public string Base64Data { get; set; } = string.Empty;
+}
+
+public class AssignConversationRequest
+{
+    /// <summary>The agent; null unassigns.</summary>
+    public int? UserId { get; set; }
+}
+
+public class ConversationStatusRequest
+{
+    public string Status { get; set; } = "Open";
 }

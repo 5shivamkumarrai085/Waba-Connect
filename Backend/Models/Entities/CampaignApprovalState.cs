@@ -44,6 +44,12 @@ public class CampaignApprovalState
     [MaxLength(1000)]
     public string? Reason { get; set; }
 
+    /// <summary>The user who submitted the campaign (the maker). The approver must be someone else.</summary>
+    public int? RequestedByUserId { get; set; }
+
+    /// <summary>The user who approved or rejected it (the checker).</summary>
+    public int? DecidedByUserId { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

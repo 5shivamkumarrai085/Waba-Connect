@@ -1,169 +1,296 @@
-import axios from 'axios';
+import axios, { type AxiosError, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios'
+
+/**
+ * The API origin. Configured per environment through VITE_API_BASE_URL; the localhost value is a
+ * development convenience only and is never what a production build should rely on.
+ */
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5155/api'
 
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5155/api',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
   /**
    * Axios ships with NO timeout — a request whose connection is accepted but never answered
-   * waits forever. That is how the app could hang on "Restoring your session…" indefinitely:
-   * the boot call to /auth/me had nothing to time it out, so a backend that was still starting
-   * (or a dropped connection) left the splash on screen with no error and no way forward.
-   *
-   * 60s is deliberately generous — some report and template endpoints are genuinely slow — but
-   * finite, so every request eventually settles and every caller's catch block eventually runs.
+   * waits forever. 60s is deliberately generous (some report endpoints are slow) but finite, so
+   * every request eventually settles and every caller's catch block eventually runs.
    */
   timeout: 60_000,
-});
+})
 
-/** Where the bearer token lives. Read directly here to avoid importing the auth store, which
- *  imports this module — a cycle that would leave `apiClient` undefined at module init. */
-export const AUTH_TOKEN_STORAGE_KEY = 'waba_auth_token';
+/** Where the tokens live. Read directly here to avoid importing the auth store, which imports
+ *  this module — a cycle that would leave `apiClient` undefined at module init. */
+export const AUTH_TOKEN_STORAGE_KEY = 'waba_auth_token'
+export const REFRESH_TOKEN_STORAGE_KEY = 'waba_refresh_token'
 
-let onUnauthorized: (() => void) | null = null;
+export interface SessionTokens {
+  token: string
+  refreshToken: string
+}
+
+interface SessionHandlers {
+  /** The session could not be renewed: sign the user out. */
+  onUnauthorized?: () => void
+  /** New tokens were issued by a refresh; keep the store in step. */
+  onTokensRefreshed?: (tokens: SessionTokens) => void
+  /** The server requires a password change before anything else. */
+  onPasswordChangeRequired?: () => void
+}
+
+let handlers: SessionHandlers = {}
+
+/** Registered once by the auth store; indirection avoids the store <-> client import cycle. */
+export const setSessionHandlers = (next: SessionHandlers) => {
+  handlers = next
+}
+
+/** Back-compat shim for the older single-handler registration. */
+export const setUnauthorizedHandler = (handler: (() => void) | null) => {
+  handlers = { ...handlers, onUnauthorized: handler ?? undefined }
+}
+
+export const storeSessionTokens = (tokens: SessionTokens | null) => {
+  if (tokens) {
+    localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, tokens.token)
+    localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refreshToken)
+  } else {
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+    localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY)
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * Token refresh
+ *
+ * Access tokens are short-lived (15 minutes). They are renewed with the single-use refresh token:
+ *  - proactively, just before expiry, so a request never goes out with a token about to lapse;
+ *  - reactively, once, when a request still comes back 401.
+ * Concurrent callers share one refresh ("single flight"): the refresh token is single-use, and two
+ * parallel refreshes would make the server treat the second as a replayed, stolen token.
+ * --------------------------------------------------------------------------------------------- */
+
+const REFRESH_MARGIN_MS = 60_000
+let refreshInFlight: Promise<string | null> | null = null
+
+/** Milliseconds-since-epoch expiry of a JWT, or null if it cannot be read. */
+const tokenExpiry = (token: string): number | null => {
+  try {
+    const payload = token.split('.')[1]
+    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof json.exp === 'number' ? json.exp * 1000 : null
+  } catch {
+    return null
+  }
+}
+
+const isAuthEndpoint = (url?: string) =>
+  !!url && /\/auth\/(login|refresh)(\?|$)/.test(url)
+
+/** Renews the session. Resolves to the new access token, or null when the session is over. */
+export const refreshSession = (): Promise<string | null> => {
+  if (refreshInFlight) return refreshInFlight
+
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)
+  if (!refreshToken) return Promise.resolve(null)
+
+  refreshInFlight = axios
+    .post(`${API_BASE_URL}/auth/refresh`, { refreshToken }, { timeout: 30_000 })
+    .then((response) => {
+      const data = response.data?.data
+      if (!data?.token || !data?.refreshToken) return null
+      const tokens = { token: data.token as string, refreshToken: data.refreshToken as string }
+      storeSessionTokens(tokens)
+      handlers.onTokensRefreshed?.(tokens)
+      return tokens.token
+    })
+    .catch(() => null)
+    .finally(() => {
+      refreshInFlight = null
+    })
+
+  return refreshInFlight
+}
 
 /**
- * Registers the callback fired on a 401. The auth store calls this once at startup.
- * Indirection rather than a direct import, again to avoid the store <-> client cycle.
+ * A token that is valid for at least the next minute, refreshing first if needed. Used by the
+ * request interceptor and by the SignalR client, whose WebSocket carries the token at connect.
  */
-export const setUnauthorizedHandler = (handler: (() => void) | null) => {
-  onUnauthorized = handler;
-};
+export const getValidAccessToken = async (): Promise<string | null> => {
+  const token = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)
+  if (!token) return null
 
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  const expiresAt = tokenExpiry(token)
+  if (expiresAt !== null && expiresAt - Date.now() < REFRESH_MARGIN_MS) {
+    return (await refreshSession()) ?? token
   }
-  return config;
-});
+
+  return token
+}
+
+apiClient.interceptors.request.use(async (config) => {
+  if (!isAuthEndpoint(config.url)) {
+    const token = await getValidAccessToken()
+    if (token) config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+type RetriableConfig = InternalAxiosRequestConfig & { _authRetried?: boolean; _attempt?: number }
+
+const MAX_GET_RETRIES = 2
+
+/** Network failures, gateway errors and throttling are worth another try; client errors are not. */
+const isRetryable = (error: AxiosError) => {
+  if (axios.isCancel(error)) return false
+  // No response: a dropped connection is worth retrying, a 60-second timeout is not.
+  if (!error.response) return error.code !== 'ECONNABORTED'
+  const status = error.response.status
+  return status === 429 || status === 502 || status === 503 || status === 504
+}
+
+const retryDelay = (attempt: number, error: AxiosError) => {
+  const retryAfter = Number(error.response?.headers?.['retry-after'])
+  if (Number.isFinite(retryAfter) && retryAfter > 0) return Math.min(retryAfter * 1000, 10_000)
+  // Exponential backoff with full jitter: 0–500ms, 0–1000ms.
+  return Math.random() * 500 * 2 ** (attempt - 1)
+}
 
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (!axios.isCancel(error) && error?.response?.status === 401) {
-      // The token is missing, expired, or was invalidated server-side. Let the auth store
-      // clear session state and route to the login screen.
-      // Note: a request cancelled by the stale-request logic below resolves to a promise that
-      // never settles, so its 401 never arrives here. That is acceptable — the next live
-      // request will surface it — and is not worth defeating the cancellation for.
-      onUnauthorized?.();
+  async (error: AxiosError) => {
+    const config = error.config as RetriableConfig | undefined
+    const status = error.response?.status
+
+    if (config && status === 401 && !config._authRetried && !isAuthEndpoint(config.url)) {
+      config._authRetried = true
+      const token = await refreshSession()
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+        return apiClient.request(config)
+      }
+
+      handlers.onUnauthorized?.()
+      return Promise.reject(error)
     }
-    return Promise.reject(error);
-  }
-);
+
+    if (status === 403) {
+      const errors = (error.response?.data as { errors?: string[] } | undefined)?.errors
+      if (errors?.includes('PASSWORD_CHANGE_REQUIRED')) handlers.onPasswordChangeRequired?.()
+    }
+
+    // Idempotent reads are retried a couple of times on transient failures, so a blip in the
+    // network or a rolling deploy does not surface as an error screen.
+    if (config && (config.method ?? 'get').toLowerCase() === 'get' && isRetryable(error)) {
+      const attempt = (config._attempt ?? 0) + 1
+      if (attempt <= MAX_GET_RETRIES && !config.signal?.aborted) {
+        config._attempt = attempt
+        await new Promise((resolve) => setTimeout(resolve, retryDelay(attempt, error)))
+        return apiClient.request(config)
+      }
+    }
+
+    return Promise.reject(error)
+  },
+)
 
 /**
- * Thrown when a GET is superseded by a newer request to the same path, or dropped because the
- * session changed. It means "this answer is no longer wanted", not "something went wrong".
+ * Thrown when a GET is dropped because the session changed or its caller aborted it. It means
+ * "this answer is no longer wanted", not "something went wrong".
  */
 export class RequestCancelledError extends Error {
-  readonly isRequestCancelled = true;
+  readonly isRequestCancelled = true
 
   constructor(url: string) {
-    super(`Request superseded: ${url}`);
-    this.name = 'RequestCancelledError';
+    super(`Request cancelled: ${url}`)
+    this.name = 'RequestCancelledError'
   }
 }
 
 /**
  * True for a request that was deliberately dropped. Callers should return quietly — no error
- * toast, and no state change, because a newer request is already on its way.
- *
- * Also matches raw axios cancellations, so callers that talk to axios directly work too.
+ * toast, and no state change. Also matches raw axios cancellations.
  */
 export const isRequestCancelled = (error: unknown): boolean =>
   (error as { isRequestCancelled?: boolean })?.isRequestCancelled === true ||
   (error as { name?: string })?.name === 'CanceledError' ||
   (error as { name?: string })?.name === 'AbortError' ||
   (error as { message?: string })?.message === 'canceled' ||
-  axios.isCancel(error);
+  axios.isCancel(error)
 
-// Map of in-flight promises: key -> Promise
-const inflightRequests = new Map<string, Promise<any>>();
-// Map of AbortControllers: path -> AbortController
-const abortControllers = new Map<string, AbortController>();
+/* ------------------------------------------------------------------------------------------------
+ * GET de-duplication
+ *
+ * Identical GETs in flight at the same moment (same URL AND same parameters) share one request —
+ * several components mounting together ask for the same thing. Nothing else is shared or
+ * cancelled: the previous version aborted any earlier request to the same *path*, so two
+ * unrelated callers (the inbox list and the notification poller, say) kept cancelling each other.
+ * A caller that wants to abandon its own request passes an AbortSignal, which is honoured.
+ * --------------------------------------------------------------------------------------------- */
+
+const inflightRequests = new Map<string, Promise<unknown>>()
+let sessionController = new AbortController()
 
 /**
- * Clears the dedupe and cancellation maps.
- *
- * Must be called on login and logout. The dedupe key is the URL plus its query params and
- * carries no notion of identity, so a GET issued before signing in and the same GET issued
- * after share a key — without this, the second call silently resolves with the first user's
- * (or the logged-out) response.
+ * Aborts every in-flight GET and clears the de-dup map. Called on login and logout: a GET issued
+ * before signing in and the same GET after share a key, and must not share a response.
  */
 export const resetApiClientCaches = () => {
-  abortControllers.forEach((controller) => controller.abort('Session changed'));
-  abortControllers.clear();
-  inflightRequests.clear();
-};
+  sessionController.abort('Session changed')
+  sessionController = new AbortController()
+  inflightRequests.clear()
+}
 
-const getRequestKey = (url: string, params?: any) => {
-  return `${url}?${params ? new URLSearchParams(params).toString() : ''}`;
-};
+const serializeParams = (params: unknown): string => {
+  if (!params || typeof params !== 'object') return ''
+  return Object.entries(params as Record<string, unknown>)
+    .filter(([, value]) => value !== undefined && value !== null)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(',') : String(value)}`)
+    .join('&')
+}
 
-const getPathFromUrl = (url: string) => {
-  return url.split('?')[0];
-};
+/** One signal that fires when either the caller or the session aborts. */
+const combineSignals = (a: AbortSignal, b?: AbortSignal | null): AbortSignal => {
+  if (!b) return a
+  const anyFn = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any
+  if (anyFn) return anyFn([a, b])
 
-const originalGet = apiClient.get;
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (a.aborted || b.aborted) abort()
+  a.addEventListener('abort', abort, { once: true })
+  b.addEventListener('abort', abort, { once: true })
+  return controller.signal
+}
 
-// Overwrite the get method to support deduplication and cancellation
-apiClient.get = function <R = any>(url: string, config?: any): Promise<R> {
-  const params = config?.params;
-  const key = getRequestKey(url, params);
-  const path = getPathFromUrl(url);
+const originalGet = apiClient.get.bind(apiClient)
 
-  // If a duplicate request (exact same URL and query params) is already running, return its promise
-  if (inflightRequests.has(key)) {
-    return inflightRequests.get(key) as Promise<R>;
+apiClient.get = function <T = unknown, R = import('axios').AxiosResponse<T>, D = unknown>(
+  url: string,
+  config?: AxiosRequestConfig<D>,
+): Promise<R> {
+  const callerSignal = config?.signal as AbortSignal | undefined
+  const key = `${url}?${serializeParams(config?.params)}`
+
+  // A caller with its own signal gets its own request, so aborting it cannot cancel someone
+  // else's identical read.
+  if (!callerSignal) {
+    const existing = inflightRequests.get(key)
+    if (existing) return existing as Promise<R>
   }
 
-  // Cancel any pending request for the same path (e.g. changing search parameters or route)
-  if (abortControllers.has(path)) {
-    abortControllers.get(path)?.abort('Stale request cancelled');
-  }
+  const signal = combineSignals(sessionController.signal, callerSignal)
 
-  const controller = new AbortController();
-  abortControllers.set(path, controller);
-
-  const newConfig = {
-    ...config,
-    signal: controller.signal,
-  };
-
-  const promise = originalGet.call(apiClient, url, newConfig)
-    .then((res) => {
-      inflightRequests.delete(key);
-      if (abortControllers.get(path) === controller) {
-        abortControllers.delete(path);
-      }
-      return res;
+  const promise = originalGet<T, R, D>(url, { ...config, signal })
+    .catch((err: unknown) => {
+      if (axios.isCancel(err)) throw new RequestCancelledError(url)
+      throw err
     })
-    .catch((err) => {
-      inflightRequests.delete(key);
-      if (abortControllers.get(path) === controller) {
-        abortControllers.delete(path);
-      }
-      if (axios.isCancel(err)) {
-        // Reject, never hang.
-        //
-        // This used to `return new Promise(() => {})` to "ignore" a stale response. A promise
-        // that never settles does not ignore anything — it strands every awaiting caller
-        // permanently, so the `finally` that clears `isLoading` never runs and the page sits on
-        // its skeleton until a manual refresh. resetApiClientCaches() aborts every in-flight
-        // GET on sign-in, so this fired on essentially every login.
-        //
-        // Callers use isRequestCancelled() to tell "superseded, do nothing" apart from a real
-        // failure. A caller that forgets now shows an error and stops loading, which is
-        // recoverable; hanging forever is not.
-        throw new RequestCancelledError(url);
-      }
-      throw err;
-    });
+    .finally(() => {
+      if (inflightRequests.get(key) === promise) inflightRequests.delete(key)
+    })
 
-  inflightRequests.set(key, promise);
-  return promise as Promise<R>;
-};
-
+  if (!callerSignal) inflightRequests.set(key, promise)
+  return promise
+} as typeof apiClient.get

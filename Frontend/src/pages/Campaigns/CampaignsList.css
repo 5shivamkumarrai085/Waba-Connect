@@ -250,3 +250,26 @@
   filter: opacity(1);
   transform: scale(1.1);
 }
+
+
+/* Maker-checker: toggles the list to campaigns waiting for approval. */
+.btn-toolbar-approvals.is-active {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+.approvals-count-badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-on-accent);
+  background: var(--omni-color-warning);
+}

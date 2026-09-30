@@ -1,5 +1,6 @@
 import React from 'react'
-import * as Icons from 'lucide-react'
+import { AlertCircle, Circle, Play } from 'lucide-react'
+import { iconByName } from '../../utils/iconRegistry'
 import type { ChannelDefinition } from '../../types/channel'
 import './ChannelCard.css'
 
@@ -36,9 +37,7 @@ export const ChannelCard: React.FC<ChannelCardProps> = ({
 }) => {
   // Resolved by name, the same approach MetricCard uses, so a channel's icon is data rather than
   // another import to remember.
-  const Icon = (Icons as unknown as Record<string, React.ComponentType<{ size?: number }>>)[
-    channel.iconName
-  ] ?? Icons.Circle
+  const Icon = iconByName(channel.iconName, Circle)
 
   const disabled = !channel.available
   const inputId = `channel-option-${channel.key}`
@@ -73,12 +72,12 @@ export const ChannelCard: React.FC<ChannelCardProps> = ({
           <span className="channel-card-tag coming-soon">Coming Soon</span>
         ) : configured ? (
           <span className="channel-card-tag configured">
-            <Icons.Play size={11} />
+            <Play size={11} />
             Already Configured
           </span>
         ) : (
           <span className="channel-card-tag needs-setup">
-            <Icons.AlertCircle size={11} />
+            <AlertCircle size={11} />
             {unconfiguredHint ?? 'Needs setup'}
           </span>
         )}

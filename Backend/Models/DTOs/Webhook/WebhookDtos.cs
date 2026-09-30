@@ -91,6 +91,19 @@ public class IncomingMessage
     public IncomingText? Text { get; set; }
     public IncomingInteractive? Interactive { get; set; }
     public IncomingButton? Button { get; set; }
+
+    /// <summary>Present when the customer started from a Click-to-WhatsApp ad or post.</summary>
+    public IncomingReferral? Referral { get; set; }
+}
+
+public class IncomingReferral
+{
+    [JsonPropertyName("source_url")] public string? SourceUrl { get; set; }
+    [JsonPropertyName("source_id")] public string? SourceId { get; set; }
+    [JsonPropertyName("source_type")] public string? SourceType { get; set; }
+    public string? Headline { get; set; }
+    public string? Body { get; set; }
+    [JsonPropertyName("ctwa_clid")] public string? CtwaClid { get; set; }
 }
 
 public class IncomingInteractive

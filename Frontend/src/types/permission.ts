@@ -54,3 +54,24 @@ export interface AssignDepartmentPermissionPayload {
   memberCount: number
   connectionIds: number[]
 }
+
+/** A real user that connection access can be granted to. */
+export interface PermissionCandidateUser {
+  id: number
+  name: string
+  email: string
+  roleName?: string | null
+  isAdministrator: boolean
+}
+
+/** A real role ("department") that connection access can be granted to. */
+export interface PermissionCandidateRole {
+  id: number
+  name: string
+  memberCount: number
+}
+
+export interface PermissionCandidates {
+  users: PermissionCandidateUser[]
+  roles: PermissionCandidateRole[]
+}

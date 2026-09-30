@@ -33,3 +33,8 @@ public class CsvImportResponse
     public int InvalidCount { get; set; }
     public List<CsvRowError> Errors { get; set; } = new();
 }
+
+/// <summary>The contacts CSV layout: the columns to include (in order) and the optional extras the importer also reads.</summary>
+public sealed record CsvContactLayoutResponse(
+    IReadOnlyList<WhatsAppCampaignApi.Helpers.CsvContactColumns.Column> Columns,
+    IReadOnlyList<string> OptionalColumns);

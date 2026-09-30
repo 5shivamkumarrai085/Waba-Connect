@@ -23,7 +23,11 @@ public interface IEmailCampaignDispatcher
     /// expansion job carries an idempotency key.
     /// </para>
     /// </summary>
-    Task<CampaignExecutionOutcome> SubmitAsync(int campaignId, int? requestedByUserId, CancellationToken ct = default);
+    /// <param name="runId">
+    /// Distinguishes a deliberate re-run (resume, re-schedule) from a repeated submission of the
+    /// same run. Null keeps the one-expansion-per-campaign key.
+    /// </param>
+    Task<CampaignExecutionOutcome> SubmitAsync(int campaignId, int? requestedByUserId, CancellationToken ct = default, string? runId = null);
 }
 
 /// <inheritdoc />
@@ -55,7 +59,8 @@ public class EmailCampaignDispatcher : IEmailCampaignDispatcher
     public async Task<CampaignExecutionOutcome> SubmitAsync(
         int campaignId,
         int? requestedByUserId,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? runId = null)
     {
         // Refused here rather than queued. Program.cs only registers the workers when the
         // channel is switched on, so enqueueing while it is off produced a campaign that sat in
@@ -98,7 +103,7 @@ public class EmailCampaignDispatcher : IEmailCampaignDispatcher
         {
             case CampaignExecutionOutcome.Rejected:
                 campaign.Status = CampaignStatus.Cancelled;
-                await RecordApprovalAsync(campaignId, "Rejected", decision, existingApproval, ct);
+                await RecordApprovalAsync(campaignId, "Rejected", decision, existingApproval, requestedByUserId, ct);
                 await _dbContext.SaveChangesAsync(ct);
 
                 await _auditService.LogAsync(
@@ -113,7 +118,7 @@ public class EmailCampaignDispatcher : IEmailCampaignDispatcher
                 // Parked. Nothing is expanded and nothing is sent — which is the whole point: a
                 // campaign awaiting approval must not have already put mail on the wire.
                 campaign.Status = CampaignStatus.AwaitingApproval;
-                await RecordApprovalAsync(campaignId, "Pending", decision, existingApproval, ct);
+                await RecordApprovalAsync(campaignId, "Pending", decision, existingApproval, requestedByUserId, ct);
                 await _dbContext.SaveChangesAsync(ct);
 
                 await _auditService.LogAsync(
@@ -128,19 +133,20 @@ public class EmailCampaignDispatcher : IEmailCampaignDispatcher
         // Approved. Scheduled campaigns are queued with a future availability time rather than
         // being left for a poller to notice, so the queue itself is the scheduler — one mechanism
         // instead of two.
-        var availableAt = campaign.ScheduleType == ScheduleType.Scheduled && campaign.ScheduledAt.HasValue
+        var availableAt = campaign.ScheduleType != ScheduleType.Immediate && campaign.ScheduledAt.HasValue
             ? DateTime.SpecifyKind(campaign.ScheduledAt.Value, DateTimeKind.Utc)
             : (DateTime?)null;
 
-        campaign.Status = campaign.ScheduleType == ScheduleType.Scheduled
+        campaign.Status = campaign.ScheduleType != ScheduleType.Immediate
             ? CampaignStatus.Scheduled
             : CampaignStatus.Sending;
 
         if (existingApproval is not null)
         {
+            // An approver's decision (time and comment) is kept as they recorded it.
             existingApproval.State = "Approved";
-            existingApproval.DecidedAt = DateTime.UtcNow;
-            existingApproval.Reason = decision.Reason;
+            existingApproval.DecidedAt ??= DateTime.UtcNow;
+            existingApproval.Reason = decision.Reason ?? existingApproval.Reason;
         }
 
         await _dbContext.SaveChangesAsync(ct);
@@ -150,11 +156,12 @@ public class EmailCampaignDispatcher : IEmailCampaignDispatcher
             new QueueMessage
             {
                 QueueName = QueueNames.CampaignExpansion,
-                Payload = JsonSerializer.Serialize(new CampaignExpansionJob(campaign.Id)),
+                Payload = JsonSerializer.Serialize(new CampaignExpansionJob(campaign.Id, runId)),
 
-                // One expansion per campaign, ever. Re-submitting — after a restart, or from a
-                // retried request — must not fan the same recipients out twice.
-                IdempotencyKey = $"expand:campaign:{campaign.Id}",
+                // One expansion per campaign run. Re-submitting the same run — after a restart,
+                // or from a retried request — must not fan the same recipients out twice; a new
+                // run (resume) must be able to queue the recipients still pending.
+                IdempotencyKey = runId is null ? $"expand:campaign:{campaign.Id}" : $"expand:campaign:{campaign.Id}:{runId}",
                 PartitionKey = campaign.Id.ToString(),
                 AvailableAt = availableAt
             }
@@ -173,10 +180,12 @@ public class EmailCampaignDispatcher : IEmailCampaignDispatcher
         string state,
         CampaignExecutionDecision decision,
         Models.Entities.CampaignApprovalState? existing,
+        int? requestedByUserId,
         CancellationToken ct)
     {
         if (existing is not null)
         {
+            if (state == "Pending" && requestedByUserId is not null) existing.RequestedByUserId = requestedByUserId;
             existing.State = state;
             existing.ExternalReferenceId = decision.ExternalReferenceId ?? existing.ExternalReferenceId;
             existing.Reason = decision.Reason;
@@ -190,6 +199,7 @@ public class EmailCampaignDispatcher : IEmailCampaignDispatcher
             State = state,
             ExternalReferenceId = decision.ExternalReferenceId,
             Reason = decision.Reason,
+            RequestedByUserId = requestedByUserId,
             RequestedAt = DateTime.UtcNow,
             DecidedAt = state == "Pending" ? null : DateTime.UtcNow
         });

@@ -1,6 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import * as Icons from 'lucide-react'
+import { iconByName } from '../../utils/iconRegistry'
 import './Tabs.css'
 
 export interface TabItem {
@@ -24,7 +24,7 @@ export const Tabs: React.FC<TabsProps> = ({
   return (
     <div className="tabs-container">
       {tabs.map((tab) => {
-        const LucideIcon = (Icons as any)[tab.iconName] || Icons.HelpCircle
+        const LucideIcon = iconByName(tab.iconName)
         const isActive = activeTab === tab.id
         
         return (

@@ -16,12 +16,6 @@ import {
   type MotionProps
 } from 'framer-motion'
 
-// ─── Prefers Reduced Motion ─────────────────────────────────────────
-export const prefersReducedMotion = (): boolean => {
-  if (typeof window === 'undefined') return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
 // ─── Transition Presets ─────────────────────────────────────────────
 export const transitions = {
   /** Snappy — buttons, micro-interactions (150ms) */
@@ -78,13 +72,6 @@ export const slideInPanel: Variants = {
   exit: { x: '100%' },
 }
 
-/** Slide from left — sidebar */
-export const slideFromLeft: Variants = {
-  hidden: { opacity: 0, x: -16 },
-  visible: { opacity: 1, x: 0 },
-  exit: { opacity: 0, x: -16 },
-}
-
 // ─── Stagger Container ─────────────────────────────────────────────
 
 /** Container variant for staggered children */
@@ -126,12 +113,6 @@ export const buttonHoverProps: MotionProps = {
   whileTap: { scale: 0.97, transition: { duration: 0.1 } },
 }
 
-/** Subtle hover for interactive elements */
-export const subtleHoverProps: MotionProps = {
-  whileHover: { scale: 1.02, transition: { duration: 0.15 } },
-  whileTap: { scale: 0.98, transition: { duration: 0.1 } },
-}
-
 // ─── Page Transition Wrapper Props ──────────────────────────────────
 
 /** Props for page wrapper — fade + slight upward slide, 200-250ms */
@@ -145,14 +126,6 @@ export const pageTransitionProps: MotionProps = {
 
 // ─── Counter Animation ─────────────────────────────────────────────
 
-/** Animated counter hook helper — returns spring config for useMotionValue */
-export const counterSpring = {
-  type: 'spring' as const,
-  stiffness: 100,
-  damping: 20,
-  mass: 0.8,
-}
-
 // ─── Menus & Popovers ───────────────────────────────────────────────
 
 /**
@@ -163,17 +136,6 @@ export const counterSpring = {
 export const menuTransitions = {
   in: { duration: 0.16, ease: [0.16, 1, 0.3, 1] } as Transition,
   out: { duration: 0.12, ease: [0.4, 0, 1, 1] } as Transition,
-}
-
-/**
- * Menu surface entrance. Starts at 0.96, never 0 — nothing in the real world
- * appears out of nothing, and scale(0) reads as a glitch. Pair with an
- * origin-aware `transform-origin` so it grows out of its trigger.
- */
-export const menuScale: Variants = {
-  hidden: { opacity: 0, scale: 0.96 },
-  visible: { opacity: 1, scale: 1, transition: menuTransitions.in },
-  exit: { opacity: 0, scale: 0.96, transition: menuTransitions.out },
 }
 
 // ─── Wizard Steps ───────────────────────────────────────────────────

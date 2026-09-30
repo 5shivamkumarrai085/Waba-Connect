@@ -1,21 +1,17 @@
 // src/store/campaignStore.ts
 import { create } from 'zustand'
 import { campaignService } from '../services/campaigns/campaignService'
-import { contactService } from '../services/contacts/contactService'
 import type { Campaign, CampaignStatistics, CampaignRecipient, CampaignWizardForm, EmailCampaignStats } from '../types/campaigns'
 import type { CampaignEventPayload } from '../services/campaigns/campaignHubService'
 import { useDashboardStore } from './dashboardStore'
-import { useReportingStore } from './zustand'
 
 /**
  * Cross-module edges for campaign writes, declared here so every consequence of a campaign
- * change is greppable from the action that causes it. Both the dashboard counters and the
- * Reporting metrics are derived from campaigns, and Reporting caches per time filter — without
- * the invalidate it would keep serving pre-change numbers for the rest of the session.
+ * change is greppable from the action that causes it. The dashboard counters are derived from
+ * campaigns. (Reporting reads live from the server on each run, so it has no cache to clear.)
  */
 const propagateCampaignChange = () => {
   useDashboardStore.getState().loadDashboardData(false)
-  useReportingStore.getState().invalidate()
 }
 
 interface CampaignStoreState {
@@ -26,16 +22,23 @@ interface CampaignStoreState {
   // Filtering values matching Screenshot 1
   templateFilter: string
   relationTypeFilter: string
+  /** A single status to show, e.g. 'AwaitingApproval'; empty for all. */
+  statusFilter: string
   createdAtFilter: string
   
   currentPage: number
   pageSize: number
+  /** Matching campaigns on the server, across all pages. */
+  totalCount: number
+  sortKey: string
+  sortDescending: boolean
+  createdFrom: string
+  createdTo: string
   
   // Selected campaign for details view
   selectedCampaign: Campaign | null
   selectedStats: CampaignStatistics | null
   selectedRecipients: CampaignRecipient[] | null
-  currentDetailsTab: 'queue' | 'executed'
   
   // Wizard input fields
   wizardForm: CampaignWizardForm
@@ -43,10 +46,13 @@ interface CampaignStoreState {
   
   setSearchQuery: (query: string) => void
   setTemplateFilter: (template: string) => void
+  setStatusFilter: (status: string) => void
   setRelationTypeFilter: (relation: string) => void
   setCreatedAtFilter: (datePeriod: string) => void
   setCurrentPage: (page: number) => void
   setPageSize: (size: number) => void
+  setSort: (key: string) => void
+  setCreatedRange: (from: string, to: string) => void
   
   // Wizard actions
   setWizardForm: (form: Partial<CampaignWizardForm>) => void
@@ -56,11 +62,12 @@ interface CampaignStoreState {
   // API Actions
   loadCampaigns: () => Promise<void>
   loadCampaignDetails: (id: number) => Promise<void>
+  /** Re-reads the viewed campaign's figures without the loading state (live re-sync). */
+  refreshCampaignDetails: (id: number) => Promise<void>
   createCampaign: () => Promise<Campaign>
   updateCampaign: (id: number) => Promise<Campaign>
   deleteCampaign: (id: number) => Promise<void>
   toggleCampaignPause: (id: number) => Promise<void>
-  setSelectedTab: (tab: 'queue' | 'executed') => void
 
   /**
    * Applies a real-time SignalR counter delta to the currently-viewed campaign.
@@ -95,7 +102,61 @@ const initialWizardForm: CampaignWizardForm = {
   selectedContactIds: [],
   selectAllContacts: false,
   sendImmediately: true,
-  scheduledTime: ''
+  scheduledTime: '',
+  selectedSegmentIds: [],
+  selectedGroupIds: [],
+  recipientLocalTime: false,
+  topic: '',
+  isTransactional: false
+}
+
+/**
+ * Applies one real-time counter delta to a campaign. Pure: the same event applied to the same
+ * campaign always gives the same result, and a zero delta changes nothing.
+ *
+ * Email: "delivered to" on the list is the Sent (accepted) figure and "read by" is Opened.
+ * WhatsApp: delivered and read come from Meta's receipts (deliveredDelta / readDelta).
+ */
+const applyCampaignDelta = (c: Campaign, e: CampaignEventPayload): Campaign => {
+  const isEmail = c.channel?.toLowerCase() === 'email'
+  const sent = (c.sentCount ?? 0) + e.sentDelta
+  const failed = c.failedCount + e.failedDelta
+  const opened = (c.openedCount ?? 0) + e.openedDelta
+  const bounced = (c.emailStats?.bounced ?? 0) + (e.bouncedDelta ?? 0)
+
+  const emailStats: EmailCampaignStats | undefined = isEmail
+    ? {
+        ...(c.emailStats ?? {
+          sent: 0, delivered: 0, bounced: 0, complained: 0, suppressed: 0,
+          opened: 0, clicked: 0, replied: 0, unsubscribed: 0, pending: 0, failed: 0,
+        }),
+        sent,
+        delivered: (c.emailStats?.delivered ?? 0) + e.deliveredDelta,
+        bounced,
+        opened,
+        clicked: (c.emailStats?.clicked ?? 0) + e.clickedDelta,
+        replied: (c.emailStats?.replied ?? 0) + e.repliedDelta,
+        unsubscribed: (c.emailStats?.unsubscribed ?? 0) + e.unsubscribedDelta,
+        complained: (c.emailStats?.complained ?? 0) + e.complainedDelta,
+        failed,
+        pending: Math.max(0, (c.total || 0) - sent - failed - (c.emailStats?.suppressed ?? 0)),
+      }
+    : c.emailStats
+
+  return {
+    ...c,
+    status: e.newCampaignStatus ?? c.status,
+    deliveredTo: c.deliveredTo + (isEmail ? e.sentDelta : e.deliveredDelta),
+    readBy: c.readBy + (isEmail ? e.openedDelta : e.readDelta ?? 0),
+    failedCount: failed,
+    sentCount: sent,
+    openedCount: opened,
+    clickedCount: (c.clickedCount ?? 0) + e.clickedDelta,
+    repliedCount: (c.repliedCount ?? 0) + e.repliedDelta,
+    unsubscribedCount: (c.unsubscribedCount ?? 0) + e.unsubscribedDelta,
+    complainedCount: (c.complainedCount ?? 0) + e.complainedDelta,
+    emailStats,
+  }
 }
 
 export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
@@ -105,25 +166,37 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
   
   templateFilter: 'All',
   relationTypeFilter: 'All',
+  statusFilter: '',
   createdAtFilter: '',
   
   currentPage: 1,
   pageSize: 10,
+  totalCount: 0,
+  sortKey: '',
+  sortDescending: true,
+  createdFrom: '',
+  createdTo: '',
   
   selectedCampaign: null,
   selectedStats: null,
   selectedRecipients: null,
-  currentDetailsTab: 'queue',
   
   wizardForm: initialWizardForm,
   activeStep: 0,
   
   setSearchQuery: (searchQuery) => set({ searchQuery, currentPage: 1 }),
   setTemplateFilter: (templateFilter) => set({ templateFilter, currentPage: 1 }),
+  setStatusFilter: (statusFilter) => set({ statusFilter, currentPage: 1 }),
   setRelationTypeFilter: (relationTypeFilter) => set({ relationTypeFilter, currentPage: 1 }),
   setCreatedAtFilter: (createdAtFilter) => set({ createdAtFilter, currentPage: 1 }),
   setCurrentPage: (currentPage) => set({ currentPage }),
   setPageSize: (pageSize) => set({ pageSize, currentPage: 1 }),
+  setSort: (key) => set((state) => ({
+    sortKey: key,
+    sortDescending: state.sortKey === key ? !state.sortDescending : false,
+    currentPage: 1,
+  })),
+  setCreatedRange: (createdFrom, createdTo) => set({ createdFrom, createdTo, currentPage: 1 }),
   
   setWizardForm: (form) => set((state) => ({
     wizardForm: { ...state.wizardForm, ...form }
@@ -134,11 +207,24 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
   resetWizard: () => set({ wizardForm: initialWizardForm, activeStep: 0 }),
   
   loadCampaigns: async () => {
+    const s = get()
     set({ isLoading: true })
     try {
-      const fetched = await campaignService.getCampaigns()
-      set({ campaigns: fetched })
-    } catch (err) {
+      const page = await campaignService.getCampaignsPage({
+        page: s.currentPage,
+        pageSize: s.pageSize,
+        search: s.searchQuery.trim(),
+        status: s.statusFilter,
+        template: s.templateFilter,
+        relationType: s.relationTypeFilter,
+        createdFrom: s.createdFrom,
+        createdTo: s.createdTo,
+        sortBy: s.sortKey,
+        sortDescending: s.sortDescending,
+      })
+      set({ campaigns: page.items, totalCount: page.totalCount })
+    } catch {
+      // The list keeps what it had; the page shows the error state from isLoading/empty data.
     } finally {
       set({ isLoading: false })
     }
@@ -165,48 +251,21 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
     }
   },
   
+  refreshCampaignDetails: async (id) => {
+    try {
+      const res = await campaignService.getCampaignDetails(id)
+      if (get().selectedCampaign?.id === id) {
+        set({ selectedCampaign: res.campaign, selectedStats: res.statistics })
+      }
+    } catch {
+      // A failed background refresh keeps the figures already on screen.
+    }
+  },
+
   createCampaign: async () => {
-    let { wizardForm } = get()
+    const { wizardForm } = get()
     set({ isLoading: true })
     try {
-      if (wizardForm.selectAllContacts) {
-        // Fetch all contacts dynamically from backend
-        const allContacts = await contactService.getContacts()
-        
-        // Filter based on wizard fields
-        const filtered = allContacts.filter(c => {
-          // Relation Type Filter
-          if (wizardForm.relationType && wizardForm.relationType.length > 0) {
-            const selectedTypesLower = wizardForm.relationType.map(rt => rt.toLowerCase())
-            if (!selectedTypesLower.includes((c.type || '').toLowerCase())) {
-              return false
-            }
-          }
-          
-          // Status Filter
-          if (wizardForm.contactsFilterStatus && wizardForm.contactsFilterStatus !== 'All') {
-            if (c.status?.toLowerCase() !== wizardForm.contactsFilterStatus.toLowerCase()) {
-              return false
-            }
-          }
-          
-          // Source Filter
-          if (wizardForm.contactsFilterSource && wizardForm.contactsFilterSource !== 'All') {
-            if (c.source?.toLowerCase() !== wizardForm.contactsFilterSource.toLowerCase()) {
-              return false
-            }
-          }
-          
-          return true
-        })
-        
-        const contactIds = filtered.map(c => c.id)
-        wizardForm = {
-          ...wizardForm,
-          selectedContactIds: contactIds
-        }
-      }
-
       // Handle multi-connection: create one campaign per connection
       const connectionIds: number[] = wizardForm.connectionIds ?? []
       if (connectionIds.length > 1) {
@@ -219,8 +278,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
           }
           lastRes = await campaignService.createCampaign(form)
         }
-        const fetched = await campaignService.getCampaigns()
-        set({ campaigns: fetched })
+        await get().loadCampaigns()
         propagateCampaignChange()
         return lastRes
       }
@@ -231,8 +289,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
         connectionId: connectionIds.length === 1 ? connectionIds[0] : undefined
       }
       const res = await campaignService.createCampaign(singleForm)
-      const fetched = await campaignService.getCampaigns()
-      set({ campaigns: fetched })
+      await get().loadCampaigns()
       propagateCampaignChange()
       return res
     } finally {
@@ -246,8 +303,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
     try {
       const res = await campaignService.updateCampaign(id, wizardForm)
       // Reload campaigns
-      const fetched = await campaignService.getCampaigns()
-      set({ campaigns: fetched })
+      await get().loadCampaigns()
       propagateCampaignChange()
       return res
     } finally {
@@ -259,8 +315,7 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
     set({ isLoading: true })
     try {
       await campaignService.deleteCampaign(id)
-      const fetched = await campaignService.getCampaigns()
-      set({ campaigns: fetched })
+      await get().loadCampaigns()
       propagateCampaignChange()
     } finally {
       set({ isLoading: false })
@@ -290,148 +345,41 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
         })
       }
       
-      const fetched = await campaignService.getCampaigns()
-      set({ campaigns: fetched })
+      await get().loadCampaigns()
       propagateCampaignChange()
     } finally {
       set({ isLoading: false })
     }
   },
 
-  setSelectedTab: (currentDetailsTab) => set({ currentDetailsTab }),
 
   applyEventDelta: (event) => set((state) => {
-    // 1. Update the campaign in the main list
-    const updatedList = state.campaigns.map((cam) => {
-      if (cam.id !== event.campaignId) return cam
+    const updatedList = state.campaigns.map((cam) => (cam.id === event.campaignId ? applyCampaignDelta(cam, event) : cam))
 
-      const isEmail = cam.channel?.toLowerCase() === 'email'
-      const newDelivered = cam.deliveredTo + (isEmail ? event.sentDelta : event.deliveredDelta)
-      const newRead = cam.readBy + (isEmail ? event.openedDelta : 0)
-      const newFailed = cam.failedCount + event.failedDelta
-      const newSent = (cam.sentCount ?? 0) + event.sentDelta
-      const newOpened = (cam.openedCount ?? 0) + event.openedDelta
-      const newClicked = (cam.clickedCount ?? 0) + event.clickedDelta
-      const newReplied = (cam.repliedCount ?? 0) + event.repliedDelta
-      const newUnsubscribed = (cam.unsubscribedCount ?? 0) + event.unsubscribedDelta
-      const newComplained = (cam.complainedCount ?? 0) + event.complainedDelta
-
-      const newEmailStats: EmailCampaignStats | undefined = cam.emailStats ? {
-        ...cam.emailStats,
-        sent: (cam.emailStats.sent ?? 0) + event.sentDelta,
-        bounced: (cam.emailStats.bounced ?? 0) + event.bouncedDelta,
-        opened: (cam.emailStats.opened ?? 0) + event.openedDelta,
-        clicked: (cam.emailStats.clicked ?? 0) + event.clickedDelta,
-        replied: (cam.emailStats.replied ?? 0) + event.repliedDelta,
-        unsubscribed: (cam.emailStats.unsubscribed ?? 0) + event.unsubscribedDelta,
-        complained: (cam.emailStats.complained ?? 0) + event.complainedDelta,
-        failed: (cam.emailStats.failed ?? 0) + event.failedDelta,
-        pending: Math.max(0, (cam.total || 0) - newSent - newFailed),
-      } : (isEmail ? {
-        sent: newSent,
-        delivered: newDelivered,
-        bounced: 0,
-        complained: newComplained,
-        suppressed: 0,
-        opened: newOpened,
-        clicked: newClicked,
-        replied: newReplied,
-        unsubscribed: newUnsubscribed,
-        pending: Math.max(0, (cam.total || 0) - newSent - newFailed),
-        failed: newFailed,
-      } : undefined)
-
-      return {
-        ...cam,
-        status: event.newCampaignStatus ?? cam.status,
-        deliveredTo: newDelivered,
-        readBy: newRead,
-        failedCount: newFailed,
-        sentCount: newSent,
-        openedCount: newOpened,
-        clickedCount: newClicked,
-        repliedCount: newReplied,
-        unsubscribedCount: newUnsubscribed,
-        complainedCount: newComplained,
-        emailStats: newEmailStats,
-      }
-    })
-
-    // 2. If the currently selected campaign matches, update it too
-    let updatedSelected = state.selectedCampaign
-    let updatedStats = state.selectedStats
-
-    if (state.selectedCampaign && state.selectedCampaign.id === event.campaignId) {
-      const c = state.selectedCampaign
-      const isEmail = c.channel?.toLowerCase() === 'email'
-      const newDelivered = c.deliveredTo + (isEmail ? event.sentDelta : event.deliveredDelta)
-      const newRead = c.readBy + (isEmail ? event.openedDelta : 0)
-      const newFailed = c.failedCount + event.failedDelta
-      const newSent = (c.sentCount ?? 0) + event.sentDelta
-      const newOpened = (c.openedCount ?? 0) + event.openedDelta
-      const newClicked = (c.clickedCount ?? 0) + event.clickedDelta
-      const newReplied = (c.repliedCount ?? 0) + event.repliedDelta
-      const newUnsubscribed = (c.unsubscribedCount ?? 0) + event.unsubscribedDelta
-      const newComplained = (c.complainedCount ?? 0) + event.complainedDelta
-
-      const newEmailStats: EmailCampaignStats | undefined = c.emailStats ? {
-        ...c.emailStats,
-        sent: (c.emailStats.sent ?? 0) + event.sentDelta,
-        bounced: (c.emailStats.bounced ?? 0) + event.bouncedDelta,
-        opened: (c.emailStats.opened ?? 0) + event.openedDelta,
-        clicked: (c.emailStats.clicked ?? 0) + event.clickedDelta,
-        replied: (c.emailStats.replied ?? 0) + event.repliedDelta,
-        unsubscribed: (c.emailStats.unsubscribed ?? 0) + event.unsubscribedDelta,
-        complained: (c.emailStats.complained ?? 0) + event.complainedDelta,
-        failed: (c.emailStats.failed ?? 0) + event.failedDelta,
-        pending: Math.max(0, (c.total || 0) - newSent - newFailed),
-      } : (isEmail ? {
-        sent: newSent,
-        delivered: newDelivered,
-        bounced: 0,
-        complained: newComplained,
-        suppressed: 0,
-        opened: newOpened,
-        clicked: newClicked,
-        replied: newReplied,
-        unsubscribed: newUnsubscribed,
-        pending: Math.max(0, (c.total || 0) - newSent - newFailed),
-        failed: newFailed,
-      } : undefined)
-
-      updatedSelected = {
-        ...c,
-        status: event.newCampaignStatus ?? c.status,
-        deliveredTo: newDelivered,
-        readBy: newRead,
-        failedCount: newFailed,
-        sentCount: newSent,
-        openedCount: newOpened,
-        clickedCount: newClicked,
-        repliedCount: newReplied,
-        unsubscribedCount: newUnsubscribed,
-        complainedCount: newComplained,
-        emailStats: newEmailStats,
-      }
-
-      if (updatedStats) {
-        const total = updatedStats.totalLeads || c.total || 1
-        updatedStats = {
-          ...updatedStats,
-          deliveredCount: newDelivered,
-          deliveredPercent: `${((newDelivered / total) * 100).toFixed(0)}%`,
-          readCount: newRead,
-          readPercent: `${((newRead / total) * 100).toFixed(0)}%`,
-          failedCount: newFailed,
-          failedPercent: `${((newFailed / total) * 100).toFixed(0)}%`,
-        }
-      }
+    const selected = state.selectedCampaign
+    if (!selected || selected.id !== event.campaignId) {
+      return { campaigns: updatedList }
     }
+
+    const updatedSelected = applyCampaignDelta(selected, event)
+    const stats = state.selectedStats
+    const total = stats?.totalLeads || updatedSelected.total || 1
+    const percent = (n: number) => `${Math.round((n / total) * 100)}%`
 
     return {
       campaigns: updatedList,
       selectedCampaign: updatedSelected,
-      selectedStats: updatedStats,
+      selectedStats: stats
+        ? {
+            ...stats,
+            deliveredCount: updatedSelected.deliveredTo,
+            deliveredPercent: percent(updatedSelected.deliveredTo),
+            readCount: updatedSelected.readBy,
+            readPercent: percent(updatedSelected.readBy),
+            failedCount: updatedSelected.failedCount,
+            failedPercent: percent(updatedSelected.failedCount),
+          }
+        : stats,
     }
   }),
 }))

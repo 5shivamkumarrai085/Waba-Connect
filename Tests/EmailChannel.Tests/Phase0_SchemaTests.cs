@@ -91,8 +91,8 @@ public static class Phase0_SchemaTests
 
         foreach (var table in new[]
         {
-            "EmailConfigurations", "EmailSendingDomains", "EmailSenderIdentities",
-            "EmailCampaignDetails", "EmailMessageDetails", "EmailDeliveryEvents",
+            "EmailConfigurations", "EmailSenderIdentities",
+            "EmailCampaignDetails", "EmailMessageDetails",
             "EmailSuppressions", "EmailSendQuotas", "JobQueue", "CampaignApprovalStates"
         })
         {

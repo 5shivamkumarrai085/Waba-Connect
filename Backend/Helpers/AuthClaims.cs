@@ -18,4 +18,7 @@ public static class AuthClaims
     public const string RoleName = "role";
     public const string IsAdministrator = "is_admin";
     public const string MustChangePassword = "must_change_pw";
+
+    /// <summary>The user's security stamp at issue time; a mismatch means the session was ended.</summary>
+    public const string SecurityStamp = "sstamp";
 }

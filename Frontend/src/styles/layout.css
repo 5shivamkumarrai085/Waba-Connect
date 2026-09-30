@@ -64,15 +64,6 @@
   color: var(--rma-orange);
 }
 
-.sidebar-logo-dot {
-  width: 8px;
-  height: 8px;
-  background-color: var(--rma-orange);
-  border-radius: 50%;
-  display: inline-block;
-  margin-left: -2px;
-}
-
 .sidebar-toggle-btn {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
@@ -234,70 +225,10 @@
   gap: 16px;
 }
 
-.header-breadcrumb {
-  font-size: 14px;
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
 .header-right {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.header-search {
-  position: relative;
-  width: 300px;
-  max-width: 100%;
-}
-
-.header-search-icon {
-  position: absolute;
-  left: 13px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--omni-color-text-muted);
-  width: 16px;
-  height: 16px;
-  pointer-events: none;
-  transition: color 150ms ease;
-}
-
-.header-search-input {
-  width: 100%;
-  height: 38px;
-  /* The host uses a soft-filled rounded rectangle rather than a pill outline —
-     it sits quieter next to the icon buttons beside it. */
-  padding: 0 14px 0 40px;
-  border: 1.5px solid #e8edf5;
-  border-radius: 10px;
-  font-size: 13px;
-  font-family: inherit;
-  color: var(--text-main);
-  background-color: var(--omni-color-surface-alt);
-  outline: none;
-  box-sizing: border-box;
-  transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
-}
-
-.header-search-input::placeholder {
-  color: var(--omni-color-text-muted);
-}
-
-.header-search-input:hover {
-  background-color: var(--bg-hover);
-  border-color: #d4dbe8;
-}
-
-.header-search-input:focus {
-  border-color: var(--primary);
-  background-color: var(--bg-secondary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-.header-search:focus-within .header-search-icon {
-  color: var(--primary);
 }
 
 .header-actions {
@@ -314,7 +245,7 @@
   border-radius: 10px;
   border: 1.5px solid transparent;
   background: transparent;
-  color: #64748b;
+  color: rgb(var(--color-slate-500));
   transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
 }
 
@@ -416,12 +347,6 @@
   color: var(--primary);
 }
 
-.header-profile {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
 /* Dropdowns */
 .dropdown-container {
   position: relative;
@@ -441,45 +366,10 @@
   padding: 0.5rem 0;
 }
 
-.dropdown-item {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  color: var(--text-primary);
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-}
-
-.dropdown-item:hover {
-  background-color: var(--bg-secondary);
-}
-
-.dropdown-icon {
-  margin-right: 0.5rem;
-  color: var(--text-secondary);
-}
-
-/* Base Themes (Light/Dark) */
-.dark-theme {
-  --bg-primary: #0f172a;
-  --bg-secondary: #0f172a;
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --border-light: #334155;
-}
-
 .sidebar-logo-img {
   height: 40px;
   width: auto;
   object-fit: contain;
-}
-
-.header-profile:hover {
-  background-color: var(--bg-hover);
 }
 
 .header-avatar {
@@ -517,9 +407,7 @@
   .header {
     padding: 0 16px;
   }
-  .header-search {
-    display: none;
-  }
+
   .page-container {
     padding: 16px;
   }
@@ -532,44 +420,12 @@
   background-color: var(--bg-primary);
 }
 
-.header-preview-switch {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  padding: 6px 12px;
-  border-radius: var(--radius-full);
-  transition: var(--transition-fast);
-  border: 1px solid var(--border-color);
-}
-
-.header-preview-switch.preview-on {
-  background-color: var(--primary-light);
-  border-color: #c7d2fe;
-}
-
-.header-preview-switch.preview-off {
-  background-color: var(--bg-hover);
-  border-color: var(--border-color);
-}
-
-.header-preview-switch-text {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.header-preview-switch-text.active {
-  color: var(--primary);
-}
-
-.header-create-campaign-btn,
 .header-create-plus-btn {
-  background-color: var(--primary, #3b82f6) !important;
+  background-color: var(--primary) !important;
   color: var(--text-on-accent) !important;
   border-radius: 50% !important;
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition: color 0.2s var(--ease-out), background-color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), transform 0.2s var(--ease-out), opacity 0.2s var(--ease-out);
 }
 
 .header-create-plus-btn:hover,
@@ -617,7 +473,7 @@
   font-weight: 500;
   cursor: pointer;
   text-align: left;
-  transition: all 0.15s ease;
+  transition: color 0.15s var(--ease-out), background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out), transform 0.15s var(--ease-out), opacity 0.15s var(--ease-out);
 }
 
 .quick-create-item:hover {
@@ -626,7 +482,7 @@
 }
 
 .quick-create-icon {
-  color: #64748b;
+  color: rgb(var(--color-slate-500));
   transition: color 0.15s ease;
 }
 
@@ -639,7 +495,6 @@
    are all controlled by Motion components for GPU-accelerated,
    prefers-reduced-motion-aware behavior.
 */
-
 
 /* ══════════════════════════════════════════════════════════════════════════════
    PAGE HERO BANNER — the host's signature page header
@@ -693,7 +548,7 @@
 .templates-page-header::before,
 .conn-page-header::before,
 .waba-page-header::before,
-.permission-header,
+.permission-header::before,
 .omni-page-hero::before {
   content: '';
   position: absolute;
@@ -714,7 +569,7 @@
 .templates-page-header::after,
 .conn-page-header::after,
 .waba-page-header::after,
-.permission-header,
+.permission-header::after,
 .omni-page-hero::after {
   content: '';
   position: absolute;
@@ -736,7 +591,7 @@
 .templates-page-header > *,
 .conn-page-header > *,
 .waba-page-header > *,
-.permission-header,
+.permission-header > *,
 .omni-page-hero > * {
   position: relative;
   z-index: 1;
@@ -766,13 +621,15 @@
 
 :is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero):is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero) p,
 :is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero):is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero) :is(h1, h2) + p {
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--hero-text-soft);
   font-size: 13.5px;
 }
 
-/* Small print that pages put in the header — counts, hints, breadcrumbs. */
-:is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero):is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero) :is(span, small, label) {
-  color: rgba(255, 255, 255, 0.82);
+/* Small print that pages put in the header — counts, hints, breadcrumbs. A status badge is a
+   span too, but it carries its own colours: turning its text white on its pale fill made a
+   "Failed" pill unreadable. */
+:is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero):is(.dashboard-welcome, .activity-header, .reporting-header, .contacts-page-header, .campaign-page-header, .templates-page-header, .conn-page-header, .waba-page-header, .permission-header, .omni-page-hero) :is(span:not(.status-badge), small, label) {
+  color: var(--hero-text-soft);
 }
 
 /* …except inside a control, which carries its own colour. */
@@ -793,10 +650,10 @@
 .templates-page-header .btn-secondary,
 .conn-page-header .btn-secondary,
 .waba-page-header .btn-secondary,
-.permission-header,
+.permission-header .btn-secondary,
 .omni-page-hero .btn-secondary {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.3);
+  background: var(--hero-glass-bg);
+  border-color: var(--hero-glass-border);
   color: var(--text-on-accent);
   backdrop-filter: blur(8px);
   box-shadow: none;
@@ -810,7 +667,7 @@
 .templates-page-header .btn-secondary:hover,
 .conn-page-header .btn-secondary:hover,
 .waba-page-header .btn-secondary:hover,
-.permission-header,
+.permission-header .btn-secondary:hover,
 .omni-page-hero .btn-secondary:hover {
   background: rgba(255, 255, 255, 0.26);
   border-color: rgba(255, 255, 255, 0.45);
@@ -825,7 +682,7 @@
 .templates-page-header .btn-primary,
 .conn-page-header .btn-primary,
 .waba-page-header .btn-primary,
-.permission-header,
+.permission-header .btn-primary,
 .omni-page-hero .btn-primary {
   background: var(--omni-color-surface);
   color: var(--omni-color-primary-700);
@@ -840,7 +697,7 @@
 .templates-page-header .btn-primary::before,
 .conn-page-header .btn-primary::before,
 .waba-page-header .btn-primary::before,
-.permission-header,
+.permission-header .btn-primary::before,
 .omni-page-hero .btn-primary::before {
   display: none;
 }
@@ -853,9 +710,9 @@
 .templates-page-header .btn-primary:hover:not(:disabled),
 .conn-page-header .btn-primary:hover:not(:disabled),
 .waba-page-header .btn-primary:hover:not(:disabled),
-.permission-header,
+.permission-header .btn-primary:hover:not(:disabled),
 .omni-page-hero .btn-primary:hover:not(:disabled) {
-  background: #f8fafc;
+  background: var(--omni-color-surface-alt);
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.24);
 }
 
@@ -894,7 +751,7 @@
 .dashboard-welcome .filter-btn,
 .activity-header .filter-btn,
 .reporting-header .filter-btn {
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--hero-text-soft);
   background: transparent;
   border-radius: var(--radius-full);
 }
@@ -926,8 +783,8 @@
 
 .reporting-header .report-range-chip,
 .reporting-header .report-toolbar-btn {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.3);
+  background: var(--hero-glass-bg);
+  border-color: var(--hero-glass-border);
   color: var(--text-on-accent);
   backdrop-filter: blur(8px);
 }
@@ -952,7 +809,7 @@
 }
 
 .reporting-header .report-export-btn:hover:not(:disabled) {
-  background: #f8fafc;
+  background: var(--omni-color-surface-alt);
   filter: none;
 }
 
@@ -990,7 +847,7 @@
 .waba-setup-card,
 .reporting-section-card {
   border-radius: var(--radius-lg);
-  border: 1.5px solid #e8edf5;
+  border: 1.5px solid var(--border-color);
   box-shadow: var(--shadow-card);
 }
 
@@ -1001,7 +858,7 @@
 .permission-kpi-card,
 .campaign-stat-card {
   border-radius: var(--radius-lg);
-  border: 1.5px solid #e8edf5;
+  border: 1.5px solid var(--border-color);
   box-shadow: var(--shadow-card);
   transition: border-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
               box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -1035,31 +892,31 @@
 
 .conn-kpi-icon-wrapper.green,
 .stat-card-icon-wrapper.green {
-  background: linear-gradient(135deg, #ecfdf5 0%, var(--omni-color-success-bg) 100%);
+  background: var(--omni-color-success-bg);
   color: var(--omni-color-success);
-  border: 1px solid #a7f3d0;
+  border: 1px solid var(--omni-color-success-border);
 }
 
 .conn-kpi-icon-wrapper.amber,
 .stat-card-icon-wrapper.amber,
 .stat-card-icon-wrapper.orange {
-  background: linear-gradient(135deg, #fffbeb 0%, var(--omni-color-warning-bg) 100%);
+  background: var(--omni-color-warning-bg);
   color: var(--omni-color-warning);
   border: 1px solid var(--status-partial-border);
 }
 
 .conn-kpi-icon-wrapper.purple,
 .stat-card-icon-wrapper.purple {
-  background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
-  color: #7c3aed;
-  border: 1px solid #c4b5fd;
+  background: var(--kpi-purple-bg);
+  color: var(--kpi-purple);
+  border: 1px solid var(--kpi-purple-border);
 }
 
 .conn-kpi-icon-wrapper.red,
 .stat-card-icon-wrapper.red {
-  background: linear-gradient(135deg, var(--omni-color-danger-bg) 0%, #fecaca 100%);
+  background: linear-gradient(135deg, var(--omni-color-danger-bg) 0%, var(--omni-color-danger-border) 100%);
   color: var(--omni-color-danger);
-  border: 1px solid #fca5a5;
+  border: 1px solid var(--omni-color-danger-border);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1067,4 +924,66 @@
   .setup-kpi-card:hover,
   .permission-kpi-card:hover,
   .campaign-stat-card:hover { transform: none; }
+}
+
+/* ── Form and wizard pages ───────────────────────────────────────────────────
+   The same banner as the list pages, on the header each form already has. Only
+   what the banner changes is adjusted here: a tighter height (a form's header is
+   a title, not a summary), readable back/close buttons, and badges that keep their
+   own colours instead of the banner's white text. */
+/* Skin only, like the hero itself: each page lays out its own header (a title with a
+   subtitle underneath, or a back button beside the title). */
+.omni-page-hero.form-page-hero { padding: var(--space-2xl) var(--space-4xl); }
+.omni-page-hero.form-page-hero :is(h1, h2) { margin: 0 0 var(--space-2xs); }
+.omni-page-hero.form-page-hero :is(h1, h2):last-child { margin-bottom: 0; }
+.omni-page-hero.form-page-hero p { margin: 0; }
+
+/* Back and close buttons on the banner. Complete here rather than borrowed from a page
+   stylesheet, because page stylesheets load lazily with their route. */
+.omni-page-hero.form-page-hero :is(.btn-back, .back-arrow-btn),
+.omni-page-hero.form-card-hero .waba-wizard-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: var(--radius-full);
+  background: var(--hero-glass-bg);
+  border: 1px solid var(--hero-glass-border);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.omni-page-hero.form-page-hero :is(.btn-back, .back-arrow-btn):hover,
+.omni-page-hero.form-card-hero .waba-wizard-close-btn:hover {
+  background: var(--hero-glass-bg-hover);
+  color: var(--text-on-accent);
+}
+.omni-page-hero.form-page-hero :is(.btn-back, .back-arrow-btn):focus-visible,
+.omni-page-hero.form-card-hero .waba-wizard-close-btn:focus-visible {
+  outline: 2px solid var(--text-on-accent);
+  outline-offset: 2px;
+}
+.omni-page-hero.form-page-hero :is(.btn-back, .back-arrow-btn):active,
+.omni-page-hero.form-card-hero .waba-wizard-close-btn:active { transform: scale(0.95); }
+
+/* Badges keep their own colours on the banner. */
+.omni-page-hero.form-page-hero .wizard-badge span { color: inherit; }
+/* The blue badge is a tint of the banner's own colour; on the banner it needs a solid base. */
+.omni-page-hero.form-page-hero .wizard-badge.blue { background-color: var(--primary-light); }
+
+/* Inside a card: flush with the card's top edge, which clips the corners. */
+.omni-page-hero.form-card-hero {
+  margin: 0;
+  border-radius: 0;
+  border-bottom: none;
+  box-shadow: none;
+  padding: var(--space-2xl) var(--space-4xl);
+}
+
+@media (max-width: 640px) {
+  .omni-page-hero.form-page-hero,
+  .omni-page-hero.form-card-hero { padding: var(--space-xl); }
 }

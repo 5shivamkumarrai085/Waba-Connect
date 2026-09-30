@@ -2,17 +2,14 @@
  * Email-channel types, mirroring the backend's DTOs in Models/DTOs/Email.
  *
  * Note what is deliberately absent: there is no field anywhere here for a provider secret. The
- * API returns only `hasSecretAccessKey` / `hasSmtpPassword` booleans, and typing it that way
+ * API returns only `hasSmtpPassword` / `hasImapPassword` booleans, and typing it that way
  * means a component cannot render a credential even by mistake.
  */
 
-export type EmailProviderType = 'AmazonSes' | 'Smtp'
-
-export type EmailAuthMode = 'IamRole' | 'AccessKey'
+/** Standard SMTP is the only transport; kept as a type so the API shape stays explicit. */
+export type EmailProviderType = 'Smtp'
 
 export type SmtpSecurityMode = 'None' | 'StartTls' | 'SslOnConnect'
-
-export type EmailIdentityStatus = 'NotStarted' | 'Pending' | 'Verified' | 'Failed' | 'TemporaryFailure'
 
 /** Server-derived, so the UI does not re-implement the rule. */
 export type EmailConnectionStatus = 'Connected' | 'Disconnected' | 'Setup pending' | 'Needs attention'
@@ -33,9 +30,6 @@ export interface EmailSenderIdentity {
   replyTo?: string | null
   isDefault: boolean
   isActive: boolean
-  verificationStatus: EmailIdentityStatus
-  sendingDomainId?: number | null
-  domainName?: string | null
   /**
    * Whether this sender may actually be used. Computed server-side from the same rule the send
    * path applies, so the wizard can explain why a sender is unselectable instead of letting a
@@ -44,26 +38,18 @@ export interface EmailSenderIdentity {
   canSend: boolean
 }
 
-export interface DnsRecord {
-  type: 'CNAME' | 'TXT' | 'MX'
-  name: string
-  value: string
-  /** 'DKIM' | 'SPF' | 'DMARC' | 'MAIL FROM' — what breaks without it. */
-  purpose: string
-  /** False for records that improve deliverability but are not needed to send. */
-  required: boolean
+/** One live DNS check of a sender domain (SPF, DKIM, DMARC, MX). */
+export interface DomainCheck {
+  key: string
+  /** 'pass' | 'warn' | 'fail' */
+  level: string
+  title: string
+  detail: string
 }
 
-export interface EmailSendingDomain {
-  id: number
-  domainName: string
-  verificationStatus: EmailIdentityStatus
-  dkimStatus: EmailIdentityStatus
-  mailFromDomain?: string | null
-  mailFromStatus: EmailIdentityStatus
-  lastCheckedAt?: string | null
-  lastCheckMessage?: string | null
-  requiredDnsRecords: DnsRecord[]
+export interface DomainHealth {
+  domain: string
+  checks: DomainCheck[]
 }
 
 export interface EmailConnection {
@@ -76,20 +62,13 @@ export interface EmailConnection {
   provider: EmailProviderType
   isActive: boolean
 
-  region?: string | null
-  authMode: EmailAuthMode
-  /** The key id is an identifier, not a secret — showing it lets an operator confirm which
-   * credential is in use. */
-  accessKeyId?: string | null
-  /** Whether a secret is stored. Never the value. */
-  hasSecretAccessKey: boolean
-  configurationSet?: string | null
-
   smtpHost?: string | null
   smtpPort?: number | null
   smtpSecurity?: SmtpSecurityMode | null
   smtpUsername?: string | null
   hasSmtpPassword: boolean
+  /** False when a stored password cannot be read with this server's key and must be re-entered. */
+  credentialsReadable: boolean
 
   // IMAP — for inbound reply polling
   imapHost?: string | null
@@ -97,6 +76,13 @@ export interface EmailConnection {
   imapSecurity?: SmtpSecurityMode | null
   imapUsername?: string | null
   hasImapPassword: boolean
+  /** Opt-in to accept an IMAP certificate that fails validation (shared hosting). */
+  imapAllowInvalidCertificate?: boolean
+  /** The mailbox replies are read from: the saved host, or one derived from the SMTP host. */
+  effectiveImapHost?: string | null
+  imapHostIsDerived?: boolean
+  imapLastPolledAt?: string | null
+  imapLastError?: string | null
 
   maxSendRatePerSecond?: number | null
   defaultFromName?: string | null
@@ -113,7 +99,6 @@ export interface EmailConnection {
   capabilities?: EmailProviderCapabilities | null
 
   senders: EmailSenderIdentity[]
-  domains: EmailSendingDomain[]
 
   createdAt: string
   updatedAt?: string | null
@@ -132,16 +117,11 @@ export interface CreateEmailConnectionPayload {
 }
 
 /**
- * Step 2. Both secret fields are write-only: leaving one empty keeps whatever is stored, which
- * is how an operator changes a region without re-typing a credential.
+ * Step 2. The password is write-only: leaving it empty keeps whatever is stored, which is how an
+ * operator changes the port without re-typing a credential.
  */
 export interface SaveEmailProviderPayload {
   provider: EmailProviderType
-  region?: string
-  authMode?: EmailAuthMode
-  accessKeyId?: string
-  secretAccessKey?: string
-  configurationSet?: string
   smtpHost?: string
   smtpPort?: number
   smtpSecurity?: SmtpSecurityMode
@@ -172,6 +152,7 @@ export interface SaveImapSettingsPayload {
   imapUsername?: string
   /** Write-only. Leave blank to keep the stored password. */
   imapPassword?: string
+  imapAllowInvalidCertificate?: boolean
 }
 
 export interface SaveEmailSenderPayload {
@@ -244,34 +225,4 @@ export interface EmailTemplatePreview {
 
 export type SuppressionReason = 'Bounce' | 'Complaint' | 'Unsubscribe' | 'Manual' | 'ListImport'
 
-export interface EmailSuppression {
-  id: number
-  emailAddressNormalized: string
-  scope: 'Global' | 'Connection'
-  connectionId?: number | null
-  reason: SuppressionReason
-  source?: string | null
-  detail?: string | null
-  expiresAt?: string | null
-  suppressedAt: string
-}
-
 // ── Queue monitoring ──────────────────────────────────────────────────────────────────────────
-
-export interface EmailQueueStats {
-  transport: string
-  channelEnabled: boolean
-  visibilityTimeoutSeconds: number
-  maxAttempts: number
-  queues: Array<{
-    queue: string
-    pending: number
-    leased: number
-    deadLettered: number
-    completed: number
-    expiredLeases: number
-    oldestPendingAt?: string | null
-    /** The number that actually matters — depth alone cannot tell a burst from a stall. */
-    oldestPendingMinutes?: number | null
-  }>
-}

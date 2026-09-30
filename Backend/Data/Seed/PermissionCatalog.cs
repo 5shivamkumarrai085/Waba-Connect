@@ -51,7 +51,7 @@ public static class PermissionCatalog
     {
         // ---- Overview -------------------------------------------------------------
         new("Dashboard", "Dashboard", "Overview", ViewOnly),
-        new("Reporting",  "Reporting",  "Overview", new[] { (View, "View"), ("Export", "Export"), ("Manage", "Save/Share Reports") }),
+        new("Reporting",  "Reporting",  "Overview", new[] { (View, "View"), ("Export", "Export"), ("Manage", "Save/Share Reports"), ("Schedule", "Email reports on a schedule") }),
 
         // ---- Contacts -------------------------------------------------------------
         new("Contact", "Contact", "Contacts", new[]
@@ -60,6 +60,9 @@ public static class PermissionCatalog
             ("Import", "Import"), ("Export", "Export")
         }),
         new("ContactGroup", "Contact Group", "Contacts", Crud),
+        new("Segment", "Segment", "Contacts", new[] { (View, "View"), ("Manage", "Create, edit and delete") }),
+        // Consent is a compliance record: changing it on someone's behalf is a separate grant.
+        new("Consent", "Consent", "Contacts", new[] { (View, "View"), ("Manage", "Record opt-in / opt-out") }),
         new("ContactType",  "Contact Type",  "Contacts", Crud),
 
         // ---- Templates ------------------------------------------------------------
@@ -74,7 +77,11 @@ public static class PermissionCatalog
         // ---- Marketing ------------------------------------------------------------
         new("Campaign",     "Campaign",      "Marketing", new[]
         {
-            (View, "View"), (Create, "Create"), (Edit, "Edit"), (Delete, "Delete"), ("Send", "Send")
+            (View, "View"), (Create, "Create"), (Edit, "Edit"), (Delete, "Delete"), ("Send", "Send"),
+            // Maker-checker: approving is a different grant from creating, and nobody may approve
+            // their own campaign (enforced in CampaignService, not only by the checkbox).
+            ("Approve", "Approve / reject"),
+            ("Retry", "Retry failed recipients")
         }),
         new("BulkCampaign", "Bulk Campaign", "Marketing", new[]
         {
@@ -92,7 +99,9 @@ public static class PermissionCatalog
         // it never removes anything from the recipient's phone.
         new("Chat", "Chat", "Support", new[]
         {
-            (View, "View"), ("Send", "Send"), ("InitiateChat", "Initiate chat"), (Delete, "Delete")
+            (View, "View"), ("Send", "Send"), ("InitiateChat", "Initiate chat"), (Delete, "Delete"),
+            // Assigning a conversation to an agent (the inbox's assign menu and routing overrides).
+            ("Assign", "Assign conversations")
         }),
         new("CannedReply", "Canned Reply", "Support", Crud),
 
@@ -147,6 +156,7 @@ public static class PermissionCatalog
         new("Status",        "Status",         "Setup", Crud),
         new("Source",        "Source",         "Setup", Crud),
         new("AiPrompt",      "Ai Prompt",      "Setup", Crud),
+        new("Webhook",       "Webhook",        "Setup", new[] { (View, "View"), ("Manage", "Create, edit, test and replay") }),
         new("Language",      "Language",       "Setup", new[]
         {
             (View, "View"), (Create, "Create"), (Edit, "Edit"), (Delete, "Delete"),

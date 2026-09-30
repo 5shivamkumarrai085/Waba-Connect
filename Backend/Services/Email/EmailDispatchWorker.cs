@@ -1,5 +1,8 @@
+using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Helpers;
@@ -7,6 +10,7 @@ using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Models.Enums;
 using WhatsAppCampaignApi.Models.Options;
 using WhatsAppCampaignApi.Services.Queue;
+using WhatsAppCampaignApi.Services.Storage;
 
 namespace WhatsAppCampaignApi.Services.Email;
 
@@ -17,7 +21,7 @@ namespace WhatsAppCampaignApi.Services.Email;
 /// Runs several concurrent loops per instance, and any number of instances. The real send rate is
 /// bounded by the cross-instance token bucket rather than by loop count, so adding workers adds
 /// throughput up to the provider's configured rate and no further — which is what stops horizontal
-/// scaling from becoming an accidental way to get an SES account throttled.
+/// scaling from becoming an accidental way to get a mail account throttled.
 /// </para>
 /// </summary>
 public class EmailDispatchWorker : BackgroundService
@@ -105,8 +109,22 @@ public class EmailDispatchWorker : BackgroundService
 
         if (leases.Count == 0) return 0;
 
+        var visibility = TimeSpan.FromSeconds(_options.CurrentValue.Queue.VisibilityTimeoutSeconds);
+
         foreach (var lease in leases)
         {
+            if (ct.IsCancellationRequested) break;
+
+            // Jobs in a batch run one after another, so the last one can wait for the others'
+            // provider calls. Renewing each lease just before its turn stops it expiring in the
+            // queue and being claimed (and sent) by a second worker. A lease that has already
+            // lapsed belongs to someone else now, so it is left alone.
+            if (!await _queue.ExtendLeaseAsync(lease, visibility, ct))
+            {
+                _logger.LogWarning("Lease on job {JobId} lapsed before it was processed; skipping it.", lease.JobId);
+                continue;
+            }
+
             // Not passing ct into the send itself: a shutdown mid-send would otherwise abandon a
             // message whose fate is unknown. Each send is allowed to finish, and the loop stops
             // afterwards.
@@ -146,6 +164,10 @@ public class EmailDispatchWorker : BackgroundService
         var unsubscribe = services.GetRequiredService<IUnsubscribeTokenService>();
         var recorder = services.GetRequiredService<IEmailSendRecorder>();
         var trackingService = services.GetRequiredService<IEmailTrackingService>();
+        var eventProcessor = services.GetRequiredService<ICampaignEmailEventProcessor>();
+        var fileStorage = services.GetRequiredService<IFileStorage>();
+        var compliance = services.GetRequiredService<Compliance.IComplianceGuard>();
+        var attachmentCache = services.GetRequiredService<IMemoryCache>();
 
         // Declared out here so the catch blocks below can report against the right recipient and
         // give back a token they may have reserved. Inside the try they were invisible to the
@@ -165,14 +187,28 @@ public class EmailDispatchWorker : BackgroundService
                 return;
             }
 
-            var (campaign, recipient, detail, template) = context.Value;
+            var (campaign, recipient, detail, template, subjectOverride) = context.Value;
             failingRecipient = recipient;
 
-            // Ensure recipient has a tracking ID for open/click tracking
+            // Expansion assigns tracking ids before it enqueues, so this is only a fallback for
+            // jobs enqueued by an older build. Compare-and-set, so it can never replace an id that
+            // is already in a sent message's pixel and links.
             if (string.IsNullOrEmpty(recipient.TrackingId))
             {
-                recipient.TrackingId = trackingService.GenerateTrackingId();
-                await dbContext.SaveChangesAsync(ct);
+                var candidate = trackingService.GenerateTrackingId();
+                var targetId = recipient.Id;
+                await dbContext.CampaignContacts.IgnoreQueryFilters()
+                    .Where(cc => cc.Id == targetId && cc.TrackingId == null)
+                    .ExecuteUpdateAsync(u => u.SetProperty(cc => cc.TrackingId, candidate), ct);
+
+                var stored = await dbContext.CampaignContacts.IgnoreQueryFilters().AsNoTracking()
+                    .Where(cc => cc.Id == targetId)
+                    .Select(cc => cc.TrackingId)
+                    .FirstOrDefaultAsync(ct);
+
+                var entry = dbContext.Entry(recipient).Property(cc => cc.TrackingId);
+                entry.CurrentValue = stored;
+                entry.OriginalValue = stored;
             }
 
             // The idempotency guard. A redelivered job — after a lease lapsed, or a crash between
@@ -198,11 +234,9 @@ public class EmailDispatchWorker : BackgroundService
                   + "Not re-sending, to avoid a duplicate.",
                     recipient.Id, recipient.SendAttemptedAt);
 
-                recipient.Status = MessageStatus.Failed;
-                recipient.ErrorMessage =
+                await FailRecipientAsync(dbContext, eventProcessor, recipient,
                     "A previous send attempt did not complete cleanly. Not retried automatically to avoid "
-                  + "sending twice — re-send this recipient manually if nothing arrived.";
-                await dbContext.SaveChangesAsync(ct);
+                  + "sending twice — re-send this recipient manually if nothing arrived.", ct);
 
                 await _queue.CompleteAsync(lease, ct);
                 return;
@@ -220,7 +254,7 @@ public class EmailDispatchWorker : BackgroundService
             var emailAddress = recipient.Contact.Email;
             if (string.IsNullOrWhiteSpace(emailAddress))
             {
-                await FailRecipientAsync(dbContext, recipient, "The contact has no email address.", ct);
+                await FailRecipientAsync(dbContext, eventProcessor, recipient, "The contact has no email address.", ct);
                 await _queue.CompleteAsync(lease, ct);
                 return;
             }
@@ -233,13 +267,36 @@ public class EmailDispatchWorker : BackgroundService
                 recipient.Status = MessageStatus.Suppressed;
                 recipient.ErrorMessage = "The address was suppressed before this message was sent.";
                 await dbContext.SaveChangesAsync(ct);
+
+                var suppressedCampaignId = campaign.Id;
+                await dbContext.Campaigns.IgnoreQueryFilters()
+                    .Where(c => c.Id == suppressedCampaignId)
+                    .ExecuteUpdateAsync(u => u.SetProperty(c => c.SuppressedCount, c => c.SuppressedCount + 1), ct);
+
+                await CampaignFinalizer.TryFinalizeAsync(dbContext, campaign.Id, ct);
                 await _queue.CompleteAsync(lease, ct);
+                return;
+            }
+
+            // Compliance, re-checked at send time: an opt-out can arrive after expansion, and a job
+            // can come due inside the recipient's quiet hours. Held jobs are deferred without
+            // spending an attempt.
+            var complianceCheck = await compliance.RecheckAsync(campaign, recipient.ContactId, recipient.Contact.TimeZone, DateTime.UtcNow, ct);
+            if (complianceCheck.IsExcluded)
+            {
+                await SkipRecipientAsync(dbContext, recipient, campaign.Id, complianceCheck.ExclusionReason!, ct);
+                await _queue.CompleteAsync(lease, ct);
+                return;
+            }
+            if (complianceCheck.NotBeforeUtc is { } releaseAt)
+            {
+                await _queue.DeferAsync(lease, releaseAt - DateTime.UtcNow, "Held for the recipient's quiet hours.", ct);
                 return;
             }
 
             if (campaign.ConnectionId is not { } connectionId)
             {
-                await FailRecipientAsync(dbContext, recipient, "The campaign has no email connection.", ct);
+                await FailRecipientAsync(dbContext, eventProcessor, recipient, "The campaign has no email connection.", ct);
                 await _queue.CompleteAsync(lease, ct);
                 return;
             }
@@ -252,17 +309,19 @@ public class EmailDispatchWorker : BackgroundService
 
             if (granted == 0)
             {
-                await _queue.FailAsync(lease, new QueueFailure(
-                    "Rate limited; waiting for send capacity.",
-                    IsTransient: true,
-                    RetryAfter: TimeSpan.FromSeconds(1)), ct);
+                // Deferred, not failed: waiting for capacity is not an attempt. Failing here spent
+                // the job's retries on queueing, so any campaign that outran its send rate had
+                // recipients dead-lettered and left Pending for good.
+                await _queue.DeferAsync(lease, TimeSpan.FromSeconds(1), "Rate limited; waiting for send capacity.", ct);
                 return;
             }
 
             var (provider, providerContext) = await providerFactory.ResolveAsync(connectionId, ct);
 
+            var attachments = await LoadAttachmentsAsync(campaign, detail, fileStorage, attachmentCache, ct);
+
             var message = BuildMessage(
-                campaign, recipient, detail, template, emailAddress!,
+                campaign, recipient, detail, template, subjectOverride, emailAddress!, attachments,
                 providerContext, mimeBuilder, unsubscribe, trackingService, out var buildFailure);
 
             if (message is null)
@@ -271,9 +330,8 @@ public class EmailDispatchWorker : BackgroundService
                 reservedForConnection = null;
 
                 var reason = buildFailure ?? "The message could not be rendered.";
-                await FailRecipientAsync(dbContext, recipient, reason, ct);
+                await FailRecipientAsync(dbContext, eventProcessor, recipient, reason, ct);
                 await recorder.RecordJobFailureAsync(recipient, reason, ct);
-                await recorder.TryFinalizeCampaignAsync(campaign.Id, ct);
 
                 // Completed, not failed: retrying cannot help — the template needs a value it
                 // does not have, and only an operator can supply it.
@@ -282,10 +340,31 @@ public class EmailDispatchWorker : BackgroundService
             }
 
             // Stamped before the provider call and committed immediately, so a crash in the next
-            // few milliseconds is detectable as "possibly sent" by the guard above. SES offers no
+            // few milliseconds is detectable as "possibly sent" by the guard above. SMTP offers no
             // idempotent send, so this marker is the only protection there is.
-            recipient.SendAttemptedAt = DateTime.UtcNow;
-            await dbContext.SaveChangesAsync(ct);
+            //
+            // A compare-and-set rather than a tracked save: two workers that both loaded this
+            // recipient as Pending cannot both send. Only the one whose UPDATE matched goes on.
+            var attemptAt = DateTime.UtcNow;
+            var recipientId = recipient.Id;
+            var claimed = await dbContext.CampaignContacts.IgnoreQueryFilters()
+                .Where(cc => cc.Id == recipientId && cc.Status == MessageStatus.Pending && cc.SendAttemptedAt == null)
+                .ExecuteUpdateAsync(u => u.SetProperty(cc => cc.SendAttemptedAt, attemptAt), ct);
+
+            if (claimed == 0)
+            {
+                await rateLimiter.ReleaseAsync(connectionId, 1, ct);
+                reservedForConnection = null;
+
+                // Another worker is sending this recipient right now. Look again shortly: by then
+                // it is Sent (complete) or its attempt marker is stale (the guard above decides).
+                await _queue.DeferAsync(lease, TimeSpan.FromSeconds(60), "Another worker is sending this recipient.", ct);
+                return;
+            }
+
+            var attemptEntry = dbContext.Entry(recipient).Property(cc => cc.SendAttemptedAt);
+            attemptEntry.CurrentValue = attemptAt;
+            attemptEntry.OriginalValue = attemptAt;
 
             var result = await provider.SendAsync(message, providerContext, CancellationToken.None);
 
@@ -296,12 +375,10 @@ public class EmailDispatchWorker : BackgroundService
                 // shutting down — would lose all evidence the send happened, and the job would
                 // then be redelivered and send the same mail again. Recording an outcome that has
                 // already occurred is not a cancellable operation.
+                // The Sent event this records also finalises the campaign when this was the last
+                // pending recipient.
                 await recorder.RecordSentAsync(
                     campaign, recipient, message, result, provider.ProviderName, CancellationToken.None);
-
-                // Cheap and idempotent, so it runs after every recipient rather than needing a
-                // sweeper: whichever worker happens to finish last is the one that lands it.
-                await recorder.TryFinalizeCampaignAsync(campaign.Id, CancellationToken.None);
 
                 reservedForConnection = null;
                 await _queue.CompleteAsync(lease, CancellationToken.None);
@@ -332,8 +409,6 @@ public class EmailDispatchWorker : BackgroundService
             await recorder.RecordFailedAsync(
                 campaign, recipient, message, result, provider.ProviderName, CancellationToken.None);
 
-            await recorder.TryFinalizeCampaignAsync(campaign.Id, CancellationToken.None);
-
             await _queue.FailAsync(lease, new QueueFailure(
                 result.ErrorMessage ?? "Send failed.", result.IsTransient), CancellationToken.None);
         }
@@ -341,22 +416,90 @@ public class EmailDispatchWorker : BackgroundService
         {
             // A missing connection or configuration. Permanent — the operator has to fix it.
             _logger.LogError(ex, "Email send job {JobId} has an unusable configuration.", lease.JobId);
-            await AbandonAsync(dbContext, rateLimiter, recorder, lease, failingRecipient,
+            await AbandonAsync(dbContext, rateLimiter, recorder, eventProcessor, lease, failingRecipient,
                 reservedForConnection, ex.Message, isTransient: false);
+        }
+        catch (EmailConnectionUnavailableException ex)
+        {
+            // The connection itself is unusable (unreadable credential, switched off). No
+            // recipient did anything wrong, so none is failed: the campaign is put on hold with
+            // the reason, every recipient stays Pending, and Resume carries on once the
+            // connection is fixed.
+            _logger.LogError(ex, "Email send job {JobId}: the connection is unavailable; holding the campaign.", lease.JobId);
+            await HoldCampaignAsync(dbContext, rateLimiter, services, lease, failingRecipient, reservedForConnection, ex.Message);
         }
         catch (InvalidOperationException ex)
         {
-            // A disconnected connection, or an undecryptable credential.
+            // A disconnected connection.
             _logger.LogError(ex, "Email send job {JobId} cannot proceed.", lease.JobId);
-            await AbandonAsync(dbContext, rateLimiter, recorder, lease, failingRecipient,
+            await AbandonAsync(dbContext, rateLimiter, recorder, eventProcessor, lease, failingRecipient,
                 reservedForConnection, ex.Message, isTransient: false);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected failure on email send job {JobId}.", lease.JobId);
-            await AbandonAsync(dbContext, rateLimiter, recorder, lease, failingRecipient,
+            await AbandonAsync(dbContext, rateLimiter, recorder, eventProcessor, lease, failingRecipient,
                 reservedForConnection, ex.Message, isTransient: true);
         }
+    }
+
+    /// <summary>
+    /// Puts the campaign on hold because its connection cannot be used, keeping the recipient
+    /// Pending. The job completes (like any job of a paused campaign); Resume queues a new run.
+    /// </summary>
+    private async Task HoldCampaignAsync(
+        AppDbContext dbContext,
+        IEmailRateLimiter rateLimiter,
+        IServiceProvider services,
+        QueueLease lease,
+        CampaignContact? recipient,
+        int? reservedForConnection,
+        string reason)
+    {
+        if (reservedForConnection is { } connectionId)
+        {
+            try { await rateLimiter.ReleaseAsync(connectionId, 1, CancellationToken.None); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Could not return the rate-limit token for connection {ConnectionId}.", connectionId); }
+        }
+
+        if (recipient is not null)
+        {
+            var campaignId = recipient.CampaignId;
+            var recipientId = recipient.Id;
+            var holdReason = $"On hold: {reason}";
+            if (holdReason.Length > Campaign.PausedReasonMaxLength) holdReason = holdReason[..Campaign.PausedReasonMaxLength];
+
+            await dbContext.CampaignContacts.IgnoreQueryFilters()
+                .Where(cc => cc.Id == recipientId && cc.Status == MessageStatus.Pending)
+                .ExecuteUpdateAsync(u => u.SetProperty(cc => cc.SendAttemptedAt, (DateTime?)null), CancellationToken.None);
+
+            // Only the first job to notice changes the status; the rest see Paused and stop.
+            var held = await dbContext.Campaigns.IgnoreQueryFilters()
+                .Where(c => c.Id == campaignId && c.Status == CampaignStatus.Sending)
+                .ExecuteUpdateAsync(u => u
+                    .SetProperty(c => c.Status, CampaignStatus.Paused)
+                    .SetProperty(c => c.PausedReason, holdReason), CancellationToken.None);
+
+            if (held > 0)
+            {
+                try
+                {
+                    await services.GetRequiredService<IEventPublisher>().PublishEmailEventAsync(new CampaignEmailEventNotification(
+                        CampaignId: campaignId,
+                        Kind: EmailEventKind.Sent,
+                        CampaignContactId: null,
+                        RecipientAddress: null,
+                        OccurredAt: DateTime.UtcNow,
+                        NewCampaignStatus: nameof(CampaignStatus.Paused)));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Could not publish the hold of campaign {CampaignId}.", campaignId);
+                }
+            }
+        }
+
+        await _queue.CompleteAsync(lease, CancellationToken.None);
     }
 
     /// <summary>
@@ -378,6 +521,7 @@ public class EmailDispatchWorker : BackgroundService
         AppDbContext dbContext,
         IEmailRateLimiter rateLimiter,
         IEmailSendRecorder recorder,
+        ICampaignEmailEventProcessor eventProcessor,
         QueueLease lease,
         CampaignContact? recipient,
         int? reservedForConnection,
@@ -404,7 +548,7 @@ public class EmailDispatchWorker : BackgroundService
         {
             try
             {
-                await FailRecipientAsync(dbContext, recipient, reason, CancellationToken.None);
+                await FailRecipientAsync(dbContext, eventProcessor, recipient, reason, CancellationToken.None);
                 await recorder.RecordJobFailureAsync(recipient, reason, CancellationToken.None);
             }
             catch (Exception ex)
@@ -416,7 +560,7 @@ public class EmailDispatchWorker : BackgroundService
         await _queue.FailAsync(lease, new QueueFailure(reason, isTransient), CancellationToken.None);
     }
 
-    private static async Task<(Campaign Campaign, CampaignContact Recipient, EmailCampaignDetail Detail, EmailTemplate Template)?>
+    private static async Task<(Campaign Campaign, CampaignContact Recipient, EmailCampaignDetail Detail, EmailTemplate Template, string? SubjectOverride)?>
         LoadSendContextAsync(AppDbContext dbContext, EmailSendJob job, CancellationToken ct)
     {
         var recipient = await dbContext.CampaignContacts
@@ -438,7 +582,20 @@ public class EmailDispatchWorker : BackgroundService
         if (campaign is null || campaign.IsDeleted) return null;
         if (campaign.EmailDetail is null || campaign.EmailTemplate is null) return null;
 
-        return (campaign, recipient, campaign.EmailDetail, campaign.EmailTemplate);
+        // A/B tests: the recipient's variant may swap the template and the subject. Read without
+        // tracking, so nothing about the variant can be written back onto the campaign.
+        if (recipient.VariantId is { } variantId)
+        {
+            var variant = await dbContext.CampaignVariants.AsNoTracking()
+                .Include(v => v.EmailTemplate)
+                .FirstOrDefaultAsync(v => v.Id == variantId, ct);
+            if (variant?.EmailTemplate is not null)
+            {
+                return (campaign, recipient, campaign.EmailDetail, variant.EmailTemplate, variant.SubjectOverride ?? campaign.EmailDetail.SubjectOverride);
+            }
+        }
+
+        return (campaign, recipient, campaign.EmailDetail, campaign.EmailTemplate, campaign.EmailDetail.SubjectOverride);
     }
 
     /// <summary>
@@ -454,7 +611,9 @@ public class EmailDispatchWorker : BackgroundService
         CampaignContact recipient,
         EmailCampaignDetail detail,
         EmailTemplate template,
+        string? subjectOverride,
         string emailAddress,
+        IReadOnlyList<EmailAttachment> attachments,
         EmailProviderContext providerContext,
         IMimeMessageBuilder mimeBuilder,
         IUnsubscribeTokenService unsubscribe,
@@ -491,6 +650,12 @@ public class EmailDispatchWorker : BackgroundService
             ["site_name"] = sender.DisplayName
         };
 
+        // A visible opt-out in the body, alongside the List-Unsubscribe header: templates place
+        // {{unsubscribe_url}} (one click) or {{preferences_url}} (choose topics) where they want it.
+        var unsubscribeUrl = unsubscribe.BuildUnsubscribeUrl(emailAddress, campaign.Id, recipient.ContactId);
+        values["unsubscribe_url"] = unsubscribeUrl;
+        values["preferences_url"] = unsubscribeUrl.Replace("/unsubscribe?", "/preferences?", StringComparison.Ordinal);
+
         foreach (var variable in campaign.Variables)
         {
             // The same merge-field convention the WhatsApp path uses, so an operator's mental
@@ -507,7 +672,7 @@ public class EmailDispatchWorker : BackgroundService
         }
 
         var subject = MergeFieldRenderer.Render(
-            string.IsNullOrWhiteSpace(detail.SubjectOverride) ? template.Subject : detail.SubjectOverride,
+            string.IsNullOrWhiteSpace(subjectOverride) ? template.Subject : subjectOverride,
             values);
 
         var body = MergeFieldRenderer.Render(template.BodyHtml, values);
@@ -573,14 +738,16 @@ public class EmailDispatchWorker : BackgroundService
                  + $"{System.Net.WebUtility.HtmlEncode(preheader)}</div>{body}";
         }
 
+        var trackingEnabled = _options.CurrentValue.Tracking.Enabled;
+
         // Inject click-tracking redirect URLs if enabled
-        if (detail.TrackClicks && !string.IsNullOrEmpty(recipient.TrackingId) && !string.IsNullOrWhiteSpace(body))
+        if (trackingEnabled && detail.TrackClicks && !string.IsNullOrEmpty(recipient.TrackingId) && !string.IsNullOrWhiteSpace(body))
         {
             body = RewriteLinks(body, recipient.TrackingId, trackingService);
         }
 
         // Inject open-tracking 1x1 transparent pixel if enabled
-        if (detail.TrackOpens && !string.IsNullOrEmpty(recipient.TrackingId))
+        if (trackingEnabled && detail.TrackOpens && !string.IsNullOrEmpty(recipient.TrackingId))
         {
             var openUrl = trackingService.BuildOpenUrl(recipient.TrackingId);
             var pixelTag = $"<img src=\"{openUrl}\" width=\"1\" height=\"1\" alt=\"\" style=\"display:none;max-height:0;overflow:hidden;mso-hide:all;\" />";
@@ -592,49 +759,6 @@ public class EmailDispatchWorker : BackgroundService
             }
         }
 
-        // Resolve email attachments
-        var emailAttachments = new List<EmailAttachment>();
-        if (!string.IsNullOrWhiteSpace(detail.AttachmentsJson))
-        {
-            try
-            {
-                var attachmentRequests = System.Text.Json.JsonSerializer.Deserialize<List<WhatsAppCampaignApi.Models.DTOs.Campaigns.CampaignAttachmentRequest>>(detail.AttachmentsJson);
-                if (attachmentRequests != null)
-                {
-                    foreach (var att in attachmentRequests)
-                    {
-                        var bytes = LoadAttachmentBytes(att.Url);
-                        if (bytes != null && bytes.Length > 0)
-                        {
-                            var ct = !string.IsNullOrWhiteSpace(att.ContentType) ? att.ContentType : GetMimeType(att.FileName);
-                            emailAttachments.Add(new EmailAttachment(att.FileName, ct, bytes));
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to load campaign attachments for campaign {CampaignId}", campaign.Id);
-            }
-        }
-        else if (!string.IsNullOrWhiteSpace(campaign.FileUrl))
-        {
-            try
-            {
-                var bytes = LoadAttachmentBytes(campaign.FileUrl);
-                if (bytes != null && bytes.Length > 0)
-                {
-                    var fileName = !string.IsNullOrWhiteSpace(campaign.FileName) ? campaign.FileName : Path.GetFileName(campaign.FileUrl);
-                    var ct = GetMimeType(fileName);
-                    emailAttachments.Add(new EmailAttachment(fileName, ct, bytes));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to load campaign file attachment for campaign {CampaignId}", campaign.Id);
-            }
-        }
-
         return new EmailMessage
         {
             From = new EmailAddress(sender.EmailAddress, sender.DisplayName),
@@ -643,10 +767,9 @@ public class EmailDispatchWorker : BackgroundService
             Subject = subject,
             HtmlBody = body,
             TextBody = string.IsNullOrWhiteSpace(text) ? null : text,
-            Attachments = emailAttachments,
+            Attachments = attachments.ToList(),
             Headers = headers,
             MessageId = mimeBuilder.NewMessageId(fromDomain),
-            ConfigurationSet = providerContext.ConfigurationSet,
             Tags = new Dictionary<string, string>
             {
                 ["campaign_id"] = campaign.Id.ToString(),
@@ -655,43 +778,79 @@ public class EmailDispatchWorker : BackgroundService
         };
     }
 
-    private static byte[]? LoadAttachmentBytes(string url)
+    /// <summary>
+    /// The campaign's attachments, loaded once per campaign and cached rather than re-read (or
+    /// re-downloaded) for every recipient. References resolve only inside the uploads root or to an
+    /// allow-listed host — see <see cref="IFileStorage"/> — so an attachment URL can no longer read
+    /// an arbitrary server file or reach into the internal network.
+    /// </summary>
+    private async Task<IReadOnlyList<EmailAttachment>> LoadAttachmentsAsync(
+        Campaign campaign,
+        EmailCampaignDetail detail,
+        IFileStorage storage,
+        IMemoryCache cache,
+        CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(url)) return null;
+        var source = !string.IsNullOrWhiteSpace(detail.AttachmentsJson) ? detail.AttachmentsJson : campaign.FileUrl;
+        if (string.IsNullOrWhiteSpace(source)) return [];
+
+        var cacheKey = $"email-attachments:{campaign.Id}:{source.GetHashCode()}";
+        if (cache.TryGetValue(cacheKey, out IReadOnlyList<EmailAttachment>? cached) && cached is not null)
+        {
+            return cached;
+        }
+
+        var maxBytes = MaxAttachmentBytes;
+        var loaded = new List<EmailAttachment>();
 
         try
         {
-            // 1. If it's a relative or absolute URL containing /uploads/
-            if (url.Contains("/uploads/", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(detail.AttachmentsJson))
             {
-                var relativePath = url.Substring(url.IndexOf("/uploads/", StringComparison.OrdinalIgnoreCase)).TrimStart('/');
-                var localPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", relativePath.Replace('/', Path.DirectorySeparatorChar));
-                if (File.Exists(localPath))
+                var requests = JsonSerializer.Deserialize<List<Models.DTOs.Campaigns.CampaignAttachmentRequest>>(detail.AttachmentsJson) ?? [];
+                foreach (var att in requests)
                 {
-                    return File.ReadAllBytes(localPath);
+                    var bytes = await storage.ReadAsync(att.Url, maxBytes, ct);
+                    if (bytes is { Length: > 0 })
+                    {
+                        var type = !string.IsNullOrWhiteSpace(att.ContentType) ? att.ContentType : GetMimeType(att.FileName);
+                        loaded.Add(new EmailAttachment(att.FileName, type, bytes));
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Attachment {FileName} for campaign {CampaignId} could not be loaded; sending without it.",
+                            att.FileName, campaign.Id);
+                    }
                 }
             }
-
-            // 2. Direct file path
-            if (File.Exists(url))
+            else if (!string.IsNullOrWhiteSpace(campaign.FileUrl))
             {
-                return File.ReadAllBytes(url);
-            }
-
-            // 3. Remote URL fallback
-            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
-            {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                return http.GetByteArrayAsync(uri).GetAwaiter().GetResult();
+                var bytes = await storage.ReadAsync(campaign.FileUrl, maxBytes, ct);
+                if (bytes is { Length: > 0 })
+                {
+                    var fileName = !string.IsNullOrWhiteSpace(campaign.FileName) ? campaign.FileName : Path.GetFileName(campaign.FileUrl);
+                    loaded.Add(new EmailAttachment(fileName, GetMimeType(fileName), bytes));
+                }
             }
         }
-        catch
+        catch (Exception ex) when (ex is JsonException or IOException or HttpRequestException or TaskCanceledException)
         {
-            // Handled by caller
+            _logger.LogWarning(ex, "Failed to load attachments for campaign {CampaignId}.", campaign.Id);
         }
 
-        return null;
+        // Short-lived: long enough to serve a whole campaign run, short enough that a corrected
+        // attachment is picked up without a restart.
+        cache.Set(cacheKey, (IReadOnlyList<EmailAttachment>)loaded, new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
+            Size = loaded.Sum(a => (long)a.Content.Length)
+        });
+
+        return loaded;
     }
+
+    /// <summary>Per-attachment ceiling; the provider enforces its own total message size.</summary>
+    private const long MaxAttachmentBytes = 20L * 1024 * 1024;
 
     private static string GetMimeType(string fileName)
     {
@@ -715,29 +874,40 @@ public class EmailDispatchWorker : BackgroundService
         };
     }
 
+    private static readonly Regex AnchorHref = new(
+        @"(<a\b[^>]*?\bhref\s*=\s*[""'])(https?://[^""'>\s]+)([""'][^>]*>)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        TimeSpan.FromSeconds(2));
+
+    /// <summary>
+    /// Wraps each link in a signed click-tracking redirect.
+    /// </summary>
+    /// <remarks>
+    /// The href is HTML-decoded before signing: in markup a URL's query separator is written
+    /// <c>&amp;amp;</c>, and signing the encoded form redirected recipients to a URL whose
+    /// parameters were mangled. Unsubscribe and tracking links are left alone — rewriting the
+    /// opt-out link would record a click instead of honouring the unsubscribe.
+    /// </remarks>
     private static string RewriteLinks(string html, string trackingId, IEmailTrackingService tracking)
     {
         var linkIndex = 0;
-        return System.Text.RegularExpressions.Regex.Replace(
-            html,
-            @"(<a\b[^>]*?\bhref\s*=\s*[""'])(https?://[^""'>\s]+)([""'][^>]*>)",
-            match =>
+        return AnchorHref.Replace(html, match =>
+        {
+            var prefix = match.Groups[1].Value;
+            var originalUrl = WebUtility.HtmlDecode(match.Groups[2].Value);
+            var suffix = match.Groups[3].Value;
+
+            if (originalUrl.Contains("/api/public/email/unsubscribe", StringComparison.OrdinalIgnoreCase)
+                || originalUrl.Contains("/api/public/email/preferences", StringComparison.OrdinalIgnoreCase)
+                || originalUrl.Contains("/api/unsubscribe", StringComparison.OrdinalIgnoreCase)
+                || originalUrl.Contains("/api/t/", StringComparison.OrdinalIgnoreCase))
             {
-                var prefix = match.Groups[1].Value;
-                var originalUrl = match.Groups[2].Value;
-                var suffix = match.Groups[3].Value;
+                return match.Value;
+            }
 
-                // Skip unsubscribe links or existing tracking URLs
-                if (originalUrl.Contains("/api/unsubscribe", StringComparison.OrdinalIgnoreCase) ||
-                    originalUrl.Contains("/api/t/", StringComparison.OrdinalIgnoreCase))
-                {
-                    return match.Value;
-                }
-
-                var clickUrl = tracking.BuildClickUrl(trackingId, originalUrl, linkIndex++);
-                return $"{prefix}{clickUrl}{suffix}";
-            },
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var clickUrl = tracking.BuildClickUrl(trackingId, originalUrl, linkIndex++);
+            return $"{prefix}{WebUtility.HtmlEncode(clickUrl)}{suffix}";
+        });
     }
 
     private static EmailAddress? ResolveReplyTo(
@@ -754,8 +924,33 @@ public class EmailDispatchWorker : BackgroundService
         return string.IsNullOrWhiteSpace(address) ? null : new EmailAddress(address);
     }
 
+    /// <summary>
+    /// Fails a recipient that never reached the provider, through the event pipeline so the
+    /// campaign's Failed figure, the live page and completion all see it. These paths used to
+    /// change the row only, which left the campaign counters short and the campaign unfinished.
+    /// </summary>
+    /// <summary>Marks a recipient Skipped by a compliance rule and counts it; finishes the campaign if that was the last one.</summary>
+    private static async Task SkipRecipientAsync(AppDbContext dbContext, CampaignContact recipient, int campaignId, string reason, CancellationToken ct)
+    {
+        var skipped = await dbContext.CampaignContacts.IgnoreQueryFilters()
+            .Where(cc => cc.Id == recipient.Id && cc.Status == MessageStatus.Pending)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(cc => cc.Status, MessageStatus.Skipped)
+                .SetProperty(cc => cc.ErrorMessage, reason.Length > 500 ? reason[..500] : reason), ct);
+
+        if (skipped > 0)
+        {
+            await dbContext.Campaigns.IgnoreQueryFilters()
+                .Where(c => c.Id == campaignId)
+                .ExecuteUpdateAsync(u => u.SetProperty(c => c.SkippedCount, c => c.SkippedCount + 1), ct);
+        }
+
+        await CampaignFinalizer.TryFinalizeAsync(dbContext, campaignId, ct);
+    }
+
     private static async Task FailRecipientAsync(
         AppDbContext dbContext,
+        ICampaignEmailEventProcessor eventProcessor,
         CampaignContact recipient,
         string reason,
         CancellationToken ct)
@@ -764,5 +959,14 @@ public class EmailDispatchWorker : BackgroundService
         recipient.ErrorMessage = reason.Length > 500 ? reason[..500] : reason;
         recipient.SendAttemptedAt = null;
         await dbContext.SaveChangesAsync(ct);
+
+        await eventProcessor.ProcessAsync(
+            kind: EmailEventKind.Failed,
+            idempotencyKey: $"smtp:fail:{recipient.Id}",
+            source: "Dispatch",
+            campaignId: recipient.CampaignId,
+            campaignContactId: recipient.Id,
+            recipientAddress: recipient.Contact?.Email,
+            ct: ct);
     }
 }

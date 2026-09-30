@@ -17,6 +17,7 @@ public class ReportQueryService : IReportQueryService
     private readonly AppDbContext _dbContext;
     private readonly ICurrentUserService _currentUser;
     private readonly ILogger<ReportQueryService> _logger;
+    private readonly Security.IAccessScope _accessScope;
 
     /// <summary>
     /// Upper bound on an export. Large enough for any real reporting need, small enough that one
@@ -55,8 +56,10 @@ public class ReportQueryService : IReportQueryService
     public ReportQueryService(
         AppDbContext dbContext,
         ICurrentUserService currentUser,
-        ILogger<ReportQueryService> logger)
+        ILogger<ReportQueryService> logger,
+        Security.IAccessScope accessScope)
     {
+        _accessScope = accessScope;
         _dbContext = dbContext;
         _currentUser = currentUser;
         _logger = logger;
@@ -681,6 +684,13 @@ public class ReportQueryService : IReportQueryService
     {
         var query = _dbContext.ChatMessages.AsNoTracking().Where(m => !m.IsDeleted);
 
+        // Connection scoping: a restricted user reports only on the connections assigned to them.
+        if (!_accessScope.IsUnrestricted)
+        {
+            var allowed = _accessScope.AllowedConnectionIdsQuery();
+            query = query.Where(m => m.ConnectionId != null && allowed.Contains(m.ConnectionId.Value));
+        }
+
         // The report type's own scope comes first, so everything below narrows within it rather
         // than alongside it. Resolved through the catalogue rather than taken from the request:
         // a section a type does not offer must not apply just because it was posted.
@@ -870,6 +880,7 @@ public class ReportQueryService : IReportQueryService
                 Timestamp = m.CreatedAt,
                 ContactName = m.Contact != null ? m.Contact.Name : null,
                 ContactPhone = m.Contact != null ? m.Contact.Phone : null,
+                AdSource = m.Contact != null ? (m.Contact.AdHeadline ?? m.Contact.AdSourceId) : null,
                 CampaignName = m.Campaign != null ? m.Campaign.Name : null,
                 TemplateName = m.Campaign != null
                     ? _dbContext.Templates.Where(t => t.Id == m.Campaign.TemplateId).Select(t => t.Name).FirstOrDefault()
@@ -1017,6 +1028,7 @@ public class ReportQueryService : IReportQueryService
                 Timestamp = cc.SentAt ?? cc.Campaign.CreatedAt,
                 ContactName = cc.Contact.Name,
                 ContactPhone = cc.Contact.Phone,
+                AdSource = cc.Contact.AdHeadline ?? cc.Contact.AdSourceId,
                 CampaignName = cc.Campaign.Name,
                 TemplateName = _dbContext.Templates
                     .Where(t => t.Id == cc.Campaign.TemplateId).Select(t => t.Name).FirstOrDefault(),

@@ -30,7 +30,9 @@ This guide explains how every feature works: what it does, how to use it, what h
 15. [Security: credentials, key guard, access scoping](#15-security-credentials-key-guard-access-scoping)
 16. [The job queue and its contract version](#16-the-job-queue-and-its-contract-version)
 17. [Scaling to millions of users](#17-scaling-to-millions-of-users)
-18. [How to run and check everything](#18-how-to-run-and-check-everything)
+18. [Tracking: opens, clicks, unsubscribes, bounces](#18-tracking-opens-clicks-unsubscribes-bounces)
+19. [Audit log](#19-audit-log)
+20. [How to run and check everything](#20-how-to-run-and-check-everything)
 
 ---
 
@@ -61,7 +63,8 @@ This guide explains how every feature works: what it does, how to use it, what h
 
 **What you see:**
 - One row of KPI cards: messages, delivered, contacts, campaigns, and more.
-- Charts and recent activity.
+- Charts, **Top Campaigns** (View All opens the campaign list) and **Recent Activity**.
+- **Recent Activity is the audit log:** the latest business events (campaigns, contacts, templates, chat replies, segments, bots, connections) with who did them, a person or "System". Administrators and unscoped users see everyone's; connection-scoped users see their own. **View All** opens the Audit Log.
 - A **Live · updated HH:MM** pill in the header.
 
 **How it stays live:**
@@ -197,10 +200,14 @@ This guide explains how every feature works: what it does, how to use it, what h
 
 **How the winner is picked:**
 - `AbTestWinnerWorker` checks due campaigns. If any variant has sent fewer than `AbMinimumSentPerVariant` messages, the decision is **postponed** by `AbRecheckMinutes` (30), rather than picking a winner from no data.
+- **No signal:** if no variant has a single open (or read, click, reply), 0 % against 0 % is not a result. The test keeps waiting, up to `AbNoSignalGraceHours` (24) past the planned decision time, and only then keeps variant A. The campaign page says "No signal: no variant had any engagement in time, so variant A was kept".
 - Otherwise the best rate wins, and the held recipients are released with the winning variant.
 - **Pick winner now** on the campaign page does this by hand.
+- **Why the reason is stored:** each decision records `best-rate`, `no-signal` or `manual` (`Campaign.AbDecisionReason`); the labels come from `campaign-options.abDecisionReasons`.
+- **When everyone is in the test** (test share 100 %, or a tiny audience), there is no one left to send a winner to. The page then says the figures are the final results instead of showing a decision time in the past.
+- **Open rate only works when tracking works.** It counts recipients whose open pixel reached the server, see [§18](#18-tracking-opens-clicks-unsubscribes-bounces).
 
-**Tests:** Phase 15, and Phase 22 ("Three variants split exactly evenly", "No data, no winner").
+**Tests:** Phase 15, and Phase 22 ("Three variants split exactly evenly", "No data, no winner", "No signal: nobody read any variant").
 
 ---
 
@@ -280,6 +287,8 @@ This guide explains how every feature works: what it does, how to use it, what h
 - **Also on the page:** Skipped with reasons, the queue, executed messages, the link report, A/B results and follow-ups.
 - **On-hold banner:** when a connection problem paused the campaign, the reason is shown here.
 - **Pending** excludes Skipped, and connection problems are no longer counted as bounces.
+- **Queue / Executed:** two tabs over the recipients (paged and searched on the server). A finished campaign opens on Executed; after that, the tab you click stays selected (it used to jump back to Executed), and it is kept in the address (`?tab=queue`) so a link or Back returns to it. Arrow keys move between the tabs.
+- **Live:** KPI counters move with every event. The recipient lists, the A/B table and the Links card refresh too, at most every 2 seconds and only for events that change them, so a large send does not make every open viewer re-read everything.
 
 **Maker-checker approval:**
 - With `Campaigns:Approval:Required = true`, a campaign waits in **Awaiting Approval** until a *different* user approves it.
@@ -297,12 +306,31 @@ This guide explains how every feature works: what it does, how to use it, what h
 
 ## 11. Chat (unified inbox)
 
-**What it is:** WhatsApp and email conversations in one inbox.
-- New messages arrive in real time, and conversations and messages load page by page.
-- The **All Channels** menu (top right) filters by channel.
-  - It opens in a layer above the page header, so it is never clipped.
-  - Keyboard: arrows, Home/End, Escape, Tab.
-- On phones, the list and the conversation are shown one at a time, with a back button.
+**What it is:** WhatsApp and email conversations in one three-pane inbox — **list | conversation | details** — the layout help desks such as Zendesk, Front and Intercom use. New messages arrive in real time; conversations and messages load page by page.
+
+**Page header:** the **Channel** menu (All Channels, WhatsApp, Email; planned channels listed as "Soon") and **New Email**. New Email is enabled when an email conversation is open, and writes a brand-new thread to that contact.
+
+**List (left):**
+- **Active Connection** and **From** (the sender address or WhatsApp line), with a **refresh** button. In All Channels mode there is no connection picker; refresh sits beside the search.
+- **Search** is done by the server across name, phone, email, subject and message text.
+- **Filters** button (with a count when any apply): Status, Owner and Rows per page; **Clear filters** resets them.
+- **Tabs with counts — All / Unread / Mine.** Each tab is a server-defined combination of the read and owner filters (`ChatCatalog.QuickViews`, served in `api/reference/chat-options`). Counts come from `GET api/Chat/conversations/counts` in one grouped query, under the same visibility, channel, connection, status and search as the list — so a count always matches what the tab shows.
+- **Rows:** avatar with a channel marker, name, time; last message and unread count; then status (Needs reply / Waiting on customer / Resolved), contact type, SLA chip and owner.
+- **Footer:** "1–8 of 12" (the total comes from the active tab's count), previous/next, and **Newest / Oldest** sort (`ChatCatalog.SortOrders`). Both orders use keyset paging on (last activity, id), so deep pages stay one index scan.
+
+**Conversation (middle):**
+- **Header:** contact name, type badge, email or phone with a **copy** button; **Assigned to** (agents with their open-conversation counts; read-only without `Chat.Assign`); search messages; show/hide details; **⋮ menu** — Mark as resolved / Reopen, New email, Send template (WhatsApp), Delete conversation (`Chat.Delete`).
+- **Subject bar:** the subject being discussed (latest email), status, channel, SLA chip, and for WhatsApp the 24-hour reply window ("Reply window: 5h 12m left" / "Reply window closed"); the date of the last activity on the right.
+- **Thread:** WhatsApp bubbles or email cards. Each email card has Reply, Reply All and Forward.
+- **Email composer opens on demand:** from a message's Reply / Reply All / Forward, or New Email (page header or ⋮). Until then the thread has the whole pane. Its header names the mode and has a **✕**; ✕ or Escape closes it, asking "Discard this draft?" first if anything is written or attached. Replies fold the recipients into one line (**Edit recipients** to change them); Forward and New Email open the fields. It takes at most 60% of the pane and keeps the message being answered in view; Send stays pinned.
+
+**Details (right):** open by default where it fits beside the conversation (otherwise it overlays it); the choice is remembered in the browser. Three tabs:
+- **Customer** — email and phone (copy), company, website, location, time zone, source, customer since, description, tags, groups (in their colours) and **notes** (add/delete with `Contact.Edit`, delete asks first). Read from `GET api/Contacts/{id}`; without `Contact.View` the panel says so and shows what the conversation carries.
+- **Conversation** — status and its meaning, owner, channel, connection, unread, first-reply due, resolve-by, last activity.
+- **Activity** (needs `ActivityLog.View`) — the audit history of this contact and this conversation (`GET api/Activity/audit-logs?entity=Contact:{id}&entity=ChatConversation:{id}`), newest first, with "Show older activity" and a link to the Audit Log. Notes, chat sends, email replies, assignments and status changes are all filed under the contact or the conversation, so they appear here.
+- **Quick actions:** Edit contact, New email / Send template, Mark as resolved / Reopen.
+
+**Responsive:** the panes size to the inbox's own width (CSS container queries), so the app sidebar being open or collapsed is accounted for. From 1280px of inbox width: list 360px, details 320px; 1000–1279px: 300px / 288px; below 1000px the details overlay the conversation; below 820px one pane shows at a time, with a back button. A narrow conversation pane moves its actions onto a second row.
 
 **Operations:**
 - **Status:** Open, Pending, Resolved or Closed. A new message reopens a conversation.
@@ -321,10 +349,11 @@ This guide explains how every feature works: what it does, how to use it, what h
 | **Forward** | Empty; you choose | `Fwd: …` | The original is quoted below; starts a new thread with the new recipient | Passing the email to someone who wasn't on it |
 | **New Email** | Empty; you choose | Yours | A brand-new thread | Starting a fresh conversation with the contact |
 
-- All four are sent by `EmailReplyService` through the conversation's connection (its SMTP account), and the message is saved into the conversation.
-- The composer's action bar (**Send**, attach, discard) stays pinned at the bottom. The editor scrolls instead, so Send is visible at every window size.
+- All four are sent by `EmailReplyService` through the conversation's connection (its SMTP account), saved into the conversation, and audited as `EmailReply.Sent` on the conversation.
+- **New Email really starts a new thread:** it carries no `In-Reply-To`/`References` headers.
+- **Read-only users** (no `Chat.Send`) see the conversation but no composer. The server enforces every permission the page checks.
 
-**Code:** [Chat.tsx](Frontend/src/pages/Chat/Chat.tsx), [EmailComposer.tsx](Frontend/src/components/EmailComposer/EmailComposer.tsx), [ConversationOperations.cs](Backend/Services/Chat/ConversationOperations.cs). **Tests:** Phase 17.
+**Code:** [Chat.tsx](Frontend/src/pages/Chat/Chat.tsx), [ChatContextPanel.tsx](Frontend/src/pages/Chat/ChatContextPanel.tsx), [ConversationOwnerControls.tsx](Frontend/src/pages/Chat/ConversationOwnerControls.tsx), [EmailComposer.tsx](Frontend/src/components/EmailComposer/EmailComposer.tsx), [ChatService.cs](Backend/Services/ChatService.cs) (`CountConversationsAsync`, `OrderConversations`), [AuditQueries.cs](Backend/Data/AuditQueries.cs), [ConversationOperations.cs](Backend/Services/Chat/ConversationOperations.cs). **Tests:** Phases 17 and 23.
 
 ---
 
@@ -343,10 +372,11 @@ This guide explains how every feature works: what it does, how to use it, what h
 - **Senders:** the addresses campaigns may send from.
 - **Unreadable password:** if a stored password can't be decrypted, the connection shows **Needs attention**, with a prompt to re-enter it.
 
-**Your settings (checked):**
-- SMTP `mail.rma.my:465` authenticated successfully.
-- IMAP works through the **derived** settings (`mail.rma.my:993`, SSL), and the test mailbox read 20 messages.
-- Saving explicit IMAP values is optional.
+**Your settings (checked 1 Oct 2026):**
+- SMTP `mail.rma.my:465` authenticates; a test email reached manishmishra8970@gmail.com.
+- IMAP `mail.rma.my:993` (SSL, saved explicitly now) reads the inbox (22 messages).
+- Domain checks for rma.my: SPF, DKIM and MX pass; **DMARC is missing**. Gmail and Yahoo require a DMARC record for bulk senders, so add one at your DNS provider (start with `v=DMARC1; p=none; rua=mailto:<your address>`).
+- **mail.rma.my sends no bounce report for unknown local mailboxes:** a message to a non-existent `@rma.my` address was accepted and silently discarded. Bounces from other domains are reported normally; see §18.
 
 **Code:** [ConnectEmail.tsx](Frontend/src/pages/ConnectEmail/ConnectEmail.tsx), [ConnectionsList.tsx](Frontend/src/pages/Connections/ConnectionsList.tsx), [EmailConnectionService.cs](Backend/Services/Email/EmailConnectionService.cs), [ImapEndpointResolver.cs](Backend/Services/Email/ImapEndpointResolver.cs). **Tests:** Phase 2.
 
@@ -453,10 +483,11 @@ Smtp__FromName=OmniConnect
 - Leases expire, so a crashed worker's jobs are picked up again. Idempotency keys stop duplicates.
 
 **Contract version:**
-- Every queue name ends in a version, e.g. `email-send.v2` ([QueueNames.cs](Backend/Services/Queue/QueueNames.cs)).
+- Every queue name ends in a version, now `v3`, e.g. `email-send.v3` ([QueueNames.cs](Backend/Services/Queue/QueueNames.cs)). v3 came with round 5: sends now build links on the verified public address and record refused mailboxes as bounces, so a v2 build must not take them. Migration `QueueContractV3` moved waiting jobs to the new names.
+- Each build's database sessions are named `WabaConnect/<version>`, so a build on another version is recognisable in `pg_stat_activity`.
 - When a change alters what a job means, the version is bumped, and an **older build still connected to the same database can no longer take the new jobs**.
 - **Why it exists:** an older copy of the app, running against the shared database with a different credential format, was picking up this build's send jobs. It failed them with "password could not be decrypted", and they were then counted as Bounced.
-- `/health` reports **Degraded** while a foreign queue client is connected.
+- `/health` reports **Degraded** while a foreign queue client is connected. This happened again on 1 Oct: a backend started before the round-5 changes kept taking jobs (and reading the mailbox) until it was stopped.
 
 ---
 
@@ -473,6 +504,9 @@ Smtp__FromName=OmniConnect
 | Reference data | `Cache-Control` on static catalogs (10 min client cache); lookups cached server-side for 60 s |
 | Abuse | Global and auth rate limits; SSRF guard on webhooks; validated uploads |
 | Failure isolation | Email and connection failures hold the campaign instead of failing recipients; the database retry strategy is used for all transactions |
+| Tracking at volume | `/api/t/*` is idempotent and deliberately not rate-limited per IP (Gmail and Outlook fetch through shared proxies); each person's open counts once; the reconcile sweep repairs any recipient an event never reached |
+| Audit at volume | One row per action, never per recipient (imports and campaign completions are summaries); indexes on Module + CreatedAt, EntityType + EntityId and Status; Recent Activity reads only the newest 8 rows |
+| Live pages | Campaign page refreshes are batched (2 s) and targeted by event kind |
 
 **What to add as traffic grows:**
 1. **Redis backplane for SignalR** (`AddStackExchangeRedis`) once you run more than one backend instance, so a live update raised on one instance reaches browsers connected to another.
@@ -484,7 +518,65 @@ Smtp__FromName=OmniConnect
 
 ---
 
-## 18. How to run and check everything
+## 18. Tracking: opens, clicks, unsubscribes, bounces
+
+**What each figure means:**
+
+| Figure | Counted when | How |
+|---|---|---|
+| Unique opens | The recipient's mail app loads the 1×1 image at `{public address}/api/t/o/{signed token}` | Once per person, however often they open (Gmail's proxy re-fetches) |
+| Unique clicks | The recipient follows a link; every absolute `http(s)` link is rewritten to `{public address}/api/t/c/{signed token}`, which records and redirects | Once per person; the Links card counts every click per URL |
+| Unsubscribed | The recipient uses the unsubscribe link or Gmail's one-click button (`List-Unsubscribe`) | Consent becomes "opted out" for that channel, the address is suppressed everywhere, and the counter moves once |
+| Bounced | The receiving server refuses the mailbox: either straight away (a 5xx to `RCPT TO`), or later in a delivery report read from the connection's inbox | The recipient is marked Bounced and the address suppressed |
+
+**The one thing that must be right: the public address.**
+- Every tracking and unsubscribe link is built on `App:PublicBaseUrl` (or `Email:Tracking:BaseUrl` when set). It must be an https address the internet can reach and that answers as this server.
+- **Why nothing was counted before:** in Development it pointed at `http://localhost:5155`, and an old tunnel address was hard-coded for tracking. Gmail fetches images through Google's servers, which can never reach your PC, so no open or click ever arrived. Both are fixed: the hard-coded address is gone, and the problem is now visible:
+  - **Pre-flight** shows "Tracking address": a pass, or a warning naming the address and the reason (`empty`, `localhost`, `private-network`, `not-https`, `unreachable`, `wrong-instance`).
+  - **`/health`** reports `tracking-address` Degraded with the same reason.
+  - The check is real: [PublicEndpointProbe.cs](Backend/Services/Email/PublicEndpointProbe.cs) calls `{address}/api/t/ping/{nonce}` from outside and only passes when **this** server answers.
+- **Pre-flight also says** how many links will be click-tracked, or that the message has none, in which case the Links card stays empty.
+- **To test on your PC:** run a tunnel (`cloudflared tunnel --url http://localhost:5155`) and start the backend with `--App:PublicBaseUrl=<the https address it prints>`. In production, set `App:PublicBaseUrl` to the API's public https origin.
+
+**Verified live on 1 Oct 2026 (Gmail, through a Cloudflare tunnel):** opening the email counted 1 unique open within seconds; clicking both links counted 1 unique click and listed both URLs; the A/B table showed variant A at 100 % open rate; unsubscribing counted 1 live, and re-subscribing through the preference centre lifted the suppression. Every step is in the audit log.
+
+**Bounces in detail:**
+- **At send time:** MailKit reports a 5xx refusal of the recipient; [SmtpEmailProvider.cs](Backend/Services/Email/SmtpEmailProvider.cs) marks it a permanent bounce and [EmailSendRecorder.cs](Backend/Services/Email/EmailSendRecorder.cs) records Bounced (not Failed).
+- **Later, by IMAP:** [ImapBounceDetector.cs](Backend/Services/Email/ImapBounceDetector.cs) reads RFC 3464 reports; [PlainTextBounceParser.cs](Backend/Services/Email/PlainTextBounceParser.cs) reads the plain-text reports Exim/cPanel, qmail and older Postfix send (they used to be thrown away as auto-replies). It only acts on evidence: a 5.x.x/5xx status or wording such as "permanent error"; 4.x.x means a delay, never a bounce. Patterns live in `BounceCatalog`.
+- **Matching:** by the original Message-ID; if a report doesn't include it, by the address and the latest send to it from the same connection within `BounceCatalog.MatchWindowDays` (7).
+
+**Self-healing counters:** the event is recorded first, then the recipient is stamped. If a process dies in between, the every-minute sweep repairs the recipient from the event log and recomputes the counters. It also picks up finished campaigns that received an event recently (an open days later). See `CampaignFinalizer.ReconcileEmailCountersAsync`.
+
+**Tests:** Phase 5 (pixel and links on the wire), Phase 23 (public address, opens/clicks counting, Links report, crash repair, plain-text and SMTP bounces).
+
+---
+
+## 19. Audit log
+
+**Two different logs, explained:**
+- **Audit Log** (sidebar, `/audit-log`): who did what and when. It's append-only: nobody can edit or delete it. Tabs: Login errors, Login successes, Audit events (filter by module, action, user, status, date).
+- **Setup › Activity Log** (removed in round 5): a per-message send log with raw WhatsApp/email API payloads. It overlapped the campaign's Executed list and Reporting, held personal data, and could be deleted by users. Its 97 rows were backed up first; see [restore-round5-2026-10-01.sql](Backend/scripts/restore-round5-2026-10-01.sql). The old addresses redirect to the Audit Log.
+
+**What is recorded (all via `IAuditService`, actor = the signed-in person, "System" for background work, blank for an anonymous request):**
+
+| Area | Events |
+|---|---|
+| Contacts | Created (including re-adding a deleted one, and contacts the system creates from an incoming WhatsApp message or email), Updated, Deleted, StatusChanged, Imported (one summary per file or bulk campaign), ContactNote Created/Deleted |
+| Campaigns | Created, Updated, Deleted, Cancelled, Paused, Resumed, **Held** (connection problem, by System), AwaitingApproval, Approved, Rejected, RetryFailed, PrecheckOverridden, ProofSent, AbTestDecided, FollowUpRun, **Completed / PartiallyFailed / SendFailed** (by System, once each) |
+| Chat | MessageSent/MessageFailed (agent WhatsApp replies), TemplateSent/TemplateFailed, EmailReply.Sent (all four email modes), Assigned, StatusChanged, MessagesDeleted, ConversationDeleted |
+| Templates | Created, Updated, Deleted, Submitted, **StatusChanged** (Meta's review decision), **Synced** (summary of a sync) |
+| Consent and suppression | Consent.OptedIn/OptedOut, EmailSuppression.Unsubscribed/Removed |
+| Everything else | Segments, bots, bot flows, connections, email connections and senders, users, roles, permissions, settings, webhooks, report schedules, sign-ins, password changes, access denials, server errors |
+
+**Why contact changes seemed unaudited:** contacts re-created after the reset reused a soft-deleted record with the same phone number, and that path never wrote an audit row. Fixed and tested.
+
+**Recent Activity** on the dashboard is the newest 8 audit rows from the business modules in `RecentActivityCatalog`.
+
+**Code:** [AuditService.cs](Backend/Services/AuditService.cs), [ActivityController.cs](Backend/Controllers/ActivityController.cs), [ActivityLogs.tsx](Frontend/src/pages/ActivityLogs.tsx). **Tests:** Phase 22 (hold), Phase 23 ("Every change is audited", "Recent Activity is the audit log", "Who did it").
+
+---
+
+## 20. How to run and check everything
 
 ```bash
 # Backend (port 5155)

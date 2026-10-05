@@ -37,7 +37,6 @@ internal static class AuditChangeCapture
     {
         nameof(AuditLog),
         nameof(LoginAttempt),
-        nameof(MessageActivityLog),
         nameof(HealthLog),
         nameof(ConversationState),
         nameof(ChatMessage)

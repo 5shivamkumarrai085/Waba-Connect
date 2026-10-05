@@ -81,11 +81,14 @@ public sealed class DeliverabilityService : IDeliverabilityService
     private readonly IEmailProviderFactory _providers;
     private readonly IMimeMessageBuilder _mime;
     private readonly IAuditService _audit;
+    private readonly IPublicEndpointProbe _publicEndpoint;
 
     public DeliverabilityService(
         AppDbContext db, ILookupClient dns, IMemoryCache cache, IConfiguration configuration,
-        IEmailTemplateService templates, IEmailProviderFactory providers, IMimeMessageBuilder mime, IAuditService audit)
+        IEmailTemplateService templates, IEmailProviderFactory providers, IMimeMessageBuilder mime, IAuditService audit,
+        IPublicEndpointProbe publicEndpoint)
     {
+        _publicEndpoint = publicEndpoint;
         _db = db;
         _dns = dns;
         _cache = cache;
@@ -124,6 +127,19 @@ public sealed class DeliverabilityService : IDeliverabilityService
 
         var subject = string.IsNullOrWhiteSpace(request.SubjectOverride) ? emailTemplate.Subject : request.SubjectOverride;
         items.AddRange(LintContent(subject, emailTemplate.BodyHtml, request.IsTransactional, request.VariableNames));
+
+        // Opens, clicks and unsubscribes only count when recipients' mail apps can reach this
+        // server. A localhost or dead-tunnel address loses every one of them without an error.
+        var endpoint = await _publicEndpoint.CheckAsync(ct);
+        items.Add(endpoint.Reachable
+            ? new("tracking", "pass", "Tracking address", $"Opens, clicks and unsubscribes reach this server at {endpoint.BaseUrl}.")
+            : new("tracking", "warn", "Tracking address",
+                $"Opens, clicks and unsubscribes won't be counted: {(string.IsNullOrEmpty(endpoint.BaseUrl) ? "the public address" : endpoint.BaseUrl)} — {endpoint.Description}."));
+
+        var links = EmailDispatchWorker.CountTrackableLinks(emailTemplate.BodyHtml);
+        items.Add(new("click-tracking", "pass", "Click tracking", links == 0
+            ? "This message has no links, so the Links report will stay empty."
+            : $"{links} link{(links == 1 ? "" : "s")} will be tracked."));
 
         var sender = request.SenderIdentityId is { } sid
             ? await _db.EmailSenderIdentities.AsNoTracking()

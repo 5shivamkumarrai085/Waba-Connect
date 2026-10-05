@@ -75,6 +75,7 @@ public sealed class TestHarness : IAsyncDisposable
                 ["Email:Unsubscribe:PublicBaseUrl"] = "https://example.test",
                 ["Email:Tracking:SigningSecret"] = "integration-test-tracking-secret-not-a-real-secret",
                 ["Email:Tracking:BaseUrl"] = "https://example.test",
+                ["Email:Tracking:Enabled"] = "true",
                 ["Email:Dispatch:DefaultSendRatePerSecond"] = "50",
                 // Tightened so the workers react quickly; production values would make the suite
                 // spend most of its time asleep.
@@ -112,7 +113,8 @@ public sealed class TestHarness : IAsyncDisposable
         services.AddOptions<EmailOptions>().Bind(configuration.GetSection(EmailOptions.SectionName));
 
         services.AddScoped<IEncryptionService, EncryptionService>();
-        services.AddScoped<IAuditService, NoOpAuditService>();
+        services.AddSingleton<RecordingAuditService>();
+        services.AddScoped<IAuditService>(sp => sp.GetRequiredService<RecordingAuditService>());
 
         services.AddSingleton<IMimeMessageBuilder, MimeMessageBuilder>();
         services.AddScoped<IEmailProvider, SmtpEmailProvider>();
@@ -150,6 +152,7 @@ public sealed class TestHarness : IAsyncDisposable
         services.AddScoped<WhatsAppCampaignApi.Services.Segments.ISegmentService, WhatsAppCampaignApi.Services.Segments.SegmentService>();
         services.AddSingleton<DnsClient.ILookupClient>(_ => new DnsClient.LookupClient(new DnsClient.LookupClientOptions { Timeout = TimeSpan.FromSeconds(3), Retries = 1 }));
         services.AddScoped<IDeliverabilityService, DeliverabilityService>();
+        services.AddHttpClient<IPublicEndpointProbe, PublicEndpointProbe>();
         services.AddScoped<WhatsAppCampaignApi.Services.Campaigns.IAbTestService, WhatsAppCampaignApi.Services.Campaigns.AbTestService>();
         services.AddScoped<WhatsAppCampaignApi.Services.Campaigns.IFollowUpService, WhatsAppCampaignApi.Services.Campaigns.FollowUpService>();
         services.AddScoped<WhatsAppCampaignApi.Services.Compliance.IComplianceGuard, WhatsAppCampaignApi.Services.Compliance.ComplianceGuard>();
@@ -263,7 +266,6 @@ public sealed class TestHarness : IAsyncDisposable
              )
             """, ("prefix", $"{Prefix}%"));
 
-        await ExecAsync("""DELETE FROM "MessageActivityLogs" WHERE "Name" LIKE @prefix""", ("prefix", $"{Prefix}%"));
 
         await ExecAsync("""
             DELETE FROM "ChatMessages" WHERE "ContactId" IN (
@@ -286,22 +288,51 @@ public sealed class TestHarness : IAsyncDisposable
                 SELECT "Id" FROM "Connections" WHERE "Name" LIKE @prefix)
             """, ("prefix", $"{Prefix}%"));
         await ExecAsync("""DELETE FROM "Connections" WHERE "Name" LIKE @prefix""", ("prefix", $"{Prefix}%"));
+
+        await ExecAsync("""DELETE FROM "AuditLogs" WHERE "EntityName" LIKE @prefix""", ("prefix", $"{Prefix}%"));
+
+        // WhatsApp templates a phase inserted directly. Last, because campaigns reference them.
+        // Only this run's ids: a global name sweep would also remove templates other runs, or a
+        // person, created.
+        foreach (var id in _createdTemplateIds)
+        {
+            await ExecAsync("""DELETE FROM "TemplateVariables" WHERE "TemplateId" = @id""", ("id", id));
+            await ExecAsync("""DELETE FROM "Templates" WHERE "Id" = @id""", ("id", id));
+        }
+        _createdTemplateIds.Clear();
     }
+
+    private readonly List<int> _createdTemplateIds = [];
+
+    /// <summary>Registers a WhatsApp template a phase inserted, so cleanup removes it.</summary>
+    public void TrackTemplate(params int[] ids) => _createdTemplateIds.AddRange(ids);
+
+    /// <summary>Every audit event the code under test raised, in order (none reach the database).</summary>
+    public RecordingAuditService Audit => _provider.GetRequiredService<RecordingAuditService>();
 
     public async ValueTask DisposeAsync() => await _provider.DisposeAsync();
 }
 
 /// <summary>
-/// Swallows audit writes.
+/// Records audit events in memory instead of writing them.
 ///
 /// <para>
-/// The only substituted service in the suite. Auditing is a fire-and-forget side effect that no
-/// test asserts on, and letting it run would scatter rows through a shared audit table that the
-/// suite has no clean way to identify and remove.
+/// The only substituted service in the suite. Writing would scatter rows through a shared audit
+/// table that the suite has no clean way to identify and remove; recording lets a phase assert
+/// that an action was audited (which event, which record, which actor) without that.
 /// </para>
 /// </summary>
-internal sealed class NoOpAuditService : IAuditService
+public sealed class RecordingAuditService : IAuditService
 {
+    public sealed record Entry(string Event, string? EntityType, string? EntityId, int? ActorUserId, string? ActorUserName, string? Description);
+
+    private readonly System.Collections.Concurrent.ConcurrentQueue<Entry> _entries = new();
+
+    public IReadOnlyList<Entry> Entries => _entries.ToArray();
+
+    public bool Has(string eventName, string? entityId = null) =>
+        _entries.Any(e => e.Event == eventName && (entityId is null || e.EntityId == entityId));
+
     public Task LogAsync(
         string eventName,
         string category,
@@ -310,7 +341,11 @@ internal sealed class NoOpAuditService : IAuditService
         string? entityId = null,
         int? actorUserId = null,
         string? actorUserName = null,
-        AuditMetadata? metadata = null) => Task.CompletedTask;
+        AuditMetadata? metadata = null)
+    {
+        _entries.Enqueue(new Entry(eventName, entityType, entityId, actorUserId, actorUserName, description));
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>No SignalR hub in the suite; inbox pushes are not asserted on.</summary>

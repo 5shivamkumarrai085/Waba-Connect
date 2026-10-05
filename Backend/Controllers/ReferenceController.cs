@@ -71,6 +71,8 @@ public class ReferenceController : ControllerBase
         maxAbVariants = CampaignFeatureCatalog.MaxExtraVariants + 1,
         abTestPercent = CampaignFeatureCatalog.AbTestPercent,
         abDecideAfterHours = CampaignFeatureCatalog.AbDecideAfterHours,
+        abNoSignalGraceHours = CampaignFeatureCatalog.AbNoSignalGraceHours,
+        abDecisionReasons = CampaignFeatureCatalog.AbDecisionReasons,
         followUpConditions = CampaignFeatureCatalog.FollowUpConditions(channel),
         followUpActions = CampaignFeatureCatalog.FollowUpActions,
         maxFollowUps = CampaignFeatureCatalog.MaxFollowUps,
@@ -116,6 +118,9 @@ public class ReferenceController : ControllerBase
     {
         conversationStatuses = ChatCatalog.ConversationStatuses,
         stateFilters = ChatCatalog.StateFilters,
+        readFilters = ChatCatalog.ReadFilters,
+        quickViews = ChatCatalog.QuickViews,
+        sortOrders = ChatCatalog.SortOrders,
         assigneeFilters = ChatCatalog.AssigneeFilters,
         maxReplyButtons = ChatCatalog.MaxReplyButtons,
         maxReplyButtonLength = ChatCatalog.MaxReplyButtonLength,

@@ -21,11 +21,7 @@ public interface IWhatsAppService
     /// <summary>
     /// Sends a template message and returns the exact Meta send result, including rejection details.
     /// </summary>
-    /// <param name="context">
-    /// Optional. When supplied, the send is recorded in the message activity log. Optional so
-    /// existing callers compile and behave unchanged.
-    /// </param>
-    Task<WhatsAppSendResult> SendTemplateMessageWithResultAsync(string recipientPhone, string templateName, string languageCode, Dictionary<string, string>? variables = null, int? connectionId = null, MessageSendContext? context = null);
+    Task<WhatsAppSendResult> SendTemplateMessageWithResultAsync(string recipientPhone, string templateName, string languageCode, Dictionary<string, string>? variables = null, int? connectionId = null);
 
     /// <summary>
     /// Sends a free-form text message to a single recipient via WhatsApp Cloud API.
@@ -136,41 +132,4 @@ public class WhatsAppSendResult
         ErrorMessage = errorMessage,
         HttpStatusCode = httpStatusCode
     };
-}
-
-/// <summary>
-/// Ambient detail about why a template is being sent, so the activity log can record what the
-/// send method itself has no way to know: which feature triggered it, and on whose behalf.
-/// </summary>
-public class MessageSendContext
-{
-    /// <summary>Campaign | TemplateBot | InitiateChat.</summary>
-    public string Category { get; set; } = string.Empty;
-
-    /// <summary>Campaign or bot name — the "Name" column in the log.</summary>
-    public string? SourceName { get; set; }
-
-    public int? SourceId { get; set; }
-    public int? ContactId { get; set; }
-
-    /// <summary>Lead | Customer | Vendor, taken from the contact.</summary>
-    public string? RelationType { get; set; }
-
-    /// <summary>
-    /// Scheduler | Webhook | User. Set explicitly rather than inferred: campaign sends run
-    /// under a hosted service and bot sends under the Meta webhook, neither of which has an
-    /// HttpContext to attribute to a person.
-    /// </summary>
-    public string? TriggeredBy { get; set; }
-
-    /// <summary>Attribution when a real signed-in user initiated the send.</summary>
-    public int? PerformedByUserId { get; set; }
-
-    /// <summary>
-    /// Where the send was initiated from. Set explicitly by the caller for the same reason as
-    /// <see cref="TriggeredBy"/>: campaign and bot sends run on background tasks with no
-    /// HttpContext, so resolving it at record time would silently produce null for user-initiated
-    /// sends too if the request had already completed.
-    /// </summary>
-    public string? IpAddress { get; set; }
 }

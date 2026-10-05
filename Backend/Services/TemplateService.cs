@@ -221,9 +221,20 @@ public class TemplateService : ITemplateService
         if (template == null)
             throw new KeyNotFoundException($"Template with ID {id} not found.");
 
-        var isInUse = await _dbContext.Campaigns.AnyAsync(c => c.TemplateId == id);
-        if (isInUse)
-            throw new InvalidOperationException("Cannot delete a template that is used in campaigns.");
+        // Every reference, including deleted campaigns: a deleted campaign keeps its history, and
+        // deleting its template used to cascade the campaign away (or, through a tracked A/B
+        // variant, silently blank the variant's template) instead of refusing.
+        var campaigns = await _dbContext.Campaigns.IgnoreQueryFilters().CountAsync(c => c.TemplateId == id);
+        var variants = await _dbContext.CampaignVariants.IgnoreQueryFilters().CountAsync(v => v.TemplateId == id);
+        var bots = await _dbContext.TemplateBots.IgnoreQueryFilters().CountAsync(b => b.TemplateId == id);
+        var followUps = await _dbContext.FollowUpRules.IgnoreQueryFilters().CountAsync(f => f.TemplateId == id);
+        var uses = new[]
+        {
+            (campaigns, "campaign"), (variants, "A/B variant"), (bots, "template bot"), (followUps, "follow-up")
+        }.Where(u => u.Item1 > 0).Select(u => $"{u.Item1} {u.Item2}{(u.Item1 == 1 ? "" : "s")}").ToList();
+        if (uses.Count > 0)
+            throw new InvalidOperationException(
+                $"This template is still used by {string.Join(", ", uses)} (deleted campaigns included, because their history needs it). Remove it from those first.");
 
         // Captured before Remove: after SaveChanges the entity is detached and Id reads 0.
         var templateName = template.Name;
@@ -248,6 +259,8 @@ public class TemplateService : ITemplateService
         // entire local table.
         var connectionsAttempted = 0;
         var connectionsSucceeded = 0;
+        var statusChanges = new List<(string Name, int Id, TemplateStatus From, TemplateStatus To)>();
+        var removedNames = new List<string>();
 
         foreach (var cfg in allConfigs)
         {
@@ -326,6 +339,10 @@ public class TemplateService : ITemplateService
             else
             {
                 localTemplate.WhatsAppTemplateId = waTemplate.Id;
+                // Meta's review decision is what decides whether a template may be sent: each
+                // change of it is audited below.
+                if (localTemplate.Status != mappedStatus)
+                    statusChanges.Add((localTemplate.Name, localTemplate.Id, localTemplate.Status, mappedStatus));
                 localTemplate.Status = mappedStatus;
                 localTemplate.TemplateType = mappedType;
                 localTemplate.RejectReason = waTemplate.RejectReason;
@@ -363,8 +380,15 @@ public class TemplateService : ITemplateService
                     .Select(c => c.TemplateId)
                     .Distinct()
                     .ToHashSetAsync();
+                // A/B variants and template bots reference templates too, through Restrict foreign
+                // keys: removing one of those failed the whole sync's save.
+                inUseTemplateIds.UnionWith(await _dbContext.CampaignVariants.IgnoreQueryFilters()
+                    .Where(v => v.TemplateId != null).Select(v => v.TemplateId).Distinct().ToListAsync());
+                inUseTemplateIds.UnionWith(await _dbContext.TemplateBots.IgnoreQueryFilters()
+                    .Select(b => (int?)b.TemplateId).Distinct().ToListAsync());
 
                 var removable = templatesToDelete.Where(t => !inUseTemplateIds.Contains(t.Id)).ToList();
+                removedNames.AddRange(removable.Select(t => t.Name));
 
                 // No explicit TemplateVariables cleanup: the relationship is configured
                 // OnDelete(Cascade), so the database removes them.
@@ -379,6 +403,22 @@ public class TemplateService : ITemplateService
         }
 
         await _dbContext.SaveChangesAsync();
+
+        foreach (var change in statusChanges)
+        {
+            await _auditService.LogAsync(
+                "Template.StatusChanged", "Data",
+                $"Meta changed template \"{change.Name}\" from {change.From} to {change.To}.",
+                "Template", change.Id.ToString());
+        }
+        if (connectionsAttempted > 0)
+        {
+            await _auditService.LogAsync(
+                "Template.Synced", "Data",
+                $"Synced templates from WhatsApp: {newCount} added, {statusChanges.Count} changed status, {removedNames.Count} removed"
+                    + (removedNames.Count > 0 ? $" ({string.Join(", ", removedNames.Take(10))}{(removedNames.Count > 10 ? ", …" : "")})." : "."),
+                "Template", null);
+        }
         return newCount;
     }
 

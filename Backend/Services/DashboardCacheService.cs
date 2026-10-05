@@ -30,6 +30,7 @@ public class DashboardCacheService : IDashboardCacheService
     private static readonly TimeSpan IstOffset = TimeSpan.FromHours(5.5);
 
     private readonly Security.IAccessScope _accessScope;
+    private readonly ICurrentUserService _currentUser;
 
     /// <summary>
     /// Cancelled on invalidation. Every cached summary — one per time filter and per connection
@@ -37,8 +38,9 @@ public class DashboardCacheService : IDashboardCacheService
     /// </summary>
     private static CancellationTokenSource _invalidation = new();
 
-    public DashboardCacheService(IDbContextFactory<AppDbContext> dbContextFactory, IMemoryCache cache, IConfiguration configuration, Security.IAccessScope accessScope)
+    public DashboardCacheService(IDbContextFactory<AppDbContext> dbContextFactory, IMemoryCache cache, IConfiguration configuration, Security.IAccessScope accessScope, ICurrentUserService currentUser)
     {
+        _currentUser = currentUser;
         _accessScope = accessScope;
         _dbContextFactory = dbContextFactory;
         _cache = cache;
@@ -54,9 +56,10 @@ public class DashboardCacheService : IDashboardCacheService
         // Connection scoping: a restricted user's figures cover only their connections, and are
         // cached separately — keyed by the scope — so one user's numbers never serve another's.
         var scope = (await _accessScope.GetAllowedConnectionIdsAsync())?.OrderBy(id => id).ToArray();
+        // A scoped user's Recent Activity is their own actions, so their entry is per user too.
         string cacheKey = scope is null
             ? $"Dashboard_Summary_{normalizedFilter}"
-            : $"Dashboard_Summary_{normalizedFilter}_scope_{string.Join('-', scope)}";
+            : $"Dashboard_Summary_{normalizedFilter}_scope_{string.Join('-', scope)}_user_{_currentUser.UserId}";
 
         int ttlSeconds = normalizedFilter switch
         {
@@ -119,7 +122,7 @@ public class DashboardCacheService : IDashboardCacheService
             var sparklinesTask = GetSparklinesAsync(sparklineStart, scope);
             var hourlyTask = GetHourlyChartAsync(currentCutoff, scope);
             var topAndRecentCampaignsTask = GetTopAndRecentCampaignsAsync(currentCutoff, scope);
-            var recentActivityTask = GetRecentActivityAndBusinessNameAsync(scope);
+            var recentActivityTask = GetRecentActivityAndBusinessNameAsync(scope, scope is null ? null : _currentUser.UserId);
         var channelBreakdownTask = GetChannelBreakdownAsync(currentCutoff, scope);
 
             await Task.WhenAll(
@@ -714,81 +717,41 @@ public class DashboardCacheService : IDashboardCacheService
             topCampaigns.Cast<object>().ToList());
     }
 
-    // Synthesized Recent Activity feed — merged from existing tables' own timestamps, no dedicated log table.
-    private async Task<RecentActivityResult> GetRecentActivityAndBusinessNameAsync(int[]? scope)
+    /// <summary>One line of the dashboard's Recent Activity.</summary>
+    public sealed record RecentActivityItem(string Type, string Title, string? Subtitle, DateTime Timestamp);
+
+    /// <summary>
+    /// Recent Activity is the audit log: the latest successful business events, with who did
+    /// them. It used to be stitched together from four tables' timestamps, so "View All" (the
+    /// audit log) showed different things, and test data looked like real approvals.
+    /// <paramref name="onlyUserId"/> limits it to one person's actions (connection-scoped users).
+    /// </summary>
+    public static async Task<List<RecentActivityItem>> RecentActivityAsync(AppDbContext db, int? onlyUserId, int take, CancellationToken ct)
+    {
+        var modules = Catalogs.RecentActivityCatalog.ModuleTypes.Keys.ToArray();
+        var query = db.AuditLogs.AsNoTracking()
+            .Where(a => a.Module != null && modules.Contains(a.Module) && a.Status == "Success");
+        if (onlyUserId is { } userId) query = query.Where(a => a.UserId == userId);
+
+        var rows = await query
+            .OrderByDescending(a => a.CreatedAt).ThenByDescending(a => a.Id)
+            .Take(take)
+            .Select(a => new { a.Module, a.Event, a.Description, a.UserName, a.CreatedAt })
+            .ToListAsync(ct);
+
+        return rows.Select(a => new RecentActivityItem(
+            Catalogs.RecentActivityCatalog.ModuleTypes.GetValueOrDefault(a.Module!, "campaign"),
+            string.IsNullOrWhiteSpace(a.Description) ? a.Event : a.Description!,
+            a.UserName ?? Catalogs.RecentActivityCatalog.SystemActor,
+            a.CreatedAt)).ToList();
+    }
+
+    private async Task<RecentActivityResult> GetRecentActivityAndBusinessNameAsync(int[]? scope, int? onlyUserId)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
 
-        var activityItems = new List<(DateTime Timestamp, object Item)>();
-
-        var recentContacts = await db.Contacts.AsNoTracking()
-            .OrderByDescending(c => c.CreatedAt).Take(5)
-            .Select(c => new { c.Name, c.Phone, c.CreatedAt }).ToListAsync();
-        foreach (var c in recentContacts)
-        {
-            activityItems.Add((c.CreatedAt, new
-            {
-                type = "contact",
-                title = "New contact added",
-                subtitle = $"{c.Name} • {c.Phone}",
-                timestamp = c.CreatedAt
-            }));
-        }
-
-        var recentCampaignActivity = await db.Campaigns.ScopeTo(scope).AsNoTracking()
-            .Where(c => c.Status == CampaignStatus.Sent || c.Status == CampaignStatus.Sending || c.Status == CampaignStatus.Scheduled)
-            .OrderByDescending(c => c.UpdatedAt).Take(5)
-            .Select(c => new { c.Name, c.Status, c.UpdatedAt }).ToListAsync();
-        foreach (var c in recentCampaignActivity)
-        {
-            var verb = c.Status switch
-            {
-                CampaignStatus.Sent => "was sent",
-                CampaignStatus.Sending => "is sending",
-                CampaignStatus.Scheduled => "was scheduled",
-                _ => "was updated"
-            };
-            activityItems.Add((c.UpdatedAt, new
-            {
-                type = "campaign",
-                title = $"Campaign \"{c.Name}\" {verb}",
-                subtitle = (string?)null,
-                timestamp = c.UpdatedAt
-            }));
-        }
-
-        var recentTemplateActivity = await db.Templates.AsNoTracking()
-            .OrderByDescending(t => t.UpdatedAt).Take(5)
-            .Select(t => new { t.Name, t.Status, t.UpdatedAt }).ToListAsync();
-        foreach (var t in recentTemplateActivity)
-        {
-            activityItems.Add((t.UpdatedAt, new
-            {
-                type = "template",
-                title = $"Template \"{t.Name}\" {(t.Status == TemplateStatus.Approved ? "was approved" : "was updated")}",
-                subtitle = (string?)null,
-                timestamp = t.UpdatedAt
-            }));
-        }
-
-        var recentBotFlowActivity = await db.BotFlows.AsNoTracking()
-            .OrderByDescending(b => b.UpdatedAt).Take(5)
-            .Select(b => new { b.Name, b.IsActive, b.UpdatedAt }).ToListAsync();
-        foreach (var b in recentBotFlowActivity)
-        {
-            activityItems.Add((b.UpdatedAt, new
-            {
-                type = "botflow",
-                title = $"Bot flow \"{b.Name}\" {(b.IsActive ? "was published" : "was disabled")}",
-                subtitle = (string?)null,
-                timestamp = b.UpdatedAt
-            }));
-        }
-
-        var recentActivity = activityItems
-            .OrderByDescending(a => a.Timestamp)
-            .Take(8)
-            .Select(a => a.Item)
+        var recentActivity = (await RecentActivityAsync(db, onlyUserId, Catalogs.RecentActivityCatalog.Take, CancellationToken.None))
+            .Select(a => (object)new { type = a.Type, title = a.Title, subtitle = a.Subtitle, timestamp = a.Timestamp })
             .ToList();
 
         var businessName = await db.Businesses.AsNoTracking()

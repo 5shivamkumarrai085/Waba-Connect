@@ -35,7 +35,7 @@ interface LogEntry {
  *
  * Deliberately not the nine PSR-3 levels the reference UI shows — this app runs on Serilog and
  * can never emit EMERGENCY, ALERT, NOTICE or LOCAL. Rendering pills that permanently show zero
- * is the same trap the old activity-log page fell into.
+ * is a trap an earlier page in this app fell into.
  */
 const LEVELS = [
   { key: 'Fatal', label: 'CRITICAL', tone: 'critical' },

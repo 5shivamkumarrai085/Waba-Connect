@@ -8,7 +8,8 @@
   flex: 0 1 auto;
   flex-direction: column;
   min-height: 0;
-  max-height: 75%;
+  max-height: 60%;
+  animation: email-composer-in 200ms var(--ease-out);
   border-top: 1px solid var(--border-light);
   background: var(--bg-primary);
 }
@@ -20,67 +21,56 @@
   overscroll-behavior: contain;
 }
 
-.email-composer .rich-editor-surface { min-height: 140px; }
-.email-composer-tabs { flex-shrink: 0; }
+/* Opened on purpose, so it opens ready to write. */
+.email-composer .rich-editor-surface { min-height: 120px; }
+.email-composer-head { flex-shrink: 0; }
 
-/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+/* ── Header: what is being written, and how to close it ───────────────── */
 
-.email-composer-tabs {
+.email-composer-head {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 6px 12px 0;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-xs) var(--space-xs) var(--space-base);
   border-bottom: 1px solid var(--border-light);
   background: var(--bg-subtle);
 }
 
-.email-composer-tab {
+.email-composer-heading {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-muted);
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 4px 4px 0 0;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
-  margin-bottom: -1px;
+  gap: var(--space-xs);
+  min-width: 0;
+  font-size: var(--text-body);
+  color: var(--text-heading);
 }
 
-.email-composer-tab:hover {
-  color: var(--text-body);
-  background: var(--bg-hover);
-}
-
-.email-composer-tab.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
-  background: var(--bg-primary);
-}
+.email-composer-heading svg { flex-shrink: 0; color: var(--primary); }
+.email-composer-heading strong { font-weight: var(--weight-semibold); white-space: nowrap; }
 
 .email-composer-close {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
   border: none;
   background: transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background-color 150ms ease, color 150ms ease, transform 160ms var(--ease-out);
 }
 
 .email-composer-close:hover {
   background: var(--bg-hover);
-  color: var(--text-body);
+  color: var(--text-heading);
 }
+
+.email-composer-close:active { transform: scale(0.94); }
+.email-composer-close:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* ── Chip field ─────────────────────────────────────────────────────────── */
 
@@ -151,7 +141,7 @@
 
 .ec-chip-remove:hover {
   opacity: 1;
-  background: rgba(37, 99, 235, 0.2);
+  background: var(--omni-color-primary-200);
 }
 
 .ec-chip-input {
@@ -188,6 +178,47 @@
   color: var(--text-muted);
   font-weight: 400;
 }
+
+/* Reply recipients, folded into one line until the operator wants to change them. */
+.ec-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-base);
+  border-bottom: 1px solid var(--border-light);
+  font-size: var(--text-sm);
+  color: var(--text-main);
+}
+
+.ec-summary .ec-field-label {
+  flex: 0 0 auto;
+  padding: 0 var(--space-xs) 0 0;
+}
+
+.ec-summary-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ec-summary-cc { color: var(--text-muted); }
+
+.ec-summary-edit {
+  flex-shrink: 0;
+  padding: var(--space-3xs) var(--space-xs);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.ec-summary-edit:hover { background: var(--bg-hover); }
+.ec-summary-edit:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* Bcc toggle */
 .email-composer-bcc-toggle {
@@ -247,6 +278,20 @@
   gap: 6px;
   font-size: 13.5px;
   padding: 7px 18px;
+  transition: transform 160ms var(--ease-out);
+}
+
+.email-composer-send:active:not(:disabled) { transform: scale(0.97); }
+
+@keyframes email-composer-in {
+  from { transform: translateY(8px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .email-composer { animation: none; }
+  .email-composer-close { transition: none; }
+  .email-composer-send { transition: none; }
+  .email-composer-send:active:not(:disabled) { transform: none; }
 }
 
 /* -- Attachments ------------------------------------------------------------ */

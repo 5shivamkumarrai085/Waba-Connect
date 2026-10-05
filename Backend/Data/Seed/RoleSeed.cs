@@ -24,7 +24,6 @@ public static class RoleSeed
             "User.Delete",
             "Role.Delete",
             "SystemLog.Clear",
-            "ActivityLog.Clear",
             "ConnectAccount.Disconnect"
         };
 

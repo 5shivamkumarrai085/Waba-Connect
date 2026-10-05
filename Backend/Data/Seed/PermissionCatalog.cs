@@ -171,9 +171,10 @@ public static class PermissionCatalog
             (View, "View"), (Create, "Create"), (Edit, "Edit"), (Delete, "Delete"),
             ("Toggle", "Enable/Disable")
         }),
-        new("ActivityLog",   "Activity Log",   "Setup", new[]
+        // View only: the audit log is append-only, so there is nothing to delete or clear.
+        new("ActivityLog",   "Audit Log",      "Setup", new[]
         {
-            (View, "View"), (Delete, "Delete"), ("Clear", "Clear log")
+            (View, "View")
         }),
         new("SystemLog",     "System Log",     "Setup", new[]
         {

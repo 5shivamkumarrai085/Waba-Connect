@@ -43,6 +43,26 @@ public static class CampaignFeatureCatalog
     public const int AbMinimumSentPerVariant = 1;
     public const int AbRecheckMinutes = 30;
 
+    /// <summary>
+    /// When no variant has a single open (or read, click, reply) by decision time, the test keeps
+    /// waiting this many extra hours before keeping variant A — a 0% vs 0% "win" is not a result.
+    /// Default is what the server uses; the range bounds a future per-campaign setting.
+    /// </summary>
+    public static readonly NumberRange AbNoSignalGraceHours = new(0, 168, 24);
+
+    /// <summary>Why a test's winner was chosen, as stored on the campaign and shown on its page.</summary>
+    public const string AbReasonBestRate = "best-rate";
+    public const string AbReasonNoSignal = "no-signal";
+    public const string AbReasonManual = "manual";
+
+    /// <summary>What the campaign page says about how the winner was chosen.</summary>
+    public static readonly Option[] AbDecisionReasons =
+    [
+        new(AbReasonBestRate, "Best rate", "The variant with the highest rate won."),
+        new(AbReasonNoSignal, "No signal", "No variant had any engagement in time, so variant A was kept."),
+        new(AbReasonManual, "Chosen manually", "Someone picked the winner before the decision time.")
+    ];
+
     public static readonly Option[] EmailFollowUpConditions =
     [
         new("NotOpened", "did not open"),
@@ -156,11 +176,46 @@ public static class ChatCatalog
         new("all", "All statuses")
     ];
 
+    /// <summary>The inbox read filter. The values are what the conversations endpoint accepts.</summary>
+    public static readonly Option[] ReadFilters =
+    [
+        new("All Chats", "All conversations"),
+        new("Unread Chats", "Unread only")
+    ];
+
     public static readonly Option[] AssigneeFilters =
     [
         new("", "Anyone"),
         new("me", "Assigned to me"),
         new("unassigned", "Unassigned")
+    ];
+
+    public const string SortNewest = "newest";
+    public const string SortOldest = "oldest";
+
+    /// <summary>Inbox order, by last activity. The first is the default.</summary>
+    public static readonly Option[] SortOrders =
+    [
+        new(SortNewest, "Newest", "Latest activity first."),
+        new(SortOldest, "Oldest", "Longest-waiting activity first.")
+    ];
+
+    /// <summary>A quick view is a named combination of the read and owner filters, shown as a tab with a count.</summary>
+    public sealed record QuickView(string Value, string Label, string Description, string ReadFilter, string AssigneeFilter);
+
+    public const string QuickViewAll = "all";
+    public const string QuickViewUnread = "unread";
+    public const string QuickViewMine = "mine";
+
+    /// <summary>
+    /// The inbox's tabs. Declared after the filters they reference (static fields initialise in
+    /// order). Counts come from GET api/Chat/conversations/counts.
+    /// </summary>
+    public static readonly QuickView[] QuickViews =
+    [
+        new(QuickViewAll, "All", "Every conversation in view.", ReadFilters[0].Value, AssigneeFilters[0].Value),
+        new(QuickViewUnread, "Unread", "Conversations with messages nobody has read yet.", ReadFilters[1].Value, AssigneeFilters[0].Value),
+        new(QuickViewMine, "Mine", "Conversations assigned to you.", ReadFilters[0].Value, AssigneeFilters[1].Value)
     ];
 
     public const int MaxReplyButtons = 3;
@@ -378,4 +433,101 @@ public static class EmailConnectionCatalog
     /// <summary>Messages per second a connection may send; mirrors the request DTO's range.</summary>
     public const double MinSendRatePerSecond = 0.1;
     public const double MaxSendRatePerSecond = 1000;
+}
+
+/// <summary>
+/// Whether the public address tracking pixels, click links and unsubscribe links are built on can
+/// actually be reached by recipients. Each reason has the sentence the pre-flight check and the
+/// health report show.
+/// </summary>
+public static class PublicEndpointCatalog
+{
+    public const string Empty = "empty";
+    public const string Localhost = "localhost";
+    public const string PrivateNetwork = "private-network";
+    public const string NotHttps = "not-https";
+    public const string Unreachable = "unreachable";
+    public const string WrongInstance = "wrong-instance";
+    public const string Ok = "ok";
+
+    /// <summary>How long the reachability probe waits for an answer.</summary>
+    public const int ProbeTimeoutSeconds = 5;
+
+    /// <summary>How long a probe result is reused before the address is checked again.</summary>
+    public const int ProbeCacheMinutes = 5;
+
+    public static readonly IReadOnlyDictionary<string, string> Reasons = new Dictionary<string, string>
+    {
+        [Empty] = "no public address is configured (App:PublicBaseUrl)",
+        [Localhost] = "it points at this computer (localhost), which recipients' mail apps cannot reach",
+        [PrivateNetwork] = "it is a private network address, which the internet cannot reach",
+        [NotHttps] = "it is not https; mail apps block plain-http images and Gmail requires https for one-click unsubscribe",
+        [Unreachable] = "it did not answer from the internet (is the server or tunnel running?)",
+        [WrongInstance] = "it answered, but from a different server than this one",
+        [Ok] = "it is reachable"
+    };
+
+    public static string Describe(string reason) => Reasons.TryGetValue(reason, out var text) ? text : reason;
+}
+
+/// <summary>
+/// How a plain-text delivery report (the kind Exim, cPanel, qmail and older Postfix send instead
+/// of an RFC 3464 multipart/report) is recognised and read. Matching is on the report's sender,
+/// its subject, and the text above the returned copy of the original message.
+/// </summary>
+public static class BounceCatalog
+{
+    /// <summary>Local parts of the addresses mail servers send delivery reports from.</summary>
+    public static readonly string[] SenderLocalParts = ["mailer-daemon", "postmaster", "mail-daemon", "mailerdaemon"];
+
+    /// <summary>Subjects delivery reports use (matched as case-insensitive substrings).</summary>
+    public static readonly string[] SubjectPatterns =
+    [
+        "mail delivery failed", "undelivered mail returned to sender", "delivery status notification",
+        "undeliverable", "returned mail", "delivery failure", "failure notice", "message delayed",
+        "delivery has failed", "could not be delivered", "warning: message"
+    ];
+
+    /// <summary>Lines that introduce the returned copy of the original message; the report is the text above them.</summary>
+    public static readonly string[] ReturnedCopyMarkers =
+    [
+        "this is a copy of the message", "below this line is a copy of the message", "original message follows",
+        "----- original message -----", "------- original message", "the original message was received",
+        "original message headers"
+    ];
+
+    /// <summary>Wording that marks a failure as permanent when the report carries no status code.</summary>
+    public static readonly string[] PermanentPhrases =
+    [
+        "permanent error", "no such user", "user unknown", "unknown user", "does not exist", "mailbox unavailable",
+        "address rejected", "no mailbox", "account has been disabled", "recipient not found", "invalid recipient"
+    ];
+
+    /// <summary>A bounce without the original Message-ID is matched to the latest send to that address within this many days.</summary>
+    public const int MatchWindowDays = 7;
+}
+
+/// <summary>
+/// The dashboard's Recent Activity: which audit modules count as business activity (sign-ins,
+/// access denials and system logs do not), and which icon family each one shows with.
+/// </summary>
+public static class RecentActivityCatalog
+{
+    /// <summary>Audit module → the card's item type (its icon and colour).</summary>
+    public static readonly IReadOnlyDictionary<string, string> ModuleTypes = new Dictionary<string, string>
+    {
+        ["Campaign"] = "campaign", ["BulkCampaign"] = "campaign",
+        ["Contact"] = "contact", ["ContactGroup"] = "contact", ["ContactNote"] = "contact", ["Consent"] = "contact",
+        ["Template"] = "template", ["EmailTemplate"] = "template",
+        ["BotFlow"] = "botflow", ["MessageBot"] = "botflow", ["TemplateBot"] = "botflow",
+        ["Chat"] = "chat", ["EmailReply"] = "chat",
+        ["Segment"] = "segment",
+        ["Connection"] = "connection", ["EmailConnection"] = "connection", ["EmailSender"] = "connection"
+    };
+
+    /// <summary>How many items the card shows.</summary>
+    public const int Take = 8;
+
+    /// <summary>Who an event is attributed to when no person did it (workers, webhooks, the scheduler).</summary>
+    public const string SystemActor = "System";
 }

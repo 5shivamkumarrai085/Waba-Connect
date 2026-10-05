@@ -113,7 +113,8 @@ public static class Phase5_PipelineTests
                     Subject = "Hello {{name}} from {{company_name}}",
                     BodyHtml =
                         $"<p>Hi {{{{name}}}},</p><p>{bodyMarker}</p>" +
-                        "<p>Your email is {{email}}.</p><p>Regards,<br>{{company_name}}</p>",
+                        "<p>Your email is {{email}}.</p><p><a href=\"https://example.test/offer?a=1&amp;b=2\">Offer</a></p>" +
+                        "<p>Regards,<br>{{company_name}}</p>",
                     Language = "en",
                     IsEnabled = true
                 });
@@ -263,6 +264,12 @@ public static class Phase5_PipelineTests
                 raw.Contains("X-Omni-Campaign-Id") && raw.Contains("X-Omni-Recipient-Id"));
             run.Check("a plain-text alternative was included", raw.Contains("multipart/alternative"));
 
+            // Parsed rather than searched raw: quoted-printable folds long URLs across lines.
+            var html = MimeKit.MimeMessage.Load(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(raw))).HtmlBody ?? string.Empty;
+            run.Check("an open-tracking pixel points at the public address", html.Contains("https://example.test/api/t/o/"), "no pixel in the HTML body");
+            run.Check("links are wrapped in signed click redirects",
+                html.Contains("https://example.test/api/t/c/") && !html.Contains("href=\"https://example.test/offer"), "the offer link was not rewritten");
+
             run.Check("the suppressed address was never transmitted",
                 !raw.Contains($"suppressed-{harness.Tag}@example.test"));
 
@@ -315,19 +322,6 @@ public static class Phase5_PipelineTests
                 """, ("id", campaignId));
             run.Check("the thread was created on the Email channel",
                 conversationChannel == "Email", conversationChannel);
-
-            var activityLogs = await harness.CountAsync("""
-                SELECT count(*) FROM "MessageActivityLogs" WHERE "Name" LIKE @name
-                """, ("name", $"%{harness.Tag}%"));
-            run.Check("an activity log row was written, in the same table WhatsApp uses",
-                activityLogs == 1, $"{activityLogs}");
-
-            // An email request body is the whole rendered message. Copying it into a log table
-            // would put every recipient's personalised content there in full.
-            var loggedPayload = await harness.ScalarAsync("""
-                SELECT "RequestPayload" FROM "MessageActivityLogs" WHERE "Name" LIKE @name
-                """, ("name", $"%{harness.Tag}%"));
-            run.Check("the rendered message was not copied into the activity log", loggedPayload is null);
 
             run.Section("Campaign aggregate");
 

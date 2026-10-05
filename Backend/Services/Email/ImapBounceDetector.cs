@@ -37,7 +37,8 @@ public static class ImapBounceDetector
     /// </summary>
     public static BounceInfo? TryParse(MimeMessage mime)
     {
-        if (!IsBounceReport(mime)) return null;
+        // Most shared hosts (Exim/cPanel, qmail) send plain-text reports instead of RFC 3464.
+        if (!IsBounceReport(mime)) return PlainTextBounceParser.TryParse(mime);
 
         if (mime.Body is not MultipartReport report) return null;
 

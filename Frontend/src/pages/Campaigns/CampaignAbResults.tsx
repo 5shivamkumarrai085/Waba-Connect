@@ -41,12 +41,22 @@ export const CampaignAbResults: React.FC<CampaignAbResultsProps> = ({ campaignId
     }
   }
 
+  // A finished campaign with nobody held back never needs a winner: everyone was in the test, so
+  // the figures below are the final result rather than a decision still to come.
+  const finished = !['Sending', 'Paused', 'Scheduled', 'AwaitingApproval'].includes(status)
+  const allInTest = undecided && finished && abTest.heldRecipients === 0
+  const reason = abTest.decisionReason
+    ? options.data?.abDecisionReasons?.find(r => r.value === abTest.decisionReason)
+    : undefined
+
   const facts = [
     `${abTest.testPercent}% of the audience in the test`,
     `winner by ${metric.toLowerCase()}`,
-    undecided
-      ? (abTest.decideAt ? `decided automatically at ${formatAbsoluteDateTime(abTest.decideAt)}` : null)
-      : `decided ${formatAbsoluteDateTime(abTest.decidedAt!)}`,
+    allInTest
+      ? 'every recipient was in the test, so these are the final results'
+      : undecided
+        ? (abTest.decideAt ? `decided automatically at ${formatAbsoluteDateTime(abTest.decideAt)}` : null)
+        : `decided ${formatAbsoluteDateTime(abTest.decidedAt!)}`,
     undecided && abTest.heldRecipients > 0 ? `${numbers.format(abTest.heldRecipients)} waiting for the winner` : null
   ].filter(Boolean)
 
@@ -65,6 +75,11 @@ export const CampaignAbResults: React.FC<CampaignAbResultsProps> = ({ campaignId
       </header>
 
       <p className="campaign-section-summary">{facts.join(' · ')}</p>
+      {reason && (
+        <p className={`campaign-section-note${abTest.decisionReason === 'no-signal' ? ' is-warning' : ''}`} role="status">
+          <strong>{reason.label}.</strong> {reason.description}
+        </p>
+      )}
 
       <div className="data-table-wrapper">
         <table className="data-table">

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Send, X, Loader2, Reply, ReplyAll, Forward, Plus, Paperclip, File, Image, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { RichTextEditor } from '../RichTextEditor/RichTextEditor'
+import { ConfirmationModal } from '../Modal/ConfirmationModal'
 import { chatService } from '../../services/chat/chatService'
 import type { Message } from '../../types/chat'
 import './EmailComposer.css'
@@ -23,8 +24,8 @@ interface EmailComposerProps {
   /** The address this connection sends as, shown so the operator knows who it comes from. */
   fromAddress?: string | null
   mode: EmailComposeMode
-  onModeChange: (mode: EmailComposeMode) => void
   onSent: () => void
+  /** Closes the composer. Called once any draft has been confirmed as discarded. */
   onCancel: () => void
 }
 
@@ -95,8 +96,17 @@ const ChipInput: React.FC<{
   )
 }
 
+/** How the header names each mode. */
+const MODE_HEADINGS: Record<EmailComposeMode, { label: string; icon: React.ReactNode }> = {
+  reply: { label: 'Reply', icon: <Reply size={14} aria-hidden="true" /> },
+  replyAll: { label: 'Reply all', icon: <ReplyAll size={14} aria-hidden="true" /> },
+  forward: { label: 'Forward', icon: <Forward size={14} aria-hidden="true" /> },
+  newEmail: { label: 'New email', icon: <Plus size={14} aria-hidden="true" /> },
+}
+
 /**
- * Reply / Reply All / Forward / New Email, for an email thread.
+ * Reply / Reply All / Forward / New Email, for an email thread. Opened from a message's own
+ * buttons or the page's New Email, closed with ✕ or Escape (asking first if there is a draft).
  * Supports file attachments via base64 encoding sent to the backend.
  */
 export const EmailComposer: React.FC<EmailComposerProps> = ({
@@ -104,7 +114,6 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
   source,
   fromAddress,
   mode,
-  onModeChange,
   onSent,
   onCancel
 }) => {
@@ -115,8 +124,13 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
   const [body, setBody] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [showBcc, setShowBcc] = useState(false)
+  // Replies address the thread, so their recipients and subject fold into one summary line;
+  // forwarding and new mail start empty, so their fields are open.
+  const [showFields, setShowFields] = useState(mode === 'forward' || mode === 'newEmail')
   const [attachments, setAttachments] = useState<AttachedFile[]>([])
   const [isAttaching, setIsAttaching] = useState(false)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const toInputRef = useRef<HTMLInputElement>(null) as React.MutableRefObject<HTMLInputElement | null>
 
@@ -158,9 +172,14 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
     setCcChips(derived.cc)
     setSubject(derived.subject)
     setShowBcc(false)
-    if (mode === 'forward' || mode === 'newEmail') {
-      setTimeout(() => toInputRef.current?.focus(), 50)
-    }
+    const needsAddress = mode === 'forward' || mode === 'newEmail'
+    setShowFields(needsAddress)
+    // Ready to type where the operator starts: the address for new mail, the body for a reply.
+    const timer = window.setTimeout(() => {
+      if (needsAddress) toInputRef.current?.focus()
+      else rootRef.current?.querySelector<HTMLElement>('.rich-editor-surface')?.focus()
+    }, 50)
+    return () => window.clearTimeout(timer)
   }, [derived, mode])
 
   /** Read file as base64, add to attachment list. */
@@ -243,42 +262,65 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
     }
   }
 
-  const TABS = [
-    { key: 'reply' as const, label: 'Reply', icon: <Reply size={13} /> },
-    { key: 'replyAll' as const, label: 'Reply All', icon: <ReplyAll size={13} /> },
-    { key: 'forward' as const, label: 'Forward', icon: <Forward size={13} /> },
-    { key: 'newEmail' as const, label: 'New Email', icon: <Plus size={13} /> },
-  ]
+  const isDirty = body.replace(/<[^>]*>/g, '').trim().length > 0 || attachments.length > 0
+  const heading = MODE_HEADINGS[mode]
+
+  /** ✕ and Escape: an empty composer just closes; a draft is only thrown away when confirmed. */
+  const requestClose = () => {
+    if (isDirty) setConfirmDiscard(true)
+    else onCancel()
+  }
+
+  const discard = () => {
+    setConfirmDiscard(false)
+    setBody('')
+    setAttachments([])
+    onCancel()
+  }
 
   return (
-    <div className="email-composer">
-      <div className="email-composer-tabs" role="tablist">
-        {TABS.map(tab => (
-          <button
-            key={tab.key}
-            type="button"
-            role="tab"
-            aria-selected={mode === tab.key}
-            className={`email-composer-tab ${mode === tab.key ? 'active' : ''}`}
-            onClick={() => onModeChange(tab.key)}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
-
+    <div
+      ref={rootRef}
+      className="email-composer"
+      role="region"
+      aria-label={`${heading.label} composer`}
+      onKeyDown={e => {
+        if (e.key === 'Escape' && !confirmDiscard) {
+          e.stopPropagation()
+          requestClose()
+        }
+      }}
+    >
+      <div className="email-composer-head">
+        <span className="email-composer-heading">
+          {heading.icon}
+          <strong>{heading.label}</strong>
+        </span>
         <button
           type="button"
           className="email-composer-close"
-          onClick={onCancel}
+          onClick={requestClose}
+          title="Close"
           aria-label="Close composer"
         >
-          <X size={15} />
+          <X size={16} aria-hidden="true" />
         </button>
       </div>
 
-      {/* Fields, editor and attachments scroll; the tabs above and the Send bar below never do. */}
+      {/* Fields, editor and attachments scroll; the header above and the Send bar below never do. */}
       <div className="email-composer-scroll">
+      {!showFields ? (
+        <div className="ec-summary">
+          <span className="ec-summary-text" title={[...toChips, ...ccChips].join(', ')}>
+            <span className="ec-field-label">To</span>
+            {toChips.length > 0 ? toChips.join(', ') : 'No recipient'}
+            {ccChips.length > 0 && <span className="ec-summary-cc"> · Cc {ccChips.join(', ')}</span>}
+          </span>
+          <button type="button" className="ec-summary-edit" onClick={() => setShowFields(true)}>
+            Edit recipients
+          </button>
+        </div>
+      ) : (
       <div className="email-composer-fields">
         <ChipInput
           label="To"
@@ -326,8 +368,13 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
           />
         </div>
       </div>
+      )}
 
-      <RichTextEditor value={body} onChange={setBody} placeholder="Type your reply..." />
+      <RichTextEditor
+        value={body}
+        onChange={setBody}
+        placeholder={mode === 'forward' ? 'Add a note to the forwarded message…' : mode === 'newEmail' ? 'Write your message…' : 'Write your reply…'}
+      />
 
       {/* Attachment list */}
       {attachments.length > 0 && (
@@ -391,6 +438,17 @@ export const EmailComposer: React.FC<EmailComposerProps> = ({
           </button>
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={confirmDiscard}
+        title="Discard this draft?"
+        message="What you have written and any attachments will be lost."
+        confirmText="Discard"
+        cancelText="Keep writing"
+        onConfirm={discard}
+        onCancel={() => setConfirmDiscard(false)}
+        isDestructive
+      />
     </div>
   )
 }

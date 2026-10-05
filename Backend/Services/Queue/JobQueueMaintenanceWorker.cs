@@ -107,20 +107,41 @@ public class JobQueueMaintenanceWorker : BackgroundService
     /// Finalises campaigns with nothing pending (either channel) and reconciles email counters for
     /// active and recently finished email campaigns.
     /// </summary>
+    /// <summary>
+    /// Campaigns whose counters the sweep recomputes: everything still sending, and email campaigns
+    /// touched or sent an event since <paramref name="since"/>. The second half matters for
+    /// finished campaigns: an open arriving days later records an event even if the processor
+    /// died before it could stamp the recipient, and only the sweep can then repair it.
+    /// </summary>
+    public static async Task<IReadOnlyList<int>> CampaignsToReconcileAsync(AppDbContext db, DateTime since, CancellationToken ct)
+    {
+        var withRecentEvents = db.EmailEvents
+            .Where(e => e.CreatedAt >= since && e.CampaignId != null)
+            .Select(e => e.CampaignId!.Value);
+        return await db.Campaigns
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(c => !c.IsDeleted
+                     && (c.Status == CampaignStatus.Sending
+                         || (c.Channel == MessageChannel.Email && (c.UpdatedAt >= since || withRecentEvents.Contains(c.Id)))))
+            .OrderBy(c => c.Id)
+            .Select(c => c.Id)
+            .Take(500)
+            .ToListAsync(ct);
+    }
+
     private async Task SweepCampaignsAsync(CancellationToken ct)
     {
         await using var db = await _contextFactory.CreateDbContextAsync(ct);
         var since = DateTime.UtcNow - ReconcileWindow;
 
+        var ids = await CampaignsToReconcileAsync(db, since, ct);
         var campaigns = await db.Campaigns
             .IgnoreQueryFilters()
             .AsNoTracking()
-            .Where(c => !c.IsDeleted
-                     && (c.Status == CampaignStatus.Sending
-                         || (c.Channel == MessageChannel.Email && c.UpdatedAt >= since)))
+            .Where(c => ids.Contains(c.Id))
             .OrderBy(c => c.Id)
             .Select(c => new { c.Id, c.Status, c.Channel })
-            .Take(500)
             .ToListAsync(ct);
 
         foreach (var campaign in campaigns)

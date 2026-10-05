@@ -4,6 +4,7 @@ using WhatsAppCampaignApi.Models.DTOs.Activity;
 using WhatsAppCampaignApi.Models.DTOs.Chat;
 using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Models.Enums;
+using WhatsAppCampaignApi.Services.Catalogs;
 using WhatsAppCampaignApi.Services.Interfaces;
 using WhatsAppCampaignApi.Services.Security;
 
@@ -159,7 +160,8 @@ public class ChatService : IChatService
         string? cursor = null,
         int limit = ChatPaging.DefaultConversationPageSize,
         string? state = null,
-        string? assignee = null)
+        string? assignee = null,
+        string? sort = null)
     {
         limit = Math.Clamp(limit, 1, ChatPaging.MaxConversationPageSize);
 
@@ -177,6 +179,94 @@ public class ChatService : IChatService
             .Include(c => c.AssignedUser)
             .AsQueryable();
 
+        query = await FilterConversationsAsync(query, search, connectionId, channel, state, assignee);
+
+        if (string.Equals(filter, "Unread Chats", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(c => c.UnreadCount > 0);
+        }
+
+        var conversations = await OrderConversations(query, sort, cursor)
+            .Take(limit + 1)
+            .ToListAsync();
+
+        var hasMore = conversations.Count > limit;
+        if (hasMore) conversations.RemoveAt(conversations.Count - 1);
+
+        var last = conversations.LastOrDefault();
+        return new ChatPage<ChatConversationResponse>(
+            conversations.Select(MapConversation).ToList(),
+            hasMore && last is not null ? ChatPaging.EncodeConversationCursor(last.LastMessageAt ?? last.UpdatedAt, last.Id) : null,
+            hasMore);
+    }
+
+    /// <summary>
+    /// How many conversations the inbox's quick views (All, Unread, Mine) hold, under the same
+    /// visibility, channel, connection, status and search as the list — so a count always
+    /// matches what clicking it shows. One grouped query, not three.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, int>> GetConversationCountsAsync(
+        string? search = null, int? connectionId = null, string? channel = null, string? state = null)
+    {
+        var query = await FilterConversationsAsync(_dbContext.ChatConversations.AsNoTracking(), search, connectionId, channel, state, assignee: null);
+        return CountsByView(await CountConversationsAsync(query, _currentUser.UserId));
+    }
+
+    /// <summary>The counts keyed by quick view, so the client renders whatever views the catalogue defines.</summary>
+    public static IReadOnlyDictionary<string, int> CountsByView(ChatConversationCounts counts) => new Dictionary<string, int>
+    {
+        [ChatCatalog.QuickViewAll] = counts.All,
+        [ChatCatalog.QuickViewUnread] = counts.Unread,
+        [ChatCatalog.QuickViewMine] = counts.Mine
+    };
+
+    /// <summary>
+    /// Orders the inbox by last activity (newest or oldest first; anything else means newest) and
+    /// skips past the cursor. Keyset paging on (last activity, id): offset paging re-reads every
+    /// row it skips and drifts when a new message moves a conversation between two page requests;
+    /// a cursor does neither, and each page is one index range scan however deep it is.
+    /// </summary>
+    public static IQueryable<ChatConversation> OrderConversations(IQueryable<ChatConversation> query, string? sort, string? cursor)
+    {
+        var oldestFirst = string.Equals(sort, ChatCatalog.SortOldest, StringComparison.OrdinalIgnoreCase);
+        var hasCursor = ChatPaging.TryDecodeConversationCursor(cursor, out var cursorAt, out var cursorId);
+
+        if (oldestFirst)
+        {
+            if (hasCursor)
+            {
+                query = query.Where(c =>
+                    (c.LastMessageAt ?? c.UpdatedAt) > cursorAt
+                    || ((c.LastMessageAt ?? c.UpdatedAt) == cursorAt && c.Id > cursorId));
+            }
+            return query.OrderBy(c => c.LastMessageAt ?? c.UpdatedAt).ThenBy(c => c.Id);
+        }
+
+        if (hasCursor)
+        {
+            query = query.Where(c =>
+                (c.LastMessageAt ?? c.UpdatedAt) < cursorAt
+                || ((c.LastMessageAt ?? c.UpdatedAt) == cursorAt && c.Id < cursorId));
+        }
+        return query.OrderByDescending(c => c.LastMessageAt ?? c.UpdatedAt).ThenByDescending(c => c.Id);
+    }
+
+    public static async Task<ChatConversationCounts> CountConversationsAsync(IQueryable<ChatConversation> query, int? me)
+    {
+        var counts = await query
+            .GroupBy(_ => 1)
+            .Select(g => new ChatConversationCounts(
+                g.Count(),
+                g.Count(c => c.UnreadCount > 0),
+                g.Count(c => me != null && c.AssignedUserId == me)))
+            .FirstOrDefaultAsync();
+        return counts ?? new ChatConversationCounts(0, 0, 0);
+    }
+
+    /// <summary>The inbox filters, applied after visibility so nothing outside this caller's scope is listed or counted.</summary>
+    private async Task<IQueryable<ChatConversation>> FilterConversationsAsync(
+        IQueryable<ChatConversation> query, string? search, int? connectionId, string? channel, string? state, string? assignee)
+    {
         // Applied before search, filter and paging, so counts and results are all consistent with
         // what this caller is allowed to see.
         query = await VisibleAsync(query);
@@ -247,35 +337,7 @@ public class ChatService : IChatService
                        && m.EmailDetail.Subject.ToLower().Contains(normalizedSearch)));
         }
 
-        if (string.Equals(filter, "Unread Chats", StringComparison.OrdinalIgnoreCase))
-        {
-            query = query.Where(c => c.UnreadCount > 0);
-        }
-
-        // Keyset paging on (last activity, id). Offset paging re-reads every row it skips and
-        // drifts when a new message moves a conversation to the top between two page requests;
-        // a cursor does neither, and each page is one index range scan however deep it is.
-        if (ChatPaging.TryDecodeConversationCursor(cursor, out var cursorAt, out var cursorId))
-        {
-            query = query.Where(c =>
-                (c.LastMessageAt ?? c.UpdatedAt) < cursorAt
-                || ((c.LastMessageAt ?? c.UpdatedAt) == cursorAt && c.Id < cursorId));
-        }
-
-        var conversations = await query
-            .OrderByDescending(c => c.LastMessageAt ?? c.UpdatedAt)
-            .ThenByDescending(c => c.Id)
-            .Take(limit + 1)
-            .ToListAsync();
-
-        var hasMore = conversations.Count > limit;
-        if (hasMore) conversations.RemoveAt(conversations.Count - 1);
-
-        var last = conversations.LastOrDefault();
-        return new ChatPage<ChatConversationResponse>(
-            conversations.Select(MapConversation).ToList(),
-            hasMore && last is not null ? ChatPaging.EncodeConversationCursor(last.LastMessageAt ?? last.UpdatedAt, last.Id) : null,
-            hasMore);
+        return query;
     }
 
     public async Task<ChatConversationResponse> GetConversationAsync(int id)
@@ -706,6 +768,15 @@ public class ChatService : IChatService
 
         await _dbContext.SaveChangesAsync();
         await _conversationOps.OnAgentReplyAsync(conversation.Id);
+
+        // Agent replies are audited (who answered whom, and whether WhatsApp accepted it);
+        // inbound messages are not — they are not something a user of this app did.
+        await _auditService.LogAsync(
+            result.Success ? "Chat.MessageSent" : "Chat.MessageFailed", "Data",
+            result.Success
+                ? $"Replied on WhatsApp to \"{conversation.Contact.Name}\"."
+                : $"WhatsApp reply to \"{conversation.Contact.Name}\" failed: {message.ErrorMessage}",
+            "ChatConversation", conversation.Id.ToString());
         return MapMessage(message);
     }
 
@@ -737,18 +808,7 @@ public class ChatService : IChatService
             template.Name,
             template.Language,
             request.Variables,
-            request.ConnectionId,
-            // The one path with a real signed-in user behind it.
-            new MessageSendContext
-            {
-                Category = "InitiateChat",
-                SourceName = template.Name,
-                ContactId = contact.Id,
-                RelationType = contact.Type.ToString(),
-                TriggeredBy = "User",
-                PerformedByUserId = _currentUser?.UserId,
-                IpAddress = _currentUser?.IpAddress
-            });
+            request.ConnectionId);
 
         var conversation = await GetOrCreateConversationAsync(contact.Id, request.ConnectionId);
 
@@ -769,6 +829,12 @@ public class ChatService : IChatService
         UpdateConversationPreview(conversation, messageText);
         await _dbContext.SaveChangesAsync();
 
+        await _auditService.LogAsync(
+            result.Success ? "Chat.TemplateSent" : "Chat.TemplateFailed", "Data",
+            result.Success
+                ? $"Sent template \"{template.Name}\" to \"{contact.Name}\" on WhatsApp."
+                : $"Template \"{template.Name}\" to \"{contact.Name}\" failed: {message.ErrorMessage}",
+            "ChatConversation", conversation.Id.ToString());
         return MapMessage(message);
     }
 

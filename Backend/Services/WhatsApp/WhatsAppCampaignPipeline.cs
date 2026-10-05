@@ -582,16 +582,7 @@ public sealed class WhatsAppCampaignSendWorker : BackgroundService
             template.Name,
             template.Language,
             messageVars,
-            campaign.ConnectionId,
-            new MessageSendContext
-            {
-                Category = "Campaign",
-                SourceName = campaign.Name,
-                SourceId = campaign.Id,
-                ContactId = recipient.ContactId,
-                RelationType = contact.Type,
-                TriggeredBy = "Scheduler"
-            });
+            campaign.ConnectionId);
 
         if (result.Success && !string.IsNullOrWhiteSpace(result.MessageId))
         {

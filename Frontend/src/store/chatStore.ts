@@ -88,6 +88,10 @@ interface ChatStoreState {
   stateFilter: string
   /** Owner: '' (anyone), 'me' or 'unassigned'. */
   assigneeFilter: string
+  /** Inbox order (chat-options sortOrders); empty means the server default. */
+  sortOrder: string
+  /** Conversations per inbox tab, keyed by tab value. Null until first loaded. */
+  quickViewCounts: Record<string, number> | null
   /** ALL_CHANNELS, or a channel key the API understands ('WhatsApp' | 'Email'). */
   channelFilter: string
   sidebarSearchQuery: string
@@ -112,9 +116,11 @@ interface ChatStoreState {
   deleteActiveConversation: () => Promise<void>
   deleteMessages: (messageIds: number[]) => Promise<void>
   setFromNumber: (fromNumber: string) => void
-  setConversationsFilter: (filter: string) => void
   setStateFilter: (state: string) => void
   setAssigneeFilter: (assignee: string) => void
+  /** Applies an inbox tab's read and owner filters together, with one reload. */
+  applyQuickView: (readFilter: string, assigneeFilter: string) => void
+  setSortOrder: (sort: string) => void
   setSidebarSearchQuery: (query: string) => void
 }
 
@@ -154,6 +160,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   conversationsFilter: 'All Chats',
   stateFilter: 'active',
   assigneeFilter: '',
+  sortOrder: '',
+  quickViewCounts: null,
   channelFilter: readPersistedChannelFilter(),
   sidebarSearchQuery: '',
   _loadSeq: 0,
@@ -209,7 +217,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   loadConversations: async () => {
-    const { sidebarSearchQuery, conversationsFilter, selectedConnectionId, channelFilter, conversations, stateFilter, assigneeFilter } = get()
+    const { sidebarSearchQuery, conversationsFilter, selectedConnectionId, channelFilter, conversations, stateFilter, assigneeFilter, sortOrder } = get()
     const isAllChannels = channelFilter === ALL_CHANNELS
 
     // Single-channel mode waits for its connection to be chosen (the auto-select calls back in).
@@ -222,16 +230,27 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       // Re-read as many rows as are on screen (bounded), so a live refresh does not collapse a
       // list the user has already scrolled through back to its first page.
       const limit = Math.min(MAX_REFRESH_PAGE, Math.max(CONVERSATION_PAGE_SIZE, conversations.length))
-      const page = await chatService.getConversations(
-        sidebarSearchQuery,
-        conversationsFilter,
-        isAllChannels ? undefined : selectedConnectionId || undefined,
-        isAllChannels ? undefined : channelFilter,
-        { limit, state: stateFilter, assignee: assigneeFilter }
-      )
+      const connectionId = isAllChannels ? undefined : selectedConnectionId || undefined
+      const channel = isAllChannels ? undefined : channelFilter
+      // The tab counts share the list's search, connection, channel and status, and refresh with it.
+      const [page, counts] = await Promise.all([
+        chatService.getConversations(
+          sidebarSearchQuery,
+          conversationsFilter,
+          connectionId,
+          channel,
+          { limit, state: stateFilter, assignee: assigneeFilter, sort: sortOrder }
+        ),
+        chatService.getConversationCounts(sidebarSearchQuery, connectionId, channel, stateFilter).catch(() => null)
+      ])
 
       if (get()._loadSeq !== seq) return
-      set({ conversations: page.items, conversationsCursor: page.nextCursor, hasMoreConversations: page.hasMore })
+      set((state) => ({
+        conversations: page.items,
+        conversationsCursor: page.nextCursor,
+        hasMoreConversations: page.hasMore,
+        quickViewCounts: counts ?? state.quickViewCounts
+      }))
     } catch (error) {
       // Keep the inbox that is on screen; a failed refresh must never empty it.
       if (!isRequestCancelled(error) && import.meta.env.DEV) console.warn('Inbox refresh failed', error)
@@ -244,7 +263,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     const { conversationsCursor, hasMoreConversations, isLoadingMoreConversations } = get()
     if (!hasMoreConversations || !conversationsCursor || isLoadingMoreConversations) return
 
-    const { sidebarSearchQuery, conversationsFilter, selectedConnectionId, channelFilter, stateFilter, assigneeFilter } = get()
+    const { sidebarSearchQuery, conversationsFilter, selectedConnectionId, channelFilter, stateFilter, assigneeFilter, sortOrder } = get()
     const isAllChannels = channelFilter === ALL_CHANNELS
     const seq = get()._loadSeq
 
@@ -255,7 +274,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         conversationsFilter,
         isAllChannels ? undefined : selectedConnectionId || undefined,
         isAllChannels ? undefined : channelFilter,
-        { cursor: conversationsCursor, state: stateFilter, assignee: assigneeFilter }
+        { cursor: conversationsCursor, state: stateFilter, assignee: assigneeFilter, sort: sortOrder }
       )
 
       // A reload started meanwhile owns the list now.
@@ -448,7 +467,15 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     void get().loadConversations()
   },
 
-  setConversationsFilter: (conversationsFilter) => set({ conversationsFilter }),
+  applyQuickView: (conversationsFilter, assigneeFilter) => {
+    set({ conversationsFilter, assigneeFilter, conversationsCursor: null })
+    void get().loadConversations()
+  },
+
+  setSortOrder: (sortOrder) => {
+    set({ sortOrder, conversationsCursor: null })
+    void get().loadConversations()
+  },
   setSidebarSearchQuery: (sidebarSearchQuery) => set({ sidebarSearchQuery }),
 
   deleteActiveConversation: async () => {

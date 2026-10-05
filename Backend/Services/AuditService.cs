@@ -91,7 +91,12 @@ public class AuditService : IAuditService
                 // request. Both null for background callers — the scheduler and the webhook
                 // have no HttpContext.
                 UserId = actorUserId ?? _currentUser.UserId,
-                UserName = actorUserName ?? _currentUser.UserName,
+                // "System" only for work with no request behind it (workers, the scheduler). A
+                // request with no signed-in user — a failed sign-in — is a stranger, not the system.
+                UserName = actorUserName ?? _currentUser.UserName
+                    ?? ((actorUserId ?? _currentUser.UserId) is null && _currentUser.IpAddress is null
+                        ? Catalogs.RecentActivityCatalog.SystemActor
+                        : null),
                 // 64 characters holds one address of either family comfortably, but a forwarded
                 // header can arrive as a chain of them. Trimmed for the same reason as EntityId.
                 IpAddress = Trim(_currentUser.IpAddress, 64),

@@ -15,14 +15,16 @@ import { AUTH_TOKEN_STORAGE_KEY, REFRESH_TOKEN_STORAGE_KEY } from '../services/a
 
 const FALLBACK_POLL_MS = 15_000
 
-export function useCampaignEvents(campaignId?: number | null, onResync?: () => void): void {
+export function useCampaignEvents(campaignId?: number | null, onResync?: () => void, onEvent?: (event: CampaignEventPayload) => void): void {
   const applyEventDelta = useCampaignStore((state) => state.applyEventDelta)
 
-  // Held in a ref so a new callback identity on every render does not resubscribe.
+  // Held in refs so a new callback identity on every render does not resubscribe.
   const resyncRef = useRef(onResync)
+  const eventRef = useRef(onEvent)
   useEffect(() => {
     resyncRef.current = onResync
-  }, [onResync])
+    eventRef.current = onEvent
+  }, [onResync, onEvent])
 
   useEffect(() => {
     const signedIn = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)
@@ -36,6 +38,7 @@ export function useCampaignEvents(campaignId?: number | null, onResync?: () => v
 
     const unsubscribeEvents = realtimeService.subscribe(campaignId, (event: CampaignEventPayload) => {
       applyEventDelta(event)
+      eventRef.current?.(event)
     })
 
     const unsubscribeState = realtimeService.onStateChange((state, { reconnected }) => {

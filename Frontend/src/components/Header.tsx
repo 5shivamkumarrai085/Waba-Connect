@@ -21,6 +21,7 @@ import { fadeScale, transitions } from '../utils/motion'
 import { Menu, MenuItem, MenuSeparator, MenuLabel } from './Menu/Menu'
 import useAuthStore from '../store/authStore'
 import { resolveMediaUrl } from '../utils/mediaUrl'
+import usePermission from '../hooks/usePermission'
 
 export const Header: React.FC = () => {
   const location = useLocation()
@@ -63,17 +64,20 @@ export const Header: React.FC = () => {
     }
   }, [])
 
+  // Each entry carries the permission its destination needs, so nobody is offered a page that
+  // would only answer "not authorised".
+  const permissions = usePermission()
   const menuItems = [
-    { label: 'Contact', icon: User, path: '/contacts/contact' },
-    { label: 'Campaign', icon: Megaphone, path: '/campaigns/campaign/create' },
-    { label: 'Message Bot', icon: MessageSquare, path: '/message-bot/bot' },
-    { label: 'Template Bot', icon: Tag, path: '/template-bot/bot' },
-    { label: 'Bot Flow', icon: GitBranch, path: '/bot-flow' },
-    { label: 'User', icon: Users, path: '/setup/users/new' },
-    { label: 'Role', icon: ShieldCheck, path: '/setup/roles/new' },
-    { label: 'Status', icon: Sliders, path: '/setup/status' },
-    { label: 'Source', icon: Layers, path: '/setup/source' },
-  ]
+    { label: 'Contact', icon: User, path: '/contacts/contact', permission: 'Contact.Create' },
+    { label: 'Campaign', icon: Megaphone, path: '/campaigns/campaign/create', permission: 'Campaign.Create' },
+    { label: 'Message Bot', icon: MessageSquare, path: '/message-bot/bot', permission: 'MessageBot.Create' },
+    { label: 'Template Bot', icon: Tag, path: '/template-bot/bot', permission: 'TemplateBot.Create' },
+    { label: 'Bot Flow', icon: GitBranch, path: '/bot-flow', permission: 'BotFlow.Create' },
+    { label: 'User', icon: Users, path: '/setup/users/new', permission: 'User.Create' },
+    { label: 'Role', icon: ShieldCheck, path: '/setup/roles/new', permission: 'Role.Create' },
+    { label: 'Status', icon: Sliders, path: '/setup/status', permission: 'Status.Create' },
+    { label: 'Source', icon: Layers, path: '/setup/source', permission: 'Source.Create' },
+  ].filter(item => permissions.has(item.permission))
 
   const handleNavigate = (path: string) => {
     setShowQuickCreate(false)

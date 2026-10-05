@@ -101,6 +101,12 @@ public sealed record EmailSendResult
 
     public bool IsTransient { get; init; }
 
+    /// <summary>
+    /// The receiving server refused the recipient permanently (5xx to RCPT TO: no such mailbox).
+    /// That is a bounce, not a send failure: it is counted as Bounced and the address suppressed.
+    /// </summary>
+    public bool IsPermanentBounce { get; init; }
+
     /// <summary>A provider-specified delay to honour instead of the computed backoff.</summary>
     public TimeSpan? RetryAfter { get; init; }
 

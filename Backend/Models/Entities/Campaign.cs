@@ -125,6 +125,13 @@ public class Campaign
     public int? AbWinnerVariantId { get; set; }
     public DateTime? AbDecidedAt { get; set; }
 
+    /// <summary>
+    /// Why the winner was chosen: <c>best-rate</c>, <c>no-signal</c> (nobody engaged with any
+    /// variant, so A was kept) or <c>manual</c>. See CampaignFeatureCatalog.AbReason*.
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(20)]
+    public string? AbDecisionReason { get; set; }
+
     // ── Engagement counters ───────────────────────────────────────────────────────────────────
     // OPENED = tracking pixel loaded (engagement, not guaranteed delivery).
     // These are absent from MessageStatus deliberately: engagement is not a delivery state and

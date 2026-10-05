@@ -5,6 +5,9 @@ import { PageLayout } from './components/PageLayout'
 import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary'
 import { RequireAuth } from './components/RequireAuth'
 import Can from './components/Can/Can'
+import NotAuthorized from './components/NotAuthorized'
+import usePermission from './hooks/usePermission'
+import { setupNavSections } from './pages/Setup/setupNav'
 import { useChatNotificationSound } from './hooks/useChatNotificationSound'
 
 // Lazy loaded page components
@@ -53,7 +56,6 @@ const SetupTranslateScreen = lazy(() => import('./pages/Setup/Lookups/TranslateS
 const SetupAiPromptsList = lazy(() => import('./pages/Setup/AiPrompts/AiPromptsList').then(m => ({ default: m.AiPromptsList })))
 const SetupCannedRepliesList = lazy(() => import('./pages/Setup/CannedReplies/CannedRepliesList').then(m => ({ default: m.CannedRepliesList })))
 const SetupEmailTemplatesList = lazy(() => import('./pages/Setup/EmailTemplates/EmailTemplatesList').then(m => ({ default: m.EmailTemplatesList })))
-const SetupActivityLog = lazy(() => import('./pages/Setup/ActivityLog/MessageActivityLog').then(m => ({ default: m.MessageActivityLog })))
 const SetupWebhooks = lazy(() => import('./pages/Setup/Webhooks/WebhooksList').then(m => ({ default: m.WebhooksList })))
 const SetupSystemLogs = lazy(() => import('./pages/Setup/SystemLogs/SystemLogs').then(m => ({ default: m.SystemLogs })))
 
@@ -114,6 +116,18 @@ const Guarded: React.FC<{ permission?: string; anyOf?: string[]; children: React
   </Can>
 )
 
+/**
+ * `/setup` opens the first Setup page this user may see. It used to always open Users, which a
+ * user with (say) only Status and Source rights saw as "not authorised" on arrival.
+ */
+const SetupHome: React.FC = () => {
+  const { has } = usePermission()
+  const first = setupNavSections
+    .flatMap(section => section.items)
+    .find(item => item.built && (!item.permission || has(item.permission)))
+  return first ? <Navigate to={first.path} replace /> : <NotAuthorized />
+}
+
 const App: React.FC = () => {
   return (
     <BrowserRouter>
@@ -154,7 +168,12 @@ const App: React.FC = () => {
 
             {/* Completed high-fidelity pages */}
             <Route path="/reporting" element={<Guarded permission="Reporting.View"><Reporting /></Guarded>} />
-            <Route path="/activity-logs" element={<Guarded permission="ActivityLog.View"><ActivityLogs /></Guarded>} />
+            <Route path="/audit-log" element={<Guarded permission="ActivityLog.View"><ActivityLogs /></Guarded>} />
+            {/* Renamed: "Activity Logs" was easily confused with the removed Setup › Activity Log. */}
+            <Route path="/activity-logs" element={<Navigate to="/audit-log" replace />} />
+            {/* Old or guessed addresses go where people expect rather than to a 404. */}
+            <Route path="/campaigns" element={<Navigate to="/campaigns/campaign" replace />} />
+            <Route path="/setup/activity-log" element={<Navigate to="/audit-log" replace />} />
             <Route path="/connections" element={<Guarded permission="ConnectAccount.View"><ConnectionsList /></Guarded>} />
             <Route path="/connections/new" element={<Guarded permission="ConnectAccount.Connect"><ConnectNewWabaPage /></Guarded>} />
             <Route path="/connections/new-email" element={<Guarded permission="EmailConnection.Connect"><ConnectNewEmailPage /></Guarded>} />
@@ -187,11 +206,11 @@ const App: React.FC = () => {
 
             <Route path="/message-bot" element={<Guarded permission="MessageBot.View"><MessageBotList /></Guarded>} />
             <Route path="/message-bot/bot" element={<Guarded permission="MessageBot.Create"><MessageBotWizard /></Guarded>} />
-            <Route path="/message-bot/bot/:id" element={<Guarded permission="MessageBot.Edit"><MessageBotWizard /></Guarded>} />
+            <Route path="/message-bot/bot/:id" element={<Guarded anyOf={['MessageBot.Edit', 'MessageBot.View']}><MessageBotWizard /></Guarded>} />
 
             <Route path="/template-bot" element={<Guarded permission="TemplateBot.View"><TemplateBotList /></Guarded>} />
             <Route path="/template-bot/bot" element={<Guarded permission="TemplateBot.Create"><TemplateBotWizard /></Guarded>} />
-            <Route path="/template-bot/bot/:id" element={<Guarded permission="TemplateBot.Edit"><TemplateBotWizard /></Guarded>} />
+            <Route path="/template-bot/bot/:id" element={<Guarded anyOf={['TemplateBot.Edit', 'TemplateBot.View']}><TemplateBotWizard /></Guarded>} />
             <Route path="/bot-flow" element={<Guarded permission="BotFlow.View"><BotFlowList /></Guarded>} />
             {/* The designer both reads and saves a flow, so viewing it needs the edit grant. */}
             <Route path="/bot-flow/designer/:id" element={<Guarded permission="BotFlow.Edit"><BotFlowDesigner /></Guarded>} />
@@ -204,7 +223,7 @@ const App: React.FC = () => {
                 the nesting: a single <Outlet /> keeps the section rail mounted across
                 navigations instead of remounting it on every click. */}
             <Route path="/setup" element={<SetupLayout />}>
-              <Route index element={<Navigate to="users" replace />} />
+              <Route index element={<SetupHome />} />
 
               <Route path="users" element={<Guarded permission="User.View"><SetupUsersList /></Guarded>} />
               <Route path="users/new" element={<Guarded permission="User.Create"><SetupUserForm /></Guarded>} />
@@ -218,7 +237,6 @@ const App: React.FC = () => {
               <Route path="groups" element={<Guarded permission="ContactGroup.View"><SetupGroupsList /></Guarded>} />
               <Route path="ai-prompts" element={<Guarded permission="AiPrompt.View"><SetupAiPromptsList /></Guarded>} />
               <Route path="canned-replies" element={<Guarded permission="CannedReply.View"><SetupCannedRepliesList /></Guarded>} />
-              <Route path="activity-log" element={<Guarded permission="ActivityLog.View"><SetupActivityLog /></Guarded>} />
               <Route path="languages" element={<Guarded permission="Language.View"><SetupLanguagesList /></Guarded>} />
               {/* The translate screen writes translations, so it needs the edit grant, not view. */}
               <Route path="languages/:id/translate" element={<Guarded permission="Language.Edit"><SetupTranslateScreen /></Guarded>} />

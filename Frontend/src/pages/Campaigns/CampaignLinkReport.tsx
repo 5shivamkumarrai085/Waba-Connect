@@ -9,6 +9,8 @@ interface CampaignLinkReportProps {
   campaignId: number
   /** Changes whenever the campaign's click total moves, so the table refreshes with the cards. */
   clickedCount: number
+  /** Bumped by the page on every live event, so a repeat click (same person) still refreshes the list. */
+  refreshKey?: number
 }
 
 /** Cells that start with = + - @ are formulas to Excel; prefix them so they open as text. */
@@ -22,7 +24,7 @@ const csvCell = (value: string | number) => {
  * Clicks per link for an email campaign: which links people used, how many times, and by how
  * many distinct recipients.
  */
-export const CampaignLinkReport: React.FC<CampaignLinkReportProps> = ({ campaignId, clickedCount }) => {
+export const CampaignLinkReport: React.FC<CampaignLinkReportProps> = ({ campaignId, clickedCount, refreshKey = 0 }) => {
   const [links, setLinks] = useState<LinkClicks[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -41,7 +43,7 @@ export const CampaignLinkReport: React.FC<CampaignLinkReportProps> = ({ campaign
 
   useEffect(() => {
     void load()
-  }, [load, clickedCount])
+  }, [load, clickedCount, refreshKey])
 
   const max = Math.max(1, ...links.map(l => l.totalClicks))
   const numbers = new Intl.NumberFormat()

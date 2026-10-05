@@ -71,7 +71,7 @@ export const Sidebar: React.FC = () => {
       '/': () => import('../pages/Dashboard'),
       '/campaigns/campaign': () => import('../pages/Campaigns/CampaignsList'),
       '/reporting': () => import('../pages/Reporting'),
-      '/activity-logs': () => import('../pages/ActivityLogs'),
+      '/audit-log': () => import('../pages/ActivityLogs'),
       '/connect-waba': () => import('../pages/ConnectWABA/ConnectWABA'),
       '/connect-email': () => import('../pages/ConnectEmail/ConnectEmail'),
       '/connections/new-email': () => import('../pages/Connections/ConnectNewEmailPage'),
@@ -97,7 +97,7 @@ export const Sidebar: React.FC = () => {
       items: [
         { name: 'Dashboard', path: '/', icon: LayoutDashboard, permission: 'Dashboard.View' },
         { name: 'Reporting', path: '/reporting', icon: BarChart3, permission: 'Reporting.View' },
-        { name: 'Activity Logs', path: '/activity-logs', icon: History, permission: 'ActivityLog.View' },
+        { name: 'Audit Log', path: '/audit-log', icon: History, permission: 'ActivityLog.View' },
       ]
     },
     {

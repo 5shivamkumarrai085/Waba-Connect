@@ -156,7 +156,12 @@ public class SmtpEmailProvider : IEmailProvider
             if (!transient) poolHealthy = false;
             return EmailSendResult.Failed(
                 $"SMTP rejected the message ({(int)ex.StatusCode} {ex.ErrorCode}): {ex.Message}",
-                transient, ex.StatusCode.ToString());
+                transient, ex.StatusCode.ToString()) with
+            {
+                // A permanent refusal of the recipient is the server saying the mailbox does not
+                // exist — the same thing a bounce report says later, only immediately.
+                IsPermanentBounce = !transient && ex.ErrorCode == SmtpErrorCode.RecipientNotAccepted
+            };
         }
         catch (SmtpProtocolException ex)
         {

@@ -211,6 +211,8 @@ export interface CampaignAbTest {
   decideAt?: string | null
   decidedAt?: string | null
   winnerVariantId?: number | null
+  /** Server code: best-rate, no-signal or manual (labels in campaign-options.abDecisionReasons). */
+  decisionReason?: string | null
   heldRecipients: number
   variants: {
     variantId: number

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Paperclip, Reply, ReplyAll, Forward, ChevronDown, ChevronUp, MoreVertical } from 'lucide-react'
+import { Paperclip, Reply, ReplyAll, Forward, ChevronDown, ChevronUp } from 'lucide-react'
 import { Avatar } from '../Avatar/Avatar'
 import type { Message } from '../../types/chat'
 import './EmailThreadMessage.css'
@@ -52,11 +52,11 @@ export const EmailThreadMessage: React.FC<EmailThreadMessageProps> = ({ message,
             <button
               type="button"
               className="email-msg-card-more"
-              title="More options"
+              title="Reply"
               onClick={() => onRespond('reply')}
-              aria-label="Reply"
+              aria-label="Reply to this message"
             >
-              <MoreVertical size={15} />
+              <Reply size={15} aria-hidden="true" />
             </button>
           )}
           <button

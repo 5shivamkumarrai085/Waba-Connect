@@ -15,6 +15,9 @@ public interface IChatService
     /// Keyset-paged, newest activity first. <paramref name="cursor"/> is the opaque value returned
     /// as <see cref="ChatPage{T}.NextCursor"/> by the previous page; null starts from the top.
     /// </remarks>
+    /// <summary>Counts per inbox quick view (keyed by ChatCatalog.QuickViews values) under the same filters as the list.</summary>
+    Task<IReadOnlyDictionary<string, int>> GetConversationCountsAsync(string? search = null, int? connectionId = null, string? channel = null, string? state = null);
+
     Task<ChatPage<ChatConversationResponse>> GetConversationsAsync(
         string? search = null,
         string? filter = null,
@@ -23,7 +26,8 @@ public interface IChatService
         string? cursor = null,
         int limit = ChatPaging.DefaultConversationPageSize,
         string? state = null,
-        string? assignee = null);
+        string? assignee = null,
+        string? sort = null);
     Task<ChatConversationResponse> GetConversationAsync(int id);
     /// <remarks>
     /// Returns messages in chronological order. With neither bound, the newest

@@ -112,6 +112,21 @@ export const activityLogService = {
     }
   },
 
+  /**
+   * The audit history of particular records, newest first — e.g. ["Contact:80",
+   * "ChatConversation:267"]. Sent as a repeated `entity` key, which is what the API binds.
+   */
+  getEntityHistory: async (entities: string[], page: number, pageSize: number): Promise<AuditLogPage> => {
+    const empty: AuditLogPage = { items: [], totalCount: 0, page, pageSize, totalPages: 0 }
+    if (entities.length === 0) return empty
+    const response = await apiClient.get('/Activity/audit-logs', {
+      params: { entity: entities, page, pageSize },
+      paramsSerializer: { indexes: null },
+      headers: timeZoneHeader()
+    })
+    return response.data?.data || empty
+  },
+
   getAuditFilterOptions: async (): Promise<AuditFilterOptions> => {
     const empty: AuditFilterOptions = { modules: [], actions: [], statuses: [], users: [] }
     try {

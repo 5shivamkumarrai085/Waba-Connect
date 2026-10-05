@@ -8,6 +8,7 @@ using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Models.Enums;
 using WhatsAppCampaignApi.Models.Options;
+using WhatsAppCampaignApi.Services.Catalogs;
 using WhatsAppCampaignApi.Services.Interfaces;
 using WhatsAppCampaignApi.Services.Realtime;
 
@@ -283,7 +284,7 @@ public class ImapPollingWorker : BackgroundService
         var bounceInfo = ImapBounceDetector.TryParse(mime);
         if (bounceInfo is not null)
         {
-            await ProcessBounceAsync(bounceInfo, ct);
+            await ProcessBounceAsync(bounceInfo, connectionId, ct);
             return;
         }
 
@@ -339,7 +340,47 @@ public class ImapPollingWorker : BackgroundService
     /// bounce; a "delayed" report means the remote server is still retrying, so it is logged and
     /// otherwise ignored — suppressing on it would block a perfectly good address.
     /// </summary>
-    private async Task ProcessBounceAsync(BounceInfo bounce, CancellationToken ct)
+    /// <summary>
+    /// Which campaign recipient a bounce belongs to. The original Message-ID is exact; when the
+    /// report does not carry it (some servers strip the returned copy), the latest send to that
+    /// address from this same connection within <see cref="BounceCatalog.MatchWindowDays"/> is
+    /// used — never a send from another connection, and never an older one.
+    /// </summary>
+    public static async Task<(int? CampaignId, int? CampaignContactId)> ResolveBounceRecipientAsync(
+        AppDbContext db, BounceInfo bounce, int connectionId, DateTime now, CancellationToken ct)
+    {
+        if (!string.IsNullOrEmpty(bounce.OriginalMessageId))
+        {
+            var byMessageId = await db.EmailMessageDetails
+                .AsNoTracking()
+                .Where(d => d.MessageIdHeader == bounce.OriginalMessageId)
+                .Join(
+                    db.ChatMessages.AsNoTracking(),
+                    d => d.ChatMessageId,
+                    m => m.Id,
+                    (d, m) => new { m.CampaignId, m.CampaignContactId })
+                .FirstOrDefaultAsync(ct);
+            if (byMessageId?.CampaignContactId is not null) return (byMessageId.CampaignId, byMessageId.CampaignContactId);
+        }
+
+        if (string.IsNullOrEmpty(bounce.FinalRecipient)) return (null, null);
+
+        var address = bounce.FinalRecipient.ToLowerInvariant();
+        var since = now.AddDays(-BounceCatalog.MatchWindowDays);
+        var byAddress = await db.CampaignContacts
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(cc => cc.Campaign.ConnectionId == connectionId
+                      && cc.Campaign.Channel == MessageChannel.Email
+                      && cc.SentAt != null && cc.SentAt >= since
+                      && cc.Contact.Email != null && cc.Contact.Email.ToLower() == address)
+            .OrderByDescending(cc => cc.SentAt)
+            .Select(cc => new { cc.CampaignId, cc.Id })
+            .FirstOrDefaultAsync(ct);
+        return byAddress is null ? (null, null) : (byAddress.CampaignId, byAddress.Id);
+    }
+
+    private async Task ProcessBounceAsync(BounceInfo bounce, int connectionId, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(bounce.FinalRecipient)) return;
 
@@ -355,24 +396,7 @@ public class ImapPollingWorker : BackgroundService
         var eventProcessor = scope.ServiceProvider.GetRequiredService<ICampaignEmailEventProcessor>();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        int? campaignId = null;
-        int? campaignContactId = null;
-
-        if (!string.IsNullOrEmpty(bounce.OriginalMessageId))
-        {
-            var contactRow = await db.EmailMessageDetails
-                .AsNoTracking()
-                .Where(d => d.MessageIdHeader == bounce.OriginalMessageId)
-                .Join(
-                    db.ChatMessages.AsNoTracking(),
-                    d => d.ChatMessageId,
-                    m => m.Id,
-                    (d, m) => new { m.CampaignId, m.CampaignContactId })
-                .FirstOrDefaultAsync(ct);
-
-            campaignId = contactRow?.CampaignId;
-            campaignContactId = contactRow?.CampaignContactId;
-        }
+        var (campaignId, campaignContactId) = await ResolveBounceRecipientAsync(db, bounce, connectionId, DateTime.UtcNow, ct);
 
         var idempotencyKey = campaignContactId is { } ccId
             ? $"imap:bounce:recipient:{ccId}"

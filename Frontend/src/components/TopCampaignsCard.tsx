@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Megaphone, Info, MessageSquare, Mail, ArrowUpRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { formatRelativeTime } from '../utils/dateHelper'
+import Can from './Can/Can'
 
 interface TopCampaign {
   id: number
@@ -58,6 +59,7 @@ const formatCreatedDate = (dateStr: string): string => {
 
 export const TopCampaignsCard: React.FC<TopCampaignsCardProps> = React.memo(({ data }) => {
   const navigate = useNavigate()
+  const numbers = new Intl.NumberFormat()
   const campaigns = data && data.length > 0 ? data : []
 
   const renderChannelBadges = (channelStr?: string) => {
@@ -84,34 +86,19 @@ export const TopCampaignsCard: React.FC<TopCampaignsCardProps> = React.memo(({ d
   return (
     <div className="table-card top-campaigns-card">
       <div>
-        <div className="table-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="table-card-header table-card-header-split">
           <div>
             <div className="table-card-title">
               <Megaphone size={18} color="var(--primary)" />
               <span>Top Campaigns</span>
             </div>
-            <p className="table-card-subtitle" style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+            <p className="table-card-subtitle">
               Best performing campaigns across all channels
             </p>
           </div>
-          <button
-            type="button"
-            className="table-card-view-all"
-            onClick={() => navigate('/campaigns')}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--primary)',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-          >
-            View All <ArrowUpRight size={13} />
-          </button>
+          <Can permission="Campaign.View">
+            <button type="button" className="table-card-view-all" onClick={() => navigate('/campaigns/campaign')}>View All <ArrowUpRight size={13} /></button>
+          </Can>
         </div>
 
         <div className="table-container">
@@ -154,8 +141,8 @@ export const TopCampaignsCard: React.FC<TopCampaignsCardProps> = React.memo(({ d
                         <div className="campaign-created-cell">Created {relativeTime}</div>
                       </td>
                       <td>{renderChannelBadges(row.channel)}</td>
-                      <td style={{ fontWeight: 600 }}>{row.messages.toLocaleString()}</td>
-                      <td style={{ fontWeight: 600 }}>{row.delivered.toLocaleString()}</td>
+                      <td className="table-num-strong">{numbers.format(row.messages)}</td>
+                      <td className="table-num-strong">{numbers.format(row.delivered)}</td>
                       <td>
                         <div className="table-progress-wrapper">
                           <progress
@@ -169,7 +156,7 @@ export const TopCampaignsCard: React.FC<TopCampaignsCardProps> = React.memo(({ d
                       <td>
                         <span className={`status-pill status-pill-${statusClass}`}>{statusLabel}</span>
                       </td>
-                      <td className="campaign-date-cell" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      <td className="campaign-date-cell">
                         {createdFormatted}
                       </td>
                     </motion.tr>

@@ -10,7 +10,8 @@ import type {
   ContactLanguage,
   AssignedUser,
   ContactType,
-  ContactFormModel
+  ContactFormModel,
+  ContactDetails
 } from '../../types/contacts'
 
 /** Mirrors the backend's CsvImportResponse (Models/DTOs/Common/CsvDtos.cs). */
@@ -173,6 +174,12 @@ export const contactService = {
     } catch (error) {
       return []
     }
+  },
+
+  /** The contact as the server describes it, for read-only views. Throws on failure. */
+  getContactDetails: async (id: number): Promise<ContactDetails> => {
+    const response = await apiClient.get(`/Contacts/${id}`)
+    return response.data?.data as ContactDetails
   },
 
   getContactById: async (id: number): Promise<Contact> => {

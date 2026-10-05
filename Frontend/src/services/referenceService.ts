@@ -24,6 +24,8 @@ export interface CampaignOptions {
   maxAbVariants: number
   abTestPercent: NumberRange
   abDecideAfterHours: NumberRange
+  abNoSignalGraceHours: NumberRange
+  abDecisionReasons: Option[]
   followUpConditions: Option[]
   followUpActions: Option[]
   maxFollowUps: number
@@ -59,10 +61,23 @@ export interface TemplateOptions {
   namePattern: string
 }
 
+/** An inbox tab: a named combination of the read and owner filters. */
+export interface ChatQuickView {
+  value: string
+  label: string
+  description: string
+  readFilter: string
+  assigneeFilter: string
+}
+
 export interface ChatOptions {
   conversationStatuses: Option[]
   stateFilters: Option[]
+  readFilters: Option[]
   assigneeFilters: Option[]
+  quickViews: ChatQuickView[]
+  /** Inbox order by last activity; the first is the default. */
+  sortOrders: Option[]
   maxReplyButtons: number
   maxReplyButtonLength: number
   maxInteractiveBodyLength: number

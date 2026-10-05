@@ -312,31 +312,23 @@ public class ContactsController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Content))
             return BadRequest(new ApiResponse { Success = false, Message = "Note content is required." });
 
-        var note = new ContactNote
+        try
         {
-            ContactId = contactId,
-            Content = request.Content.Trim(),
-            CreatedAt = DateTime.UtcNow
-        };
-
-        _dbContext.ContactNotes.Add(note);
-        await _dbContext.SaveChangesAsync();
-
-        return Ok(new ApiResponse<ContactNote> { Success = true, Data = note });
+            var note = await _contactService.AddNoteAsync(contactId, request.Content);
+            return Ok(new ApiResponse<ContactNote> { Success = true, Data = note });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new ApiResponse<ContactNote> { Success = false, Message = "Contact not found." });
+        }
     }
 
     [HttpDelete("{contactId}/notes/{noteId}")]
     [RequiresPermission("Contact.Edit")]
     public async Task<ActionResult<ApiResponse>> DeleteNote(int contactId, int noteId)
     {
-        var note = await _dbContext.ContactNotes
-            .FirstOrDefaultAsync(n => n.ContactId == contactId && n.Id == noteId);
-
-        if (note == null)
+        if (!await _contactService.DeleteNoteAsync(contactId, noteId))
             return NotFound(new ApiResponse { Success = false, Message = "Note not found." });
-
-        _dbContext.ContactNotes.Remove(note);
-        await _dbContext.SaveChangesAsync();
 
         return Ok(new ApiResponse { Success = true, Message = "Note deleted successfully." });
     }

@@ -83,17 +83,4 @@ public static class PayloadRedactor
     /// Returns a stored-safe version of <paramref name="payload"/>, or null if there was
     /// nothing to store.
     /// </summary>
-    public static string? Redact(string? payload)
-    {
-        if (string.IsNullOrWhiteSpace(payload)) return null;
-
-        var redacted = JsonKeyValue.Replace(payload, m => m.Groups[1].Value + Placeholder);
-        redacted = BearerHeader.Replace(redacted, "Bearer ***REDACTED***");
-
-        if (redacted.Length <= MaxLength) return redacted;
-
-        // Truncation is announced rather than silent: a viewer looking at a payload that ends
-        // mid-object should be able to tell it was cut rather than malformed.
-        return redacted[..MaxLength] + $"\n\n… truncated at {MaxLength} characters ({redacted.Length} total).";
-    }
 }

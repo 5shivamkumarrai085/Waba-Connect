@@ -112,7 +112,9 @@ if (string.IsNullOrWhiteSpace(connectionString))
 }
 
 var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(connectionString);
-dataSourceBuilder.ConnectionStringBuilder.ApplicationName ??= "WabaConnect";
+// Versioned so a session from a build on another queue contract shows up as foreign in
+// pg_stat_activity (QueueHealthCheck); every build used to report the same name.
+dataSourceBuilder.ConnectionStringBuilder.ApplicationName ??= $"WabaConnect/{WhatsAppCampaignApi.Services.Queue.QueueNames.ContractVersion}";
 var npgsqlDataSource = dataSourceBuilder.Build();
 builder.Services.AddSingleton(npgsqlDataSource);
 
@@ -433,6 +435,8 @@ builder.Services.AddSingleton<DnsClient.ILookupClient>(_ => new DnsClient.Lookup
     UseCache = true
 }));
 builder.Services.AddScoped<IDeliverabilityService, DeliverabilityService>();
+// Typed client: one pooled handler; the probe caches its verdict, so this costs one request per few minutes.
+builder.Services.AddHttpClient<IPublicEndpointProbe, PublicEndpointProbe>();
 builder.Services.AddScoped<WhatsAppCampaignApi.Services.Campaigns.IAbTestService, WhatsAppCampaignApi.Services.Campaigns.AbTestService>();
 builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Campaigns.AbTestWinnerWorker>();
 builder.Services.AddScoped<WhatsAppCampaignApi.Services.Campaigns.IFollowUpService, WhatsAppCampaignApi.Services.Campaigns.FollowUpService>();
@@ -637,7 +641,9 @@ builder.Services.AddResponseCompression(options =>
 // 3e. Health checks — how a load balancer decides to drain this node.
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "ready" })
-    .AddCheck<QueueHealthCheck>("job-queue", tags: new[] { "ready" });
+    .AddCheck<QueueHealthCheck>("job-queue", tags: new[] { "ready" })
+    // Not "ready": an unreachable tracking address must alert, not pull the node out of rotation.
+    .AddCheck<PublicEndpointHealthCheck>("tracking-address");
 
 // 4. Configure CORS
 // An explicit origin allow-list from Cors:AllowedOrigins. A wildcard is not acceptable for a

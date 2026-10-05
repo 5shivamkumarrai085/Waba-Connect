@@ -53,6 +53,25 @@ public static class CampaignFinalizer
 
         if (affected == 0) return null;
 
+        // The status above flips at most once per campaign (it is conditional on Sending), so this
+        // records each completion exactly once. Written set-based rather than through
+        // IAuditService because the finalizer runs from workers with no request or user — the
+        // actor is the system itself.
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "AuditLogs" ("Event", "Category", "Module", "Action", "Status", "Description",
+                                     "EntityType", "EntityId", "EntityName", "UserName", "CreatedAt")
+            SELECT 'Campaign.' || a.action, 'Data', 'Campaign', a.action,
+                   CASE WHEN c."Status" = 'Sent' THEN 'Success' ELSE 'Failed' END,
+                   'Campaign "' || c."Name" || '" finished: ' || c."SentCount" || ' sent, ' || c."FailedCount" || ' failed, '
+                       || c."BouncedCount" || ' bounced, ' || c."SkippedCount" || ' skipped.',
+                   'Campaign', c."Id"::text, left(c."Name", 200), {Catalogs.RecentActivityCatalog.SystemActor}, now()
+            FROM "Campaigns" c
+            -- "Failed" alone is what the error middleware writes for a server error ("Campaign.Failed"),
+            -- so a campaign that sent nothing is "SendFailed" to keep the two apart in filters.
+            CROSS JOIN LATERAL (SELECT CASE c."Status" WHEN 'Sent' THEN 'Completed' WHEN 'Failed' THEN 'SendFailed' ELSE c."Status" END AS action) a
+            WHERE c."Id" = {campaignId}
+            """, ct);
+
         var status = await db.Campaigns
             .IgnoreQueryFilters()
             .AsNoTracking()
@@ -93,13 +112,47 @@ public static class CampaignFinalizer
             """, ct);
 
     /// <summary>
-    /// Recomputes an email campaign's counters from its recipient rows, which are the source of
-    /// truth. The atomic per-event increments keep the figures live; this heals any drift they
-    /// cannot see — a recipient failed by a path that raised no event, a worker killed between
-    /// two writes, or counts carried over from before the counters existed.
+    /// Recomputes an email campaign's counters from its recipient rows. The atomic per-event
+    /// increments keep the figures live; this heals any drift they cannot see — a recipient failed
+    /// by a path that raised no event, a worker killed between two writes, or counts carried over
+    /// from before the counters existed.
+    ///
+    /// The recipient rows are first brought up to date from the event log. An event is recorded
+    /// before the recipient is stamped, so a process that dies in between leaves an Opened (or
+    /// Clicked, Replied, Delivered, Bounced) event with nothing to show for it — and Gmail caches
+    /// the pixel, so the open never arrives again. Every stamp is "only if not set yet", so the
+    /// repair never moves a recipient backwards or counts anyone twice.
     /// </summary>
-    public static Task<int> ReconcileEmailCountersAsync(AppDbContext db, int campaignId, CancellationToken ct) =>
-        db.Database.ExecuteSqlInterpolatedAsync($"""
+    public static async Task<int> ReconcileEmailCountersAsync(AppDbContext db, int campaignId, CancellationToken ct)
+    {
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE "CampaignContacts" cc SET
+                "OpenedAt"    = COALESCE(cc."OpenedAt", e.opened),
+                "ClickedAt"   = COALESCE(cc."ClickedAt", e.clicked),
+                "RepliedAt"   = COALESCE(cc."RepliedAt", e.replied),
+                "DeliveredAt" = COALESCE(cc."DeliveredAt", e.delivered),
+                "Status"      = CASE WHEN e.bounced AND cc."Status" NOT IN ('Bounced','Complained') THEN 'Bounced' ELSE cc."Status" END
+            FROM (
+                SELECT "CampaignContactId" AS id,
+                       min("OccurredAt") FILTER (WHERE "EventKind" = 'Opened')    AS opened,
+                       min("OccurredAt") FILTER (WHERE "EventKind" = 'Clicked')   AS clicked,
+                       min("OccurredAt") FILTER (WHERE "EventKind" = 'Replied')   AS replied,
+                       min("OccurredAt") FILTER (WHERE "EventKind" = 'Delivered') AS delivered,
+                       bool_or("EventKind" = 'Bounced' AND "BounceType" IS DISTINCT FROM 'Transient') AS bounced
+                FROM "EmailEvents"
+                WHERE "CampaignId" = {campaignId} AND "CampaignContactId" IS NOT NULL
+                  AND "EventKind" IN ('Opened','Clicked','Replied','Delivered','Bounced')
+                GROUP BY "CampaignContactId"
+            ) e
+            WHERE cc."Id" = e.id AND cc."CampaignId" = {campaignId}
+              AND ((cc."OpenedAt" IS NULL AND e.opened IS NOT NULL)
+                OR (cc."ClickedAt" IS NULL AND e.clicked IS NOT NULL)
+                OR (cc."RepliedAt" IS NULL AND e.replied IS NOT NULL)
+                OR (cc."DeliveredAt" IS NULL AND e.delivered IS NOT NULL)
+                OR (e.bounced AND cc."Status" NOT IN ('Bounced','Complained')))
+            """, ct);
+
+        return await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE "Campaigns" c SET
                 "SentCount"         = s.sent,
                 "FailedCount"       = s.failed,
@@ -141,4 +194,5 @@ public static class CampaignFinalizer
                   (s.sent, s.failed, s.bounced, s.suppressed, s.skipped, s.complained,
                    s.delivered, s.opened, s.clicked, s.replied, u.unsubscribed)
             """, ct);
+    }
 }

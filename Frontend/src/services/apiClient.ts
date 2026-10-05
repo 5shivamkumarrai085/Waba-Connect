@@ -45,11 +45,6 @@ export const setSessionHandlers = (next: SessionHandlers) => {
   handlers = next
 }
 
-/** Back-compat shim for the older single-handler registration. */
-export const setUnauthorizedHandler = (handler: (() => void) | null) => {
-  handlers = { ...handlers, onUnauthorized: handler ?? undefined }
-}
-
 export const storeSessionTokens = (tokens: SessionTokens | null) => {
   if (tokens) {
     localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, tokens.token)
@@ -282,7 +277,9 @@ apiClient.get = function <T = unknown, R = import('axios').AxiosResponse<T>, D =
 
   const signal = combineSignals(sessionController.signal, callerSignal)
 
-  const promise = originalGet<T, R, D>(url, { ...config, signal })
+  // axios 1.20 types get() as AxiosResponseResult<…>; at runtime it is the same response this
+  // wrapper has always returned, so the declared R is kept for every caller.
+  const promise = (originalGet<T, R, D>(url, { ...config, signal }) as unknown as Promise<R>)
     .catch((err: unknown) => {
       if (axios.isCancel(err)) throw new RequestCancelledError(url)
       throw err

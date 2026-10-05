@@ -338,7 +338,13 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("Module");
 
+                    b.HasIndex("Status");
+
                     b.HasIndex("UserId");
+
+                    b.HasIndex("EntityType", "EntityId");
+
+                    b.HasIndex("Module", "CreatedAt");
 
                     b.ToTable("AuditLogs", (string)null);
                 });
@@ -513,6 +519,10 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.Property<DateTime?>("AbDecidedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AbDecisionReason")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<int?>("AbTestPercent")
                         .HasColumnType("integer");
@@ -2043,6 +2053,8 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CreatedAt");
+
                     b.HasIndex("IdempotencyKey")
                         .IsUnique()
                         .HasDatabaseName("ix_email_events_idempotency_key");
@@ -2688,86 +2700,6 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasIndex("Success");
 
                     b.ToTable("LoginAttempts", (string)null);
-                });
-
-            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.MessageActivityLog", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<int?>("ConnectionId")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("ContactId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ContactPhone")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("IpAddress")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<bool>("IsSuccess")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<int?>("PerformedByUserId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("RelationType")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("RequestPayload")
-                        .HasColumnType("text");
-
-                    b.Property<int?>("ResponseCode")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ResponsePayload")
-                        .HasColumnType("text");
-
-                    b.Property<string>("TemplateName")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("TriggeredBy")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("WhatsAppMessageId")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Category");
-
-                    b.HasIndex("ContactId");
-
-                    b.HasIndex("CreatedAt");
-
-                    b.ToTable("MessageActivityLogs", (string)null);
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.MessageBot", b =>
@@ -3828,7 +3760,7 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasOne("WhatsAppCampaignApi.Models.Entities.Template", "Template")
                         .WithMany("Campaigns")
                         .HasForeignKey("TemplateId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Connection");
 

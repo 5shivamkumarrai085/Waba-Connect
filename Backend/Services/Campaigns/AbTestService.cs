@@ -13,7 +13,7 @@ public sealed record AbVariantResult(
 
 public sealed record AbTestResult(
     string Metric, int TestPercent, DateTime? DecideAt, DateTime? DecidedAt, int? WinnerVariantId, int HeldRecipients,
-    IReadOnlyList<AbVariantResult> Variants);
+    IReadOnlyList<AbVariantResult> Variants, string? DecisionReason = null);
 
 /// <summary>
 /// A/B tests: splitting the test share across variants, measuring them, and releasing the
@@ -104,7 +104,7 @@ public sealed class AbTestService : IAbTestService
     {
         var campaign = await _db.Campaigns.IgnoreQueryFilters().AsNoTracking()
             .Where(c => c.Id == campaignId)
-            .Select(c => new { c.Channel, c.AbTestPercent, c.AbWinnerMetric, c.AbDecideAt, c.AbDecidedAt, c.AbWinnerVariantId })
+            .Select(c => new { c.Channel, c.AbTestPercent, c.AbWinnerMetric, c.AbDecideAt, c.AbDecidedAt, c.AbWinnerVariantId, c.AbDecisionReason })
             .FirstOrDefaultAsync(ct);
         if (campaign?.AbTestPercent is null) return null;
 
@@ -148,7 +148,7 @@ public sealed class AbTestService : IAbTestService
                 v.Id == campaign.AbWinnerVariantId);
         }).ToList();
 
-        return new AbTestResult(metric, campaign.AbTestPercent.Value, campaign.AbDecideAt, campaign.AbDecidedAt, campaign.AbWinnerVariantId, held, results);
+        return new AbTestResult(metric, campaign.AbTestPercent.Value, campaign.AbDecideAt, campaign.AbDecidedAt, campaign.AbWinnerVariantId, held, results, campaign.AbDecisionReason);
     }
 
     public async Task<int?> DecideAsync(int campaignId, int? forcedVariantId, CancellationToken ct = default)
@@ -163,10 +163,12 @@ public sealed class AbTestService : IAbTestService
         var result = await GetResultAsync(campaignId, ct) ?? throw new InvalidOperationException("This campaign is not an A/B test.");
 
         int winner;
+        string reason;
         if (forcedVariantId is { } forced)
         {
             if (result.Variants.All(v => v.VariantId != forced)) throw new ArgumentException("That variant is not part of this test.");
             winner = forced;
+            reason = Catalogs.CampaignFeatureCatalog.AbReasonManual;
         }
         else
         {
@@ -184,6 +186,27 @@ public sealed class AbTestService : IAbTestService
                 return null;
             }
 
+            // No signal: nobody opened (or read, clicked, replied to) any variant. 0% against 0%
+            // is not a result, so keep waiting — up to the grace period after the planned
+            // decision time — and only then keep A, saying why.
+            reason = Catalogs.CampaignFeatureCatalog.AbReasonBestRate;
+            if (result.Variants.All(v => v.Rate == 0))
+            {
+                var firstSent = await _db.CampaignContacts.IgnoreQueryFilters()
+                    .Where(cc => cc.CampaignId == campaignId && cc.VariantId != null && cc.SentAt != null)
+                    .MinAsync(cc => cc.SentAt, ct) ?? DateTime.UtcNow;
+                var window = TimeSpan.FromHours(campaign.AbDecideAfterHours ?? Catalogs.CampaignFeatureCatalog.AbDecideAfterHours.Default);
+                var giveUpAt = firstSent + window + TimeSpan.FromHours(Catalogs.CampaignFeatureCatalog.AbNoSignalGraceHours.Default);
+                if (DateTime.UtcNow < giveUpAt)
+                {
+                    campaign.AbDecideAt = DateTime.UtcNow.AddMinutes(Catalogs.CampaignFeatureCatalog.AbRecheckMinutes);
+                    await _db.SaveChangesAsync(ct);
+                    _logger.LogInformation("A/B test of campaign {CampaignId} postponed: no {Metric}s on any variant yet.", campaignId, result.Metric);
+                    return null;
+                }
+                reason = Catalogs.CampaignFeatureCatalog.AbReasonNoSignal;
+            }
+
             // Highest rate wins; a tie goes to the earlier variant (A before B), which keeps the
             // original unless a challenger is actually better.
             winner = result.Variants.OrderByDescending(v => v.Rate).ThenBy(v => result.Variants.ToList().IndexOf(v)).First().VariantId;
@@ -198,11 +221,17 @@ public sealed class AbTestService : IAbTestService
 
         campaign.AbWinnerVariantId = winner;
         campaign.AbDecidedAt = now;
+        campaign.AbDecisionReason = reason;
         await _db.SaveChangesAsync(ct);
 
         var label = result.Variants.First(v => v.VariantId == winner).Label;
         await _audit.LogAsync("Campaign.AbTestDecided", "Data",
-            $"Variant {label} won the A/B test of campaign \"{campaign.Name}\" ({(forcedVariantId is null ? $"highest {result.Metric} rate" : "chosen manually")}); released to {released} held recipient(s).",
+            $"Variant {label} won the A/B test of campaign \"{campaign.Name}\" ({reason switch
+            {
+                Catalogs.CampaignFeatureCatalog.AbReasonManual => "chosen manually",
+                Catalogs.CampaignFeatureCatalog.AbReasonNoSignal => $"no {result.Metric}s on any variant, so A was kept",
+                _ => $"highest {result.Metric} rate"
+            }}); released to {released} held recipient(s).",
             "Campaign", campaignId.ToString());
 
         if (released > 0 && campaign.Status == CampaignStatus.Sending)

@@ -51,7 +51,6 @@ DELETE FROM "ChatConversations" WHERE "ContactId" IN (SELECT "Id" FROM purge_con
 
 -- Referenced by value only.
 DELETE FROM "ConsentEvents" WHERE "ContactId" IN (SELECT "Id" FROM purge_contacts);
-UPDATE "MessageActivityLogs" SET "ContactId" = NULL WHERE "ContactId" IN (SELECT "Id" FROM purge_contacts);
 
 -- Contacts: cascades to consents, group memberships, notes and remaining chat messages.
 DELETE FROM "Contacts" WHERE "Id" IN (SELECT "Id" FROM purge_contacts);

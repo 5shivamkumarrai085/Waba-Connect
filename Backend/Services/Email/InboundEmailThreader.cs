@@ -36,11 +36,13 @@ public class InboundEmailThreader : IInboundEmailThreader
 {
     private readonly AppDbContext _dbContext;
     private readonly ILogger<InboundEmailThreader> _logger;
+    private readonly Interfaces.IAuditService _audit;
 
-    public InboundEmailThreader(AppDbContext dbContext, ILogger<InboundEmailThreader> logger)
+    public InboundEmailThreader(AppDbContext dbContext, ILogger<InboundEmailThreader> logger, Interfaces.IAuditService audit)
     {
         _dbContext = dbContext;
         _logger = logger;
+        _audit = audit;
     }
 
     public async Task<InboundThreadResult?> ThreadInboundMessageAsync(
@@ -301,6 +303,12 @@ public class InboundEmailThreader : IInboundEmailThreader
 
         _dbContext.Contacts.Add(newContact);
         await _dbContext.SaveChangesAsync(ct);
+
+        // Created by the system, not a person: still a new contact, so it is audited.
+        await _audit.LogAsync(
+            "Contact.Created", "Data",
+            $"Created contact \"{newContact.Name}\" automatically from an incoming email ({senderEmail}).",
+            "Contact", newContact.Id.ToString());
 
         var newConversation = new ChatConversation
         {

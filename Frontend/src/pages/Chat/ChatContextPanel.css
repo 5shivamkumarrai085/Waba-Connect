@@ -1,0 +1,388 @@
+/* ChatContextPanel.css — the inbox's third pane: customer, conversation and activity. */
+
+.ccp {
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  flex: 0 0 320px;
+  min-height: 0;
+  border-left: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.ccp-head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-xs);
+  padding: 0 var(--space-sm) 0 var(--space-xl);
+  border-bottom: 1px solid var(--border-color);
+  min-height: 52px;
+}
+
+.ccp-tabs {
+  display: flex;
+  gap: var(--space-xl);
+  flex: 1;
+  min-width: 0;
+}
+
+.ccp-tab {
+  padding: var(--space-lg) 0 var(--space-md);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.ccp-tab:hover { color: var(--text-heading); }
+.ccp-tab.is-active { color: var(--primary); border-bottom-color: var(--primary); }
+.ccp-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+
+.ccp-close { align-self: center; }
+
+.ccp-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xl);
+}
+
+.ccp-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-base);
+}
+
+.ccp-identity-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.ccp-name {
+  font-family: var(--font-title);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+  overflow-wrap: anywhere;
+}
+
+.ccp-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.ccp-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.ccp-section-title {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ccp-muted {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.ccp-contact-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.ccp-contact-lines li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--text-body);
+  color: var(--text-main);
+}
+
+.ccp-contact-lines svg { flex-shrink: 0; color: var(--text-muted); }
+
+.ccp-ellipsis {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Label | value rows, aligned to one column so the eye scans values straight down. */
+.ccp-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(96px, auto) 1fr;
+  column-gap: var(--space-base);
+  row-gap: var(--space-sm);
+}
+
+.ccp-row { display: contents; }
+
+.ccp-row dt {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.ccp-row dd {
+  margin: 0;
+  font-size: var(--text-body);
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+}
+
+.ccp-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.ccp-chip {
+  padding: var(--space-3xs) var(--space-sm);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-light);
+  background: var(--bg-subtle);
+  font-size: var(--text-sm);
+  color: var(--text-main);
+}
+
+.ccp-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.ccp-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, transform 160ms var(--ease-out);
+}
+
+.ccp-mini-btn:hover { background: var(--bg-hover); color: var(--text-heading); }
+.ccp-mini-btn.is-danger:hover { color: var(--omni-color-danger); }
+.ccp-mini-btn:active { transform: scale(0.94); }
+.ccp-mini-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.ccp-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.ccp-link:hover { text-decoration: underline; }
+.ccp-link:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+
+.ccp-note-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.ccp-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+.ccp-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.ccp-note {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.ccp-note-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.ccp-note p {
+  margin: var(--space-2xs) 0 0;
+  font-size: var(--text-body);
+  color: var(--text-main);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Activity: a quiet timeline — a dot per entry on one rule. */
+.ccp-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--space-lg);
+  border-left: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+}
+
+.ccp-timeline li { position: relative; }
+
+.ccp-timeline li::before {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--space-lg) - 4px);
+  top: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  box-shadow: 0 0 0 2px var(--bg-secondary);
+}
+
+.ccp-timeline li.is-failed::before { background: var(--omni-color-danger); }
+
+.ccp-timeline-text {
+  margin: 0;
+  font-size: var(--text-body);
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+}
+
+.ccp-timeline-meta {
+  margin: var(--space-3xs) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.ccp-more {
+  align-self: flex-start;
+  padding: var(--space-xs) var(--space-base);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  font-size: var(--text-sm);
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.ccp-more:hover:not(:disabled) { background: var(--bg-hover); }
+
+.ccp-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-base) var(--space-xl) var(--space-xl);
+  border-top: 1px solid var(--border-light);
+}
+
+/* Buttons size to their labels and wrap as a group, so no label breaks across two lines. */
+.ccp-action-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.ccp-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 34px;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-main);
+  white-space: nowrap;
+  flex: 1 1 auto;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 160ms var(--ease-out);
+}
+
+.ccp-action:hover { background: var(--bg-hover); border-color: var(--border-hover); }
+.ccp-action:active { transform: scale(0.97); }
+.ccp-action:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.ccp-action svg { flex-shrink: 0; color: var(--text-muted); }
+
+/* Docked while the conversation keeps enough room; below that it overlays the conversation.
+   The query is on the inbox layout (Chat.css), so the app sidebar's state is accounted for. */
+@container chat-layout (max-width: 999px) {
+  .ccp {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-popover);
+    box-shadow: var(--shadow-lg);
+    animation: ccp-in 220ms var(--ease-out);
+  }
+}
+
+@container chat-layout (max-width: 819px) {
+  .ccp { width: 100%; flex-basis: auto; border-left: 0; }
+}
+
+@container chat-layout (min-width: 1000px) and (max-width: 1279px) {
+  .ccp { width: 288px; flex-basis: 288px; }
+}
+
+@keyframes ccp-in {
+  from { transform: translateX(16px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ccp { animation: none; }
+  .ccp-action, .ccp-mini-btn { transition: none; }
+  .ccp-action:active, .ccp-mini-btn:active { transform: none; }
+}

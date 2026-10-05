@@ -196,17 +196,13 @@ public class AuthService : IAuthService
             .Where(t => t.UserId == userId && t.RevokedAt == null)
             .ExecuteUpdateAsync(u => u.SetProperty(t => t.RevokedAt, DateTime.UtcNow).SetProperty(t => t.RevokedReason, "Password changed"));
 
-        _dbContext.AuditLogs.Add(new AuditLog
-        {
-            Event = "Auth.PasswordChanged",
-            Category = "Auth",
-            UserId = user.Id,
-            UserName = user.FullName,
-            Description = $"{user.Email} changed their password.",
-            EntityType = nameof(AppUser),
-            EntityId = user.Id.ToString(),
-            IpAddress = _currentUser.IpAddress
-        });
+        // Through the audit service like every other event, so the row gets its Module, Action
+        // and Status and shows up under the Auth filter. (It was inserted by hand, without them.)
+        await _auditService.LogAsync(
+            "Auth.PasswordChanged", "Auth",
+            $"{user.Email} changed their password.",
+            nameof(AppUser), user.Id.ToString(),
+            actorUserId: user.Id, actorUserName: user.FullName);
 
         _permissionResolver.InvalidateUser(user.Id);
         _stampCache.Invalidate(user.Id);

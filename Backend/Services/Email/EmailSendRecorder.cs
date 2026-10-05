@@ -9,11 +9,10 @@ namespace WhatsAppCampaignApi.Services.Email;
 /// Writes down what happened to a sent email.
 ///
 /// <para>
-/// Extracted from the dispatch worker because it is the same four writes every time — the
-/// recipient row, the conversation thread, the message, and the activity log — and having them in
-/// one place is what keeps them consistent. Notably it is also what the WhatsApp path does, via
-/// ChatService and RecordMessageActivityAsync, so an email send shows up in the same inbox and
-/// the same activity log rather than in a parallel world of its own.
+/// Extracted from the dispatch worker because it is the same writes every time — the recipient
+/// row, the conversation thread and the message — and having them in one place is what keeps
+/// them consistent. It is also what the WhatsApp path does via ChatService, so an email send
+/// shows up in the same inbox rather than in a parallel world of its own.
 /// </para>
 /// </summary>
 public interface IEmailSendRecorder
@@ -32,21 +31,6 @@ public interface IEmailSendRecorder
         EmailMessage message,
         EmailSendResult result,
         string providerName,
-        CancellationToken ct = default);
-
-    /// <summary>
-    /// Records a send that failed before a message existed — a missing connection, an
-    /// undecryptable credential, a template that could not be rendered.
-    /// </summary>
-    /// <remarks>
-    /// Separate from <see cref="RecordFailedAsync"/> because there is no EmailMessage and no
-    /// provider result to describe: the failure happened on the way to building one. Without this
-    /// those failures reached no operator-visible surface at all — the queue row was the only
-    /// evidence, and nothing in the product reads it.
-    /// </remarks>
-    Task RecordJobFailureAsync(
-        CampaignContact recipient,
-        string reason,
         CancellationToken ct = default);
 
     /// <summary>
@@ -95,7 +79,6 @@ public class EmailSendRecorder : IEmailSendRecorder
         var chatMessage = await WriteChatMessageAsync(campaign, recipient, message, ChatMessageStatus.Sent, ct);
         chatMessage.ProviderMessageId = result.ProviderMessageId;
 
-        await WriteActivityLogAsync(campaign, recipient, message, result, providerName, isSuccess: true, ct);
         await _dbContext.SaveChangesAsync(ct);
 
         // ── 2. Normalized SENT event (counter increment + real-time) ─────────────────────
@@ -129,19 +112,22 @@ public class EmailSendRecorder : IEmailSendRecorder
         var chatMessage = await WriteChatMessageAsync(campaign, recipient, message, ChatMessageStatus.Failed, ct);
         chatMessage.ErrorMessage = Truncate(result.ErrorMessage, 1000);
 
-        await WriteActivityLogAsync(campaign, recipient, message, result, providerName, isSuccess: false, ct);
         await _dbContext.SaveChangesAsync(ct);
 
-        // ── 2. Normalized FAILED event ────────────────────────────────────────────────────
+        // ── 2. Normalized FAILED (or, for a refused mailbox, BOUNCED) event ───────────────
+        var bounced = result.IsPermanentBounce;
         await _eventProcessor.ProcessAsync(
-            kind:              EmailEventKind.Failed,
-            idempotencyKey:    $"smtp:fail:{recipient.Id}",
+            kind:              bounced ? EmailEventKind.Bounced : EmailEventKind.Failed,
+            idempotencyKey:    bounced ? $"smtp:bounce:{recipient.Id}" : $"smtp:fail:{recipient.Id}",
             source:            providerName,
             campaignId:        campaign.Id,
             campaignContactId: recipient.Id,
             messageId:         message.MessageId,
             recipientAddress:  message.To.FirstOrDefault()?.Address,
             occurredAt:        DateTime.UtcNow,
+            bounceType:        bounced ? EmailBounceType.Permanent : null,
+            bounceSubType:     bounced ? result.ErrorCode : null,
+            diagnosticCode:    bounced ? result.ErrorMessage : null,
             ct:                ct);
     }
 
@@ -268,99 +254,6 @@ public class EmailSendRecorder : IEmailSendRecorder
         }
 
         return conversation;
-    }
-
-    /// <summary>
-    /// Writes the message-traffic log row, the same table the WhatsApp path writes to.
-    ///
-    /// <para>
-    /// Reusing it rather than adding an email-only log means the Setup → Activity Log screen shows
-    /// both channels' traffic with no change, and reporting does not have to union two tables.
-    /// <c>WhatsAppMessageId</c> carries the provider's id — the column name is WhatsApp-era, and
-    /// renaming a column the activity viewer and existing queries read is not worth the risk.
-    /// </para>
-    /// </summary>
-    private Task WriteActivityLogAsync(
-        Campaign campaign,
-        CampaignContact recipient,
-        EmailMessage message,
-        EmailSendResult result,
-        string providerName,
-        bool isSuccess,
-        CancellationToken ct)
-    {
-        _dbContext.MessageActivityLogs.Add(new MessageActivityLog
-        {
-            Category = "Campaign",
-            Name = Truncate(campaign.Name, 200),
-            TemplateName = Truncate(campaign.EmailTemplate?.Name, 200),
-            RelationType = Truncate(recipient.Contact?.Type.ToString(), 50),
-            ContactId = recipient.ContactId,
-
-            // The phone column holds the email address for this channel. A dedicated column would
-            // be cleaner, but it would also mean a migration on a log table for a value the
-            // viewer already renders as "recipient".
-            ContactPhone = Truncate(message.To.FirstOrDefault()?.Address, 255),
-
-            ConnectionId = campaign.ConnectionId,
-            WhatsAppMessageId = Truncate(result.ProviderMessageId, 200),
-            IsSuccess = isSuccess,
-            ErrorMessage = Truncate(result.ErrorMessage, 1000),
-
-            // No HttpContext here: this runs in a background worker, so the absence of a user is
-            // accurate rather than something to fill in with a placeholder.
-            TriggeredBy = "Scheduler",
-
-            // No payload is stored. Unlike the WhatsApp path, where the request body is a small
-            // JSON template reference, an email request body is the whole rendered message —
-            // which would put every recipient's personalised content, in full, into a log table.
-            RequestPayload = null,
-            ResponsePayload = null
-        });
-
-        _ = providerName;
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public async Task RecordJobFailureAsync(
-        CampaignContact recipient,
-        string reason,
-        CancellationToken ct = default)
-    {
-        // Loaded rather than taken from the caller: this runs from an exception handler, where
-        // the campaign may never have been read, and a log row naming neither the campaign nor
-        // the recipient would not be worth writing.
-        var campaign = await _dbContext.Campaigns
-            .AsNoTracking()
-            .Include(c => c.EmailTemplate)
-            .FirstOrDefaultAsync(c => c.Id == recipient.CampaignId, ct);
-
-        var contact = recipient.Contact ?? await _dbContext.Contacts
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == recipient.ContactId, ct);
-
-        _dbContext.MessageActivityLogs.Add(new MessageActivityLog
-        {
-            Category = "Campaign",
-            Name = Truncate(campaign?.Name, 200),
-            TemplateName = Truncate(campaign?.EmailTemplate?.Name, 200),
-            RelationType = Truncate(contact?.Type.ToString(), 50),
-            ContactId = recipient.ContactId,
-            ContactPhone = Truncate(contact?.Email, 255),
-            ConnectionId = campaign?.ConnectionId,
-            IsSuccess = false,
-            ErrorMessage = Truncate(reason, 1000),
-            TriggeredBy = "Scheduler",
-            RequestPayload = null,
-            ResponsePayload = null
-        });
-
-        await _dbContext.SaveChangesAsync(ct);
-
-        _logger.LogWarning(
-            "Recorded a job failure for recipient {RecipientId} on campaign {CampaignId}: {Reason}",
-            recipient.Id, recipient.CampaignId, reason);
     }
 
     /// <inheritdoc />

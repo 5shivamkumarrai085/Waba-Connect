@@ -331,6 +331,42 @@
   margin-bottom: 16px;
 }
 
+/* Title on the left, a "View All" action on the right. */
+.table-card-header-split {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.table-card-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.table-card-view-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.table-card-view-all:hover { text-decoration: underline; }
+.table-card-view-all:focus-visible,
+.delivery-rate-view-report:focus-visible {
+  outline: 2px solid var(--omni-color-primary-500);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 .table-card-title {
   font-size: 15px;
   font-weight: 700;
@@ -870,4 +906,14 @@ progress.app-progress.gray::-webkit-progress-value {
 
 .dashboard-chart-col > .dashboard-main-chart {
   flex: 1;
+}
+
+.table-num-strong {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.top-campaigns-card .campaign-date-cell {
+  font-size: 12px;
+  color: var(--text-muted);
 }

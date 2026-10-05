@@ -65,6 +65,7 @@ try
     if (ShouldRun(20)) await Phase20_EncryptionKeyGuardTests.RunAsync(harness, run);
     if (ShouldRun(21)) await Phase21_CatalogTests.RunAsync(harness, run);
     if (ShouldRun(22)) await Phase22_Round4Tests.RunAsync(harness, run);
+    if (ShouldRun(23)) await Phase23_Round5Tests.RunAsync(harness, run);
 }
 finally
 {

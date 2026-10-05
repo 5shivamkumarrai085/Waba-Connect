@@ -333,9 +333,9 @@ export const ActivityLogs: React.FC = () => {
         <div className="activity-title-area">
           <h1>
             <Shield size={24} color="var(--primary)" />
-            Security & Activity Logs
+            Audit Log
           </h1>
-          <p>Login attempts, authentication history and system audit events.</p>
+          <p>Who did what and when — every change to campaigns, contacts, templates, chats and settings — plus sign-in history.</p>
         </div>
         <FilterBar
           options={['today', 'yesterday', 'week', 'month', 'all']}

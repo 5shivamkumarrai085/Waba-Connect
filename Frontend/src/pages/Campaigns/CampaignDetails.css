@@ -512,3 +512,63 @@
 .campaign-spin { animation: campaign-spin 0.9s linear infinite; }
 @keyframes campaign-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .campaign-spin { animation: none; } }
+
+/* How the A/B winner was chosen (server-provided label and description). */
+.campaign-section-note {
+  margin: calc(var(--space-base) * -0.5) 0 var(--space-base);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: var(--text-body);
+  color: var(--text-body-strong);
+  background: var(--omni-color-surface-alt);
+  border: 1px solid var(--border-color);
+}
+.campaign-section-note.is-warning {
+  background: var(--omni-color-warning-bg);
+  border-color: var(--omni-color-warning-border);
+  color: var(--omni-color-warning-text);
+}
+
+/* Queue / Executed. Page-scoped on purpose: the global .tabs-container/.tab-btn rules live in
+   lazily loaded stylesheets, so the tabs looked different depending on which page loaded first. */
+.cd-tabs {
+  display: flex;
+  gap: var(--space-sm);
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: var(--space-base);
+}
+.cd-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  margin-bottom: -1px;
+  font: inherit;
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.cd-tab:hover { color: var(--text-body-strong); }
+.cd-tab:focus-visible { outline: 2px solid var(--omni-color-primary-500); outline-offset: 2px; border-radius: 6px; }
+.cd-tab.is-active { color: var(--omni-color-primary-700); border-bottom-color: var(--omni-color-primary-600); font-weight: 600; }
+.cd-tab-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--omni-color-surface-alt);
+  border: 1px solid var(--border-color);
+}
+.cd-tab.is-active .cd-tab-count {
+  color: var(--omni-color-primary-700);
+  background: var(--omni-color-primary-50);
+  border-color: var(--omni-color-primary-100);
+}

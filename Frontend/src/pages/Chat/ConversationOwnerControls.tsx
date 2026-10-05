@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { CheckCircle2, RotateCcw, UserRound, Clock } from 'lucide-react'
+import { ChevronDown, UserRound, Clock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Can from '../../components/Can/Can'
 import { StatusBadge } from '../../components/StatusBadge/StatusBadge'
@@ -9,23 +9,33 @@ import { referenceService, labelOf } from '../../services/referenceService'
 import type { Conversation } from '../../types/chat'
 import { formatAbsoluteDateTime } from '../../utils/dateHelper'
 
-interface ConversationOwnerControlsProps {
+/** Badge colour per conversation state: needs reply is the one that asks for action. */
+const STATUS_BADGE: Record<string, string> = { Open: 'info', Pending: 'warning', Resolved: 'success', Closed: 'closed' }
+
+const statusOf = (conversation: Conversation) => conversation.conversationStatus ?? 'Open'
+
+/** The conversation's state, labelled from the server catalogue, with its meaning as a tooltip. */
+export const ConversationStatusBadge: React.FC<{ conversation: Conversation }> = ({ conversation }) => {
+  const options = useReference(referenceService.getChatOptions, 'chat-options')
+  const status = statusOf(conversation)
+  return (
+    <span title={options.data?.conversationStatuses.find(s => s.value === status)?.description ?? undefined}>
+      <StatusBadge type={STATUS_BADGE[status] ?? 'closed'} text={labelOf(options.data?.conversationStatuses, status)} />
+    </span>
+  )
+}
+
+interface ConversationOwnerSelectProps {
   conversation: Conversation
   /** Re-read the inbox after a change (the server also pushes it live). */
   onChanged: () => void
 }
 
-/** Badge colour per conversation state: needs reply is the one that asks for action. */
-const STATUS_BADGE: Record<string, string> = { Open: 'info', Pending: 'warning', Resolved: 'success', Closed: 'closed' }
-
-/** Owner and status of the open conversation: assign it, resolve it, reopen it. */
-export const ConversationOwnerControls: React.FC<ConversationOwnerControlsProps> = ({ conversation, onChanged }) => {
-  const options = useReference(referenceService.getChatOptions, 'chat-options')
+/** "Assigned to": who owns the open conversation. Read-only text without Chat.Assign. */
+export const ConversationOwnerSelect: React.FC<ConversationOwnerSelectProps> = ({ conversation, onChanged }) => {
   const [agents, setAgents] = useState<AssignableAgent[] | null>(null)
   const [busy, setBusy] = useState(false)
-  const status = conversation.conversationStatus ?? 'Open'
-  const isDone = status === 'Resolved' || status === 'Closed'
-  const statusLabel = labelOf(options.data?.conversationStatuses, status)
+  const ownerName = conversation.assignedUserName ?? 'Unassigned'
 
   useEffect(() => {
     let active = true
@@ -36,11 +46,12 @@ export const ConversationOwnerControls: React.FC<ConversationOwnerControlsProps>
     return () => { active = false }
   }, [conversation.connectionId])
 
-  const run = async (action: () => Promise<unknown>, success: string) => {
+  const assign = async (userId: number | null) => {
     setBusy(true)
     try {
-      await action()
-      toast.success(success)
+      await chatService.assignConversation(conversation.id, userId)
+      const name = agents?.find(a => a.id === userId)?.name
+      toast.success(userId ? `Assigned to ${name ?? 'the selected agent'}.` : 'Conversation unassigned.')
       onChanged()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'The change could not be saved. Try again.')
@@ -50,58 +61,41 @@ export const ConversationOwnerControls: React.FC<ConversationOwnerControlsProps>
   }
 
   return (
-    <div className="chat-owner-controls">
-      <span title={options.data?.conversationStatuses.find(s => s.value === status)?.description ?? undefined}>
-        <StatusBadge type={STATUS_BADGE[status] ?? 'closed'} text={statusLabel} />
-      </span>
-
+    <div className="chat-owner">
+      <span className="chat-owner-caption">Assigned to</span>
       <Can permission="Chat.Assign" fallback={
-        conversation.assignedUserName
-          ? <span className="chat-owner-name" title="Assigned to"><UserRound size={14} aria-hidden="true" /> {conversation.assignedUserName}</span>
-          : null
+        <span className="chat-owner-name" title={ownerName}><UserRound size={14} aria-hidden="true" />{ownerName}</span>
       }>
-        <select
-          className="chat-owner-select"
-          aria-label="Assigned to"
-          disabled={busy || agents === null}
-          value={conversation.assignedUserId ?? ''}
-          onChange={e => {
-            const userId = e.target.value ? Number(e.target.value) : null
-            const name = agents?.find(a => a.id === userId)?.name
-            void run(() => chatService.assignConversation(conversation.id, userId),
-              userId ? `Assigned to ${name ?? 'the selected agent'}.` : 'Conversation unassigned.')
-          }}
-        >
-          {agents === null ? (
-            <option value={conversation.assignedUserId ?? ''}>Loading agents…</option>
-          ) : (
-            <>
-              <option value="">Unassigned</option>
-              {conversation.assignedUserId && !agents.some(a => a.id === conversation.assignedUserId) && (
-                <option value={conversation.assignedUserId}>{conversation.assignedUserName ?? 'Current owner'}</option>
-              )}
-              {agents.map(a => (
-                <option key={a.id} value={a.id}>
-                  {a.name} · {new Intl.NumberFormat().format(a.openConversations)} open
-                </option>
-              ))}
-            </>
-          )}
-        </select>
-      </Can>
-
-      <Can permission="Chat.Send">
-        {isDone ? (
-          <button type="button" className="chat-icon-btn" title="Reopen conversation" aria-label="Reopen conversation" disabled={busy}
-            onClick={() => run(() => chatService.setConversationStatus(conversation.id, 'Open'), 'Conversation reopened.')}>
-            <RotateCcw size={18} aria-hidden="true" />
-          </button>
-        ) : (
-          <button type="button" className="chat-icon-btn" title="Mark resolved" aria-label="Mark conversation resolved" disabled={busy}
-            onClick={() => run(() => chatService.setConversationStatus(conversation.id, 'Resolved'), 'Conversation resolved.')}>
-            <CheckCircle2 size={18} aria-hidden="true" />
-          </button>
-        )}
+        {/* The native select keeps keyboard and screen-reader behaviour; it sits invisibly over a
+            label that shows only the owner's name. The workload count belongs in the choices. */}
+        <span className={`chat-owner-field${busy || agents === null ? ' is-busy' : ''}`}>
+          <UserRound size={14} aria-hidden="true" />
+          <span className="chat-owner-current" title={ownerName}>{ownerName}</span>
+          <ChevronDown size={14} aria-hidden="true" />
+          <select
+            className="chat-owner-select"
+            aria-label="Assigned to"
+            disabled={busy || agents === null}
+            value={conversation.assignedUserId ?? ''}
+            onChange={e => void assign(e.target.value ? Number(e.target.value) : null)}
+          >
+            {agents === null ? (
+              <option value={conversation.assignedUserId ?? ''}>Loading agents…</option>
+            ) : (
+              <>
+                <option value="">Unassigned</option>
+                {conversation.assignedUserId && !agents.some(a => a.id === conversation.assignedUserId) && (
+                  <option value={conversation.assignedUserId}>{conversation.assignedUserName ?? 'Current owner'}</option>
+                )}
+                {agents.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} · {new Intl.NumberFormat().format(a.openConversations)} open
+                  </option>
+                ))}
+              </>
+            )}
+          </select>
+        </span>
       </Can>
     </div>
   )
@@ -139,5 +133,3 @@ export const SlaChip: React.FC<{ conversation: Conversation }> = ({ conversation
     </span>
   )
 }
-
-export default ConversationOwnerControls

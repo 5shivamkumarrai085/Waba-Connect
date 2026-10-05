@@ -330,8 +330,8 @@ public class EmailDispatchWorker : BackgroundService
                 reservedForConnection = null;
 
                 var reason = buildFailure ?? "The message could not be rendered.";
+                // The reason is stored on the recipient, where the campaign's Executed list shows it.
                 await FailRecipientAsync(dbContext, eventProcessor, recipient, reason, ct);
-                await recorder.RecordJobFailureAsync(recipient, reason, ct);
 
                 // Completed, not failed: retrying cannot help — the template needs a value it
                 // does not have, and only an operator can supply it.
@@ -482,6 +482,11 @@ public class EmailDispatchWorker : BackgroundService
 
             if (held > 0)
             {
+                await services.GetRequiredService<Interfaces.IAuditService>().LogAsync(
+                    "Campaign.Held", "Data",
+                    $"Campaign {campaignId} was put on hold: {reason}",
+                    "Campaign", campaignId.ToString());
+
                 try
                 {
                     await services.GetRequiredService<IEventPublisher>().PublishEmailEventAsync(new CampaignEmailEventNotification(
@@ -549,7 +554,6 @@ public class EmailDispatchWorker : BackgroundService
             try
             {
                 await FailRecipientAsync(dbContext, eventProcessor, recipient, reason, CancellationToken.None);
-                await recorder.RecordJobFailureAsync(recipient, reason, CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -879,6 +883,20 @@ public class EmailDispatchWorker : BackgroundService
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         TimeSpan.FromSeconds(2));
 
+    /// <summary>Opt-out and tracking links are never wrapped: rewriting them would record a click instead of honouring them.</summary>
+    private static bool IsTrackable(string url) =>
+        !(url.Contains("/api/public/email/unsubscribe", StringComparison.OrdinalIgnoreCase)
+          || url.Contains("/api/public/email/preferences", StringComparison.OrdinalIgnoreCase)
+          || url.Contains("/api/unsubscribe", StringComparison.OrdinalIgnoreCase)
+          || url.Contains("/api/t/", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// How many links in a template body will be click-tracked — the same rule the rewriter uses,
+    /// so the pre-flight check can say up front when the Links report will stay empty.
+    /// </summary>
+    public static int CountTrackableLinks(string? html) =>
+        string.IsNullOrWhiteSpace(html) ? 0 : AnchorHref.Matches(html).Count(m => IsTrackable(WebUtility.HtmlDecode(m.Groups[2].Value)));
+
     /// <summary>
     /// Wraps each link in a signed click-tracking redirect.
     /// </summary>
@@ -897,13 +915,7 @@ public class EmailDispatchWorker : BackgroundService
             var originalUrl = WebUtility.HtmlDecode(match.Groups[2].Value);
             var suffix = match.Groups[3].Value;
 
-            if (originalUrl.Contains("/api/public/email/unsubscribe", StringComparison.OrdinalIgnoreCase)
-                || originalUrl.Contains("/api/public/email/preferences", StringComparison.OrdinalIgnoreCase)
-                || originalUrl.Contains("/api/unsubscribe", StringComparison.OrdinalIgnoreCase)
-                || originalUrl.Contains("/api/t/", StringComparison.OrdinalIgnoreCase))
-            {
-                return match.Value;
-            }
+            if (!IsTrackable(originalUrl)) return match.Value;
 
             var clickUrl = tracking.BuildClickUrl(trackingId, originalUrl, linkIndex++);
             return $"{prefix}{WebUtility.HtmlEncode(clickUrl)}{suffix}";

@@ -259,6 +259,13 @@ public class ContactService : IContactService
                 // had rows removed while deleted — top them up the same way a new one gets them.
                 await _chatConversationSeeder.EnsureConversationsForContactAsync(existingContact.Id);
 
+                // To the person this is creating a contact; it must be audited as one. It wasn't,
+                // so every contact re-added after a clean-up left no trace in the audit log.
+                await _auditService.LogAsync(
+                    "Contact.Created", "Data",
+                    $"Created contact \"{existingContact.Name}\" ({existingContact.Phone}), restoring the previously deleted record with this phone number.",
+                    "Contact", existingContact.Id.ToString());
+
                 _dashboard?.Changed();
                 return await GetByIdAsync(existingContact.Id);
             }
@@ -400,6 +407,39 @@ public class ContactService : IContactService
             $"Deleted contact \"{contact.Name}\" ({contact.Phone}).",
             "Contact", contact.Id.ToString());
         _dashboard?.Changed();
+    }
+
+    public async Task<ContactNote> AddNoteAsync(int contactId, string content)
+    {
+        var contactName = await _dbContext.Contacts.Where(c => c.Id == contactId).Select(c => c.Name).FirstOrDefaultAsync()
+            ?? throw new KeyNotFoundException($"Contact with ID {contactId} not found.");
+
+        var note = new ContactNote { ContactId = contactId, Content = content.Trim(), CreatedAt = DateTime.UtcNow };
+        _dbContext.ContactNotes.Add(note);
+        await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "ContactNote.Created", "Data",
+            $"Added a note to contact \"{contactName}\".",
+            // Filed under the contact: a note is part of that customer's history.
+            "Contact", contactId.ToString());
+        return note;
+    }
+
+    public async Task<bool> DeleteNoteAsync(int contactId, int noteId)
+    {
+        var note = await _dbContext.ContactNotes.Include(n => n.Contact)
+            .FirstOrDefaultAsync(n => n.ContactId == contactId && n.Id == noteId);
+        if (note is null) return false;
+
+        _dbContext.ContactNotes.Remove(note);
+        await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "ContactNote.Deleted", "Data",
+            $"Deleted a note from contact \"{note.Contact.Name}\".",
+            "Contact", contactId.ToString());
+        return true;
     }
 
     public async Task<ContactResponse> ToggleActiveAsync(int id)

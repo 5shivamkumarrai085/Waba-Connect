@@ -35,6 +35,9 @@ public sealed class FakeSmtpServer : IAsyncDisposable
     /// </summary>
     public int? RejectWithCode { get; set; }
 
+    /// <summary>RCPT TO for an address containing this text is refused with 550 5.1.1 (unknown mailbox).</summary>
+    public string? RejectRecipientsContaining { get; set; }
+
     public FakeSmtpServer()
     {
         Port = GetFreePort();
@@ -119,6 +122,12 @@ public sealed class FakeSmtpServer : IAsyncDisposable
                     else if (line.StartsWith("HELO", StringComparison.OrdinalIgnoreCase))
                     {
                         await writer.WriteLineAsync("250 localhost");
+                    }
+                    else if (line.StartsWith("RCPT TO", StringComparison.OrdinalIgnoreCase)
+                          && RejectRecipientsContaining is { } refused
+                          && line.Contains(refused, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await writer.WriteLineAsync("550 5.1.1 Recipient address rejected: User unknown");
                     }
                     else if (line.StartsWith("MAIL FROM", StringComparison.OrdinalIgnoreCase)
                           || line.StartsWith("RCPT TO", StringComparison.OrdinalIgnoreCase))

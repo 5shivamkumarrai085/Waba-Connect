@@ -102,3 +102,28 @@ export interface ContactFormModel {
   /** ISO date (yyyy-mm-dd); empty when unknown. */
   dateOfBirth?: string
 }
+
+/** One contact as GET /Contacts/{id} returns it — the server's ContactResponse. */
+export interface ContactDetails {
+  id: number
+  name: string
+  phone: string
+  type: string
+  status: string
+  source: string
+  assignedTo?: string | null
+  email?: string | null
+  company?: string | null
+  website?: string | null
+  city?: string | null
+  state?: string | null
+  country?: string | null
+  timeZone?: string | null
+  description?: string | null
+  /** Comma-separated. */
+  tags?: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+  groups: { id: number; name: string; color?: string | null }[]
+}

@@ -2040,6 +2040,16 @@ public class CampaignService : ICampaignService
             _dbContext.ChangeTracker.Clear();
         }
 
+        // Contacts this upload created or brought back: one summary row, not one per contact,
+        // so a 100,000-row file does not write 100,000 audit entries.
+        if (newRows.Count + toRestore.Count > 0)
+        {
+            await _auditService.LogAsync(
+                "Contact.Imported", "Data",
+                $"Bulk campaign \"{request.Name}\" created {newRows.Count} new contact(s) and restored {toRestore.Count} deleted one(s) from its CSV.",
+                "Contact", null);
+        }
+
         // Clearing the tracker above detached the template, and the response reads its name.
         var templateName = channel == MessageChannel.WhatsApp ? template!.Name : emailTemplate!.Name;
 

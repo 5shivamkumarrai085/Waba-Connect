@@ -119,17 +119,17 @@ public static class Phase0_SchemaTests
 
         run.Section("Delete rules preserved");
 
-        // Making TemplateId nullable changes EF's conventional delete behaviour from Cascade to
-        // NoAction. That was pinned back to Cascade explicitly, because a template delete
-        // previously hard-deleted soft-deleted campaign rows and quietly changing that is a
-        // behaviour change this work was required not to make.
+        // RESTRICT since round 5. The email-channel work had kept CASCADE so as not to change
+        // behaviour, but that behaviour was data loss: deleting a template hard-deleted the
+        // soft-deleted campaigns that used it. TemplateService now refuses such a delete with a
+        // reason (Phase 23), and the database refuses it too.
         var templateRule = await harness.ScalarAsync("""
             SELECT rc.delete_rule
               FROM information_schema.table_constraints tc
               JOIN information_schema.referential_constraints rc ON tc.constraint_name = rc.constraint_name
              WHERE tc.table_name = 'Campaigns' AND tc.constraint_name = 'FK_Campaigns_Templates_TemplateId'
             """);
-        run.Check("WhatsApp template delete rule is still CASCADE", templateRule == "CASCADE", templateRule);
+        run.Check("WhatsApp template delete rule is RESTRICT (a template delete never removes campaign history)", templateRule == "RESTRICT", templateRule);
 
         // The email template, by contrast, is RESTRICT: a sent campaign must stay able to explain
         // what it sent, so its template cannot be deleted out from under it.

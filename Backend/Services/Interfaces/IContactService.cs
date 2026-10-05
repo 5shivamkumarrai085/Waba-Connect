@@ -1,3 +1,4 @@
+using WhatsAppCampaignApi.Models.Entities;
 using WhatsAppCampaignApi.Models.DTOs.Common;
 using WhatsAppCampaignApi.Models.DTOs.Contacts;
 
@@ -43,6 +44,12 @@ public interface IContactService
     /// Soft-deletes a contact by setting IsActive to false.
     /// </summary>
     Task DeleteAsync(int id);
+
+    /// <summary>Adds a note to a contact. Throws KeyNotFoundException for a missing or deleted contact.</summary>
+    Task<ContactNote> AddNoteAsync(int contactId, string content);
+
+    /// <summary>Deletes a contact's note. Returns false when it does not exist.</summary>
+    Task<bool> DeleteNoteAsync(int contactId, int noteId);
 
     /// <summary>
     /// Toggles the active status of a contact.

@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -45,6 +45,13 @@ import { referenceService, labelOf } from '../../services/referenceService'
 import { formatAbsoluteDateTime } from '../../utils/dateHelper'
 import './CampaignDetails.css'
 
+/** How often live events may trigger re-reads on this page. */
+const LIVE_REFRESH_MS = 2000
+/** Events that move a recipient between Queue and Executed or change their status. */
+const STATUS_EVENT_KINDS = ['Sent', 'Failed', 'Bounced', 'Delivered', 'Read', 'Complained', 'Skipped']
+/** Events that change an A/B variant's figures. */
+const AB_EVENT_KINDS = ['Sent', 'Opened', 'Clicked', 'Replied', 'Read']
+
 type Tab = 'queue' | 'executed'
 
 /** Badge colour per follow-up state. */
@@ -73,13 +80,22 @@ export const CampaignDetails: React.FC = () => {
   const campaignOptions = useReference(() => referenceService.getCampaignOptions(optionsChannel), `campaign-options:${optionsChannel}`)
 
   // Recipients are paged, filtered and searched on the server.
-  const [tab, setTab] = useState<Tab>('queue')
+  // The tab lives in the URL (?tab=), so Back/Forward and a shared link land on the same list.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlTab = searchParams.get('tab')
+  const initialTab: Tab | null = urlTab === 'queue' || urlTab === 'executed' ? urlTab : null
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'queue')
+  // Once the person (or the first-load default below) has picked a tab, nothing switches it back.
+  const tabChosen = useRef(initialTab !== null)
+  // Each request is numbered; a slower response for a tab the person already left is ignored.
+  const requestSeq = useRef(0)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [recipients, setRecipients] = useState<CampaignRecipient[]>([])
   const [recipientTotal, setRecipientTotal] = useState(0)
   const [counts, setCounts] = useState({ queued: 0, executed: 0 })
+  const numberFormat = new Intl.NumberFormat()
   const [recipientsLoading, setRecipientsLoading] = useState(false)
   const [recipientsError, setRecipientsError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
@@ -101,12 +117,14 @@ export const CampaignDetails: React.FC = () => {
 
   const loadRecipients = useCallback(async () => {
     if (!campaignId) return
+    const seq = ++requestSeq.current
     setRecipientsLoading(true)
     setRecipientsError(null)
     try {
       const response = await apiClient.get(`/Campaigns/${campaignId}/recipients`, {
         params: { page, pageSize, state: tab, search: search.trim() || undefined },
       })
+      if (seq !== requestSeq.current) return
       const pageResult = response.data?.data
       setRecipients(
         (pageResult?.items ?? []).map((r: any) => ({
@@ -125,9 +143,9 @@ export const CampaignDetails: React.FC = () => {
       )
       setRecipientTotal(pageResult?.totalCount ?? 0)
     } catch (error) {
-      setRecipientsError(getErrorMessage(error, 'Could not load recipients.'))
+      if (seq === requestSeq.current) setRecipientsError(getErrorMessage(error, 'Could not load recipients.'))
     } finally {
-      setRecipientsLoading(false)
+      if (seq === requestSeq.current) setRecipientsLoading(false)
     }
   }, [campaignId, page, pageSize, tab, search])
 
@@ -140,10 +158,43 @@ export const CampaignDetails: React.FC = () => {
     void loadCounts()
   }, [loadCounts])
 
-  // Once nothing is queued, open on what was executed.
+  // First load only: a finished campaign opens on what was executed. This used to re-run on every
+  // tab change, so clicking "Queue (0)" was immediately undone and the tab looked dead.
   useEffect(() => {
-    if (counts.queued === 0 && counts.executed > 0 && tab === 'queue') setTab('executed')
-  }, [counts, tab])
+    if (tabChosen.current || counts.queued + counts.executed === 0) return
+    tabChosen.current = true
+    if (counts.queued === 0) setTab('executed')
+  }, [counts])
+
+  const selectTab = useCallback((next: Tab) => {
+    tabChosen.current = true
+    setTab(next)
+    setPage(1)
+    setRecipients([])
+    setRecipientTotal(0)
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev)
+      params.set('tab', next)
+      return params
+    }, { replace: true })
+  }, [setSearchParams])
+
+  // Back/Forward changes ?tab= without a click.
+  useEffect(() => {
+    if (initialTab && initialTab !== tab) {
+      setTab(initialTab)
+      setPage(1)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTab])
+
+  const onTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const next: Tab = tab === 'queue' ? 'executed' : 'queue'
+    selectTab(next)
+    document.getElementById(`campaign-tab-${next}`)?.focus()
+  }
 
   // Live figures; a full re-read after a reconnect, and a slow poll while offline.
   const resync = useCallback(() => {
@@ -152,7 +203,34 @@ export const CampaignDetails: React.FC = () => {
     void loadCounts()
     void loadRecipients()
   }, [campaignId, refreshCampaignDetails, loadCounts, loadRecipients])
-  useCampaignEvents(campaignId, resync)
+
+  // Each send, open or bounce moves a recipient between the lists: refresh the tab counts and the
+  // visible page, at most once a second however fast the events arrive.
+  // The KPI counters move by deltas; the A/B table and the Links card are re-read, because an
+  // open or a second click changes them without changing any counter the page holds.
+  // Each kind of event refreshes only what it can change, at most once per window — a large send
+  // produces thousands of events a second, and every open viewer would otherwise re-read four lists.
+  const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingKinds = useRef(new Set<string>())
+  const [liveTick, setLiveTick] = useState(0)
+  const hasAbTest = !!selectedCampaign?.abTest
+  const onLiveEvent = useCallback((event: { kind: string }) => {
+    pendingKinds.current.add(event.kind)
+    if (liveTimer.current) return
+    liveTimer.current = setTimeout(() => {
+      liveTimer.current = null
+      const kinds = pendingKinds.current
+      pendingKinds.current = new Set<string>()
+      if (STATUS_EVENT_KINDS.some(k => kinds.has(k))) {
+        void loadCounts()
+        void loadRecipients()
+      }
+      if (hasAbTest && campaignId && AB_EVENT_KINDS.some(k => kinds.has(k))) void refreshCampaignDetails(campaignId)
+      if (kinds.has('Clicked')) setLiveTick(tick => tick + 1)
+    }, LIVE_REFRESH_MS)
+  }, [loadCounts, loadRecipients, campaignId, refreshCampaignDetails, hasAbTest])
+  useEffect(() => () => { if (liveTimer.current) clearTimeout(liveTimer.current) }, [])
+  useCampaignEvents(campaignId, resync, onLiveEvent)
 
   if (isLoading && !selectedCampaign) {
     return (
@@ -486,21 +564,25 @@ export const CampaignDetails: React.FC = () => {
         </p>
       )}
 
-      {isEmail && <CampaignLinkReport campaignId={c.id} clickedCount={clicked} />}
+      {isEmail && <CampaignLinkReport campaignId={c.id} clickedCount={clicked} refreshKey={liveTick} />}
 
       <div className="contacts-card campaign-recipients-card">
-        <div className="tabs-container">
+        <div className="cd-tabs" role="tablist" aria-label="Recipients">
           {(['queue', 'executed'] as Tab[]).map((t) => (
             <button
               key={t}
+              id={`campaign-tab-${t}`}
               type="button"
-              className={`tab-btn ${tab === t ? 'active' : ''}`}
-              onClick={() => {
-                setTab(t)
-                setPage(1)
-              }}
+              role="tab"
+              aria-selected={tab === t}
+              aria-controls="campaign-recipients-panel"
+              tabIndex={tab === t ? 0 : -1}
+              className={`cd-tab${tab === t ? ' is-active' : ''}`}
+              onClick={() => selectTab(t)}
+              onKeyDown={onTabKeyDown}
             >
-              {t === 'queue' ? `Queue (${counts.queued})` : `Executed (${counts.executed})`}
+              {t === 'queue' ? 'Queue' : 'Executed'}
+              <span className="cd-tab-count">{numberFormat.format(t === 'queue' ? counts.queued : counts.executed)}</span>
             </button>
           ))}
         </div>
@@ -530,7 +612,7 @@ export const CampaignDetails: React.FC = () => {
           </div>
         </div>
 
-        <div className="data-table-wrapper">
+        <div className="data-table-wrapper" id="campaign-recipients-panel" role="tabpanel" aria-labelledby={`campaign-tab-${tab}`}>
           {recipientsError ? (
             <div className="data-table-empty">
               <p>{recipientsError}</p>
@@ -538,7 +620,15 @@ export const CampaignDetails: React.FC = () => {
             </div>
           ) : recipients.length === 0 ? (
             <div className="data-table-empty">
-              <p>{recipientsLoading ? 'Loading…' : 'No records found'}</p>
+              <p>
+                {recipientsLoading
+                  ? 'Loading…'
+                  : search.trim()
+                    ? 'No recipients match your search.'
+                    : tab === 'queue'
+                      ? 'Nothing is waiting to be sent.'
+                      : 'Nothing has been sent yet.'}
+              </p>
             </div>
           ) : (
             <table className="data-table" aria-busy={recipientsLoading}>

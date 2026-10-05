@@ -61,6 +61,7 @@ public static class Phase22_Round4Tests
                 DateOfBirth = DateOnly.FromDateTime(DateTime.UtcNow).AddYears(-(15 + i % 50))
             }));
             await db.SaveChangesAsync();
+            harness.TrackTemplate(a.Id, b.Id, c.Id);
             (templateA, templateB, templateC, connectionId) = (a.Id, b.Id, c.Id, connection.Id);
             contactIds.AddRange(await db.Contacts.Where(x => x.Name.StartsWith($"{TestHarness.Prefix} R4 ") && x.Name.EndsWith(harness.Tag)).Select(x => x.Id).ToListAsync());
         });
@@ -111,6 +112,44 @@ public static class Phase22_Round4Tests
             var postponed = await harness.CountAsync("""SELECT count(*) FROM "Campaigns" WHERE "Id" = @id AND "AbDecideAt" > now() + interval '20 minutes'""", ("id", threeWay));
             run.Check("with nothing sent yet, no winner is picked", starvedWinner is null && decidedAt is null, $"{starvedWinner} / {decidedAt}");
             run.Check("the decision is postponed by the recheck interval", postponed == 1);
+
+            run.Section("No signal: nobody read any variant");
+            async Task SentHoursAgoAsync(int campaign, int hours) => await harness.ExecAsync("""
+                UPDATE "CampaignContacts" SET "Status" = 'Sent', "SentAt" = now() - make_interval(hours => @h)
+                 WHERE "CampaignId" = @id AND "VariantId" IS NOT NULL
+                """, ("id", campaign), ("h", hours));
+            async Task<int?> DecideAsync(int campaign)
+            {
+                int? decided = null;
+                await harness.InScopeAsync(async s => decided = await Build(s).DecideAbTestAsync(campaign, null));
+                return decided;
+            }
+            async Task<int> VariantIdAsync(int campaign, string label) =>
+                int.Parse((await harness.ScalarAsync("""SELECT "Id" FROM "CampaignVariants" WHERE "CampaignId" = @id AND "Label" = @l""", ("id", campaign), ("l", label)))!);
+
+            // Past the 2-hour window but inside the grace period, with zero reads everywhere.
+            await SentHoursAgoAsync(threeWay, 3);
+            run.Check("inside the grace period a zero-signal test keeps waiting instead of picking A", await DecideAsync(threeWay) is null);
+
+            var graceOver = 2 + CampaignFeatureCatalog.AbNoSignalGraceHours.Default + 1;
+            await SentHoursAgoAsync(threeWay, graceOver);
+            var noSignalWinner = await DecideAsync(threeWay);
+            var reason = await harness.ScalarAsync("""SELECT "AbDecisionReason" FROM "Campaigns" WHERE "Id" = @id""", ("id", threeWay));
+            run.Check("after the grace period variant A is kept", noSignalWinner == await VariantIdAsync(threeWay, "A"), $"{noSignalWinner}");
+            run.Check("and the decision says there was no signal", reason == "no-signal", reason);
+
+            var twoWay = await Create(harness, Build, Request("ab2", contactIds.Take(20).ToList(),
+                new AbTestRequest { Percent = 100, Metric = "read", DecideAfterHours = 2, Variants = [new AbVariantRequest { TemplateId = templateB }] }));
+            await SentHoursAgoAsync(twoWay, 3);
+            await harness.ExecAsync("""
+                UPDATE "CampaignContacts" SET "ReadAt" = now() WHERE "Id" = (
+                    SELECT cc."Id" FROM "CampaignContacts" cc JOIN "CampaignVariants" v ON v."Id" = cc."VariantId"
+                     WHERE cc."CampaignId" = @id AND v."Label" = 'B' LIMIT 1)
+                """, ("id", twoWay));
+            var bestWinner = await DecideAsync(twoWay);
+            var bestReason = await harness.ScalarAsync("""SELECT "AbDecisionReason" FROM "Campaigns" WHERE "Id" = @id""", ("id", twoWay));
+            run.Check("with a signal, the better variant wins (B with one read)", bestWinner == await VariantIdAsync(twoWay, "B"), $"{bestWinner}");
+            run.Check("and the decision says it was the best rate", bestReason == "best-rate", bestReason);
 
             run.Section("Invalid settings are refused before anything is saved");
             var badName = $"{TestHarness.Prefix} ab-invalid {harness.Tag}";
@@ -375,6 +414,7 @@ public static class Phase22_Round4Tests
         var failed = await harness.ScalarAsync("""SELECT "FailedCount" + "BouncedCount" FROM "Campaigns" WHERE "Id" = @id""", ("id", campaignId));
         run.Check("the campaign is put on hold", status == nameof(CampaignStatus.Paused), status);
         run.Check("with the reason shown", reason?.StartsWith("On hold:") == true && reason.Contains("decrypted"), reason);
+        run.Check("the hold is audited", harness.Audit.Has("Campaign.Held", campaignId.ToString()));
         run.Check("every recipient is still Pending, ready for Resume", pending == contactIds.Count, $"{pending} of {contactIds.Count}");
         run.Check("nothing is counted as failed or bounced", failed == "0", failed);
 

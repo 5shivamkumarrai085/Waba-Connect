@@ -1,12 +1,15 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Megaphone, UserPlus, FileText, Bot, Clock, Info } from 'lucide-react'
+import { Megaphone, UserPlus, FileText, Bot, Clock, Info, MessageSquare, Filter, Link2 } from 'lucide-react'
 import { formatRelativeTime } from '../utils/dateHelper'
+import Can from './Can/Can'
 
+/** One audit event, as the dashboard summary returns it (type from RecentActivityCatalog). */
 interface ActivityItem {
-  type: 'campaign' | 'contact' | 'template' | 'botflow'
+  type: string
   title: string
+  /** Who did it — a person's name, or "System" for automatic actions. */
   subtitle: string | null
   timestamp: string
 }
@@ -19,14 +22,20 @@ const TYPE_ICON: Record<string, React.ComponentType<{ size?: number }>> = {
   campaign: Megaphone,
   contact: UserPlus,
   template: FileText,
-  botflow: Bot
+  botflow: Bot,
+  chat: MessageSquare,
+  segment: Filter,
+  connection: Link2
 }
 
 const TYPE_COLOR: Record<string, string> = {
   campaign: 'green',
   contact: 'blue',
   template: 'orange',
-  botflow: 'purple'
+  botflow: 'purple',
+  chat: 'blue',
+  segment: 'purple',
+  connection: 'green'
 }
 
 export const RecentActivityCard: React.FC<RecentActivityCardProps> = React.memo(({ data }) => {
@@ -41,9 +50,11 @@ export const RecentActivityCard: React.FC<RecentActivityCardProps> = React.memo(
             <Clock size={18} color="var(--primary)" />
             <span>Recent Activity</span>
           </div>
-          <button className="delivery-rate-view-report" onClick={() => navigate('/activity-logs?tab=audits')}>
-            View All
-          </button>
+          <Can permission="ActivityLog.View">
+            <button type="button" className="delivery-rate-view-report" onClick={() => navigate('/audit-log?tab=audits')}>
+              View All
+            </button>
+          </Can>
         </div>
 
         {items.length === 0 ? (
@@ -66,7 +77,7 @@ export const RecentActivityCard: React.FC<RecentActivityCardProps> = React.memo(
                   transition={{ delay: index * 0.04, duration: 0.2, ease: 'easeOut' }}
                 >
                   <span className={`recent-activity-icon ${colorClass}`}>
-                    <Icon size={15} />
+                    <Icon size={15} aria-hidden="true" />
                   </span>
                   <div className="recent-activity-content">
                     <div className="recent-activity-title">{item.title}</div>

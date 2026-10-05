@@ -153,8 +153,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
         string templateName,
         string languageCode,
         Dictionary<string, string>? variables = null,
-        int? connectionId = null,
-        MessageSendContext? context = null)
+        int? connectionId = null)
     {
         try
         {
@@ -230,9 +229,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 var errorMessage = ExtractMetaErrorMessage(responseBody)
                     ?? $"WhatsApp API rejected the template message with status {response.StatusCode}.";
 
-                var failure = WhatsAppSendResult.Failed(errorMessage, (int)response.StatusCode);
-                await RecordMessageActivityAsync(context, recipientPhone, templateName, connectionId, failure, json, responseBody);
-                return failure;
+                return WhatsAppSendResult.Failed(errorMessage, (int)response.StatusCode);
             }
 
             using var doc = JsonDocument.Parse(responseBody);
@@ -244,74 +241,14 @@ public class WhatsAppCloudApiService : IWhatsAppService
             _logger.LogInformation(
                 "WhatsApp message sent successfully. MessageId: {MessageId}", messageId);
 
-            var success = WhatsAppSendResult.Sent(messageId, (int)response.StatusCode);
-            await RecordMessageActivityAsync(context, recipientPhone, templateName, connectionId, success, json, responseBody);
-            return success;
+            return WhatsAppSendResult.Sent(messageId, (int)response.StatusCode);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error sending WhatsApp template message to {Phone}", recipientPhone);
 
             // Network failures and the like never reached Meta, so there is no response code.
-            var failure = WhatsAppSendResult.Failed(ex.Message);
-            await RecordMessageActivityAsync(context, recipientPhone, templateName, connectionId, failure);
-            return failure;
-        }
-    }
-
-    /// <summary>
-    /// Writes one activity-log row for a send.
-    ///
-    /// <para>
-    /// Uses its own DbContext from a fresh scope rather than the injected one. Campaign sends
-    /// batch many contacts into a single SaveChanges, so sharing a context would let a failed
-    /// campaign save roll the audit rows back with it. The whole thing is wrapped in a catch
-    /// for the same reason in reverse: a logging failure must never fail the send it describes.
-    /// </para>
-    /// </summary>
-    private async Task RecordMessageActivityAsync(
-        MessageSendContext? context,
-        string recipientPhone,
-        string templateName,
-        int? connectionId,
-        WhatsAppSendResult result,
-        string? requestPayload = null,
-        string? responsePayload = null)
-    {
-        if (context is null) return;
-
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            db.MessageActivityLogs.Add(new MessageActivityLog
-            {
-                Category = context.Category,
-                Name = context.SourceName,
-                TemplateName = templateName,
-                ResponseCode = result.HttpStatusCode,
-                RelationType = context.RelationType,
-                ContactId = context.ContactId,
-                ContactPhone = recipientPhone,
-                ConnectionId = connectionId,
-                WhatsAppMessageId = result.MessageId,
-                IsSuccess = result.Success,
-                ErrorMessage = result.ErrorMessage,
-                PerformedByUserId = context.PerformedByUserId,
-                TriggeredBy = context.TriggeredBy,
-                IpAddress = context.IpAddress,
-                // Redacted here rather than at each call site, so a caller that forgets cannot
-                // write a raw token into the log table.
-                RequestPayload = PayloadRedactor.Redact(requestPayload),
-                ResponsePayload = PayloadRedactor.Redact(responsePayload)
-            });
-
-            await db.SaveChangesAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to record message activity for {Phone}.", recipientPhone);
+            return WhatsAppSendResult.Failed(ex.Message);
         }
     }
 
@@ -807,6 +744,13 @@ public class WhatsAppCloudApiService : IWhatsAppService
             try
             {
                 await _dbContext.SaveChangesAsync();
+
+                // Created by the system from an incoming message: audited like any new contact.
+                using var auditScope = _scopeFactory.CreateScope();
+                await auditScope.ServiceProvider.GetRequiredService<IAuditService>().LogAsync(
+                    "Contact.Created", "Data",
+                    $"Created contact \"{contact.Name}\" ({contact.Phone}) automatically from an incoming WhatsApp message.",
+                    "Contact", contact.Id.ToString());
             }
             catch (DbUpdateException)
             {
@@ -1944,18 +1888,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
                 matchedBot.Template?.Name ?? string.Empty,
                 matchedBot.Template?.Language ?? "en",
                 resolvedVariables,
-                connectionId,
-                // Triggered by inbound traffic on the Meta webhook, which is anonymous by
-                // necessity — there is no user to attribute this to.
-                new MessageSendContext
-                {
-                    Category = "TemplateBot",
-                    SourceName = matchedBot.Name,
-                    SourceId = matchedBot.Id,
-                    ContactId = contact?.Id,
-                    RelationType = contact?.Type.ToString(),
-                    TriggeredBy = "Webhook"
-                });
+                connectionId);
 
             if (sendResult.Success)
             {

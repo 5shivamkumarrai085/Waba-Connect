@@ -48,6 +48,15 @@ public class EmailTrackingController : ControllerBase
     }
 
     /// <summary>
+    /// Reachability probe. Echoes the nonce with this server's instance id, so
+    /// <see cref="PublicEndpointProbe"/> can prove the public address reaches this very server
+    /// (not merely some server). The nonce is limited to letters and digits; nothing else is echoed.
+    /// </summary>
+    [HttpGet("ping/{nonce:regex(^[[a-zA-Z0-9]]{{1,64}}$)}")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult Ping(string nonce) => Content(PublicEndpointProbe.PingReply(nonce), "text/plain");
+
+    /// <summary>
     /// Open-tracking pixel endpoint.
     ///
     /// Returns a 1×1 transparent GIF. Called when the recipient's email client loads images.

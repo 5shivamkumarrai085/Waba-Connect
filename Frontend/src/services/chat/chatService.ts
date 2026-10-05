@@ -62,7 +62,7 @@ export const chatService = {
     filter?: string,
     connectionId?: number,
     channel?: string,
-    options: { cursor?: string; limit?: number; state?: string; assignee?: string } = {}
+    options: { cursor?: string; limit?: number; state?: string; assignee?: string; sort?: string } = {}
   ): Promise<ChatPage<Conversation>> => {
     const response = await apiClient.get('/Chat/conversations', {
       params: {
@@ -73,10 +73,32 @@ export const chatService = {
         cursor: options.cursor,
         limit: options.limit ?? CONVERSATION_PAGE_SIZE,
         state: options.state && options.state !== 'all' ? options.state : undefined,
-        assignee: options.assignee || undefined
+        assignee: options.assignee || undefined,
+        sort: options.sort || undefined
       }
     })
     return readChatPage<Conversation>(response)
+  },
+
+  /**
+   * How many conversations each inbox tab holds, keyed by the tab's value, under the same search,
+   * connection, channel and status as the list. Throws, so a failed refresh keeps the old counts.
+   */
+  getConversationCounts: async (
+    search?: string,
+    connectionId?: number,
+    channel?: string,
+    state?: string
+  ): Promise<Record<string, number>> => {
+    const response = await apiClient.get('/Chat/conversations/counts', {
+      params: {
+        search: search || undefined,
+        connectionId: connectionId || undefined,
+        channel: channel || undefined,
+        state: state && state !== 'all' ? state : undefined
+      }
+    })
+    return (response.data?.data ?? {}) as Record<string, number>
   },
 
   /** Agents who can take conversations on a connection, with their open workload. */

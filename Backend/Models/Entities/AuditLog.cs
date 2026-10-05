@@ -4,12 +4,12 @@ using System.ComponentModel.DataAnnotations;
 namespace WhatsAppCampaignApi.Models.Entities;
 
 /// <summary>
-/// An administrative action worth keeping a record of — user created, role permissions changed,
-/// logs cleared. Backs the "Audit Events" tab of /activity-logs.
+/// Something a person (or the system, as "System") did that is worth keeping a record of — a
+/// contact or campaign created, a template approved, a chat reply sent, permissions changed. Backs
+/// the Audit Log page (/audit-log) and the dashboard's Recent Activity. Append-only.
 ///
-/// Distinct from <see cref="MessageActivityLog"/>, which records outbound WhatsApp sends. This
-/// one answers "who changed the configuration"; that one answers "what did we send and did Meta
-/// accept it".
+/// What was sent and whether it was delivered lives on the campaign recipients and email events;
+/// this answers "who did what, and when".
 ///
 /// The user is denormalized (<see cref="UserName"/>) as well as referenced, so the trail stays
 /// readable after an account is deleted.

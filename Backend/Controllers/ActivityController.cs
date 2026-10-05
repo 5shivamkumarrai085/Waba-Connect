@@ -296,6 +296,8 @@ public class ActivityController : ControllerBase
         [FromQuery] string? action,
         [FromQuery] int? userId,
         [FromQuery] string? status,
+        // The history of particular records ("Contact:80", "ChatConversation:267"); repeatable.
+        [FromQuery] string[]? entity = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10)
     {
@@ -305,6 +307,7 @@ public class ActivityController : ControllerBase
         pageSize = pageSize is < 1 or > 200 ? 10 : pageSize;
 
         var query = ExcludeSignInEvents(_dbContext.AuditLogs.AsNoTracking());
+        if (entity is { Length: > 0 }) query = AuditQueries.ForEntities(query, entity);
 
         // The relative pills (today/week/month) and an explicit date range are alternatives; an
         // explicit range wins because the user picked it directly.

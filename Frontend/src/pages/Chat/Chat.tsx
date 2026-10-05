@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useAnchoredPosition } from '../../hooks/useAnchoredPosition'
 import { ReplyButtonsPopover } from './ReplyButtonsPopover'
 import useReference from '../../hooks/useReference'
-import { referenceService } from '../../services/referenceService'
-import { ConversationOwnerControls, SlaChip } from './ConversationOwnerControls'
+import { referenceService, labelOf } from '../../services/referenceService'
+import { ConversationOwnerSelect, ConversationStatusBadge, SlaChip } from './ConversationOwnerControls'
+import { statusToggleFor, toggleConversationStatus } from './conversationStatus'
+import { ChatContextPanel } from './ChatContextPanel'
+import { ContactTypeBadge } from './ContactTypeBadge'
 import { useAuthStore } from '../../store/authStore'
 import { motion } from 'framer-motion'
 import { pageTransitionProps } from '../../utils/motion'
@@ -16,35 +19,38 @@ import {
   AlertTriangle,
   Check,
   CheckCheck,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
-  MapPin,
-  UserRound,
   ChevronRight,
   Clock,
   Clock3,
+  Copy,
   FileText,
-  MessageSquareReply,
-  Info,
   Link2,
-  MessageCircle,
+  Lock,
+  MapPin,
   Mail,
+  MessageCircle,
   MessageSquare,
+  MessageSquareReply,
   MoreVertical,
+  PanelRight,
   Paperclip,
+  Plus,
+  RefreshCw,
+  RotateCcw,
   Search,
   Send,
   Smile,
-  X,
-  Plus,
   Trash2,
-  Calendar,
-  Users,
-  Phone,
-  Lock,
+  UserRound,
+  X,
   Camera,
-  ThumbsUp
+  ThumbsUp,
+  SlidersHorizontal
 } from 'lucide-react'
+import { formatAbsoluteDateTime } from '../../utils/dateHelper'
 import { Avatar } from '../../components/Avatar/Avatar'
 import { SearchBar } from '../../components/SearchBar/SearchBar'
 import { CHANNELS, normalizeChannel } from '../../types/channel'
@@ -54,19 +60,19 @@ import { EmailComposer } from '../../components/EmailComposer/EmailComposer'
 import type { EmailComposeMode } from '../../components/EmailComposer/EmailComposer'
 import type { EmailConnection } from '../../types/email'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
+import { Menu, MenuItem } from '../../components/Menu/Menu'
 import { useChatStore, ALL_CHANNELS } from '../../store/chatStore'
 import { useShallow } from 'zustand/react/shallow'
 import { realtimeService } from '../../services/campaigns/campaignHubService'
 import { useConnectionStore } from '../../store/connectionStore'
 import { campaignService } from '../../services/campaigns/campaignService'
 import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
-import { apiClient } from '../../services/apiClient'
 import type { Message } from '../../types/chat'
 import './Chat.css'
 import Can from '../../components/Can/Can'
 import usePermission from '../../hooks/usePermission'
 import { resolveMediaUrl } from '../../utils/mediaUrl'
-import { buildLookupMap, resolveLookup, badgeStyleFor, type ResolvedLookup } from '../../utils/lookupColors'
+import { buildLookupMap } from '../../utils/lookupColors'
 import { contactService } from '../../services/contacts/contactService'
 import type { ContactType } from '../../types/contacts'
 import { matchesSearch } from '../../utils/smartSearch'
@@ -142,7 +148,6 @@ export const Chat: React.FC = () => {
     deleteActiveConversation,
     deleteMessages,
     setFromNumber,
-    setConversationsFilter,
     setSidebarSearchQuery,
     stateFilter,
     assigneeFilter,
@@ -155,7 +160,11 @@ export const Chat: React.FC = () => {
     isLoadingOlderMessages,
     loadOlderMessages,
     resyncActiveMessages,
-    threadError
+    threadError,
+    sortOrder,
+    setSortOrder,
+    applyQuickView,
+    quickViewCounts
   } = useChatStore(useShallow((state) => ({
     accounts: state.accounts,
     conversations: state.conversations,
@@ -179,7 +188,6 @@ export const Chat: React.FC = () => {
     deleteActiveConversation: state.deleteActiveConversation,
     deleteMessages: state.deleteMessages,
     setFromNumber: state.setFromNumber,
-    setConversationsFilter: state.setConversationsFilter,
     setSidebarSearchQuery: state.setSidebarSearchQuery,
     stateFilter: state.stateFilter,
     assigneeFilter: state.assigneeFilter,
@@ -192,7 +200,11 @@ export const Chat: React.FC = () => {
     isLoadingOlderMessages: state.isLoadingOlderMessages,
     loadOlderMessages: state.loadOlderMessages,
     resyncActiveMessages: state.resyncActiveMessages,
-    threadError: state.threadError
+    threadError: state.threadError,
+    sortOrder: state.sortOrder,
+    setSortOrder: state.setSortOrder,
+    applyQuickView: state.applyQuickView,
+    quickViewCounts: state.quickViewCounts
   })))
 
 
@@ -309,8 +321,21 @@ export const Chat: React.FC = () => {
   const isEmailConnectionSelected = selectedConnectionChannel === 'email'
 
   const [messageText, setMessageText] = useState('')
-  const [showTimeBanner, setShowTimeBanner] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+
+  // The inbox fills the viewport below wherever it starts. A fixed "100dvh - 240px" guessed the
+  // header and hero height; when they were taller the panel overflowed and pushed the email
+  // composer's Send button below the fold.
+  const layoutRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = layoutRef.current
+      if (el) el.style.setProperty('--chat-layout-top', `${Math.round(el.getBoundingClientRect().top + window.scrollY)}px`)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const prevMessagesCountRef = useRef(0)
   const prevActiveConvIdRef = useRef<number | null>(null)
@@ -355,7 +380,7 @@ export const Chat: React.FC = () => {
       const res = await campaignService.uploadFile(file)
       await sendMessage('', res.url, attachmentType, res.fileName)
       toast.success(`${attachmentType} sent successfully!`)
-    } catch (err) {
+    } catch {
       toast.error('Failed to upload and send attachment.')
     } finally {
       setUploadingMedia(false)
@@ -377,7 +402,8 @@ export const Chat: React.FC = () => {
     // On ALL_CHANNELS startup, loadConversations works without selectedConnectionId.
     // loadAccounts only makes sense for single-channel (it fetches WABA phone accounts).
     loadConversations()
-    if (channelFilter !== ALL_CHANNELS) {
+    // Read once at mount: a later channel change loads its own accounts.
+    if (useChatStore.getState().channelFilter !== ALL_CHANNELS) {
       loadAccounts()
     }
   }, [fetchConnectionDashboard, loadAccounts, loadConversations])
@@ -433,7 +459,7 @@ export const Chat: React.FC = () => {
     }, 250)
 
     return () => window.clearTimeout(timeout)
-  }, [sidebarSearchQuery, conversationsFilter, loadConversations])
+  }, [sidebarSearchQuery, loadConversations])
 
   // Auto-select the first sender whenever the available options change and the current value is
   // not in the list. This covers: switching to a new email connection (no fromNumber yet),
@@ -531,21 +557,15 @@ export const Chat: React.FC = () => {
     const hasNewMessage = messages.length > prevMessagesCountRef.current
 
     if (hasConvChanged || hasNewMessage) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      // Scrolls the message pane only. scrollIntoView also scrolled every scrollable ancestor,
+      // so opening a conversation made the whole page jump.
+      const pane = messagesContainerRef.current
+      if (pane) pane.scrollTo({ top: pane.scrollHeight, behavior: hasConvChanged ? 'auto' : 'smooth' })
     }
 
     prevMessagesCountRef.current = messages.length
     prevActiveConvIdRef.current = activeConversationId
   }, [messages, activeConversationId])
-
-  useEffect(() => {
-    if (showTimeBanner) {
-      const timer = setTimeout(() => {
-        setShowTimeBanner(false)
-      }, 5000)
-      return () => clearTimeout(timer)
-    }
-  }, [showTimeBanner])
 
   // Paged in the client. The endpoint returns one connection-and-channel's conversations in a
   // single response — a few dozen rows, not a contact list — so slicing here is honest rather
@@ -563,10 +583,32 @@ export const Chat: React.FC = () => {
   const [emailCompose, setEmailCompose] =
     useState<{ messageId: number; mode: EmailComposeMode } | null>(null)
 
+  /**
+   * The composer opens on purpose only — from a message's Reply / Reply All / Forward, or New
+   * Email — and closes with its ✕. Docking it permanently repeated those buttons and hid the thread.
+   */
+  const composeTarget = emailCompose
+
   /** The message the composer is responding to, resolved from the open thread. */
   const activeEmailSource = useMemo(
-    () => messages.find(m => m.id === emailCompose?.messageId) ?? null,
-    [messages, emailCompose])
+    () => messages.find(m => m.id === composeTarget?.messageId) ?? null,
+    [messages, composeTarget?.messageId])
+
+  // Opening the composer shrinks the thread; keep the message being answered on screen. Scrolls
+  // the thread pane only (scrollIntoView would move the page too).
+  useEffect(() => {
+    if (!emailCompose || emailCompose.messageId < 0) return
+    const frame = requestAnimationFrame(() => {
+      const pane = messagesContainerRef.current
+      const row = pane?.querySelector<HTMLElement>(`[data-message-id="${emailCompose.messageId}"]`)
+      if (!pane || !row) return
+      const paneBox = pane.getBoundingClientRect()
+      const rowBox = row.getBoundingClientRect()
+      if (rowBox.bottom > paneBox.bottom) pane.scrollTop += rowBox.bottom - paneBox.bottom
+      else if (rowBox.top < paneBox.top) pane.scrollTop -= paneBox.top - rowBox.top
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [emailCompose])
 
   /**
    * The address this thread sends as.
@@ -589,34 +631,37 @@ export const Chat: React.FC = () => {
     return conn?.defaultFromEmail ?? null
   }, [fromNumber, messages, emailConnections, selectedConnectionId])
 
+  const [showFilters, setShowFilters] = useState(false)
+  // Defaults are the first option of each server list, so changing a default is a catalogue edit.
+  const filterDefaults = useMemo(() => ({
+    state: chatOptions.data?.stateFilters?.[0]?.value ?? 'active',
+    assignee: chatOptions.data?.assigneeFilters?.[0]?.value ?? ''
+  }), [chatOptions.data])
+
+  // The tabs are combinations of the read and owner filters, defined by the server.
+  const quickViews = chatOptions.data?.quickViews ?? []
+  const activeQuickView = quickViews.find(v => v.readFilter === conversationsFilter && v.assigneeFilter === assigneeFilter) ?? null
+  // An owner choice no tab expresses ("Unassigned") counts as a filter; one a tab shows does not.
+  const ownerIsFiltered = !quickViews.some(v => v.assigneeFilter === assigneeFilter)
+  const activeFilterCount = Number(stateFilter !== filterDefaults.state) + Number(ownerIsFiltered)
+  const clearFilters = () => {
+    setStateFilter(filterDefaults.state)
+    if (ownerIsFiltered) setAssigneeFilter(filterDefaults.assignee)
+  }
+
   const [conversationPage, setConversationPage] = useState(1)
-  const [conversationPageSize, setConversationPageSize] = useState(8)
+  const [conversationPageSize, setConversationPageSize] = useState(CONVERSATION_LIST_PAGE_SIZES[0])
 
-  const filteredConversations = useMemo(() => {
-    return conversations.filter((conversation) => {
-      if (sidebarSearchQuery) {
-        const q = sidebarSearchQuery.toLowerCase()
-        if (!conversation.name.toLowerCase().includes(q) && !conversation.phone.includes(q)) return false
-      }
-
-      if (conversationsFilter === 'Unread Chats' && conversation.unreadCount === 0) {
-        return false
-      }
-
-      // No channel predicate here any more. The server scopes the fetch by channel, so a
-      // second filter over the response could only ever remove rows the response never had —
-      // which is exactly how selecting Email used to empty an inbox that had email in it.
-      return true
-    })
-  }, [conversations, conversationsFilter, sidebarSearchQuery])
-
-  // Pages over what is loaded; when the server has more, one extra page is offered and fetched
-  // on demand, so the inbox never downloads every conversation up front.
-  const loadedPageCount = Math.max(1, Math.ceil(filteredConversations.length / conversationPageSize))
-  const conversationPageCount = loadedPageCount + (hasMoreConversations ? 1 : 0)
+  // The server applies every filter, so the list is shown as loaded. When the active tab's count
+  // is known it is the total; otherwise the footer says how many are loaded and whether more exist.
+  const listTotal = activeQuickView && quickViewCounts ? quickViewCounts[activeQuickView.value] ?? null : null
+  const loadedPageCount = Math.max(1, Math.ceil(conversations.length / conversationPageSize))
+  const conversationPageCount = listTotal != null
+    ? Math.max(1, Math.ceil(listTotal / conversationPageSize))
+    : loadedPageCount + (hasMoreConversations ? 1 : 0)
   const currentConversationPage = Math.min(conversationPage, conversationPageCount)
 
-  const pagedConversations = filteredConversations.slice(
+  const pagedConversations = conversations.slice(
     (currentConversationPage - 1) * conversationPageSize,
     currentConversationPage * conversationPageSize)
 
@@ -624,7 +669,17 @@ export const Chat: React.FC = () => {
   // describe a page that no longer exists — "showing 17 to 24 of 6".
   useEffect(() => {
     setConversationPage(1)
-  }, [channelFilter, selectedConnectionId, conversationsFilter, sidebarSearchQuery])
+  }, [channelFilter, selectedConnectionId, conversationsFilter, sidebarSearchQuery, stateFilter, assigneeFilter, sortOrder])
+
+  const goToConversationPage = (page: number) => {
+    if (page > loadedPageCount) void loadMoreConversations()
+    setConversationPage(page)
+  }
+
+  const refreshInbox = () => {
+    void loadConversations()
+    if (channelFilter !== ALL_CHANNELS) void loadAccounts()
+  }
 
   // Each thread opens collapsed. Carrying "expanded" across to the next one would show a
   // different conversation's full history without being asked.
@@ -648,17 +703,38 @@ export const Chat: React.FC = () => {
     setIsTemplateModalOpen(true)
   }
 
-  // 2. Delete Menu
-  const [showDeleteMenu, setShowDeleteMenu] = useState(false)
+  // 2. Conversation actions (the header's ⋮ menu)
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
 
-
-
-  // 3. User Info Drawer & Notes
-  const [showInfoDrawer, setShowInfoDrawer] = useState(false)
-  const [notes, setNotes] = useState<any[]>([])
-  const [loadingNotes, setLoadingNotes] = useState(false)
-  const [newNoteContent, setNewNoteContent] = useState('')
-  const [showAddNoteInput, setShowAddNoteInput] = useState(false)
+  // 3. Details panel. Open by default where it docks beside the conversation (decided once the
+  // layout is measured); the operator's choice is remembered per browser, because it is a
+  // reading preference rather than data.
+  const [showDetails, setShowDetails] = useState<boolean>(() => {
+    try {
+      const saved = window.localStorage.getItem(DETAILS_PANEL_STORAGE_KEY)
+      if (saved !== null) return saved === 'open'
+    } catch {
+      // Storage can be unavailable (private mode); fall through to the width check.
+    }
+    return false
+  })
+  useLayoutEffect(() => {
+    try {
+      if (window.localStorage.getItem(DETAILS_PANEL_STORAGE_KEY) !== null) return
+    } catch {
+      // As above.
+    }
+    const width = layoutRef.current?.getBoundingClientRect().width ?? 0
+    if (width >= DETAILS_PANEL_DOCK_MIN_WIDTH) setShowDetails(true)
+  }, [])
+  const setDetailsOpen = (open: boolean) => {
+    setShowDetails(open)
+    try {
+      window.localStorage.setItem(DETAILS_PANEL_STORAGE_KEY, open ? 'open' : 'closed')
+    } catch {
+      // Same as above: the panel still opens and closes, it just is not remembered.
+    }
+  }
 
   // 6. Local Search Bar
   const [showMsgSearch, setShowMsgSearch] = useState(false)
@@ -693,7 +769,7 @@ export const Chat: React.FC = () => {
   }, [messages])
 
   const windowStatus = useMemo(() => {
-    if (!lastActiveMessage) return { active: false, text: 'No messages exchange yet' }
+    if (!lastActiveMessage) return { active: false, text: 'No messages yet' }
 
     const lastTime = new Date(lastActiveMessage.createdAt).getTime()
     const limit = lastTime + 24 * 60 * 60 * 1000
@@ -701,14 +777,14 @@ export const Chat: React.FC = () => {
     const remainingMs = limit - now
 
     if (remainingMs <= 0) {
-      return { active: false, text: '24h customer window expired' }
+      return { active: false, text: 'Reply window closed' }
     }
 
     const hours = Math.floor(remainingMs / (60 * 60 * 1000))
     const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000))
     return {
       active: true,
-      text: `Reply within ${hours} hours and ${minutes} minutes remaining`
+      text: `Reply window: ${hours}h ${minutes}m left`
     }
   }, [lastActiveMessage])
 
@@ -722,52 +798,9 @@ export const Chat: React.FC = () => {
     )
   }, [messages, msgSearchQuery])
 
-  // Note CRUD handlers
-  const loadNotes = async (contactId: number) => {
-    setLoadingNotes(true)
-    try {
-      const res = await apiClient.get(`/Contacts/${contactId}/notes`)
-      setNotes(res.data?.data || [])
-    } catch (err) {
-    } finally {
-      setLoadingNotes(false)
-    }
-  }
-
-  const handleAddNote = async () => {
-    if (!newNoteContent.trim() || !activeConversation) return
-    try {
-      const res = await apiClient.post(`/Contacts/${activeConversation.contactId}/notes`, {
-        content: newNoteContent.trim()
-      })
-      if (res.data?.success) {
-        setNotes(prev => [res.data.data, ...prev])
-        setNewNoteContent('')
-        setShowAddNoteInput(false)
-        toast.success('Note added successfully')
-      }
-    } catch (err) {
-      toast.error('Failed to add note')
-    }
-  }
-
-  const handleDeleteNote = async (noteId: number) => {
-    if (!activeConversation) return
-    try {
-      const res = await apiClient.delete(`/Contacts/${activeConversation.contactId}/notes/${noteId}`)
-      if (res.data?.success) {
-        setNotes(prev => prev.filter(n => n.id !== noteId))
-        toast.success('Note deleted successfully')
-      }
-    } catch (err) {
-      toast.error('Failed to delete note')
-    }
-  }
-
   const [showDeleteChatModal, setShowDeleteChatModal] = useState(false)
 
   const handleDeleteChat = () => {
-    setShowDeleteMenu(false)
     if (!activeConversationId) return
     setShowDeleteChatModal(true)
   }
@@ -777,9 +810,9 @@ export const Chat: React.FC = () => {
     if (!activeConversationId) return
     try {
       await deleteActiveConversation()
-      toast.success("Chat deleted successfully!")
-    } catch (err) {
-      toast.error("Failed to delete conversation.")
+      toast.success('Conversation deleted.')
+    } catch {
+      toast.error('The conversation could not be deleted. Try again.')
     }
   }
 
@@ -880,18 +913,6 @@ export const Chat: React.FC = () => {
 
     return renderMessageText(text, searchQuery);
   };
-
-  // Load notes when opening drawer
-  useEffect(() => {
-    if (showInfoDrawer && activeConversationId) {
-      const conv = conversations.find(c => c.id === activeConversationId)
-      if (conv) {
-        loadNotes(conv.contactId)
-      }
-    }
-  }, [showInfoDrawer, activeConversationId, conversations])
-
-  const selectedAccount = accounts.find(account => account.phoneNumberId === fromNumber)
 
   const sendCurrentMessage = async () => {
     const text = messageText.trim()
@@ -1030,9 +1051,7 @@ export const Chat: React.FC = () => {
         setShowEmojiPicker(false)
         setShowAttachmentMenu(false)
         setShowReplyButtons(false)
-        setShowDeleteMenu(false)
         setShowMsgSearch(false)
-        setShowTimeBanner(false)
         setShowDeleteChatModal(false)
         setIsTemplateModalOpen(false)
       }
@@ -1052,9 +1071,6 @@ export const Chat: React.FC = () => {
       if (showReplyButtons && !target.closest('.chat-composer-popover-anchor')) {
         setShowReplyButtons(false)
       }
-      if (showDeleteMenu && !target.closest('.chat-header-more-menu-wrapper')) {
-        setShowDeleteMenu(false)
-      }
     }
 
     document.addEventListener('keydown', handleEscape)
@@ -1063,7 +1079,7 @@ export const Chat: React.FC = () => {
       document.removeEventListener('keydown', handleEscape)
       document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [showEmojiPicker, showAttachmentMenu, showDeleteMenu, showCannedReplies, showReplyButtons])
+  }, [showEmojiPicker, showAttachmentMenu, showCannedReplies, showReplyButtons])
 
   // Loaded once. activeOnly=true so the composer only offers replies that are switched on —
   // the management list is where inactive ones remain visible.
@@ -1115,15 +1131,40 @@ export const Chat: React.FC = () => {
   const isEmailThread =
     activeConversation != null && normalizeChannel(activeConversation.channel) === 'email'
 
+  const activeChannelKey = activeConversation ? normalizeChannel(activeConversation.channel) : null
+  const activeChannelLabel = CHANNELS.find(c => c.key === activeChannelKey)?.label ?? activeConversation?.channel ?? ''
+  /** The subject being discussed: the latest email that has one. WhatsApp threads have none. */
+  const threadSubject = isEmailThread
+    ? [...messages].reverse().find(m => m.subject?.trim())?.subject?.trim() || null
+    : null
+  const contactAddress = activeConversation
+    ? (isEmailThread ? (activeConversation.email || activeConversation.phone) : activeConversation.phone)
+    : ''
+
+  const canStartNewEmail = isEmailThread && canSend
+  const startNewEmail = () => {
+    if (!canStartNewEmail) return
+    setEmailCompose({ messageId: -1, mode: 'newEmail' })
+  }
+
+  const copyContactAddress = async () => {
+    if (!contactAddress) return
+    try {
+      await navigator.clipboard.writeText(contactAddress)
+      toast.success(isEmailThread ? 'Email address copied.' : 'Phone number copied.')
+    } catch {
+      toast.error('Could not copy to the clipboard.')
+    }
+  }
+
+  const canInitiate = has('Chat.InitiateChat')
+
   return (
     <motion.div className="chat-page" {...pageTransitionProps}>
       {/*
         The channel selector belongs to the page, not to the conversation list. It governs both
-        panes — which threads are listed *and* which composer the thread shows — so presenting it
-        as one more sidebar filter understated what it does.
-
-        Unavailable channels are listed but disabled, which is deliberate: it answers "does this
-        product do SMS?" without pretending that it does.
+        panes — which threads are listed *and* which composer the thread shows. Unavailable
+        channels are listed but disabled: it answers "does this product do SMS?" honestly.
       */}
       <div className="chat-page-header omni-page-hero">
         <div className="chat-page-heading">
@@ -1131,35 +1172,39 @@ export const Chat: React.FC = () => {
           <p>Manage customer conversations across all your communication channels in one place.</p>
         </div>
 
-        <div className="chat-page-channel">
-          <label className="chat-page-channel-label">Channel</label>
-          <ChannelPicker
-            value={channelFilter}
-            onChange={(value) => {
-              setChannelFilter(value.startsWith('__unavailable_') ? 'All Channels' : value)
-            }}
-          />
+        <div className="chat-page-tools">
+          <div className="chat-page-channel">
+            <span className="chat-page-channel-label">Channel</span>
+            <ChannelPicker
+              value={channelFilter}
+              onChange={(value) => {
+                setChannelFilter(value.startsWith('__unavailable_') ? ALL_CHANNELS : value)
+              }}
+            />
+          </div>
+          {showsEmail && canSend && (
+            <button
+              type="button"
+              className="chat-new-email-btn"
+              onClick={startNewEmail}
+              disabled={!canStartNewEmail}
+              title={canStartNewEmail ? 'Write a new email to this contact' : 'Open an email conversation to write a new email'}
+            >
+              <Plus size={15} aria-hidden="true" />
+              New Email
+            </button>
+          )}
         </div>
       </div>
 
       {/* On narrow screens one pane shows at a time: the list, or the open conversation. */}
-      <div className={`chat-container-layout${activeConversation ? ' has-active' : ''}`}>
+      <div ref={layoutRef} className={`chat-container-layout${activeConversation ? ' has-active' : ''}`}>
       <div className="chat-sidebar">
         <div className="chat-sidebar-header">
-
           {/* Connection picker — hidden in ALL_CHANNELS mode where the list spans all connections */}
-          {channelFilter === ALL_CHANNELS ? (
-            <div className="chat-connection-select-wrapper">
-              <label className="chat-sidebar-field-label">Active Connection</label>
-              <div className="chat-all-connections-badge">
-                <span className="chat-all-connections-label">All Connections</span>
-              </div>
-            </div>
-          ) : (
+          {channelFilter !== ALL_CHANNELS && (
           <div className="chat-connection-select-wrapper">
-            <label className="chat-sidebar-field-label">
-              Active Connection
-            </label>
+            <span className="chat-sidebar-field-label">Active Connection</span>
             <SearchableSelect
               label="Active connection"
               placeholder={
@@ -1183,16 +1228,8 @@ export const Chat: React.FC = () => {
           {/* From/Sender row — only shown when a specific connection is selected */}
           {channelFilter !== ALL_CHANNELS && (
           <div className="chat-account-display-row">
-            <Avatar
-              name={
-                isEmailConnectionSelected
-                  ? (fromNumber || 'From Address')
-                  : (selectedAccount?.verifiedName || selectedAccount?.phoneNumber || 'From Account')
-              }
-              size="small"
-            />
             <div className="chat-dropdown-full">
-              <span className="upload-sub-text">{isEmailConnectionSelected ? 'From:' : 'Sender Line:'}</span>
+              <span className="chat-sidebar-field-label">{isEmailConnectionSelected ? 'From' : 'Sender line'}</span>
               <SearchableSelect
                 label={isEmailConnectionSelected ? 'From address' : 'Sender line'}
                 placeholder={
@@ -1207,62 +1244,116 @@ export const Chat: React.FC = () => {
                 onChange={setFromNumber}
               />
             </div>
+            <button type="button" className="chat-icon-btn chat-refresh-btn" aria-label="Refresh conversations" title="Refresh conversations"
+              onClick={refreshInbox} disabled={isLoadingConversations}>
+              <RefreshCw size={16} aria-hidden="true" className={isLoadingConversations ? 'is-spinning' : undefined} />
+            </button>
           </div>
           )}
 
-          <SearchableSelect
-            label="Chat filter"
-            placeholder="All Chats"
-            allValue="All Chats"
-            hideAllOption
-            value={conversationsFilter}
-            options={[
-              { value: 'All Chats', label: 'All Chats' },
-              { value: 'Unread Chats', label: 'Unread Chats' }
-            ]}
-            onChange={setConversationsFilter}
-          />
+          <div className="chat-search-row">
+            <SearchBar
+              value={sidebarSearchQuery}
+              onChange={setSidebarSearchQuery}
+              placeholder={
+                channelFilter === ALL_CHANNELS
+                  ? 'Search name, email, phone, message…'
+                  : isEmailChannel
+                    ? 'Search name, email, subject…'
+                    : 'Search name, phone, message…'
+              }
+            />
+            <button
+              type="button"
+              className={`chat-icon-btn chat-filter-btn${showFilters ? ' active' : ''}`}
+              aria-expanded={showFilters}
+              aria-controls="chat-filter-panel"
+              aria-label={activeFilterCount > 0 ? `Filters, ${activeFilterCount} applied` : 'Filters'}
+              title="Filters"
+              onClick={() => setShowFilters(open => !open)}
+            >
+              <SlidersHorizontal size={16} aria-hidden="true" />
+              {activeFilterCount > 0 && <span className="chat-filter-count" aria-hidden="true">{activeFilterCount}</span>}
+            </button>
+            {channelFilter === ALL_CHANNELS && (
+              <button type="button" className="chat-icon-btn chat-refresh-btn" aria-label="Refresh conversations" title="Refresh conversations"
+                onClick={refreshInbox} disabled={isLoadingConversations}>
+                <RefreshCw size={16} aria-hidden="true" className={isLoadingConversations ? 'is-spinning' : undefined} />
+              </button>
+            )}
+          </div>
 
-          <SearchableSelect
-            label="Status"
-            placeholder="Active"
-            allValue="all"
-            hideAllOption
-            value={stateFilter}
-            options={(chatOptions.data?.stateFilters ?? []).map(o => ({ value: o.value, label: o.label }))}
-            onChange={setStateFilter}
-          />
+          {showFilters && (
+            <div id="chat-filter-panel" className="chat-filter-panel" role="group" aria-label="Filter conversations">
+              <div className="chat-filter-field">
+                <span className="chat-sidebar-field-label">Status</span>
+                <SearchableSelect
+                  label="Status"
+                  placeholder={labelOf(chatOptions.data?.stateFilters, filterDefaults.state)}
+                  allValue="all"
+                  hideAllOption
+                  value={stateFilter}
+                  options={(chatOptions.data?.stateFilters ?? []).map(o => ({ value: o.value, label: o.label }))}
+                  onChange={setStateFilter}
+                />
+              </div>
+              <div className="chat-filter-field">
+                <span className="chat-sidebar-field-label">Owner</span>
+                <SearchableSelect
+                  label="Owner"
+                  placeholder={labelOf(chatOptions.data?.assigneeFilters, filterDefaults.assignee)}
+                  allValue=""
+                  hideAllOption
+                  value={assigneeFilter}
+                  options={(chatOptions.data?.assigneeFilters ?? []).map(o => ({ value: o.value, label: o.label }))}
+                  onChange={setAssigneeFilter}
+                />
+              </div>
+              <div className="chat-filter-field">
+                <label className="chat-sidebar-field-label" htmlFor="chat-rows-per-page">Rows per page</label>
+                <select
+                  id="chat-rows-per-page"
+                  className="chat-native-select"
+                  value={conversationPageSize}
+                  onChange={(e) => { setConversationPageSize(Number(e.target.value)); setConversationPage(1) }}
+                >
+                  {CONVERSATION_LIST_PAGE_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              {activeFilterCount > 0 && (
+                <button type="button" className="chat-filter-clear" onClick={clearFilters}>Clear filters</button>
+              )}
+            </div>
+          )}
 
-          <SearchableSelect
-            label="Owner"
-            placeholder="Anyone"
-            allValue=""
-            hideAllOption
-            value={assigneeFilter}
-            options={(chatOptions.data?.assigneeFilters ?? []).map(o => ({ value: o.value, label: o.label }))}
-            onChange={setAssigneeFilter}
-          />
-        </div>
-
-        <div className="chat-sidebar-search">
-          <SearchBar
-            value={sidebarSearchQuery}
-            onChange={setSidebarSearchQuery}
-            placeholder={
-              channelFilter === ALL_CHANNELS
-                ? 'Search name, phone, email, message...'
-                : isEmailChannel
-                  ? 'Search name, email, subject...'
-                  : 'Search name, phone, message, group...'
-            }
-          />
+          {quickViews.length > 0 && (
+            <div className="chat-quick-views" role="tablist" aria-label="Inbox views">
+              {quickViews.map(view => {
+                const selected = activeQuickView?.value === view.value
+                const count = quickViewCounts?.[view.value]
+                return (
+                  <button
+                    key={view.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    className={`chat-quick-view${selected ? ' is-active' : ''}`}
+                    title={view.description}
+                    onClick={() => applyQuickView(view.readFilter, view.assigneeFilter)}
+                  >
+                    {view.label}
+                    {count != null && <span className="chat-quick-count">{new Intl.NumberFormat().format(count)}</span>}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         <div className="conversation-list-scroll">
           {(() => {
-            // Judged against the selected channel's own connections. This used to test the
-            // WhatsApp list unconditionally, so choosing Email put a "No WABA number connected"
-            // error over a fully configured email account.
+            // Judged against the selected channel's own connections, so an email connection is
+            // never reported as "No WABA number connected".
             const selectedConn = channelConnections.find(c => c.id === selectedConnectionId);
             if (selectedConn && !selectedConn.hasIdentity) {
               return (
@@ -1281,70 +1372,64 @@ export const Chat: React.FC = () => {
             }
             return isLoadingConversations && conversations.length === 0 ? (
               <div className="page-loader">
-                <p className="upload-sub-text">Loading chats...</p>
+                <p className="upload-sub-text">Loading conversations…</p>
               </div>
-            ) : filteredConversations.length === 0 ? (
+            ) : conversations.length === 0 ? (
               <div className="chat-sidebar-empty-state">
                 <MessageSquare size={36} className="chat-sidebar-empty-icon" />
-                <span className="chat-sidebar-empty-title">No chats found</span>
-              <p className="chat-sidebar-empty-desc">
-                {conversationsFilter === 'Unread Chats'
-                  ? 'There are no unread chats.'
-                  : 'Try adjusting your search query or connection filter.'}
-              </p>
-            </div>
-          ) : (
+                <span className="chat-sidebar-empty-title">No conversations</span>
+                <p className="chat-sidebar-empty-desc">
+                  {activeQuickView?.description && activeQuickView.value !== quickViews[0]?.value
+                    ? `Nothing here: ${activeQuickView.description.charAt(0).toLowerCase()}${activeQuickView.description.slice(1)}`
+                    : 'Try another search, view or filter.'}
+                </p>
+              </div>
+            ) : (
             pagedConversations.map((conversation) => {
               const isActive = conversation.id === activeConversationId
+              const channelKey = normalizeChannel(conversation.channel)
+              const state = conversation.conversationStatus ?? 'Open'
               return (
                 <button
                   key={conversation.id}
                   type="button"
-                  className={`conversation-item ${isActive ? 'active' : ''}`}
+                  className={`conversation-item ${isActive ? 'active' : ''}${conversation.unreadCount > 0 ? ' is-unread' : ''}`}
+                  aria-current={isActive ? 'true' : undefined}
                   onClick={() => selectConversation(conversation.id)}
                 >
-                  {/*
-                    The avatar carries a small channel marker, as in the reference designs. It
-                    sits on the avatar rather than beside the name because the name row already
-                    competes with the relation badge, and the channel is something an operator
-                    scans down the list for rather than reads.
-                  */}
-                  <span
-                    className="conversation-avatar-wrap"
-                    data-channel={normalizeChannel(conversation.channel)}
-                  >
+                  {/* The channel marker sits on the avatar: an operator scans for it, rather than reads it. */}
+                  <span className="conversation-avatar-wrap" data-channel={channelKey}>
                     <Avatar name={conversation.name} size="medium" />
                     <span className="conversation-channel-dot" aria-hidden="true">
-                      {normalizeChannel(conversation.channel) === 'email'
-                        ? <Mail size={10} />
-                        : <MessageCircle size={10} />}
+                      {channelKey === 'email' ? <Mail size={10} /> : <MessageCircle size={10} />}
                     </span>
-                    <span className="sr-only">
-                      {normalizeChannel(conversation.channel) === 'email' ? 'Email' : 'WhatsApp'}
-                    </span>
+                    <span className="sr-only">{CHANNELS.find(c => c.key === channelKey)?.label ?? conversation.channel}</span>
                   </span>
 
                   <div className="conversation-info-row">
                     <div className="conversation-name-badge-row">
-                      <div className="conversation-name-wrap">
-                        <span className="conversation-contact-name">{conversation.name}</span>
-                      </div>
-                      <ContactTypeBadge value={conversation.status} typeMap={typeMap} />
+                      <span className="conversation-contact-name">{conversation.name}</span>
+                      <span className="conversation-time">{conversation.lastMessageTime}</span>
                     </div>
-                    {(conversation.assignedUserName || conversation.slaBreached || conversation.firstResponseDueAt) && (
-                      <div className="conversation-ops-row">
-                        <SlaChip conversation={conversation} />
-                        {conversation.assignedUserName && <span className="conversation-owner">{conversation.assignedUserName}</span>}
-                      </div>
-                    )}
                     <div className="conversation-msg-preview-row">
                       <span className="conversation-preview-text">{conversation.lastMessage || 'No messages yet'}</span>
-                      <div className="contacts-controls-left">
-                        <span className="conversation-time">{conversation.lastMessageTime}</span>
-                        {conversation.unreadCount > 0 && (
-                          <div className="unread-count-bubble">{conversation.unreadCount}</div>
-                        )}
-                      </div>
+                      {conversation.unreadCount > 0 && (
+                        <span className="unread-count-bubble" aria-label={`${conversation.unreadCount} unread`}>
+                          {conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}
+                        </span>
+                      )}
+                    </div>
+                    <div className="conversation-ops-row">
+                      <span className="conversation-state" data-state={state}>
+                        {labelOf(chatOptions.data?.conversationStatuses, state)}
+                      </span>
+                      <ContactTypeBadge value={conversation.status} typeMap={typeMap} />
+                      <SlaChip conversation={conversation} />
+                      {conversation.assignedUserName && (
+                        <span className="conversation-owner" title={`Assigned to ${conversation.assignedUserName}`}>
+                          <UserRound size={11} aria-hidden="true" />{conversation.assignedUserName}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </button>
@@ -1353,14 +1438,15 @@ export const Chat: React.FC = () => {
           )})()}
         </div>
 
-        {/* Compact single-row pagination footer — always visible once there are results */}
-        {filteredConversations.length > 0 && (
+        {conversations.length > 0 && (
           <div className="chat-sidebar-footer">
             <span className="chat-sidebar-footer-count">
               {((currentConversationPage - 1) * conversationPageSize + 1).toLocaleString()}–
-              {Math.min(currentConversationPage * conversationPageSize, filteredConversations.length).toLocaleString()}
+              {Math.min(currentConversationPage * conversationPageSize, listTotal ?? conversations.length).toLocaleString()}
               {' '}of{' '}
-              {filteredConversations.length.toLocaleString()}{hasMoreConversations ? '+' : ''}
+              {listTotal != null
+                ? listTotal.toLocaleString()
+                : `${conversations.length.toLocaleString()}${hasMoreConversations ? '+' : ''}`}
             </span>
 
             <div className="chat-sidebar-footer-nav">
@@ -1371,38 +1457,31 @@ export const Chat: React.FC = () => {
                 disabled={currentConversationPage <= 1}
                 aria-label="Previous page"
               >
-                <ChevronLeft size={14} />
+                <ChevronLeft size={14} aria-hidden="true" />
               </button>
-              <span className="chat-sidebar-footer-page">
-                {currentConversationPage}/{conversationPageCount}
-              </span>
               <button
                 type="button"
                 className="chat-sidebar-footer-nav-btn"
-                onClick={() => {
-                  const next = currentConversationPage + 1
-                  if (next > loadedPageCount) void loadMoreConversations()
-                  setConversationPage(next)
-                }}
+                onClick={() => goToConversationPage(currentConversationPage + 1)}
                 disabled={currentConversationPage >= conversationPageCount || isLoadingMoreConversations}
                 aria-label="Next page"
               >
-                <ChevronRight size={14} />
+                <ChevronRight size={14} aria-hidden="true" />
               </button>
             </div>
 
-            <div className="chat-sidebar-footer-rows">
-              <span className="chat-sidebar-footer-rows-label">Rows</span>
+            {(chatOptions.data?.sortOrders?.length ?? 0) > 1 && (
               <select
-                value={conversationPageSize}
-                onChange={(e) => { setConversationPageSize(Number(e.target.value)); setConversationPage(1) }}
-                aria-label="Rows per page"
+                className="chat-sort-select"
+                aria-label="Sort conversations"
+                value={sortOrder || chatOptions.data?.sortOrders?.[0]?.value}
+                onChange={(e) => setSortOrder(e.target.value)}
               >
-                {[8, 15, 25, 50].map(s => (
-                  <option key={s} value={s}>{s}</option>
+                {chatOptions.data?.sortOrders.map(o => (
+                  <option key={o.value} value={o.value} title={o.description ?? undefined}>{o.label}</option>
                 ))}
               </select>
-            </div>
+            )}
           </div>
         )}
       </div>
@@ -1440,135 +1519,138 @@ export const Chat: React.FC = () => {
                   <ChevronLeft size={18} aria-hidden="true" />
                 </button>
                 <Avatar name={activeConversation.name} size="medium" />
-                <div>
+                <div className="chat-header-identity">
                   <div className="chat-header-name-row">
                     <span className="conversation-contact-name">{activeConversation.name}</span>
                     <ContactTypeBadge value={activeConversation.status} typeMap={typeMap} />
                   </div>
-                  <p className="upload-sub-text margin-zero">
-                    {isEmailThread
-                      ? (activeConversation.email || activeConversation.phone)
-                      : activeConversation.phone}
-                  </p>
-                </div>
-              </div>
-
-              <div className="chat-header-actions">
-                <button
-                  type="button"
-                  className="chat-icon-btn"
-                  title="Search Messages"
-                  aria-label="Search messages"
-                  onClick={() => setShowMsgSearch(!showMsgSearch)}
-                >
-                  <Search size={18} />
-                </button>
-
-                {/* 24h window indicator — WhatsApp only */}
-                {!isEmailThread && windowStatus.active && (
-                  <button
-                    type="button"
-                    className="chat-header-window-dot active"
-                    title="Click to view time remaining"
-                    aria-label="Messaging window active — click to view time remaining"
-                    onClick={() => setShowTimeBanner(true)}
-                  />
-                )}
-                {!isEmailThread && !windowStatus.active && (
-                  <div
-                    className="chat-header-window-dot expired"
-                    title={windowStatus.text}
-                  />
-                )}
-
-                <ConversationOwnerControls conversation={activeConversation} onChanged={() => void loadConversations()} />
-
-                <button
-                  type="button"
-                  className={`chat-icon-btn ${showInfoDrawer ? 'active' : ''}`}
-                  title="User Information"
-                  aria-label="Toggle contact information"
-                  onClick={() => setShowInfoDrawer(!showInfoDrawer)}
-                >
-                  <Info size={18} />
-                </button>
-                {/* Initiate Chat (WhatsApp templates) — only for WhatsApp threads */}
-                {!isEmailThread && (
-                  <Can permission="Chat.InitiateChat">
-                    <button
-                      type="button"
-                      className="chat-icon-btn whatsapp-green"
-                      title="Initiate Chat"
-                      aria-label="Initiate chat with a template"
-                      onClick={handleOpenTemplateModal}
-                    >
-                      <MessageSquare size={18} />
-                    </button>
-                  </Can>
-                )}
-
-                <div className="chat-header-more-menu-wrapper">
-                  <button
-                    type="button"
-                    className="chat-icon-btn"
-                    title="More options"
-                    aria-label="More options"
-                    onClick={() => setShowDeleteMenu(!showDeleteMenu)}
-                  >
-                    <MoreVertical size={18} />
-                  </button>
-                  {showDeleteMenu && (
-                    <div className="chat-header-delete-menu">
-                      <button type="button" className="chat-header-delete-btn" onClick={handleDeleteChat}>
-                        <Trash2 size={14} />
-                        Delete Chat
+                  {contactAddress && (
+                    <div className="chat-header-address">
+                      <span title={contactAddress}>{contactAddress}</span>
+                      <button type="button" className="chat-copy-btn" onClick={() => void copyContactAddress()}
+                        aria-label={isEmailThread ? 'Copy email address' : 'Copy phone number'} title="Copy">
+                        <Copy size={12} aria-hidden="true" />
                       </button>
                     </div>
                   )}
                 </div>
               </div>
+
+              <div className="chat-header-actions">
+                <ConversationOwnerSelect conversation={activeConversation} onChanged={() => void loadConversations()} />
+                <button
+                  type="button"
+                  className={`chat-icon-btn${showMsgSearch ? ' active' : ''}`}
+                  title="Search messages"
+                  aria-label="Search messages"
+                  aria-pressed={showMsgSearch}
+                  onClick={() => setShowMsgSearch(!showMsgSearch)}
+                >
+                  <Search size={18} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className={`chat-icon-btn${showDetails ? ' active' : ''}`}
+                  title={showDetails ? 'Hide details' : 'Show details'}
+                  aria-label={showDetails ? 'Hide customer details' : 'Show customer details'}
+                  aria-pressed={showDetails}
+                  onClick={() => setDetailsOpen(!showDetails)}
+                >
+                  <PanelRight size={18} aria-hidden="true" />
+                </button>
+                <Menu
+                  open={headerMenuOpen}
+                  onOpenChange={setHeaderMenuOpen}
+                  align="end"
+                  ariaLabel="Conversation actions"
+                  trigger={(props) => (
+                    <button {...props} type="button" className="chat-icon-btn" title="More actions" aria-label="More actions">
+                      <MoreVertical size={18} aria-hidden="true" />
+                    </button>
+                  )}
+                >
+                  {canSend && (
+                    <MenuItem onSelect={() => void toggleConversationStatus(activeConversation, () => void loadConversations())}>
+                      {statusToggleFor(activeConversation).status === 'Open'
+                        ? <RotateCcw size={14} aria-hidden="true" />
+                        : <CheckCircle2 size={14} aria-hidden="true" />}
+                      {statusToggleFor(activeConversation).label}
+                    </MenuItem>
+                  )}
+                  {canStartNewEmail && (
+                    <MenuItem onSelect={startNewEmail}>
+                      <Mail size={14} aria-hidden="true" />New email
+                    </MenuItem>
+                  )}
+                  {!isEmailThread && canInitiate && (
+                    <MenuItem onSelect={handleOpenTemplateModal}>
+                      <MessageSquare size={14} aria-hidden="true" />Send template
+                    </MenuItem>
+                  )}
+                  {canDelete && (
+                    <MenuItem destructive onSelect={handleDeleteChat}>
+                      <Trash2 size={14} aria-hidden="true" />Delete conversation
+                    </MenuItem>
+                  )}
+                </Menu>
+              </div>
+            </div>
+
+            <div className="chat-subject-bar">
+              <div className="chat-subject-main">
+                <h2 className="chat-subject-title" title={threadSubject ?? undefined}>
+                  {isEmailThread ? (threadSubject ?? 'No subject') : `${activeChannelLabel} conversation`}
+                </h2>
+                <div className="chat-subject-chips">
+                  <ConversationStatusBadge conversation={activeConversation} />
+                  <span className="chat-channel-chip" data-channel={activeChannelKey ?? undefined}>
+                    {isEmailThread ? <Mail size={11} aria-hidden="true" /> : <MessageCircle size={11} aria-hidden="true" />}
+                    {activeChannelLabel}
+                  </span>
+                  <SlaChip conversation={activeConversation} />
+                  {!isEmailThread && (
+                    <span className={`chat-window-chip${windowStatus.active ? ' is-open' : ' is-closed'}`}
+                      title="WhatsApp allows free-form replies for 24 hours after the customer last wrote.">
+                      <Clock size={11} aria-hidden="true" />{windowStatus.text}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {activeConversation.lastMessageAt && (
+                <time className="chat-subject-date" dateTime={activeConversation.lastMessageAt}>
+                  {formatAbsoluteDateTime(activeConversation.lastMessageAt)}
+                </time>
+              )}
             </div>
 
             <div className="chat-window-content-row">
               <div className="chat-window-messages-column">
-                {windowStatus.active && showTimeBanner && (
-                  <div className="chat-window-time-remaining-banner-floating">
-                    <Clock size={14} className="chat-window-time-remaining-icon" />
-                    <span>{windowStatus.text}</span>
-                  </div>
-                )}
-
                 {showMsgSearch && (
                   <div className="chat-window-search-banner-floating">
                     <div className="chat-window-search-input-wrapper">
-                      <Search size={16} className="chat-window-search-icon" />
+                      <Search size={16} className="chat-window-search-icon" aria-hidden="true" />
                       <input
-                        type="text"
+                        type="search"
                         className="chat-window-search-input"
-                        placeholder="Search Messages..."
+                        placeholder="Search messages…"
+                        aria-label="Search messages in this conversation"
                         value={msgSearchQuery}
                         onChange={(e) => setMsgSearchQuery(e.target.value)}
                         autoFocus
                       />
-                      {msgSearchQuery && (
-                        <X
-                          size={16}
-                          className="chat-window-search-clear-icon"
-                          onClick={() => setMsgSearchQuery('')}
-                        />
-                      )}
                     </div>
                     <button
                       type="button"
                       className="chat-window-search-close-btn"
+                      aria-label="Close message search"
                       onClick={() => { setMsgSearchQuery(''); setShowMsgSearch(false); }}
                     >
-                      <X size={18} />
+                      <X size={18} aria-hidden="true" />
                     </button>
                   </div>
                 )}
 
-                <div className={`chat-messages-container${isEmailThread ? ' email-mode' : ''}`}>
+                <div ref={messagesContainerRef} className={`chat-messages-container${isEmailThread ? ' email-mode' : ''}`}>
                   {threadError && (
                     <div className="chat-thread-error" role="status">
                       <AlertCircle size={14} />
@@ -1625,6 +1707,7 @@ export const Chat: React.FC = () => {
                       return (
                         <div
                           key={message.id}
+                          data-message-id={message.id}
                           className={`chat-bubble-row${selectionMode ? ' selectable' : ''}${isSelected ? ' selected' : ''}`}
                           onContextMenu={(e) => openMessageMenu(e, message.id)}
                           onTouchStart={(e) => startLongPress(e, message.id)}
@@ -1645,7 +1728,7 @@ export const Chat: React.FC = () => {
                           {normalizeChannel(message.channel) === 'email' ? (
                             <EmailThreadMessage
                               message={message}
-                              onRespond={(mode) => setEmailCompose({ messageId: message.id, mode })}
+                              onRespond={canSend ? (mode) => setEmailCompose({ messageId: message.id, mode }) : undefined}
                             />
                           ) : (
                           <div className={getBubbleClass(message)}>
@@ -1716,77 +1799,29 @@ export const Chat: React.FC = () => {
                       )
                     })
                   )}
-                  <div ref={messagesEndRef} />
                 </div>
 
                 {isEmailThread ? (
-                  emailCompose && (activeEmailSource || emailCompose.mode === 'newEmail') ? (
+                  canSend && composeTarget && (activeEmailSource || composeTarget.mode === 'newEmail') ? (
                     <EmailComposer
                       conversationId={activeConversationId!}
                       source={activeEmailSource ?? messages[messages.length - 1] ?? ({} as Message)}
                       fromAddress={emailThreadFromAddress}
-                      mode={emailCompose.mode}
-                      onModeChange={(mode) => setEmailCompose({ ...emailCompose, mode })}
+                      mode={composeTarget.mode}
                       onSent={() => {
                         setEmailCompose(null)
-                        refreshActiveMessages()
+                        void refreshActiveMessages()
                         // Also refresh the inbox so the preview + timestamp update immediately
                         void loadConversations()
                       }}
                       onCancel={() => setEmailCompose(null)}
                     />
-                  ) : (
-                    /*
-                     * Closed by default. An email thread is read far more often than it is replied
-                     * to, and a composer permanently occupying a third of the pane pushes the mail
-                     * itself off screen — so it opens from the Reply/New Email buttons.
-                     */
-                    <div className="chat-composer-readonly email">
-                      <div className="chat-composer-readonly-actions">
-                        <button
-                          type="button"
-                          className="chat-composer-readonly-btn"
-                          onClick={() => {
-                            const lastMsg = messages[messages.length - 1]
-                            if (lastMsg) setEmailCompose({ messageId: lastMsg.id, mode: 'reply' })
-                          }}
-                        >
-                          <Mail size={14} />
-                          Reply
-                        </button>
-                        <button
-                          type="button"
-                          className="chat-composer-readonly-btn"
-                          onClick={() => {
-                            const lastMsg = messages[messages.length - 1]
-                            if (lastMsg) setEmailCompose({ messageId: lastMsg.id, mode: 'replyAll' })
-                          }}
-                        >
-                          <Mail size={14} />
-                          Reply All
-                        </button>
-                        <button
-                          type="button"
-                          className="chat-composer-readonly-btn"
-                          onClick={() => {
-                            const lastMsg = messages[messages.length - 1]
-                            if (lastMsg) setEmailCompose({ messageId: lastMsg.id, mode: 'forward' })
-                          }}
-                        >
-                          <Mail size={14} />
-                          Forward
-                        </button>
-                        <button
-                          type="button"
-                          className="chat-composer-readonly-btn new-email"
-                          onClick={() => setEmailCompose({ messageId: -1, mode: 'newEmail' })}
-                        >
-                          <Plus size={14} />
-                          New Email
-                        </button>
-                      </div>
+                  ) : !canSend ? (
+                    <div className="chat-composer-readonly">
+                      <Lock size={15} aria-hidden="true" />
+                      <span>You have read-only access to this conversation.</span>
                     </div>
-                  )
+                  ) : null
                 ) : !isEmailThread && !windowStatus.active ? (
                   <div className="chat-window-limit-banner">
                     <div className="chat-window-limit-left">
@@ -1974,139 +2009,7 @@ export const Chat: React.FC = () => {
                   </form>
                 )}
               </div>
-
-              {showInfoDrawer && (
-                <div className="chat-info-drawer">
-                  <div className="info-drawer-header">
-                    <h3>User Info</h3>
-                    <button type="button" className="info-drawer-close" onClick={() => setShowInfoDrawer(false)}>
-                      <X size={18} />
-                    </button>
-                  </div>
-
-                  <div className="info-drawer-body">
-                    <div className="info-drawer-user-card">
-                      <Avatar name={activeConversation.name} size="large" />
-                      <span className="info-drawer-name">{activeConversation.name}</span>
-                      <ContactTypeBadge value={activeConversation.status} typeMap={typeMap} />
-                    </div>
-
-                    <div className="info-drawer-section">
-                      <h4 className="info-drawer-section-title">Details</h4>
-                      <div className="info-details-list">
-                        <div className="info-detail-item">
-                          <div className="info-detail-label-row">
-                            <Phone size={14} className="info-detail-icon text-emerald" />
-                            <span className="info-detail-label">Connection</span>
-                            <span className="info-detail-value text-blue inline">{activeConversation.connectionName || 'Connection 1'}</span>
-                          </div>
-                        </div>
-                        <div className="info-detail-item">
-                          <div className="info-detail-label-row">
-                            <MessageSquare size={14} className="info-detail-icon text-orange" />
-                            <span className="info-detail-label">Source</span>
-                            <span className="info-detail-value text-blue inline">{activeConversation.source || 'Unknown'}</span>
-                          </div>
-                        </div>
-                        <div className="info-detail-item">
-                          <div className="info-detail-label-row">
-                            <Users size={14} className="info-detail-icon text-purple" />
-                            <span className="info-detail-label">groups</span>
-                          </div>
-                          <div className="info-detail-value text-gray block">
-                            {activeConversation.contactGroups && activeConversation.contactGroups.length > 0
-                              ? activeConversation.contactGroups.join(', ')
-                              : 'No groups assigned'}
-                          </div>
-                        </div>
-                        <div className="info-detail-item">
-                          <div className="info-detail-label-row">
-                            <Calendar size={14} className="info-detail-icon text-sky" />
-                            <span className="info-detail-label">Creation Time</span>
-                          </div>
-                          <div className="info-detail-value text-purple block">
-                            {activeConversation.contactCreatedAt
-                              ? new Date(activeConversation.contactCreatedAt).toLocaleString()
-                              : '-'}
-                          </div>
-                        </div>
-                        <div className="info-detail-item">
-                          <div className="info-detail-label-row">
-                            <Clock3 size={14} className="info-detail-icon text-amber" />
-                            <span className="info-detail-label">Last Activity</span>
-                          </div>
-                          <div className="info-detail-value text-purple block">
-                            {activeConversation.lastMessageAt
-                              ? new Date(activeConversation.lastMessageAt).toLocaleString()
-                              : activeConversation.lastMessageTime || '-'}
-                          </div>
-                        </div>
-                        <div className="info-detail-item">
-                          <div className="info-detail-label-row">
-                            <Phone size={14} className="info-detail-icon text-green" />
-                            <span className="info-detail-label">Phone</span>
-                            <span className="info-detail-value text-blue inline">{activeConversation.phone}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="info-drawer-section">
-                      <div className="info-drawer-section-header">
-                        <h4 className="info-drawer-section-title">Notes</h4>
-                        <button type="button" className="add-note-btn" onClick={() => setShowAddNoteInput(!showAddNoteInput)}>
-                          <Plus size={16} />
-                        </button>
-                      </div>
-
-                      {showAddNoteInput && (
-                        <div className="add-note-input-container">
-                          <textarea
-                            className="form-control note-textarea"
-                            placeholder="Write a note..."
-                            value={newNoteContent}
-                            onChange={(e) => setNewNoteContent(e.target.value)}
-                            rows={3}
-                          />
-                          <div className="note-input-actions">
-                            <button type="button" className="btn btn-sm btn-light" onClick={() => setShowAddNoteInput(false)}>
-                              Cancel
-                            </button>
-                            <button type="button" className="btn btn-sm btn-primary" onClick={handleAddNote}>
-                              Save
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {loadingNotes ? (
-                        <p className="loading-notes-text">Loading notes...</p>
-                      ) : notes.length === 0 ? (
-                        <p className="no-notes-text">No notes yet</p>
-                      ) : (
-                        <div className="notes-list">
-                          {notes.map(note => (
-                            <div key={note.id} className="note-item">
-                              <div className="note-item-header">
-                                <span className="note-date">
-                                  {new Date(note.createdAt).toLocaleDateString()}
-                                </span>
-                                <button type="button" className="delete-note-btn" onClick={() => handleDeleteNote(note.id)}>
-                                  <Trash2 size={12} />
-                                </button>
-                              </div>
-                              <p className="note-content">{note.content}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
-
-
 
             <InitiateChatModal
               isOpen={isTemplateModalOpen}
@@ -2126,10 +2029,21 @@ export const Chat: React.FC = () => {
         ) : (
           <div className="chat-empty-state-container">
             <EmptyStateIllustration />
-            <span className="chat-empty-state-text">Click user to chat</span>
+            <span className="chat-empty-state-text">Select a conversation to start</span>
           </div>
         )}
       </div>
+
+      {activeConversation && showDetails && !isSelectedConnectionDisconnected && (
+        <ChatContextPanel
+          conversation={activeConversation}
+          typeMap={typeMap}
+          onClose={() => setDetailsOpen(false)}
+          onChanged={() => void loadConversations()}
+          onNewEmail={canStartNewEmail ? startNewEmail : undefined}
+          onStartWhatsApp={!isEmailThread && canInitiate ? handleOpenTemplateModal : undefined}
+        />
+      )}
 
       {/* Right-click / long-press menu on a message bubble. Fixed-positioned at the pointer,
           the way a native context menu behaves. */}
@@ -2188,11 +2102,10 @@ export const Chat: React.FC = () => {
         </div>
       )}
 
-      {/* Delete Chat Confirmation Modal */}
       <ConfirmationModal
         isOpen={showDeleteChatModal}
-        title="Delete Chat"
-        message="Are you sure you want to delete this chat? This will remove all messages from the database."
+        title="Delete conversation"
+        message="Delete this conversation? All of its messages are removed from OmniConnect."
         confirmText="Delete"
         cancelText="Cancel"
         onConfirm={confirmDeleteChat}
@@ -2233,28 +2146,14 @@ export const Chat: React.FC = () => {
  */
 /** Only while the real-time connection is down; normally the server pushes changes. */
 const FALLBACK_POLL_MS = 20_000
+/** Conversations per page in the list; the first is the default. */
+const CONVERSATION_LIST_PAGE_SIZES = [8, 15, 25, 50]
+/** Where the details panel's open/closed choice is remembered. */
+const DETAILS_PANEL_STORAGE_KEY = 'chat.detailsPanel'
+/** Inbox width from which the details panel docks beside the thread (the chat-layout container query in Chat.css). */
+const DETAILS_PANEL_DOCK_MIN_WIDTH = 1000
 const ACCOUNT_RETRY_MS = 5000
 const ACCOUNT_RETRY_LIMIT = 6
-
-/**
- * Renders a contact's type using the label and colour configured in Setup → Type.
- *
- * This replaces a `normalizeBadge` helper that hardcoded `lead`/`customer`/`guest`, so every
- * type an administrator added rendered as "guest" in a grey pill. The value arriving from the
- * API is the type's stored Value, which is exactly the key the lookup map is built on.
- */
-const ContactTypeBadge: React.FC<{
-  value?: string | null
-  typeMap: Map<string, ResolvedLookup>
-}> = ({ value, typeMap }) => {
-  if (!value) return null
-  const resolved = resolveLookup(typeMap, value)
-  return (
-    <span className="conversation-status-badge" style={badgeStyleFor(resolved.color)}>
-      {resolved.name}
-    </span>
-  )
-}
 
 const getBubbleClass = (message: Message) => {
   if (message.type === 'incoming') return 'chat-bubble-incoming'

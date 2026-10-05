@@ -15,6 +15,7 @@ This document lists everything changed in this engagement: what was fixed, what 
 3. [Round 2 — startup fix and the 13 enterprise features](#3-round-2--startup-fix-and-the-13-enterprise-features)
    - [Round 3 — startup in any terminal, key guard, server-driven options, UI rework](#round-3--startup-in-any-terminal-key-guard-server-driven-options-ui-rework)
    - [Round 4 — campaign send failures, SES → SMTP, required contact fields, UI rework](#round-4--campaign-send-failures-ses--smtp-required-contact-fields-ui-rework)
+   - [Round 5 — tracking that counts, campaign page, chat, audit log](#round-5--tracking-that-counts-campaign-page-chat-audit-log)
 4. [Configuration switches](#4-configuration-switches)
 5. [Database migrations](#5-database-migrations)
 6. [New API endpoints](#6-new-api-endpoints)
@@ -540,6 +541,186 @@ You chose: all features, built in phases; no AI suggestions (no customer data le
   - hold on an unreadable password;
   - SMTP sender off, unconfigured, and refusing plaintext.
   - The SES tests were replaced with SMTP equivalents.
+
+---
+
+## Round 5 — tracking that counts, campaign page, chat, audit log
+
+**How it was done:**
+- Plan: [docs/superpowers/plans/2026-10-01-round5-tracking-audit-chat.md](docs/superpowers/plans/2026-10-01-round5-tracking-audit-chat.md).
+- Executed task by task with superpowers `executing-plans` and `test-driven-development`: a failing test first, then the fix.
+- UI work used `impeccable` (polish and detector) and `web-design-guidelines` (audit).
+- find-skills was checked; `anthropics/skills@webapp-testing` was considered, and the built-in browser covered the sweep instead.
+
+### 1. Unique opens, clicks, unsubscribes and bounces did not move (task 1)
+
+**Root cause:** every tracking and unsubscribe link pointed at an address recipients cannot reach.
+- In Development, `App:PublicBaseUrl` was `http://localhost:5155`.
+- `appsettings.Development.json` also hard-coded a dead trycloudflare tunnel for tracking.
+- Gmail loads images through Google's servers, so no open or click ever reached the API. The database held only Sent events.
+- Because A/B by open rate counts opens, it had nothing to decide on.
+
+**Fixes:**
+- **One public address.** The hard-coded tunnel is gone.
+- **The address is now checked**, so a wrong one shows up instead of silently losing everything:
+  - `PublicEndpointProbe` calls `{address}/api/t/ping/{nonce}` and passes only when this exact server answers.
+  - Pre-flight shows the result as a pass or a warning, and `/health` has a `tracking-address` check.
+- **Pre-flight also says how many links will be tracked.** Your templates had none, which is why the Links card said "No clicks yet".
+- **Self-healing counters.** The reconcile sweep repairs recipients from the event log. A crash between recording an open and stamping the recipient can no longer lose it, and campaigns that finished long ago are swept when a late event arrives.
+- **Bounces:**
+  - A 5xx refusal at `RCPT TO` is now a bounce, not a failure.
+  - Plain-text Exim/cPanel/qmail bounce reports are parsed; they used to be discarded as auto-replies.
+  - A report without a Message-ID is matched by address within 7 days, on the same connection.
+- **A/B "no signal" rule.** 0 % vs 0 % no longer silently picks A. The test waits up to 24 h more, then keeps A and says why (`AbDecisionReason`).
+
+**Verified live** through a Cloudflare quick tunnel (installed with your OK, now stopped). You opened the test email in Gmail and clicked both links:
+- Unique Opens 1 and Unique Clicks 1 appeared live.
+- The A/B table showed variant A at 100 %, and the Links card listed both URLs.
+- Your unsubscribe counted live. Re-subscribing in the preference centre lifted the suppression, and all of it was audited.
+
+**Bounce, live:** mail.rma.my accepts mail for non-existent local mailboxes and sends no report. Two probes produced nothing in the inbox, so a live bounce can't be produced on that server. The parser and the SMTP path are covered by tests.
+
+### 2. Queue / Executed tabs (task 1)
+
+- **Cause:** an effect switched the tab back to Executed every time Queue was clicked on a finished campaign.
+- **Now:**
+  - The default applies once.
+  - The tab is kept in the URL (`?tab=`) and has proper tab semantics and arrow keys.
+  - Slow responses for the previous tab are ignored.
+  - The styles are page-scoped; they used to depend on which page loaded first.
+- **Live refresh:** the A/B table and Links card now refresh with live events too, batched every 2 s and filtered by event kind.
+
+### 3. Test templates (task 2)
+
+- All 12 `zz_emailtest_r4_*` templates were backed up to `Backend/backups/2026-10-01-round5/`, then deleted through the app. Each delete is audited.
+- The test suite now removes the templates it creates.
+- **Deleting a template still in use** (including by a deleted campaign, an A/B variant, a template bot or a follow-up) is now refused with a clear reason. It used to cascade-delete the deleted campaign or silently blank the variant.
+- The Campaign → Template foreign key is now Restrict.
+
+### 4. Chat (task 3)
+
+**Tested live** from the UI to manishmishra8970@gmail.com: New Email, Reply, Reply All (Cc correctly empty) and Forward (To left empty, "Fwd:"). All four were sent and audited.
+
+**Fixed:**
+- New Email inherited the previous message's threading headers, so Gmail filed it under the old thread.
+- A subject or email search showed nothing (the page re-filtered to name and phone).
+- Switching New Email → Reply lost the draft.
+- At 720 px height, Send sat below the fold (the panel height was a guess).
+- The page jumped when opening a conversation.
+- The owner name was truncated by the workload count.
+- Delete Chat, the email composer and notes ignored permissions.
+- Delete Note had no confirmation.
+
+**UI:**
+- Reply / Reply All / Forward appear once per message, and New Email is in the header; a duplicate button row was removed.
+- The three stacked filters fold into one row with a summary and Clear.
+- The phone header wraps instead of pushing controls off screen.
+- `impeccable` detector: 4 findings fixed (side-stripe border, overshooting animation ×2, height transition).
+
+### 5. Dashboard and every page (task 4)
+
+- **Top Campaigns "View All"** now opens `/campaigns/campaign` (it was `/campaigns`, a 404).
+- **Permissions:** both View All buttons and the quick-create menu respect permissions. `/setup` opens the first page you may see, and bot "view" links accept View rights.
+- **Sweep of 47 routes:** 45 clean. The 2 expected 404s now redirect. Every API call returned 200/204, and the 14 main pages have 0 px sideways scroll at 375 px.
+
+### 6. Audit log vs activity log (task 5)
+
+- **Why "creating a contact" wasn't audited:** your contacts were re-added after the reset with the same phone numbers. That restores the soft-deleted record, a path that never wrote an audit row. It now does.
+- **Newly audited:**
+  - Contact notes.
+  - Agent WhatsApp replies and template sends.
+  - Template status changes and syncs.
+  - Contacts created automatically (by System).
+  - Contacts created by CSV campaigns (as a summary).
+  - Campaign held, completed and failed (by System, once each).
+  - Password changes, now through the audit service.
+- **Actor:** "System" only for background work. An anonymous request (a failed sign-in) is left blank.
+- **Recent Activity** is now the audit log (newest 8 business events, with who did them). It used to be stitched from table timestamps, which made test data look like approvals.
+- **Setup › Activity Log removed completely:**
+  - The table (97 rows backed up first; restore script in `Backend/scripts/`), entity, writers, API and page.
+  - `MessageSendContext`, the payload redactor and the job-failure writer.
+  - The `ActivityLog.Delete`/`Clear` permissions.
+  - The sidebar page is now "Audit Log" (`/audit-log`; old links redirect).
+
+### 7. Found while testing
+
+- **An older build was running.** Your own backend (started 10:28, before these changes) was taking this build's queue jobs and reading the same mailbox.
+  - The queue contract is now v3 (migration `QueueContractV3`).
+  - Database sessions are named `WabaConnect/v3`, so `/health` flags a mismatched build. It did flag yours.
+  - You stopped it during testing. **Start it again to run the new code.**
+- **rma.my has no DMARC record.** Gmail and Yahoo require one for bulk mail; add it at your DNS provider.
+- **axios 1.20.0:** 12 new advisories (7 high) had appeared since round 4. Upgraded; `pnpm audit --prod` is clean.
+- **Dead code removed:** the unused `setUnauthorizedHandler` shim, `fade` and `slideFromRight` motion variants, and `matcherFor`. No unused files or dependencies; no unreferenced backend types.
+
+### 8. Chat inbox redesign (your reference image)
+
+Rebuilt as a three-pane inbox — **list | conversation | details** — from the features that exist, without Tailwind or any new library (plain React and CSS tokens). Full description: FEATURE_GUIDE §11.
+
+- **Header:** Channel menu and **New Email** side by side.
+- **List:** connection, From with refresh, search with a filter button, **tabs with counts (All / Unread / Mine)**, richer rows (status, type, SLA, owner, unread), and a footer with "1–8 of N", paging and **Newest / Oldest** sort.
+- **Conversation:** header with copy-email, **Assigned to**, search, details toggle and a ⋮ menu (resolve/reopen, new email, send template, delete); a **subject bar** (subject, status, channel, SLA, WhatsApp reply window, date); and an **email composer that opens only when you press Reply / Reply All / Forward or New Email**, with a ✕ to close it (it asks before throwing away a draft). A permanently docked version with its own Reply / Reply All / Forward row was tried first; it repeated the message buttons and hid the thread, so it was removed at your request.
+- **Details panel (new):** Customer (contact record, tags, groups, notes), Conversation (status, owner, SLA, connection) and **Activity** (this customer's and this conversation's audit history), plus quick actions.
+- **Responsive:** panes size to the inbox's own width (CSS container queries), so the app sidebar is accounted for; details overlay below 1000 px; one pane at a time on phones.
+
+Nothing on the page is a fixed list: tabs, sort orders, statuses, filters and their defaults come from `api/reference/chat-options`; counts and history come from the server.
+
+**Server changes:**
+- `GET api/Chat/conversations/counts`: one grouped query, same visibility and filters as the list.
+- `sort=newest|oldest` on the conversation list, with keyset paging in both directions.
+- `entity=Type:Id` (repeatable) on `api/Activity/audit-logs`, served by the `(EntityType, EntityId)` index. A malformed reference matches nothing, never the whole log.
+- Chat sends, email replies and contact notes are now audited on the conversation or the contact, so they appear in that history.
+
+**Removed as dead code:** the old info drawer, header delete menu, WhatsApp window dot and floating time banner, the filter summary row, `setConversationsFilter`, a client-side unread re-filter, and 91 unused CSS rules. Some of those rules had generic names (`.text-blue`, `.note-item`) that leaked onto other pages after a visit to Chat.
+
+**Verified in the browser** on separate verify servers (ports 5199/5175):
+- 1440 px with the app sidebar open and closed.
+- 375 px phone.
+- Each tab against its count.
+- Oldest/Newest order.
+- Filters and the ⋮ menu.
+- New Email → Reply All → Discard.
+- Activity history loading.
+- One real reply sent from the docked composer to manishmishra8970@gmail.com, audited on the conversation.
+
+Results: no horizontal scroll at either width, and Send is in view on the phone.
+
+### Round 5 migrations, endpoints and tests
+
+- **Migrations (applied, inspected):**
+  - `AbDecisionReason`.
+  - `QueueContractV3` (renames waiting jobs).
+  - `RemoveMessageActivityLog`: drops the table and the two permissions; Campaign→Template Restrict; indexes `AuditLogs (Module, CreatedAt)`, `(EntityType, EntityId)`, `Status` and `EmailEvents (CreatedAt)`.
+- **Endpoints:**
+  - Added: `GET api/t/ping/{nonce}`, `GET api/Chat/conversations/counts`.
+  - Extended: `sort` on `GET api/Chat/conversations`; repeatable `entity` on `GET api/Activity/audit-logs`.
+  - Removed: `api/setup/activity-log/*`.
+  - `campaign-options` gained `abNoSignalGraceHours` and `abDecisionReasons`; `chat-options` gained `readFilters`, `quickViews` and `sortOrders`.
+- **Tests:**
+  - New Phase 23 (59 checks): public address, pre-flight, opens/clicks, Links report, crash repair, plain-text and SMTP bounces, audit coverage, Recent Activity, template delete safety, New Email threading, actor attribution, inbox tab counts, Newest/Oldest keyset paging, and a record's audit history.
+  - Final full run: 585 of 590. The 5 failures are all Phase 19 webhook deliveries that **your older backend on port 5155 picked up** from the shared database and refused, because it does not allow `localhost`, which the test harness does. With that backend stopped, Phase 19 passes, as it did earlier this round.
+  - Phase 22 gained the A/B no-signal and hold-audit checks; Phase 5 checks the pixel and links on the wire.
+  - The harness records audit events in memory.
+
+### Things for you
+
+1. **Restart your backend** (port 5155) from this code. The one running now (started 4:51 PM) is an older build: it lacks the new inbox endpoints (the tabs would show no counts), and it competes for the shared queue.
+2. **Set `App:PublicBaseUrl`** to the API's public https address in every environment that sends real email. Locally, use a tunnel (see FEATURE_GUIDE §18).
+3. **Add a DMARC record for rma.my.**
+4. **Optional:** make mail.rma.my reject unknown local mailboxes (cPanel › Default Address › "Discard with error"), so bounces are reported.
+5. Test data left for you to look at:
+   - The "Link tracking check" email template (kept, as agreed).
+   - Campaigns "Round 5 tracking check" (441) and "Round 5 bounce check" (442, 444).
+   - The bounce-check contacts are soft-deleted.
+
+### Missing / future (not built this round)
+
+- **Machine-open detection** (Apple Mail Privacy Protection preloads images, which inflates opens). Flag opens within seconds of delivery from known proxy ranges.
+- **Unsubscribe confirmation step.** One click registered twice, most likely Gmail's link scanner fetching the GET link. The counter is idempotent, but a GET that only shows a confirm button (with the unsubscribe on POST) is safer against scanners.
+- **Signed bounce addresses (VERP)**, so a forged "delivery failed" email cannot suppress an address.
+- **Audit retention and partitioning** by month, and a `pg_trgm` index for audit text search.
+- **Redis backplane for SignalR** before running more than one backend instance.
+- **A dead-letter queue page** in Setup.
+- **A WhatsApp test number in the dev database.** None is connected, so WhatsApp chat sends could only be checked by code and build, not live.
 
 ---
 

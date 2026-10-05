@@ -17,8 +17,12 @@ public static class QueueNames
     /// predate the AES-GCM (<c>enc:v2:</c>) credential format leased "email-send" jobs, could not
     /// read the SMTP password, and failed every recipient with "could not be decrypted". With the
     /// version in the name an older build simply never sees these jobs.
+    ///
+    /// v3 (round 5): a send now builds tracking and unsubscribe links on the verified public
+    /// address and records a refused mailbox as a bounce; a v2 build would still send with a dead
+    /// tunnel address and count bounces as failures, so it must not take these jobs.
     /// </remarks>
-    public const string ContractVersion = "v2";
+    public const string ContractVersion = "v3";
 
     /// <summary>Expands an email campaign into one send job per recipient.</summary>
     public const string CampaignExpansion = "campaign-expansion." + ContractVersion;

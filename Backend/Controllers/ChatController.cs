@@ -34,6 +34,16 @@ public class ChatController : ControllerBase
         return Ok(new ApiResponse<List<ChatAccountResponse>> { Success = true, Data = data });
     }
 
+    /// <summary>Counts for the inbox quick views, under the same filters the list uses (search, connection, channel, status).</summary>
+    [HttpGet("conversations/counts")]
+    [RequiresPermission("Chat.View")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyDictionary<string, int>>>> GetConversationCounts(
+        [FromQuery] string? search = null,
+        [FromQuery] int? connectionId = null,
+        [FromQuery] string? channel = null,
+        [FromQuery] string? state = null) =>
+        Ok(new ApiResponse<IReadOnlyDictionary<string, int>> { Success = true, Data = await _chatService.GetConversationCountsAsync(search, connectionId, channel, state) });
+
     [HttpGet("conversations")]
     [RequiresPermission("Chat.View")]
     public async Task<ActionResult<ApiResponse<List<ChatConversationResponse>>>> GetConversations(
@@ -47,9 +57,11 @@ public class ChatController : ControllerBase
         [FromQuery] int limit = ChatPaging.DefaultConversationPageSize,
         // Status tab (active, open, pending, resolved, closed) and owner (me, unassigned, user id).
         [FromQuery] string? state = null,
-        [FromQuery] string? assignee = null)
+        [FromQuery] string? assignee = null,
+        // newest (default) or oldest; see ChatCatalog.SortOrders.
+        [FromQuery] string? sort = null)
     {
-        var page = await _chatService.GetConversationsAsync(search, filter, connectionId, channel, cursor, limit, state, assignee);
+        var page = await _chatService.GetConversationsAsync(search, filter, connectionId, channel, cursor, limit, state, assignee, sort);
 
         // The body keeps its original shape (a list) so existing clients are unaffected; paging
         // metadata travels in headers, which CORS exposes.

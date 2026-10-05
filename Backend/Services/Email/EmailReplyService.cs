@@ -128,7 +128,7 @@ public class EmailReplyService : IEmailReplyService
         // The thread's own headers, so the recipient's mail client files this under the existing
         // conversation instead of starting a new one.
         var (inReplyTo, parentReferences) = await ResolveThreadingHeadersAsync(
-            conversationId, request.InReplyToMessageId, ct);
+            _dbContext, conversationId, request.InReplyToMessageId, ct);
 
         var fromDomain = sender.EmailAddress.Contains('@')
             ? sender.EmailAddress.Split('@')[1]
@@ -181,7 +181,8 @@ public class EmailReplyService : IEmailReplyService
         await _auditService.LogAsync(
             "EmailReply.Sent", "Messaging",
             $"Replied to {string.Join(", ", recipients)} on conversation {conversationId}.",
-            nameof(ChatMessage), chatMessage.Id.ToString());
+            // Filed under the conversation, so its Activity tab can list every reply in it.
+            nameof(ChatConversation), conversationId.ToString());
 
         return new EmailReplyResult(true, "Sent.", chatMessage.Id);
     }
@@ -194,18 +195,16 @@ public class EmailReplyService : IEmailReplyService
     /// Falls back to the newest message in the thread when the caller did not name one, which is
     /// what "Reply" means from a thread view.
     /// </remarks>
-    private async Task<(string? InReplyTo, string? References)> ResolveThreadingHeadersAsync(
-        int conversationId, int? messageId, CancellationToken ct)
+    public static async Task<(string? InReplyTo, string? References)> ResolveThreadingHeadersAsync(
+        AppDbContext db, int conversationId, int? messageId, CancellationToken ct)
     {
-        var query = _dbContext.ChatMessages
+        // No message to answer means New Email: a new thread. It used to fall back to the latest
+        // message, so a "new" email arrived threaded under an old conversation in Gmail.
+        if (messageId is not { } id) return (null, null);
+
+        var headers = await db.ChatMessages
             .AsNoTracking()
-            .Where(m => m.ConversationId == conversationId && m.EmailDetail != null);
-
-        query = messageId is { } id
-            ? query.Where(m => m.Id == id)
-            : query.OrderByDescending(m => m.CreatedAt);
-
-        var headers = await query
+            .Where(m => m.ConversationId == conversationId && m.EmailDetail != null && m.Id == id)
             .Select(m => new { m.EmailDetail!.MessageIdHeader, m.EmailDetail.ReferencesHeader })
             .FirstOrDefaultAsync(ct);
 

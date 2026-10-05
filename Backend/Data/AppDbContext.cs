@@ -82,7 +82,6 @@ public class AppDbContext : DbContext
     public DbSet<AiPrompt> AiPrompts { get; set; } = null!;
     public DbSet<CannedReply> CannedReplies { get; set; } = null!;
     public DbSet<EmailTemplate> EmailTemplates { get; set; } = null!;
-    public DbSet<MessageActivityLog> MessageActivityLogs { get; set; } = null!;
 
     // Email channel
     public DbSet<EmailConfiguration> EmailConfigurations { get; set; } = null!;
@@ -214,6 +213,11 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Module);
             entity.HasIndex(e => e.Action);
             entity.HasIndex(e => e.UserId);
+            // Recent Activity (latest rows of some modules) and the audit page's module filter.
+            entity.HasIndex(e => new { e.Module, e.CreatedAt });
+            // "History of this record": every event for one entity.
+            entity.HasIndex(e => new { e.EntityType, e.EntityId });
+            entity.HasIndex(e => e.Status);
 
             // The user-facing event number: its own sequence rather than the primary key, so the
             // API never exposes a surrogate id that could be enumerated. Starts well above the
@@ -303,15 +307,6 @@ public class AppDbContext : DbContext
         {
             entity.ToTable("EmailTemplates");
             entity.HasIndex(e => e.Key).IsUnique();
-        });
-
-        modelBuilder.Entity<MessageActivityLog>(entity =>
-        {
-            entity.ToTable("MessageActivityLogs");
-            // The list is always newest-first and usually filtered by category.
-            entity.HasIndex(e => e.CreatedAt);
-            entity.HasIndex(e => e.Category);
-            entity.HasIndex(e => e.ContactId);
         });
 
         // Connection entity configuration
@@ -564,7 +559,9 @@ public class AppDbContext : DbContext
             // filtered on !IsDeleted). Preserving Cascade keeps that path behaving exactly as it
             // did. Worth revisiting: a template delete hard-deleting soft-deleted campaign rows
             // destroys history that the soft delete was meant to keep.
-            entity.HasOne(e => e.Template).WithMany(t => t.Campaigns).HasForeignKey(e => e.TemplateId).OnDelete(DeleteBehavior.Cascade);
+            // Restrict: deleting a template must never take a campaign's history with it (it used
+            // to cascade, silently removing soft-deleted campaigns). TemplateService refuses first.
+            entity.HasOne(e => e.Template).WithMany(t => t.Campaigns).HasForeignKey(e => e.TemplateId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // Dependents of the two soft-deleted entities carry matching filters — see the note on
@@ -903,6 +900,8 @@ public class AppDbContext : DbContext
                 .HasDatabaseName("ix_email_events_campaign_kind_occurred");
 
             // Recipient-level reporting — all events for a specific recipient
+            // The reconcile sweep finds campaigns with fresh events (an open arriving days later).
+            entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => new { e.CampaignContactId, e.EventKind })
                 .HasDatabaseName("ix_email_events_contact_kind");
 

@@ -179,3 +179,6 @@ public class ConversationStatusRequest
 {
     public string Status { get; set; } = "Open";
 }
+
+/// <summary>How many conversations each inbox quick view holds.</summary>
+public sealed record ChatConversationCounts(int All, int Unread, int Mine);

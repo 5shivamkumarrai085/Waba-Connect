@@ -664,20 +664,19 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        if (allowedOrigins.Length > 0)
+        policy.SetIsOriginAllowed(origin =>
         {
-            policy.WithOrigins(allowedOrigins);
-        }
-        else if (builder.Environment.IsDevelopment())
-        {
-            policy.SetIsOriginAllowed(origin =>
-                Uri.TryCreate(origin, UriKind.Absolute, out var uri)
-                && (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)));
-        }
-        else
-        {
-            policy.SetIsOriginAllowed(_ => false);
-        }
+            if (string.IsNullOrWhiteSpace(origin)) return false;
+            if (allowedOrigins.Any(o => string.Equals(o, origin, StringComparison.OrdinalIgnoreCase))) return true;
+            if (Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+            {
+                if (uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("vercel.app", StringComparison.OrdinalIgnoreCase))
+                    return true;
+                if (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        });
 
         policy
             .AllowAnyMethod()

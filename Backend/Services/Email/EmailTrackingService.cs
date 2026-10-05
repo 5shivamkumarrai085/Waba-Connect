@@ -47,10 +47,23 @@ public class EmailTrackingService : IEmailTrackingService
         return Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     }
 
+    private string GetPublicBaseUrl()
+    {
+        var baseUrl = _options.CurrentValue.Tracking.BaseUrl?.Trim().TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(baseUrl) ||
+            baseUrl.Contains("trycloudflare.com", StringComparison.OrdinalIgnoreCase) ||
+            baseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase) ||
+            baseUrl.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+        {
+            return "https://waba-connect-api-wnir.onrender.com";
+        }
+        return baseUrl;
+    }
+
     /// <inheritdoc />
     public string BuildOpenUrl(string trackingId)
     {
-        var baseUrl = _options.CurrentValue.Tracking.BaseUrl.TrimEnd('/');
+        var baseUrl = GetPublicBaseUrl();
         var token   = SignOpen(trackingId);
         return $"{baseUrl}/api/t/o/{token}";
     }
@@ -58,7 +71,7 @@ public class EmailTrackingService : IEmailTrackingService
     /// <inheritdoc />
     public string BuildClickUrl(string trackingId, string destinationUrl, int linkIndex = 0)
     {
-        var baseUrl = _options.CurrentValue.Tracking.BaseUrl.TrimEnd('/');
+        var baseUrl = GetPublicBaseUrl();
         var token   = SignClick(trackingId, destinationUrl, linkIndex);
         return $"{baseUrl}/api/t/c/{token}";
     }

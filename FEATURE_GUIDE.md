@@ -150,7 +150,7 @@ This guide explains how every feature works: what it does, how to use it, what h
 |---|---|
 | Basic info | Name, channel, connection, sender and reply-to (email), template, relation types (from Setup › Type), A/B test |
 | Contact selection | Segments, groups, or individual contacts in a paged picker with per-type counts. **"Send to every contact of these types"** targets all of them without listing them in the browser |
-| Scheduling | Now, later, or 09:30 in each recipient's local time. Consent topic and message type (marketing or transactional) |
+| Scheduling | Now, later, or 09:30 in each recipient's local time. (The consent-topic and transactional controls were removed from the wizard on 2026-10-05; the server still supports both. New campaigns use the default topic and count as marketing; existing campaigns keep their stored values.) |
 | Follow-ups | Rules that act after the send ([§7](#7-follow-ups)) |
 | Pre-flight | Server checks, and proof sends ([§8](#8-pre-flight-check-and-proof-sends)) |
 

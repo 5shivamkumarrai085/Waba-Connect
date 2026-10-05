@@ -15,7 +15,6 @@ import { ChoicePills } from '../../components/ChoicePills/ChoicePills'
 import { EmailPreview } from '../../components/EmailPreview/EmailPreview'
 import { emailConnectionService } from '../../services/email/emailConnectionService'
 import { emailTemplateService } from '../../services/email/emailTemplateService'
-import { referenceService } from '../../services/referenceService'
 import { segmentService, type Segment } from '../../services/segments/segmentService'
 import { PreflightPanel } from './PreflightPanel'
 import { AudienceContactPicker } from './AudienceContactPicker'
@@ -36,7 +35,6 @@ import {
   Loader2,
   Plus,
   Image as ImageIcon,
-  ShieldCheck,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import './CampaignWizard.css'
@@ -109,7 +107,6 @@ export const CampaignWizard: React.FC = () => {
   // Email-channel options. Loaded only once the email channel is actually selected — a WhatsApp
   // campaign should not pay for two requests it will never use.
   const [emailConnections, setEmailConnections] = useState<EmailConnection[]>([])
-  const [consentTopics, setConsentTopics] = useState<string[]>([])
   const [preflightFailed, setPreflightFailed] = useState(false)
   const [segmentOptions, setSegmentOptions] = useState<Segment[]>([])
   const [groupOptions, setGroupOptions] = useState<{ id: number; name: string }[]>([])
@@ -122,10 +119,6 @@ export const CampaignWizard: React.FC = () => {
       .catch(() => setGroupOptions([]))
   }, [])
 
-  // The topics configured under Settings › Compliance, for the consent-topic picker.
-  useEffect(() => {
-    referenceService.getConsentTopics().then(setConsentTopics).catch(() => setConsentTopics([]))
-  }, [])
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
   const [isLoadingEmailOptions, setIsLoadingEmailOptions] = useState(false)
 
@@ -1375,46 +1368,6 @@ export const CampaignWizard: React.FC = () => {
                       </label>
                     </div>
                   )}
-
-                  <section className="wizard-panel" aria-labelledby="campaign-consent-title">
-                    <header className="wizard-panel-head">
-                      <span className="wizard-panel-icon" aria-hidden="true"><ShieldCheck size={18} /></span>
-                      <div className="wizard-panel-intro">
-                        <h4 id="campaign-consent-title" className="ab-editor-title">Consent and message type</h4>
-                        <p className="ab-editor-note">
-                          Recipients who opted out of this topic (or of everything) are skipped. Quiet hours and the frequency cap apply to marketing messages.
-                        </p>
-                      </div>
-                    </header>
-                    <div className="wizard-compliance-row">
-                      <div className="form-group">
-                        <label className="form-label" htmlFor="campaign-topic">Consent topic</label>
-                        {/* The topics configured under OmniConnect Settings › Compliance; the first is the default. */}
-                        <select
-                          id="campaign-topic"
-                          className="form-control"
-                          value={wizardForm.topic || consentTopics[0] || ''}
-                          onChange={(e) => setWizardForm({ topic: e.target.value })}
-                          disabled={consentTopics.length === 0}
-                        >
-                          {consentTopics.map(t => (
-                            <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <label className="wizard-inline-check">
-                        <input
-                          type="checkbox"
-                          checked={wizardForm.isTransactional ?? false}
-                          onChange={(e) => setWizardForm({ isTransactional: e.target.checked })}
-                        />
-                        <span>
-                          Transactional (service) message
-                          <small>Account alerts and statements: not held for quiet hours or counted toward the frequency cap. Opt-outs still apply.</small>
-                        </span>
-                      </label>
-                    </div>
-                  </section>
 
                   <FollowUpEditor
                     channel={isEmailChannel ? 'email' : 'whatsapp'}

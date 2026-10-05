@@ -616,16 +616,6 @@
   color: var(--text-muted);
 }
 
-.wizard-compliance-row {
-  display: grid;
-  grid-template-columns: minmax(200px, 280px) 1fr;
-  gap: 16px;
-  align-items: start;
-}
-
-@media (max-width: 720px) {
-  .wizard-compliance-row { grid-template-columns: 1fr; }
-}
 
 
 /* Audience sources: segments and groups, as toggle chips. */

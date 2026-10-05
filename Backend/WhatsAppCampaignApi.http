@@ -1,4 +1,4 @@
-@WhatsAppCampaignApi_HostAddress = http://localhost:5155
+@WhatsAppCampaignApi_HostAddress = https://waba-connect-api-wnir.onrender.com
 
 GET {{WhatsAppCampaignApi_HostAddress}}/weatherforecast/
 Accept: application/json

@@ -4,7 +4,7 @@ import axios, { type AxiosError, type AxiosRequestConfig, type InternalAxiosRequ
  * The API origin. Configured per environment through VITE_API_BASE_URL; the localhost value is a
  * development convenience only and is never what a production build should rely on.
  */
-export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5155/api'
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL || 'https://waba-connect-api-wnir.onrender.com/api'
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

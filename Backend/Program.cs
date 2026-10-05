@@ -205,6 +205,8 @@ builder.Services.AddHostedService<CredentialEncryptionMigrator>();
 // bounce a fetch to an internal address.
 builder.Services.AddOptions<WhatsAppCampaignApi.Services.Storage.StorageOptions>()
     .Bind(builder.Configuration.GetSection(WhatsAppCampaignApi.Services.Storage.StorageOptions.SectionName));
+builder.Services.AddOptions<WhatsAppCampaignApi.Services.Storage.CloudinaryOptions>()
+    .Bind(builder.Configuration.GetSection(WhatsAppCampaignApi.Services.Storage.CloudinaryOptions.SectionName));
 builder.Services.AddSingleton<WhatsAppCampaignApi.Services.Storage.IFileStorage, WhatsAppCampaignApi.Services.Storage.FileStorage>();
 builder.Services.AddHttpClient(WhatsAppCampaignApi.Services.Storage.FileStorage.HttpClientName)
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });

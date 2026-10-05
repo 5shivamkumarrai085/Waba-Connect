@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 
 namespace WhatsAppCampaignApi.Services.Storage;
@@ -32,6 +35,19 @@ public sealed class StorageOptions
     public string[] AllowedRemoteHosts { get; set; } = [];
 
     public int RemoteFetchTimeoutSeconds { get; set; } = 15;
+}
+
+/// <summary>Cloudinary cloud storage configuration for public media assets.</summary>
+public sealed class CloudinaryOptions
+{
+    public const string SectionName = "Cloudinary";
+    public string? CloudName { get; set; }
+    public string? ApiKey { get; set; }
+    public string? ApiSecret { get; set; }
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(CloudName)
+                             && !string.IsNullOrWhiteSpace(ApiKey)
+                             && !string.IsNullOrWhiteSpace(ApiSecret);
 }
 
 /// <summary>A stored media file.</summary>
@@ -73,16 +89,19 @@ public sealed class FileStorage : IFileStorage
     public const string HttpClientName = "file-storage";
 
     private readonly IOptionsMonitor<StorageOptions> _options;
+    private readonly IOptionsMonitor<CloudinaryOptions> _cloudinaryOptions;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<FileStorage> _logger;
 
     public FileStorage(
         IOptionsMonitor<StorageOptions> options,
+        IOptionsMonitor<CloudinaryOptions> cloudinaryOptions,
         IHostEnvironment environment,
         IHttpClientFactory httpClientFactory,
         ILogger<FileStorage> logger)
     {
         _options = options;
+        _cloudinaryOptions = cloudinaryOptions;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
 
@@ -109,40 +128,102 @@ public sealed class FileStorage : IFileStorage
         }
 
         var max = _options.CurrentValue.MaxMediaBytes;
+        using var memory = new MemoryStream();
+        var written = await CopyWithLimitAsync(content, memory, max, ct);
+
+        if (written == 0) throw new InvalidDataException("The file is empty.");
+
+        // The extension is what the client claims; the first bytes are what the file is. An
+        // HTML page renamed to .png must not end up served from our origin.
+        memory.Position = 0;
+        var header = new byte[64];
+        var read = await memory.ReadAsync(header, ct);
+        if (!FileSignatures.Matches(extension, header.AsSpan(0, read)))
+        {
+            throw new InvalidDataException($"The file's content does not match its '{extension}' extension.");
+        }
+
+        memory.Position = 0;
+
+        // Upload to Cloudinary when configured (preserves media across container restarts)
+        if (_cloudinaryOptions.CurrentValue.IsConfigured)
+        {
+            try
+            {
+                var cloudUrl = await UploadToCloudinaryAsync(memory, safeName, subfolder, ct);
+                if (!string.IsNullOrWhiteSpace(cloudUrl))
+                {
+                    _logger.LogInformation("Successfully uploaded {FileName} to Cloudinary: {Url}", safeName, cloudUrl);
+                    return new StoredFile(cloudUrl, safeName, contentType, written);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to upload {FileName} to Cloudinary. Falling back to local storage.", safeName);
+            }
+        }
+
+        // Local storage fallback
+        memory.Position = 0;
         var directory = EnsureInside(PublicRoot, subfolder);
         Directory.CreateDirectory(directory);
 
         var storedName = $"{Guid.NewGuid():N}{extension}";
         var path = Path.Combine(directory, storedName);
 
-        long written;
         await using (var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true))
         {
-            written = await CopyWithLimitAsync(content, output, max, ct);
-        }
-
-        try
-        {
-            if (written == 0) throw new InvalidDataException("The file is empty.");
-
-            // The extension is what the client claims; the first bytes are what the file is. An
-            // HTML page renamed to .png must not end up served from our origin.
-            await using var check = File.OpenRead(path);
-            var header = new byte[64];
-            var read = await check.ReadAsync(header, ct);
-            if (!FileSignatures.Matches(extension, header.AsSpan(0, read)))
-            {
-                throw new InvalidDataException($"The file's content does not match its '{extension}' extension.");
-            }
-        }
-        catch
-        {
-            TryDelete(path);
-            throw;
+            await memory.CopyToAsync(output, ct);
         }
 
         var relative = Path.GetRelativePath(PublicRoot, path).Replace(Path.DirectorySeparatorChar, '/');
         return new StoredFile($"/uploads/{relative}", safeName, contentType, written);
+    }
+
+    private async Task<string?> UploadToCloudinaryAsync(Stream stream, string fileName, string subfolder, CancellationToken ct)
+    {
+        var cloudName = _cloudinaryOptions.CurrentValue.CloudName?.Trim();
+        var apiKey = _cloudinaryOptions.CurrentValue.ApiKey?.Trim();
+        var apiSecret = _cloudinaryOptions.CurrentValue.ApiSecret?.Trim();
+
+        if (string.IsNullOrWhiteSpace(cloudName) || string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(apiSecret))
+            return null;
+
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var folder = string.IsNullOrWhiteSpace(subfolder) ? "waba_connect" : $"waba_connect/{subfolder}".TrimEnd('/');
+
+        // Cloudinary requires signature parameters sorted alphabetically
+        var toSign = $"folder={folder}&timestamp={timestamp}{apiSecret}";
+        var hashBytes = SHA1.HashData(Encoding.UTF8.GetBytes(toSign));
+        var signature = Convert.ToHexString(hashBytes).ToLowerInvariant();
+
+        using var form = new MultipartFormDataContent();
+        var streamContent = new StreamContent(stream);
+        form.Add(streamContent, "file", fileName);
+        form.Add(new StringContent(apiKey), "api_key");
+        form.Add(new StringContent(timestamp.ToString()), "timestamp");
+        form.Add(new StringContent(folder), "folder");
+        form.Add(new StringContent(signature), "signature");
+
+        var client = _httpClientFactory.CreateClient(HttpClientName);
+        var uploadEndpoint = $"https://api.cloudinary.com/v1_1/{cloudName}/auto/upload";
+
+        using var response = await client.PostAsync(uploadEndpoint, form, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogError("Cloudinary upload failed with status {StatusCode}: {Error}", response.StatusCode, err);
+            return null;
+        }
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.TryGetProperty("secure_url", out var secureUrlProp))
+        {
+            return secureUrlProp.GetString();
+        }
+
+        return null;
     }
 
     public async Task<string> SavePrivateAsync(Stream content, string originalFileName, string subfolder, CancellationToken ct)
@@ -238,6 +319,8 @@ public sealed class FileStorage : IFileStorage
     /// </summary>
     private async Task<bool> IsAllowedRemoteAsync(Uri uri, CancellationToken ct)
     {
+        if (uri.Host.EndsWith("cloudinary.com", StringComparison.OrdinalIgnoreCase)) return true;
+
         var allowed = _options.CurrentValue.AllowedRemoteHosts;
         if (allowed.Length == 0) return false;
 

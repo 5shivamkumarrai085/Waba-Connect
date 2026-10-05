@@ -290,7 +290,10 @@ public class CampaignsController : ControllerBase
             return BadRequest(new ApiResponse<UploadResponse> { Success = false, Message = ex.Message });
         }
 
-        var fileUrl = $"{PublicOrigin}{stored.RelativeUrl}";
+        var fileUrl = stored.RelativeUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                   || stored.RelativeUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            ? stored.RelativeUrl
+            : $"{PublicOrigin}{stored.RelativeUrl}";
 
         return Ok(new ApiResponse<UploadResponse>
         {

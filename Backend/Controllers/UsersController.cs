@@ -17,15 +17,15 @@ namespace WhatsAppCampaignApi.Controllers;
 public class UsersController : ControllerBase
 {
     private readonly IUserService _userService;
-    private readonly IWebHostEnvironment _environment;
+    private readonly WhatsAppCampaignApi.Services.Storage.IFileStorage _fileStorage;
 
     private static readonly string[] AllowedAvatarExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
     private const long MaxAvatarBytes = 2 * 1024 * 1024;
 
-    public UsersController(IUserService userService, IWebHostEnvironment environment)
+    public UsersController(IUserService userService, WhatsAppCampaignApi.Services.Storage.IFileStorage fileStorage)
     {
         _userService = userService;
-        _environment = environment;
+        _fileStorage = fileStorage;
     }
 
     [HttpGet]
@@ -129,25 +129,21 @@ public class UsersController : ControllerBase
             });
         }
 
-        var webRoot = _environment.WebRootPath ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
-        var uploadDir = Path.Combine(webRoot, "uploads", "avatars");
-        Directory.CreateDirectory(uploadDir);
-
-        // Generated name, never the client's: the uploaded filename is untrusted input and is
-        // the usual route to a path-traversal write.
-        var storedName = $"{Guid.NewGuid():N}{extension}";
-        var fullPath = Path.Combine(uploadDir, storedName);
-
-        await using (var stream = new FileStream(fullPath, FileMode.Create))
+        try
         {
-            await file.CopyToAsync(stream);
+            await using var stream = file.OpenReadStream();
+            var stored = await _fileStorage.SavePublicMediaAsync(stream, file.FileName, file.ContentType, "avatars", HttpContext.RequestAborted);
+
+            return Ok(new ApiResponse<string>
+            {
+                Success = true,
+                Message = "Image uploaded.",
+                Data = stored.RelativeUrl
+            });
         }
-
-        return Ok(new ApiResponse<string>
+        catch (InvalidDataException ex)
         {
-            Success = true,
-            Message = "Image uploaded.",
-            Data = $"/uploads/avatars/{storedName}"
-        });
+            return BadRequest(new ApiResponse { Success = false, Message = ex.Message });
+        }
     }
 }

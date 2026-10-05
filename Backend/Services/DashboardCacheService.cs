@@ -340,15 +340,16 @@ public class DashboardCacheService : IDashboardCacheService
             var read = isEmail
                 ? forChannel.Where(r => r.IsOpened || r.Status == MessageStatus.Read).Sum(r => r.Count)
                 : CountOf(MessageStatus.Read);
+            var messages = forChannel.Where(r => r.Status != MessageStatus.Suppressed).Sum(r => r.Count);
             var delivered = isEmail
-                ? (CountOf(MessageStatus.Sent) + CountOf(MessageStatus.Delivered) + read)
-                : (CountOf(MessageStatus.Delivered) + read);
+                ? forChannel.Where(r => r.Status == MessageStatus.Sent || r.Status == MessageStatus.Delivered || r.Status == MessageStatus.Read).Sum(r => r.Count)
+                : (CountOf(MessageStatus.Delivered) + CountOf(MessageStatus.Read));
+            delivered = Math.Min(delivered, messages);
             var failed = CountOf(MessageStatus.Failed)
                        + CountOf(MessageStatus.Bounced)
                        + CountOf(MessageStatus.Complained);
             var suppressed = CountOf(MessageStatus.Suppressed);
             var pending = CountOf(MessageStatus.Pending);
-            var messages = forChannel.Where(r => r.Status != MessageStatus.Suppressed).Sum(r => r.Count);
 
             var replies = repliesByChannel.TryGetValue(channel, out var replyCount) ? replyCount : 0;
 
@@ -361,7 +362,7 @@ public class DashboardCacheService : IDashboardCacheService
                 Pending: pending,
                 Suppressed: suppressed,
                 Replies: replies,
-                DeliveryRate: messages > 0 ? Math.Round((double)delivered / messages * 100, 1) : 0,
+                DeliveryRate: messages > 0 ? Math.Min(100.0, Math.Round((double)delivered / messages * 100, 1)) : 0,
                 ReplyRate: messages > 0 ? Math.Round((double)replies / messages * 100, 1) : 0,
                 SharePercent: 0));
         }

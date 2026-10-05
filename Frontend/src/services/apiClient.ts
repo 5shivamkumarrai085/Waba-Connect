@@ -224,16 +224,28 @@ export const isRequestCancelled = (error: unknown): boolean =>
  * --------------------------------------------------------------------------------------------- */
 
 const inflightRequests = new Map<string, Promise<unknown>>()
+const responseCache = new Map<string, { data: unknown; timestamp: number }>()
+const GET_CACHE_TTL_MS = 15_000
 let sessionController = new AbortController()
 
+// Invalidate client-side read cache on mutations
+apiClient.interceptors.request.use((config) => {
+  const method = (config.method ?? 'get').toLowerCase()
+  if (method !== 'get') {
+    responseCache.clear()
+  }
+  return config
+})
+
 /**
- * Aborts every in-flight GET and clears the de-dup map. Called on login and logout: a GET issued
+ * Aborts every in-flight GET and clears the de-dup map and cache. Called on login and logout: a GET issued
  * before signing in and the same GET after share a key, and must not share a response.
  */
 export const resetApiClientCaches = () => {
   sessionController.abort('Session changed')
   sessionController = new AbortController()
   inflightRequests.clear()
+  responseCache.clear()
 }
 
 const serializeParams = (params: unknown): string => {
@@ -261,12 +273,23 @@ const combineSignals = (a: AbortSignal, b?: AbortSignal | null): AbortSignal => 
 
 const originalGet = apiClient.get.bind(apiClient)
 
+const isCacheableUrl = (url: string) =>
+  !url.includes('/auth/') && !url.includes('/Chat/') && !url.includes('/t/')
+
 apiClient.get = function <T = unknown, R = import('axios').AxiosResponse<T>, D = unknown>(
   url: string,
   config?: AxiosRequestConfig<D>,
 ): Promise<R> {
   const callerSignal = config?.signal as AbortSignal | undefined
   const key = `${url}?${serializeParams(config?.params)}`
+
+  // Return cached result if available within TTL for cacheable endpoints
+  if (!callerSignal && isCacheableUrl(url)) {
+    const cached = responseCache.get(key)
+    if (cached && Date.now() - cached.timestamp < GET_CACHE_TTL_MS) {
+      return Promise.resolve(cached.data as R)
+    }
+  }
 
   // A caller with its own signal gets its own request, so aborting it cannot cancel someone
   // else's identical read.
@@ -280,6 +303,12 @@ apiClient.get = function <T = unknown, R = import('axios').AxiosResponse<T>, D =
   // axios 1.20 types get() as AxiosResponseResult<…>; at runtime it is the same response this
   // wrapper has always returned, so the declared R is kept for every caller.
   const promise = (originalGet<T, R, D>(url, { ...config, signal }) as unknown as Promise<R>)
+    .then((res) => {
+      if (!callerSignal && isCacheableUrl(url)) {
+        responseCache.set(key, { data: res, timestamp: Date.now() })
+      }
+      return res
+    })
     .catch((err: unknown) => {
       if (axios.isCancel(err)) throw new RequestCancelledError(url)
       throw err

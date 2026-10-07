@@ -332,6 +332,7 @@ const Field: React.FC<FieldProps> = ({ field, value, values, disabled, onChange 
               id={field.key}
               type="number"
               className="omni-input"
+              placeholder={field.placeholder ?? ''}
               value={(value as number | string) ?? ''}
               min={field.min ?? undefined}
               max={field.max ?? undefined}
@@ -403,11 +404,16 @@ const MultiSelectField: React.FC<FieldProps> = ({ field, value, values, disabled
   const toggle = (option: string) =>
     onChange(selected.includes(option) ? selected.filter((v) => v !== option) : [...selected, option])
 
+  const triggerText = useMemo(() => {
+    if (selected.length === 0) {
+      return field.placeholder || `Select ${field.label.toLowerCase()}…`
+    }
+    return `${selected.length} selected`
+  }, [selected.length, field.placeholder, field.label])
+
   const trigger = (props: MenuTriggerProps) => (
     <button {...props} type="button" className="omni-input omni-select-trigger" disabled={disabled}>
-      <span>
-        {selected.length} event{selected.length === 1 ? '' : 's'} selected
-      </span>
+      <span>{triggerText}</span>
       <ChevronDown size={14} />
     </button>
   )

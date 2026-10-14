@@ -69,6 +69,7 @@ public static class MenuRetryPolicy
             return new NodeExecutionResult
             {
                 IsCompleted = true,
+                GaveUp = true,
                 // Cleared so the next run of this flow starts from zero rather than ending on its
                 // first unrecognised reply.
                 CollectVariables = new Dictionary<string, string> { [KeyFor(nodeId)] = "0" }

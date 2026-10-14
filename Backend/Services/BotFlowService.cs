@@ -87,6 +87,8 @@ public class BotFlowService : IBotFlowService
             throw new InvalidOperationException($"Bot Flow with Name '{request.Name}' already exists.");
         }
 
+        ValidateFlowData(request.FlowData, request.IsActive);
+
         var flow = new BotFlow
         {
             Name = request.Name,
@@ -127,14 +129,24 @@ public class BotFlowService : IBotFlowService
             throw new InvalidOperationException($"Bot Flow with Name '{request.Name}' already exists.");
         }
 
+        // Parse the canvas before touching anything, so a bad save is refused instead of leaving
+        // the flow with no nodes (and so a trigger that silently never fires).
+        ValidateFlowData(request.FlowData ?? flow.FlowData, request.IsActive ?? flow.IsActive);
+
         flow.Name = request.Name;
         flow.Description = request.Description;
-        flow.IsActive = request.IsActive;
+        if (request.IsActive is { } isActive)
+        {
+            flow.IsActive = isActive;
+        }
         if (request.FlowData != null)
         {
             flow.FlowData = request.FlowData;
         }
-        flow.ConnectionId = request.ConnectionId;
+        if (request.ConnectionIdSpecified)
+        {
+            flow.ConnectionId = request.ConnectionId;
+        }
         flow.UpdatedAt = DateTime.UtcNow;
 
         _dbContext.BotFlows.Entry(flow).State = EntityState.Modified;
@@ -148,6 +160,46 @@ public class BotFlowService : IBotFlowService
             "BotFlow", flow.Id.ToString());
 
         return MapToResponse(flow);
+    }
+
+    /// <summary>
+    /// Refuses a canvas the engine could not run: unreadable JSON, nodes without an id or type, or
+    /// an active flow whose Start Trigger has no keywords (it would never fire, silently). Drafts
+    /// that are switched off may still be saved half-finished.
+    /// </summary>
+    private static void ValidateFlowData(string? flowData, bool willBeActive)
+    {
+        if (string.IsNullOrWhiteSpace(flowData) || flowData == "{}") return;
+
+        System.Text.Json.JsonDocument doc;
+        try
+        {
+            doc = System.Text.Json.JsonDocument.Parse(flowData);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            throw new ArgumentException("The flow could not be read. Reload the designer and try again.");
+        }
+
+        using (doc)
+        {
+            if (!doc.RootElement.TryGetProperty("nodes", out var nodes) || nodes.ValueKind != System.Text.Json.JsonValueKind.Array) return;
+
+            foreach (var node in nodes.EnumerateArray())
+            {
+                var id = node.TryGetProperty("id", out var idProp) && idProp.ValueKind == System.Text.Json.JsonValueKind.String ? idProp.GetString() : null;
+                var type = node.TryGetProperty("type", out var typeProp) && typeProp.ValueKind == System.Text.Json.JsonValueKind.String ? typeProp.GetString() : null;
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(type))
+                    throw new ArgumentException("Every step in the flow needs an id and a type. Reload the designer and try again.");
+
+                if (willBeActive && type == "Start Trigger")
+                {
+                    var data = node.TryGetProperty("data", out var dataProp) ? dataProp.GetRawText() : "{}";
+                    if (BotFlowTriggers.Parse(new FlowNode { NodeType = type, DataJson = data }) is null)
+                        throw new ArgumentException("Add at least one trigger keyword to the Start Trigger before switching this flow on.");
+                }
+            }
+        }
     }
 
     private async Task SyncNodesAndEdgesAsync(BotFlow flow)

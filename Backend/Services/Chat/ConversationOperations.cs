@@ -1,3 +1,4 @@
+using WhatsAppCampaignApi.Services.Queue;
 using Microsoft.EntityFrameworkCore;
 using WhatsAppCampaignApi.Data;
 using WhatsAppCampaignApi.Models.Enums;
@@ -246,11 +247,13 @@ public sealed class ConversationOperations : IConversationOperations
 public sealed class ChatSlaWorker : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly Npgsql.NpgsqlDataSource _dataSource;
     private readonly ILogger<ChatSlaWorker> _logger;
 
-    public ChatSlaWorker(IServiceScopeFactory scopeFactory, ILogger<ChatSlaWorker> logger)
+    public ChatSlaWorker(IServiceScopeFactory scopeFactory, Npgsql.NpgsqlDataSource dataSource, ILogger<ChatSlaWorker> logger)
     {
         _scopeFactory = scopeFactory;
+        _dataSource = dataSource;
         _logger = logger;
     }
 
@@ -260,65 +263,69 @@ public sealed class ChatSlaWorker : BackgroundService
         {
             try
             {
-                using var scope = _scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var settings = scope.ServiceProvider.GetRequiredService<IOmniSettingsService>();
-                var notifier = scope.ServiceProvider.GetRequiredService<IInboxNotifier>();
-                var now = DateTime.UtcNow;
-
-                // First-response breaches: flagged once, and pushed to open inboxes.
-                var breached = await db.ChatConversations.AsNoTracking()
-                    .Where(c => c.Status == ConversationStatus.Open && c.FirstRespondedAt == null
-                             && c.FirstResponseDueAt != null && c.FirstResponseDueAt < now && c.SlaBreachedAt == null)
-                    .OrderBy(c => c.FirstResponseDueAt)
-                    .Select(c => new { c.Id, c.ConnectionId })
-                    .Take(500)
-                    .ToListAsync(stoppingToken);
-                if (breached.Count > 0)
+                // One instance at a time: two sweeps would both send the closing message.
+                await LeaderLock.TryRunAsync(_dataSource, "chat-sla-sweep", async () =>
                 {
-                    var ids = breached.Select(b => b.Id).ToArray();
-                    await db.ChatConversations.Where(c => ids.Contains(c.Id) && c.SlaBreachedAt == null)
-                        .ExecuteUpdateAsync(u => u.SetProperty(c => c.SlaBreachedAt, now), stoppingToken);
-                    foreach (var b in breached) await notifier.ConversationUpdatedAsync(b.Id, b.ConnectionId, stoppingToken);
-                    _logger.LogInformation("{Count} conversation(s) breached their first-response SLA.", breached.Count);
-                }
+                    using var scope = _scopeFactory.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    var settings = scope.ServiceProvider.GetRequiredService<IOmniSettingsService>();
+                    var notifier = scope.ServiceProvider.GetRequiredService<IInboxNotifier>();
+                    var now = DateTime.UtcNow;
 
-                // Auto-close: no word from the customer for N hours.
-                var hours = await settings.GetNumberAsync(ConversationOperations.AutoCloseKey, 0);
-                if (hours > 0)
-                {
-                    var cutoff = now.AddHours(-hours);
-                    var stale = await db.ChatConversations
-                        .Where(c => (c.Status == ConversationStatus.Open || c.Status == ConversationStatus.Pending)
-                                 && c.LastInboundAt != null && c.LastInboundAt < cutoff
-                                 && (c.LastMessageAt == null || c.LastMessageAt < cutoff))
-                        .Include(c => c.Contact)
-                        .OrderBy(c => c.LastInboundAt)
-                        .Take(200)
+                    // First-response breaches: flagged once, and pushed to open inboxes.
+                    var breached = await db.ChatConversations.AsNoTracking()
+                        .Where(c => c.Status == ConversationStatus.Open && c.FirstRespondedAt == null
+                                 && c.FirstResponseDueAt != null && c.FirstResponseDueAt < now && c.SlaBreachedAt == null)
+                        .OrderBy(c => c.FirstResponseDueAt)
+                        .Select(c => new { c.Id, c.ConnectionId })
+                        .Take(500)
                         .ToListAsync(stoppingToken);
-
-                    if (stale.Count > 0)
+                    if (breached.Count > 0)
                     {
-                        var message = await settings.GetValueAsync(ConversationOperations.AutoCloseMessageKey);
-                        var whatsApp = scope.ServiceProvider.GetRequiredService<IWhatsAppService>();
-                        foreach (var conversation in stale)
-                        {
-                            conversation.Status = ConversationStatus.Closed;
-                            conversation.ResolvedAt ??= now;
-
-                            // A closing note only inside WhatsApp's 24-hour service window, where free text is allowed.
-                            if (!string.IsNullOrWhiteSpace(message) && conversation.Channel == MessageChannel.WhatsApp
-                                && conversation.LastInboundAt > now.AddHours(-24) && conversation.Contact is { } contact)
-                            {
-                                try { await whatsApp.SendTextMessageAsync(contact.Phone, message, null, conversation.ConnectionId); }
-                                catch (Exception ex) { _logger.LogDebug(ex, "Closing message for conversation {Id} not sent.", conversation.Id); }
-                            }
-                        }
-                        await db.SaveChangesAsync(stoppingToken);
-                        foreach (var c in stale) await notifier.ConversationUpdatedAsync(c.Id, c.ConnectionId, stoppingToken);
-                        _logger.LogInformation("Auto-closed {Count} quiet conversation(s).", stale.Count);
+                        var ids = breached.Select(b => b.Id).ToArray();
+                        await db.ChatConversations.Where(c => ids.Contains(c.Id) && c.SlaBreachedAt == null)
+                            .ExecuteUpdateAsync(u => u.SetProperty(c => c.SlaBreachedAt, now), stoppingToken);
+                        foreach (var b in breached) await notifier.ConversationUpdatedAsync(b.Id, b.ConnectionId, stoppingToken);
+                        _logger.LogInformation("{Count} conversation(s) breached their first-response SLA.", breached.Count);
                     }
-                }
+
+                    // Auto-close: no word from the customer for N hours.
+                    var hours = await settings.GetNumberAsync(ConversationOperations.AutoCloseKey, 0);
+                    if (hours > 0)
+                    {
+                        var cutoff = now.AddHours(-hours);
+                        var stale = await db.ChatConversations
+                            .Where(c => (c.Status == ConversationStatus.Open || c.Status == ConversationStatus.Pending)
+                                     && c.LastInboundAt != null && c.LastInboundAt < cutoff
+                                     && (c.LastMessageAt == null || c.LastMessageAt < cutoff))
+                            .Include(c => c.Contact)
+                            .OrderBy(c => c.LastInboundAt)
+                            .Take(200)
+                            .ToListAsync(stoppingToken);
+
+                        if (stale.Count > 0)
+                        {
+                            var message = await settings.GetValueAsync(ConversationOperations.AutoCloseMessageKey);
+                            var whatsApp = scope.ServiceProvider.GetRequiredService<IWhatsAppService>();
+                            foreach (var conversation in stale)
+                            {
+                                conversation.Status = ConversationStatus.Closed;
+                                conversation.ResolvedAt ??= now;
+
+                                // A closing note only inside WhatsApp's 24-hour service window, where free text is allowed.
+                                if (!string.IsNullOrWhiteSpace(message) && conversation.Channel == MessageChannel.WhatsApp
+                                    && conversation.LastInboundAt > now.AddHours(-24) && conversation.Contact is { } contact)
+                                {
+                                    try { await whatsApp.SendTextMessageAsync(contact.Phone, message, null, conversation.ConnectionId); }
+                                    catch (Exception ex) { _logger.LogDebug(ex, "Closing message for conversation {Id} not sent.", conversation.Id); }
+                                }
+                            }
+                            await db.SaveChangesAsync(stoppingToken);
+                            foreach (var c in stale) await notifier.ConversationUpdatedAsync(c.Id, c.ConnectionId, stoppingToken);
+                            _logger.LogInformation("Auto-closed {Count} quiet conversation(s).", stale.Count);
+                        }
+                    }
+                }, stoppingToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

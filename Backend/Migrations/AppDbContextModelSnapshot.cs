@@ -1075,6 +1075,9 @@ namespace WhatsAppCampaignApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<DateTime?>("AutomationHandledAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int?>("CampaignContactId")
                         .HasColumnType("integer");
 
@@ -2412,7 +2415,8 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("FlowId");
+                    b.HasIndex("FlowId", "NodeId")
+                        .HasDatabaseName("IX_FlowNodes_Flow_Node");
 
                     b.ToTable("FlowNodes", (string)null);
                 });
@@ -2497,6 +2501,88 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasIndex("Status", "DueAt");
 
                     b.ToTable("FollowUpRules");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.FxQuote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("AppliedRate")
+                        .HasPrecision(18, 8)
+                        .HasColumnType("numeric(18,8)");
+
+                    b.Property<int>("CorridorId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("FeeAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("FeeLabel")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("MarginBps")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("MidRate")
+                        .HasPrecision(18, 8)
+                        .HasColumnType("numeric(18,8)");
+
+                    b.Property<int>("PayoutMethodId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("RateAsOf")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RateProvider")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<decimal>("ReceiveAmount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("ReceiveCurrency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal>("SendAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("SendCurrency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("TotalPayable")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId");
+
+                    b.ToTable("FxQuotes");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.HealthLog", b =>
@@ -2603,6 +2689,10 @@ namespace WhatsAppCampaignApi.Migrations
 
                     b.HasIndex("Status", "LeaseExpiresAt")
                         .HasDatabaseName("IX_JobQueue_Lease");
+
+                    b.HasIndex("QueueName", "PartitionKey", "Id")
+                        .HasDatabaseName("IX_JobQueue_OrderedHead")
+                        .HasFilter("\"Status\" IN ('Pending', 'Leased')");
 
                     b.HasIndex("QueueName", "PartitionKey", "Status")
                         .HasDatabaseName("IX_JobQueue_Partition");
@@ -2819,6 +2909,73 @@ namespace WhatsAppCampaignApi.Migrations
                     b.ToTable("MessageBots");
                 });
 
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.OtpChallenge", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Destination")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LockedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("MaxAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("SendCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SubjectKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Purpose", "Destination", "CreatedAt")
+                        .HasDatabaseName("IX_OtpChallenges_Destination");
+
+                    b.HasIndex("Purpose", "SubjectKey", "CreatedAt");
+
+                    b.ToTable("OtpChallenges");
+                });
+
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Permission", b =>
                 {
                     b.Property<int>("Id")
@@ -2921,6 +3078,522 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasIndex("UserId", "RevokedAt");
 
                     b.ToTable("RefreshTokens", (string)null);
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceBeneficiary", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ContactId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CorridorId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DetailsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int?>("InstitutionId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("MaskedAccount")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<int>("PayoutMethodId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RelationshipCode")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContactId", "CorridorId", "PayoutMethodId");
+
+                    b.ToTable("RemittanceBeneficiaries");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceBeneficiaryField", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HelperText")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("InputType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("IsAccountIdentifier")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int?>("MaxLength")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("MinLength")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Pattern")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("PayoutMethodId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PayoutMethodId", "Key")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RemittanceBeneficiaryFields_Key");
+
+                    b.ToTable("RemittanceBeneficiaryFields");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceCorridor", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DestinationCountryCode")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<string>("DestinationCountryName")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("DestinationCurrency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<int>("DestinationDecimals")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("FxMarginBps")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal>("MaxSendAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("MinSendAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourceCountryCode")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<string>("SourceCurrency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceCountryCode", "DestinationCountryCode", "DestinationCurrency")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RemittanceCorridors_Route");
+
+                    b.ToTable("RemittanceCorridors");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceFeeRule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("FirstTransferFee")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("FixedFee")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("MaxFee")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("MinFee")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("PayoutMethodId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("PercentFee")
+                        .HasPrecision(9, 4)
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<string>("PromoLabel")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PayoutMethodId")
+                        .IsUnique();
+
+                    b.ToTable("RemittanceFeeRules");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceInstitution", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<int>("PayoutMethodId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PayoutMethodId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RemittanceInstitutions_Code");
+
+                    b.ToTable("RemittanceInstitutions");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceLookup", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Category", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RemittanceLookups_Code");
+
+                    b.ToTable("RemittanceLookups");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittancePaymentMethod", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Badge")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<int>("PaymentWindowMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourceCountryCode")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceCountryCode", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RemittancePaymentMethods_Code");
+
+                    b.ToTable("RemittancePaymentMethods");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittancePayoutMethod", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("CorridorId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeliveryEta")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("PayoutProvider")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CorridorId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RemittancePayoutMethods_Code");
+
+                    b.ToTable("RemittancePayoutMethods");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("BeneficiaryId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ConnectionId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ContactId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("CorridorId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FlowTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("OtpVerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("PayoutMethodId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("PurposeCode")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid?>("QuoteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(140)
+                        .HasColumnType("character varying(140)");
+
+                    b.Property<decimal?>("SendAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("SourceOfFundsCode")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("IX_RemittanceSessions_OpenExpiry")
+                        .HasFilter("\"Status\" IN ('Started', 'Verified')");
+
+                    b.HasIndex("FlowTokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RemittanceSessions_Token");
+
+                    b.HasIndex("ContactId", "CreatedAt");
+
+                    b.ToTable("RemittanceSessions");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ReportDefinition", b =>
@@ -3358,6 +4031,236 @@ namespace WhatsAppCampaignApi.Migrations
                     b.ToTable("TemplateVariables");
                 });
 
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.TransferOrder", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("AppliedRate")
+                        .HasPrecision(18, 8)
+                        .HasColumnType("numeric(18,8)");
+
+                    b.Property<int>("BeneficiaryId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("BeneficiaryName")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("ConnectionId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ContactId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CorridorId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("CustomerNotifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("FeeAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("InstitutionName")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("MaskedAccount")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("OrderStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("PaymentExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PaymentMethodCode")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PaymentProvider")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PaymentReference")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("PaymentStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("PaymentUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("PayoutMethodId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PayoutMethodName")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("PayoutProvider")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PayoutReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ProviderPaymentId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PurposeCode")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("QuoteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ReceiveAmount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("ReceiveCurrency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(140)
+                        .HasColumnType("character varying(140)");
+
+                    b.Property<decimal>("SendAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("SendCurrency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceOfFundsCode")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<decimal>("TotalPayable")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Reference")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TransferOrders_Reference");
+
+                    b.HasIndex("SessionId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TransferOrders_Session");
+
+                    b.HasIndex("ContactId", "CreatedAt");
+
+                    b.HasIndex("OrderStatus", "PaymentExpiresAt");
+
+                    b.HasIndex("PaymentProvider", "ProviderPaymentId")
+                        .HasDatabaseName("IX_TransferOrders_ProviderPayment")
+                        .HasFilter("\"ProviderPaymentId\" IS NOT NULL");
+
+                    b.ToTable("TransferOrders");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.TransferOrderEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("FromStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Provider")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ProviderEventId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ToStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("TransferOrderId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Provider", "ProviderEventId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TransferOrderEvents_ProviderEvent")
+                        .HasFilter("\"ProviderEventId\" IS NOT NULL");
+
+                    b.HasIndex("TransferOrderId", "OccurredAt");
+
+                    b.ToTable("TransferOrderEvents");
+                });
+
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Translation", b =>
                 {
                     b.Property<int>("Id")
@@ -3686,6 +4589,127 @@ namespace WhatsAppCampaignApi.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("WebhookSubscriptions");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.WhatsAppFlowEncryptionKey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ConnectionId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("PrivateKeyPem")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PublicKeyPem")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SignatureStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UploadedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConnectionId")
+                        .IsUnique();
+
+                    b.ToTable("WhatsAppFlowEncryptionKeys");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.WhatsAppFlowRegistration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ConnectionId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EndpointKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("EndpointUri")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("JsonVersion")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("LastPingAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MetaFlowId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ValidationErrorsJson")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EndpointKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_WhatsAppFlowRegistrations_EndpointKey");
+
+                    b.HasIndex("ConnectionId", "Purpose")
+                        .IsUnique()
+                        .HasDatabaseName("UX_WhatsAppFlowRegistrations_Purpose");
+
+                    b.ToTable("WhatsAppFlowRegistrations");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.AiSession", b =>
@@ -4155,6 +5179,72 @@ namespace WhatsAppCampaignApi.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceBeneficiary", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Contact", "Contact")
+                        .WithMany()
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Contact");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceBeneficiaryField", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.RemittancePayoutMethod", "PayoutMethod")
+                        .WithMany("Fields")
+                        .HasForeignKey("PayoutMethodId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PayoutMethod");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceFeeRule", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.RemittancePayoutMethod", "PayoutMethod")
+                        .WithOne("FeeRule")
+                        .HasForeignKey("WhatsAppCampaignApi.Models.Entities.RemittanceFeeRule", "PayoutMethodId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PayoutMethod");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceInstitution", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.RemittancePayoutMethod", "PayoutMethod")
+                        .WithMany("Institutions")
+                        .HasForeignKey("PayoutMethodId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PayoutMethod");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittancePayoutMethod", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.RemittanceCorridor", "Corridor")
+                        .WithMany("PayoutMethods")
+                        .HasForeignKey("CorridorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Corridor");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceSession", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Contact", "Contact")
+                        .WithMany()
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Contact");
+                });
+
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.ReportDefinition", b =>
                 {
                     b.HasOne("WhatsAppCampaignApi.Models.Entities.AppUser", "OwnerUser")
@@ -4233,6 +5323,17 @@ namespace WhatsAppCampaignApi.Migrations
                         .IsRequired();
 
                     b.Navigation("Template");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.TransferOrder", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Contact", "Contact")
+                        .WithMany()
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Contact");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Translation", b =>
@@ -4315,6 +5416,28 @@ namespace WhatsAppCampaignApi.Migrations
                     b.Navigation("Subscription");
                 });
 
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.WhatsAppFlowEncryptionKey", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Connection", "Connection")
+                        .WithMany()
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.WhatsAppFlowRegistration", b =>
+                {
+                    b.HasOne("WhatsAppCampaignApi.Models.Entities.Connection", "Connection")
+                        .WithMany()
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.AppUser", b =>
                 {
                     b.Navigation("UserPermissions");
@@ -4384,6 +5507,20 @@ namespace WhatsAppCampaignApi.Migrations
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Language", b =>
                 {
                     b.Navigation("Translations");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittanceCorridor", b =>
+                {
+                    b.Navigation("PayoutMethods");
+                });
+
+            modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.RemittancePayoutMethod", b =>
+                {
+                    b.Navigation("FeeRule");
+
+                    b.Navigation("Fields");
+
+                    b.Navigation("Institutions");
                 });
 
             modelBuilder.Entity("WhatsAppCampaignApi.Models.Entities.Role", b =>

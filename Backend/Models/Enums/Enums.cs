@@ -93,3 +93,33 @@ public enum SuppressionScope { Global, Connection }
 /// DeadLettered is terminal until an operator explicitly requeues it.
 /// </summary>
 public enum JobStatus { Pending, Leased, Completed, Failed, DeadLettered, Cancelled }
+
+// ── Send Money (remittance) ──────────────────────────────────────────────────────────────────
+// Stored as strings, like every enum here, so members may be appended but never reordered.
+
+/// <summary>
+/// Where a transfer stands from the business's side. Payment has its own status
+/// (<see cref="TransferPaymentStatus"/>): "the customer paid" and "the money arrived" are different
+/// facts reported by different providers at different times.
+/// </summary>
+/// <remarks>
+/// Serialised by name (the Send Money screens and API read "AwaitingPayment", not 1), and stored as
+/// text. <c>Submitting</c>: one worker has claimed the payout and is talking to the provider.
+/// <c>NeedsReview</c>: paid, but the payout could not be confirmed automatically — a person checks
+/// with the provider before anything is resent.
+/// </remarks>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<TransferOrderStatus>))]
+public enum TransferOrderStatus { Created, AwaitingPayment, Paid, Processing, Completed, Expired, Cancelled, Failed, Submitting, NeedsReview }
+
+/// <summary>The customer's payment, as reported by the payment provider's verified callback — never by the customer.</summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<TransferPaymentStatus>))]
+public enum TransferPaymentStatus { Pending, Succeeded, Failed, Expired, Refunded }
+
+/// <summary>One customer's pass through the Send Money WhatsApp Flow.</summary>
+public enum RemittanceSessionStatus { Started, Verified, OrderCreated, Expired, Cancelled, Locked }
+
+public enum FxQuoteStatus { Active, Used, Expired }
+
+/// <summary>What a beneficiary field holds — drives server-side validation, not the Flow's keyboard.</summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<RemittanceFieldInputType>))]
+public enum RemittanceFieldInputType { Text, Number, Email, Phone }

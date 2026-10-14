@@ -9,6 +9,10 @@
 
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
+    <!-- Already in the graph through MailKit; referenced directly for WhatsApp Flows, whose
+         data-exchange encryption is AES-GCM with a 16-byte IV that System.Security.Cryptography.AesGcm
+         (12-byte nonces only) cannot do. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageReference Include="ClosedXML" Version="0.105.1" />
     <PackageReference Include="DnsClient" Version="1.8.0" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
@@ -37,6 +41,13 @@
   <ItemGroup>
     <Content Remove="appsettings.secrets.local*.json" />
     <None Include="appsettings.secrets.local*.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <!-- WhatsApp Flow screen definitions, uploaded to Meta from code. Embedded so the uploaded
+       layout always matches the build that serves the Flow's data endpoint. -->
+  <ItemGroup>
+    <Content Remove="Resources\WhatsAppFlows\*.json" />
+    <EmbeddedResource Include="Resources\WhatsAppFlows\*.json" LogicalName="WhatsAppFlows.%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

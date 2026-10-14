@@ -20,6 +20,7 @@ namespace WhatsAppCampaignApi.Services;
 public class TemplateSyncBackgroundService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly Npgsql.NpgsqlDataSource _dataSource;
     private readonly ILogger<TemplateSyncBackgroundService> _logger;
     private readonly TimeSpan _interval;
     private readonly TimeSpan _startupDelay;
@@ -30,10 +31,12 @@ public class TemplateSyncBackgroundService : BackgroundService
 
     public TemplateSyncBackgroundService(
         IServiceScopeFactory scopeFactory,
+        Npgsql.NpgsqlDataSource dataSource,
         IConfiguration configuration,
         ILogger<TemplateSyncBackgroundService> logger)
     {
         _scopeFactory = scopeFactory;
+        _dataSource = dataSource;
         _logger = logger;
         _interval = TimeSpan.FromMinutes(configuration.GetValue("TemplateSync:IntervalMinutes", 15));
         _startupDelay = TimeSpan.FromSeconds(configuration.GetValue("TemplateSync:StartupDelaySeconds", 30));
@@ -48,7 +51,11 @@ public class TemplateSyncBackgroundService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var succeeded = await RunOnceAsync(stoppingToken);
+            // One instance at a time: every instance calling Meta for the same templates only
+            // spends rate limit. Skipped (counted as success) while another instance runs it.
+            var succeeded = true;
+            await WhatsAppCampaignApi.Services.Queue.LeaderLock.TryRunAsync(_dataSource, "template-sync",
+                async () => succeeded = await RunOnceAsync(stoppingToken), stoppingToken);
 
             // Exponential backoff on failure so a Meta outage doesn't turn into a retry storm,
             // reset the moment a run succeeds.

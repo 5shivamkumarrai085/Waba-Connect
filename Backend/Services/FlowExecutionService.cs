@@ -21,6 +21,7 @@ public class FlowExecutionService : IFlowExecutionService
     private readonly IWhatsAppService _whatsAppService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<FlowExecutionService> _logger;
+    private readonly HotPathCache _cache;
 
     public FlowExecutionService(
         AppDbContext dbContext,
@@ -29,8 +30,10 @@ public class FlowExecutionService : IFlowExecutionService
         IEnumerable<INodeExecutor> executors,
         IWhatsAppService whatsAppService,
         IConfiguration configuration,
-        ILogger<FlowExecutionService> logger)
+        ILogger<FlowExecutionService> logger,
+        HotPathCache cache)
     {
+        _cache = cache;
         _dbContext = dbContext;
         _flowLoader = flowLoader;
         _stateService = stateService;
@@ -61,7 +64,36 @@ public class FlowExecutionService : IFlowExecutionService
     private TimeSpan SessionTimeout =>
         TimeSpan.FromMinutes(_configuration.GetValue("BotFlow:SessionTimeoutMinutes", 30));
 
+    /// <summary>
+    /// Hard cap on one session however active it is (<c>BotFlow:MaxSessionMinutes</c>). Each
+    /// unrecognised reply refreshes the idle clock, so without a cap a chatty customer could stay
+    /// inside one menu all day.
+    /// </summary>
+    private TimeSpan MaxSessionLength =>
+        TimeSpan.FromMinutes(_configuration.GetValue("BotFlow:MaxSessionMinutes", 120));
+
+    /// <summary>
+    /// Sent when a menu stops waiting and nothing else matched (<c>BotFlow:MenuGiveUpReply</c>;
+    /// empty to stay silent). Without it the customer's second message simply vanished.
+    /// </summary>
+    private string MenuGiveUpReply =>
+        _configuration["BotFlow:MenuGiveUpReply"]
+        ?? "No problem. Send us a message any time and we'll start again.";
+
+    /// <summary>Session variable holding when the flow started, for <see cref="MaxSessionLength"/>.</summary>
+    private const string StartedAtVariable = "__startedAt";
+
     public async Task<bool> ExecuteFlowStepAsync(string phoneNumber, string incomingMessage, int? connectionId = null)
+    {
+        var handled = await ExecuteFlowStepCoreAsync(phoneNumber, incomingMessage, connectionId);
+
+        // Bot log rows are added as the turn goes and written here in one go (state changes have
+        // already saved most of them along the way) instead of one round trip per line.
+        if (_dbContext.ChangeTracker.HasChanges()) await _dbContext.SaveChangesAsync();
+        return handled;
+    }
+
+    private async Task<bool> ExecuteFlowStepCoreAsync(string phoneNumber, string incomingMessage, int? connectionId)
     {
         // ── Stop means stop ─────────────────────────────────────────────────────────────────────
         // The bot router already refuses to route a suppressed customer, so in the normal path this
@@ -81,38 +113,104 @@ public class FlowExecutionService : IFlowExecutionService
 
         var activeState = await _stateService.GetActiveStateAsync(phoneNumber, connectionId);
 
-        // An abandoned session must not keep intercepting messages. Closed here rather than by a
-        // sweeper so the very next message is already free to match a trigger keyword.
-        if (activeState != null && DateTime.UtcNow - activeState.UpdatedAt > SessionTimeout)
+        // An abandoned, over-long or orphaned session must not keep intercepting messages. Closed
+        // here rather than by a sweeper so the very next message is already free to match a trigger.
+        if (activeState != null && EndReason(activeState) is { } reason)
         {
             _logger.LogInformation(
-                "Bot flow session for {Phone} expired after {Minutes:0} minutes of inactivity; closing it and re-evaluating triggers.",
-                phoneNumber, (DateTime.UtcNow - activeState.UpdatedAt).TotalMinutes);
+                "Bot flow session for {Phone} on flow {FlowId} ended ({Reason}); re-evaluating triggers.",
+                MaskPhone(phoneNumber), activeState.FlowId, reason);
 
             await _stateService.DeleteStateAsync(phoneNumber, connectionId);
             activeState = null;
         }
 
-        if (activeState != null)
-        {
-            if (connectionId.HasValue && activeState.ConnectionId == null)
-            {
-                activeState.ConnectionId = connectionId.Value;
-                _dbContext.Entry(activeState).State = EntityState.Modified;
-                await _dbContext.SaveChangesAsync();
-            }
-            else if (!connectionId.HasValue && activeState.ConnectionId.HasValue)
-            {
-                connectionId = activeState.ConnectionId;
-            }
-            await ResumeFlowAsync(activeState, incomingMessage, connectionId);
-            return true;
-        }
-        else
+        if (activeState == null)
         {
             return await EvaluateTriggersAsync(phoneNumber, incomingMessage, connectionId);
         }
+
+        if (connectionId.HasValue && activeState.ConnectionId == null)
+        {
+            activeState.ConnectionId = connectionId.Value;
+            _dbContext.Entry(activeState).State = EntityState.Modified;
+            await _dbContext.SaveChangesAsync();
+        }
+        else if (!connectionId.HasValue && activeState.ConnectionId.HasValue)
+        {
+            connectionId = activeState.ConnectionId;
+        }
+
+        // A flow's exact keyword wins over a menu that is waiting for an answer: a customer who
+        // types "send money" while the "hi" menu is open wants Send Money, not that menu again.
+        // A genuine option of the waiting menu is never taken as a keyword.
+        var interrupting = await FindTriggeredFlowAsync(incomingMessage, connectionId, exactOnly: true);
+        if (interrupting is not null && !await IsAnswerToCurrentNodeAsync(activeState, incomingMessage))
+        {
+            _logger.LogInformation(
+                "Keyword for flow {NewFlowId} interrupted flow {OldFlowId} at node {NodeId} for {Phone}.",
+                interrupting.Flow.Id, activeState.FlowId, activeState.CurrentNodeId, MaskPhone(phoneNumber));
+
+            await _stateService.DeleteStateAsync(phoneNumber, connectionId);
+            await StartFlowAsync(interrupting, phoneNumber, incomingMessage, connectionId);
+            return true;
+        }
+
+        var gaveUp = await ResumeFlowAsync(activeState, incomingMessage, connectionId);
+        if (!gaveUp) return true;
+
+        // The menu stopped waiting because this message was not one of its options. It was meant
+        // for something else, so offer it to the triggers instead of swallowing it.
+        if (await EvaluateTriggersAsync(phoneNumber, incomingMessage, connectionId)) return true;
+
+        var closing = MenuGiveUpReply;
+        if (!string.IsNullOrWhiteSpace(closing))
+        {
+            await LogBotMessageAsync(phoneNumber, "Outgoing", closing, activeState.FlowId, activeState.CurrentNodeId);
+            await SyncToChatMessagesAsync(phoneNumber, closing, connectionId: connectionId);
+        }
+        return true;
     }
+
+    /// <summary>Why this session should end before handling the message, or null to keep it.</summary>
+    private string? EndReason(ConversationState state)
+    {
+        var now = DateTime.UtcNow;
+        if (now - state.UpdatedAt > SessionTimeout)
+            return $"idle for {(now - state.UpdatedAt).TotalMinutes:0} minutes";
+
+        if (ReadVariable(state, StartedAtVariable) is { } started
+            && DateTime.TryParse(started, null, System.Globalization.DateTimeStyles.RoundtripKind, out var startedAt)
+            && now - startedAt > MaxSessionLength)
+            return $"open for {(now - startedAt).TotalMinutes:0} minutes";
+
+        // A flow switched off or deleted mid-conversation stops answering at once.
+        if (state.Flow is null || !state.Flow.IsActive) return "flow inactive or deleted";
+        return null;
+    }
+
+    private static string? ReadVariable(ConversationState state, string key)
+    {
+        try
+        {
+            var variables = JsonSerializer.Deserialize<Dictionary<string, string>>(state.VariablesJson);
+            return variables is not null && variables.TryGetValue(key, out var value) ? value : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Whether the message is one of the options the waiting node offered.</summary>
+    private async Task<bool> IsAnswerToCurrentNodeAsync(ConversationState state, string message)
+    {
+        var node = (await _flowLoader.GetNodesForFlowAsync(state.FlowId)).FirstOrDefault(n => n.NodeId == state.CurrentNodeId);
+        return node is not null && BotFlowTriggers.IsMenuOption(node, message);
+    }
+
+    private static string MaskPhone(string phone) =>
+        phone.Length <= 4 ? "****" : new string('*', phone.Length - 4) + phone[^4..];
 
     /// <summary>
     /// Whether this customer has told the bots to stop and the window has not yet lapsed.
@@ -169,25 +267,25 @@ public class FlowExecutionService : IFlowExecutionService
         }
     }
 
-    private async Task ResumeFlowAsync(ConversationState state, string incomingMessage, int? connectionId = null)
+    /// <summary>Feeds the reply to the waiting node. Returns true when a menu gave up on it.</summary>
+    private async Task<bool> ResumeFlowAsync(ConversationState state, string incomingMessage, int? connectionId = null)
     {
         await LogBotMessageAsync(state.PhoneNumber, "Incoming", incomingMessage, state.FlowId, state.CurrentNodeId);
 
         var nodes = await _flowLoader.GetNodesForFlowAsync(state.FlowId);
         var edges = await _flowLoader.GetEdgesForFlowAsync(state.FlowId);
 
+        // The node the customer was left on no longer exists (the flow was edited and its nodes
+        // recreated) or this build cannot run it: end the session and treat the message as new.
         var currentNode = nodes.FirstOrDefault(n => n.NodeId == state.CurrentNodeId);
-        if (currentNode == null)
+        var executor = currentNode is null ? null : _executors.FirstOrDefault(e => e.NodeType == currentNode.NodeType);
+        if (currentNode == null || executor == null)
         {
+            _logger.LogWarning(
+                "Bot flow {FlowId} has no runnable node {NodeId} ({NodeType}); ending the session for {Phone}.",
+                state.FlowId, state.CurrentNodeId, currentNode?.NodeType ?? "missing", MaskPhone(state.PhoneNumber));
             await _stateService.DeleteStateAsync(state.PhoneNumber, connectionId);
-            return;
-        }
-
-        var executor = _executors.FirstOrDefault(e => e.NodeType == currentNode.NodeType);
-        if (executor == null)
-        {
-            await _stateService.DeleteStateAsync(state.PhoneNumber, connectionId);
-            return;
+            return true;
         }
 
         var result = await executor.ExecuteAsync(currentNode, state, incomingMessage, edges);
@@ -196,101 +294,123 @@ public class FlowExecutionService : IFlowExecutionService
             await LogBotMessageAsync(state.PhoneNumber, "Outgoing", result.OutboundMessageText, state.FlowId, state.CurrentNodeId);
             await SyncToChatMessagesAsync(state.PhoneNumber, result.OutboundMessageText, connectionId: connectionId);
         }
+        else if (result.SentByExecutor is { } resent)
+        {
+            // A menu re-sent after an unrecognised reply: already delivered, so only file it.
+            var resentText = GetOutboundTextForNode(currentNode);
+            if (!string.IsNullOrEmpty(resentText))
+            {
+                await LogBotMessageAsync(state.PhoneNumber, "Outgoing", resentText, state.FlowId, currentNode.NodeId);
+                await SyncToChatMessagesAsync(state.PhoneNumber, resentText, connectionId: connectionId, alreadySent: resent);
+            }
+        }
         await ProcessResultAsync(state, result, nodes, edges, incomingMessage, connectionId);
+        return result.GaveUp;
     }
 
     private async Task<bool> EvaluateTriggersAsync(string phoneNumber, string incomingMessage, int? connectionId = null)
     {
-        var activeFlows = await _dbContext.BotFlows
-            .Where(f => f.IsActive && (f.ConnectionId == null || f.ConnectionId == connectionId))
-            .ToListAsync();
+        var match = await FindTriggeredFlowAsync(incomingMessage, connectionId, exactOnly: false);
+        if (match is null) return false;
 
-        foreach (var flow in activeFlows)
-        {
-            var nodes = await _flowLoader.GetNodesForFlowAsync(flow.Id);
-            var triggerNode = nodes.FirstOrDefault(n => n.NodeType == "Start Trigger");
-            if (triggerNode == null) continue;
-
-            if (IsTriggerMatch(triggerNode, incomingMessage))
-            {
-                var edges = await _flowLoader.GetEdgesForFlowAsync(flow.Id);
-
-                var initialVariables = new Dictionary<string, string>();
-                if (connectionId.HasValue)
-                {
-                    initialVariables["ConnectionId"] = connectionId.Value.ToString();
-                }
-
-                var state = await _stateService.CreateOrUpdateStateAsync(
-                    phoneNumber,
-                    flow.Id,
-                    triggerNode.NodeId,
-                    initialVariables,
-                    connectionId);
-
-                if (connectionId.HasValue && state.ConnectionId == null)
-                {
-                    state.ConnectionId = connectionId.Value;
-                    _dbContext.Entry(state).State = EntityState.Modified;
-                    await _dbContext.SaveChangesAsync();
-                }
-
-                await LogBotMessageAsync(phoneNumber, "Incoming", incomingMessage, flow.Id, triggerNode.NodeId);
-
-                var executor = _executors.First(e => e.NodeType == "Start Trigger");
-                var result = await executor.ExecuteAsync(triggerNode, state, incomingMessage, edges);
-                if (!string.IsNullOrEmpty(result.OutboundMessageText))
-                {
-                    await LogBotMessageAsync(phoneNumber, "Outgoing", result.OutboundMessageText, flow.Id, triggerNode.NodeId);
-                    await SyncToChatMessagesAsync(phoneNumber, result.OutboundMessageText, connectionId: connectionId);
-                }
-
-                await ProcessResultAsync(state, result, nodes, edges, incomingMessage, connectionId);
-                return true; 
-            }
-        }
-        return false;
+        await StartFlowAsync(match, phoneNumber, incomingMessage, connectionId);
+        return true;
     }
 
-    private bool IsTriggerMatch(FlowNode triggerNode, string message)
+    private sealed record TriggeredFlow(BotFlow Flow, FlowNode TriggerNode, TriggerMatch Match);
+
+    /// <summary>
+    /// The flow this message starts, decided the same way every time: the strongest match wins
+    /// (an exact keyword beats "contains" and "starts with"), then a flow bound to this connection
+    /// beats a global one, then the oldest flow. With <paramref name="exactOnly"/> only an exact
+    /// keyword counts, which is what may interrupt a waiting menu.
+    /// </summary>
+    private async Task<TriggeredFlow?> FindTriggeredFlowAsync(string message, int? connectionId, bool exactOnly)
     {
+        if (string.IsNullOrWhiteSpace(message)) return null;
+
+        // Every active flow's Start Trigger for this connection, parsed once and cached until a flow
+        // is saved (HotPathCache): this runs for every message a customer sends.
+        var triggers = await _cache.GetOrLoadAsync(HotPathCache.BotFlows, $"triggers:{connectionId}", async () =>
+        {
+            var nodes = await _dbContext.FlowNodes.AsNoTracking()
+                .Where(n => n.NodeType == "Start Trigger"
+                            && n.Flow.IsActive
+                            && (n.Flow.ConnectionId == null || n.Flow.ConnectionId == connectionId))
+                .Include(n => n.Flow)
+                .OrderBy(n => n.FlowId).ThenBy(n => n.Id)
+                .ToListAsync();
+            return nodes
+                .Select(n => (Node: n, Trigger: BotFlowTriggers.Parse(n)))
+                .Where(t => t.Trigger is not null)
+                .Select(t => (t.Node, Trigger: t.Trigger!))
+                .ToList();
+        });
+
+        TriggeredFlow? best = null;
+        foreach (var (node, trigger) in triggers)
+        {
+            var match = BotFlowTriggers.Match(trigger, message);
+            if (match == TriggerMatch.None || (exactOnly && match != TriggerMatch.Exact)) continue;
+
+            var candidate = new TriggeredFlow(node.Flow, node, match);
+            if (best is null || Ranks(candidate, connectionId) > Ranks(best, connectionId)) best = candidate;
+        }
+
+        if (best is not null)
+        {
+            _logger.LogInformation("Message matched flow {FlowId} \"{FlowName}\" ({Match}).", best.Flow.Id, best.Flow.Name, best.Match);
+        }
+        return best;
+
+        // Higher wins; ties keep the earlier (lower id) flow because candidates arrive in id order.
+        static int Ranks(TriggeredFlow f, int? connectionId) =>
+            (int)f.Match * 10 + (connectionId.HasValue && f.Flow.ConnectionId == connectionId ? 1 : 0);
+    }
+
+    /// <summary>
+    /// Opens a new session on the matched flow and runs it from its Start Trigger. If a step
+    /// throws, the session is closed so the customer is not left parked on the trigger, where the
+    /// next message of any kind would relaunch the flow.
+    /// </summary>
+    private async Task StartFlowAsync(TriggeredFlow match, string phoneNumber, string incomingMessage, int? connectionId)
+    {
+        var flow = match.Flow;
+        var triggerNode = match.TriggerNode;
+        var nodes = await _flowLoader.GetNodesForFlowAsync(flow.Id);
+        var edges = await _flowLoader.GetEdgesForFlowAsync(flow.Id);
+
+        var initialVariables = new Dictionary<string, string>
+        {
+            [StartedAtVariable] = DateTime.UtcNow.ToString("O")
+        };
+        if (connectionId.HasValue)
+        {
+            initialVariables["ConnectionId"] = connectionId.Value.ToString();
+        }
+
+        var state = await _stateService.CreateOrUpdateStateAsync(phoneNumber, flow.Id, triggerNode.NodeId, initialVariables, connectionId);
+
         try
         {
-            using var doc = JsonDocument.Parse(triggerNode.DataJson);
-            if (!doc.RootElement.TryGetProperty("keywords", out var kwProp)) return false;
-            var keywords = JsonSerializer.Deserialize<List<string>>(kwProp.GetRawText()) ?? new List<string>();
+            await LogBotMessageAsync(phoneNumber, "Incoming", incomingMessage, flow.Id, triggerNode.NodeId);
 
-            string triggerType = "on exact match";
-            if (doc.RootElement.TryGetProperty("triggerType", out var typeProp))
+            var executor = _executors.First(e => e.NodeType == "Start Trigger");
+            var result = await executor.ExecuteAsync(triggerNode, state, incomingMessage, edges);
+            if (!string.IsNullOrEmpty(result.OutboundMessageText))
             {
-                triggerType = typeProp.GetString() ?? triggerType;
+                await LogBotMessageAsync(phoneNumber, "Outgoing", result.OutboundMessageText, flow.Id, triggerNode.NodeId);
+                await SyncToChatMessagesAsync(phoneNumber, result.OutboundMessageText, connectionId: connectionId);
             }
 
-            var cleanMsg = message.Trim();
-            foreach (var kw in keywords)
-            {
-                if (string.IsNullOrWhiteSpace(kw)) continue;
-
-                if (triggerType.Equals("on exact match", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (cleanMsg.Equals(kw.Trim(), StringComparison.OrdinalIgnoreCase)) return true;
-                }
-                else if (triggerType.Equals("contains", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (cleanMsg.Contains(kw.Trim(), StringComparison.OrdinalIgnoreCase)) return true;
-                }
-                else if (triggerType.Equals("starts with", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (cleanMsg.StartsWith(kw.Trim(), StringComparison.OrdinalIgnoreCase)) return true;
-                }
-            }
+            await ProcessResultAsync(state, result, nodes, edges, incomingMessage, connectionId);
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore parsing errors
+            _logger.LogError(ex, "Bot flow {FlowId} failed for {Phone}; closing the session.", flow.Id, MaskPhone(phoneNumber));
+            await _stateService.DeleteStateAsync(phoneNumber, connectionId);
+            throw;
         }
-
-        return false;
     }
 
     private async Task ProcessResultAsync(
@@ -363,7 +483,10 @@ public class FlowExecutionService : IFlowExecutionService
                 }
             }
 
-            await SyncToChatMessagesAsync(state.PhoneNumber, outboundText, mediaUrl, mediaType, mediaFileName, connectionId);
+            // Buttons, lists, locations and contact cards were already sent by their executor as an
+            // interactive message; sending outboundText as well is what made "Please choose an
+            // option:" arrive twice. File the executor's message instead, under its WhatsApp id.
+            await SyncToChatMessagesAsync(state.PhoneNumber, outboundText, mediaUrl, mediaType, mediaFileName, connectionId, nextResult.SentByExecutor);
         }
 
         await ProcessResultAsync(state, nextResult, nodes, edges, incomingMessage, connectionId);
@@ -445,7 +568,7 @@ public class FlowExecutionService : IFlowExecutionService
         return string.Empty;
     }
 
-    private async Task LogBotMessageAsync(string phone, string direction, string text, int flowId, string nodeId)
+    private Task LogBotMessageAsync(string phone, string direction, string text, int flowId, string nodeId)
     {
         var msg = new BotMessage
         {
@@ -457,8 +580,9 @@ public class FlowExecutionService : IFlowExecutionService
             NodeId = nodeId,
             Timestamp = DateTime.UtcNow
         };
+        // Saved with the turn's next write (or the final flush in ExecuteFlowStepAsync).
         _dbContext.Messages.Add(msg);
-        await _dbContext.SaveChangesAsync();
+        return Task.CompletedTask;
     }
 
     private async Task SyncToChatMessagesAsync(
@@ -467,52 +591,26 @@ public class FlowExecutionService : IFlowExecutionService
         string? mediaUrl = null, 
         string? mediaType = null, 
         string? mediaFileName = null,
-        int? connectionId = null)
+        int? connectionId = null,
+        WhatsAppSendResult? alreadySent = null)
     {
         try
         {
             var normalizedPhone = Helpers.PhoneNumberHelper.NormalizePhoneNumber(phone);
-            var contact = await _dbContext.Contacts.FirstOrDefaultAsync(c => c.Phone == normalizedPhone);
-            if (contact == null) return;
-
-            var conversation = await _dbContext.ChatConversations
-                .FirstOrDefaultAsync(c => c.ContactId == contact.Id && (connectionId == null || c.ConnectionId == connectionId));
-
-            if (conversation == null)
-            {
-                var account = connectionId.HasValue
-                    ? await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value)
-                    : await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync();
-
-                conversation = new ChatConversation
-                {
-                    ContactId = contact.Id,
-                    ConnectionId = connectionId,
-                    WabaPhoneNumberId = account?.Id
-                };
-                _dbContext.ChatConversations.Add(conversation);
-                await _dbContext.SaveChangesAsync();
-            }
-            else
-            {
-                if (conversation.ConnectionId == null && connectionId.HasValue)
-                {
-                    conversation.ConnectionId = connectionId;
-                }
-            }
+            var target = await ResolveChatTargetAsync(normalizedPhone, connectionId);
+            if (target is null) return;
+            var (contact, conversation, resolvedPhoneNumberId) = target.Value;
 
             conversation.LastMessageText = string.IsNullOrEmpty(mediaUrl) ? text : $"[Sent {mediaType ?? "media"}]";
             conversation.LastMessageAt = DateTime.UtcNow;
 
-            string? resolvedPhoneNumberId = null;
-            if (connectionId.HasValue)
-            {
-                var phoneAcc = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == connectionId.Value);
-                resolvedPhoneNumberId = phoneAcc?.PhoneNumberId;
-            }
-
             WhatsAppSendResult sendResult;
-            if (!string.IsNullOrEmpty(mediaUrl) && !string.IsNullOrEmpty(mediaType))
+            if (alreadySent is not null)
+            {
+                // The node's executor already sent its own (interactive) message: record that one.
+                sendResult = alreadySent;
+            }
+            else if (!string.IsNullOrEmpty(mediaUrl) && !string.IsNullOrEmpty(mediaType))
             {
                 sendResult = await _whatsAppService.SendMediaMessageAsync(
                     normalizedPhone,
@@ -551,6 +649,55 @@ public class FlowExecutionService : IFlowExecutionService
             // Ignore sync errors
         }
     }
+
+    /// <summary>
+    /// Who a bot line goes to and where it is filed: the contact, their conversation on this
+    /// connection, and the number to send from. Resolved once per turn (this service lives for one
+    /// message) — a menu turn sends several lines, and each used to repeat these lookups.
+    /// </summary>
+    private async Task<(Contact Contact, ChatConversation Conversation, string? PhoneNumberId)?> ResolveChatTargetAsync(string normalizedPhone, int? connectionId)
+    {
+        if (_chatTarget is { } known && known.Phone == normalizedPhone && known.ConnectionId == connectionId)
+        {
+            return (known.Contact, known.Conversation, known.PhoneNumberId);
+        }
+
+        var contact = await _dbContext.Contacts.FirstOrDefaultAsync(c => c.Phone == normalizedPhone);
+        if (contact == null) return null;
+
+        // The sending number of a connection rarely changes: cached (cleared when numbers are saved).
+        var account = await _cache.GetOrLoadAsync(HotPathCache.Connections, $"first-phone:{connectionId}", () =>
+            connectionId.HasValue
+                ? _dbContext.WabaPhoneNumbers.AsNoTracking().Where(p => p.ConnectionId == connectionId.Value)
+                    .OrderBy(p => p.Id).Select(p => new { p.Id, p.PhoneNumberId }).FirstOrDefaultAsync()
+                : _dbContext.WabaPhoneNumbers.AsNoTracking()
+                    .OrderBy(p => p.Id).Select(p => new { p.Id, p.PhoneNumberId }).FirstOrDefaultAsync());
+
+        var conversation = await _dbContext.ChatConversations
+            .FirstOrDefaultAsync(c => c.ContactId == contact.Id && (connectionId == null || c.ConnectionId == connectionId));
+
+        if (conversation == null)
+        {
+            conversation = new ChatConversation
+            {
+                ContactId = contact.Id,
+                ConnectionId = connectionId,
+                WabaPhoneNumberId = account?.Id
+            };
+            _dbContext.ChatConversations.Add(conversation);
+            await _dbContext.SaveChangesAsync();
+        }
+        else if (conversation.ConnectionId == null && connectionId.HasValue)
+        {
+            conversation.ConnectionId = connectionId;
+        }
+
+        var phoneNumberId = connectionId.HasValue ? account?.PhoneNumberId : null;
+        _chatTarget = (normalizedPhone, connectionId, contact, conversation, phoneNumberId);
+        return (contact, conversation, phoneNumberId);
+    }
+
+    private (string Phone, int? ConnectionId, Contact Contact, ChatConversation Conversation, string? PhoneNumberId)? _chatTarget;
 
     private string? SaveBase64ToLocalFile(string base64DataUrl, string nodeId)
     {

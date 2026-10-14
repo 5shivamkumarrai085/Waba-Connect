@@ -24,6 +24,21 @@ public static class QueueNames
     /// </remarks>
     public const string ContractVersion = "v3";
 
+    /// <summary>
+    /// Contract version of the inbound WhatsApp webhook queue, versioned on its own. Bump it
+    /// whenever the handling of an inbound message changes meaning (new bot node types, new reply
+    /// kinds, different routing), because whichever build claims the job decides what the customer
+    /// gets back.
+    /// </summary>
+    /// <remarks>
+    /// v4: WhatsApp Flow replies (nfm_reply), the WhatsApp Flow bot node, trigger interruption and
+    /// per-customer ordering. A hosted v3 build on the same database was claiming about half of the
+    /// inbound messages and silently dropping flows whose nodes it did not know. Only this queue
+    /// moved: the other queues are still processed by the v3 builds that share the database, and
+    /// moving them would leave jobs enqueued here with nobody to run them.
+    /// </remarks>
+    public const string InboundContractVersion = "v4";
+
     /// <summary>Expands an email campaign into one send job per recipient.</summary>
     public const string CampaignExpansion = "campaign-expansion." + ContractVersion;
 
@@ -37,11 +52,17 @@ public static class QueueNames
     public const string WhatsAppSend = "wa-send." + ContractVersion;
 
     /// <summary>One verified Meta webhook delivery, stored before it is acknowledged.</summary>
-    public const string WhatsAppWebhook = "wa-webhook." + ContractVersion;
+    public const string WhatsAppWebhook = "wa-webhook." + InboundContractVersion;
 
     /// <summary>One signed event to one outbound webhook subscription.</summary>
     public const string WebhookOut = "webhook-out." + ContractVersion;
 
+    /// <summary>One verified payment or payout callback from a Send Money provider.</summary>
+    public const string RemittanceCallback = "remit-callback." + ContractVersion;
+
+    /// <summary>Hands one paid transfer to its payout provider.</summary>
+    public const string RemittancePayout = "remit-payout." + ContractVersion;
+
     /// <summary>Every queue, for the monitoring endpoint and the maintenance sweep.</summary>
-    public static readonly string[] All = [CampaignExpansion, EmailSend, WhatsAppCampaignExpansion, WhatsAppSend, WhatsAppWebhook, WebhookOut];
+    public static readonly string[] All = [CampaignExpansion, EmailSend, WhatsAppCampaignExpansion, WhatsAppSend, WhatsAppWebhook, WebhookOut, RemittanceCallback, RemittancePayout];
 }

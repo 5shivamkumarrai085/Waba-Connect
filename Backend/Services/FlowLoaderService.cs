@@ -11,10 +11,12 @@ namespace WhatsAppCampaignApi.Services;
 public class FlowLoaderService : IFlowLoaderService
 {
     private readonly AppDbContext _dbContext;
+    private readonly HotPathCache _cache;
 
-    public FlowLoaderService(AppDbContext dbContext)
+    public FlowLoaderService(AppDbContext dbContext, HotPathCache cache)
     {
         _dbContext = dbContext;
+        _cache = cache;
     }
 
     public async Task<BotFlow?> LoadFlowAsync(int flowId)
@@ -22,13 +24,13 @@ public class FlowLoaderService : IFlowLoaderService
         return await _dbContext.BotFlows.FirstOrDefaultAsync(f => f.Id == flowId);
     }
 
-    public async Task<List<FlowNode>> GetNodesForFlowAsync(int flowId)
-    {
-        return await _dbContext.FlowNodes.Where(n => n.FlowId == flowId).ToListAsync();
-    }
+    // Read on every step of every conversation, changed only when a flow is saved: cached
+    // (detached, read-only) and cleared by the save. See HotPathCache.
+    public Task<List<FlowNode>> GetNodesForFlowAsync(int flowId) =>
+        _cache.GetOrLoadAsync(HotPathCache.BotFlows, $"nodes:{flowId}",
+            () => _dbContext.FlowNodes.AsNoTracking().Where(n => n.FlowId == flowId).ToListAsync());
 
-    public async Task<List<FlowEdge>> GetEdgesForFlowAsync(int flowId)
-    {
-        return await _dbContext.FlowEdges.Where(e => e.FlowId == flowId).ToListAsync();
-    }
+    public Task<List<FlowEdge>> GetEdgesForFlowAsync(int flowId) =>
+        _cache.GetOrLoadAsync(HotPathCache.BotFlows, $"edges:{flowId}",
+            () => _dbContext.FlowEdges.AsNoTracking().Where(e => e.FlowId == flowId).ToListAsync());
 }

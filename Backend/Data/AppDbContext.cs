@@ -107,6 +107,27 @@ public class AppDbContext : DbContext
     /// <summary>Written only when an external host owns campaign approval. See CampaignApprovalState.</summary>
     public DbSet<CampaignApprovalState> CampaignApprovalStates { get; set; } = null!;
 
+    // Send Money — configuration (Setup › Send Money)
+    public DbSet<RemittanceCorridor> RemittanceCorridors { get; set; } = null!;
+    public DbSet<RemittancePayoutMethod> RemittancePayoutMethods { get; set; } = null!;
+    public DbSet<RemittanceBeneficiaryField> RemittanceBeneficiaryFields { get; set; } = null!;
+    public DbSet<RemittanceInstitution> RemittanceInstitutions { get; set; } = null!;
+    public DbSet<RemittanceFeeRule> RemittanceFeeRules { get; set; } = null!;
+    public DbSet<RemittanceLookup> RemittanceLookups { get; set; } = null!;
+    public DbSet<RemittancePaymentMethod> RemittancePaymentMethods { get; set; } = null!;
+
+    // Send Money — runtime
+    public DbSet<RemittanceSession> RemittanceSessions { get; set; } = null!;
+    public DbSet<OtpChallenge> OtpChallenges { get; set; } = null!;
+    public DbSet<FxQuote> FxQuotes { get; set; } = null!;
+    public DbSet<RemittanceBeneficiary> RemittanceBeneficiaries { get; set; } = null!;
+    public DbSet<TransferOrder> TransferOrders { get; set; } = null!;
+    public DbSet<TransferOrderEvent> TransferOrderEvents { get; set; } = null!;
+
+    // WhatsApp Flows
+    public DbSet<WhatsAppFlowEncryptionKey> WhatsAppFlowEncryptionKeys { get; set; } = null!;
+    public DbSet<WhatsAppFlowRegistration> WhatsAppFlowRegistrations { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -792,6 +813,12 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.Status, e.LeaseExpiresAt })
                   .HasDatabaseName("IX_JobQueue_Lease");
 
+            // The ordered claim (one customer's messages one at a time): finds each partition's
+            // oldest unfinished job among live rows only, however many completed rows remain.
+            entity.HasIndex(e => new { e.QueueName, e.PartitionKey, e.Id })
+                  .HasDatabaseName("IX_JobQueue_OrderedHead")
+                  .HasFilter("\"Status\" IN ('Pending', 'Leased')");
+
             // De-duplication. Partial, because most queues do not supply a key and Postgres would
             // otherwise reject the second null-keyed row on some index configurations.
             entity.HasIndex(e => new { e.QueueName, e.IdempotencyKey })
@@ -838,6 +865,8 @@ public class AppDbContext : DbContext
         {
             entity.ToTable("FlowNodes");
             entity.HasOne(e => e.Flow).WithMany().HasForeignKey(e => e.FlowId).OnDelete(DeleteBehavior.Cascade);
+            // Every message waiting in a menu looks its node up by (flow, node id).
+            entity.HasIndex(e => new { e.FlowId, e.NodeId }).HasDatabaseName("IX_FlowNodes_Flow_Node");
         });
 
         modelBuilder.Entity<FlowEdge>(entity =>
@@ -924,6 +953,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.BounceType).HasConversion<string>();
         });
 
+        ConfigureSendMoney(modelBuilder);
+
         // TrackingId index on CampaignContacts — used by the tracking pixel and click redirect
         modelBuilder.Entity<CampaignContact>(entity =>
         {
@@ -931,6 +962,157 @@ public class AppDbContext : DbContext
                 .HasDatabaseName("ix_campaign_contacts_tracking_id")
                 .HasFilter("\"TrackingId\" IS NOT NULL")
                 .IsUnique();
+        });
+    }
+
+    /// <summary>
+    /// Send Money and WhatsApp Flows. Money is numeric(18,2), rates numeric(18,8), percentages
+    /// numeric(9,4) — the first monetary columns in this schema, so the precision is explicit
+    /// rather than Postgres' unconstrained numeric.
+    /// </summary>
+    private static void ConfigureSendMoney(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<RemittanceCorridor>(entity =>
+        {
+            entity.Property(e => e.MinSendAmount).HasPrecision(18, 2);
+            entity.Property(e => e.MaxSendAmount).HasPrecision(18, 2);
+            // One route per country pair: two active rows would make the country picker ambiguous.
+            entity.HasIndex(e => new { e.SourceCountryCode, e.DestinationCountryCode, e.DestinationCurrency })
+                  .IsUnique().HasDatabaseName("UX_RemittanceCorridors_Route");
+        });
+
+        modelBuilder.Entity<RemittancePayoutMethod>(entity =>
+        {
+            entity.HasOne(e => e.Corridor).WithMany(c => c.PayoutMethods).HasForeignKey(e => e.CorridorId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.CorridorId, e.Code }).IsUnique().HasDatabaseName("UX_RemittancePayoutMethods_Code");
+        });
+
+        modelBuilder.Entity<RemittanceBeneficiaryField>(entity =>
+        {
+            entity.Property(e => e.InputType).HasConversion<string>().HasMaxLength(20);
+            entity.HasOne(e => e.PayoutMethod).WithMany(m => m.Fields).HasForeignKey(e => e.PayoutMethodId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.PayoutMethodId, e.Key }).IsUnique().HasDatabaseName("UX_RemittanceBeneficiaryFields_Key");
+        });
+
+        modelBuilder.Entity<RemittanceInstitution>(entity =>
+        {
+            entity.HasOne(e => e.PayoutMethod).WithMany(m => m.Institutions).HasForeignKey(e => e.PayoutMethodId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.PayoutMethodId, e.Code }).IsUnique().HasDatabaseName("UX_RemittanceInstitutions_Code");
+        });
+
+        modelBuilder.Entity<RemittanceFeeRule>(entity =>
+        {
+            entity.Property(e => e.FixedFee).HasPrecision(18, 2);
+            entity.Property(e => e.PercentFee).HasPrecision(9, 4);
+            entity.Property(e => e.MinFee).HasPrecision(18, 2);
+            entity.Property(e => e.MaxFee).HasPrecision(18, 2);
+            entity.Property(e => e.FirstTransferFee).HasPrecision(18, 2);
+            entity.HasOne(e => e.PayoutMethod).WithOne(m => m.FeeRule).HasForeignKey<RemittanceFeeRule>(e => e.PayoutMethodId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.PayoutMethodId).IsUnique();
+        });
+
+        modelBuilder.Entity<RemittanceLookup>(entity =>
+        {
+            entity.HasIndex(e => new { e.Category, e.Code }).IsUnique().HasDatabaseName("UX_RemittanceLookups_Code");
+        });
+
+        modelBuilder.Entity<RemittancePaymentMethod>(entity =>
+        {
+            entity.HasIndex(e => new { e.SourceCountryCode, e.Code }).IsUnique().HasDatabaseName("UX_RemittancePaymentMethods_Code");
+        });
+
+        modelBuilder.Entity<RemittanceSession>(entity =>
+        {
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.SendAmount).HasPrecision(18, 2);
+            // Every data-exchange request resolves its session by this hash.
+            entity.HasIndex(e => e.FlowTokenHash).IsUnique().HasDatabaseName("UX_RemittanceSessions_Token");
+            entity.HasIndex(e => new { e.ContactId, e.CreatedAt });
+            // The expiry sweep reads only open sessions; without this it scanned every session ever.
+            entity.HasIndex(e => e.ExpiresAt)
+                  .HasDatabaseName("IX_RemittanceSessions_OpenExpiry")
+                  .HasFilter("\"Status\" IN ('Started', 'Verified')");
+            entity.HasOne(e => e.Contact).WithMany().HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasQueryFilter(e => !e.Contact.IsDeleted);
+        });
+
+        modelBuilder.Entity<OtpChallenge>(entity =>
+        {
+            // The latest challenge for a subject is what verification reads.
+            entity.HasIndex(e => new { e.Purpose, e.SubjectKey, e.CreatedAt });
+            // Per-number limits count recent codes across every session.
+            entity.HasIndex(e => new { e.Purpose, e.Destination, e.CreatedAt }).HasDatabaseName("IX_OtpChallenges_Destination");
+        });
+
+        modelBuilder.Entity<FxQuote>(entity =>
+        {
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.SendAmount).HasPrecision(18, 2);
+            entity.Property(e => e.FeeAmount).HasPrecision(18, 2);
+            entity.Property(e => e.TotalPayable).HasPrecision(18, 2);
+            entity.Property(e => e.ReceiveAmount).HasPrecision(18, 4);
+            entity.Property(e => e.MidRate).HasPrecision(18, 8);
+            entity.Property(e => e.AppliedRate).HasPrecision(18, 8);
+            entity.HasIndex(e => e.SessionId);
+        });
+
+        modelBuilder.Entity<RemittanceBeneficiary>(entity =>
+        {
+            // Account numbers and the like: encrypted at rest, plaintext to readers.
+            entity.Property(e => e.DetailsJson).HasConversion(
+                v => WhatsAppCampaignApi.Services.SecretCipher.EncryptForStorage(v),
+                v => WhatsAppCampaignApi.Services.SecretCipher.DecryptOrPassThrough(v));
+            entity.HasIndex(e => new { e.ContactId, e.CorridorId, e.PayoutMethodId });
+            entity.HasOne(e => e.Contact).WithMany().HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasQueryFilter(e => !e.Contact.IsDeleted);
+        });
+
+        modelBuilder.Entity<TransferOrder>(entity =>
+        {
+            entity.Property(e => e.OrderStatus).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.PaymentStatus).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.SendAmount).HasPrecision(18, 2);
+            entity.Property(e => e.FeeAmount).HasPrecision(18, 2);
+            entity.Property(e => e.TotalPayable).HasPrecision(18, 2);
+            entity.Property(e => e.ReceiveAmount).HasPrecision(18, 4);
+            entity.Property(e => e.AppliedRate).HasPrecision(18, 8);
+            entity.HasIndex(e => e.Reference).IsUnique().HasDatabaseName("UX_TransferOrders_Reference");
+            // Confirming the same session twice must find the first order, not create a second.
+            entity.HasIndex(e => e.SessionId).IsUnique().HasDatabaseName("UX_TransferOrders_Session");
+            entity.HasIndex(e => new { e.PaymentProvider, e.ProviderPaymentId })
+                  .HasDatabaseName("IX_TransferOrders_ProviderPayment")
+                  .HasFilter("\"ProviderPaymentId\" IS NOT NULL");
+            // The expiry sweep: unpaid orders whose window has passed.
+            entity.HasIndex(e => new { e.OrderStatus, e.PaymentExpiresAt });
+            entity.HasIndex(e => new { e.ContactId, e.CreatedAt });
+            entity.HasOne(e => e.Contact).WithMany().HasForeignKey(e => e.ContactId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasQueryFilter(e => !e.Contact.IsDeleted);
+        });
+
+        modelBuilder.Entity<TransferOrderEvent>(entity =>
+        {
+            entity.HasIndex(e => new { e.TransferOrderId, e.OccurredAt });
+            // A provider redelivering the same callback is recorded once.
+            entity.HasIndex(e => new { e.Provider, e.ProviderEventId })
+                  .IsUnique()
+                  .HasDatabaseName("UX_TransferOrderEvents_ProviderEvent")
+                  .HasFilter("\"ProviderEventId\" IS NOT NULL");
+        });
+
+        modelBuilder.Entity<WhatsAppFlowEncryptionKey>(entity =>
+        {
+            entity.Property(e => e.PrivateKeyPem).HasConversion(
+                v => WhatsAppCampaignApi.Services.SecretCipher.EncryptForStorage(v),
+                v => WhatsAppCampaignApi.Services.SecretCipher.DecryptOrPassThrough(v));
+            entity.HasIndex(e => e.ConnectionId).IsUnique();
+            entity.HasOne(e => e.Connection).WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WhatsAppFlowRegistration>(entity =>
+        {
+            entity.HasIndex(e => new { e.ConnectionId, e.Purpose }).IsUnique().HasDatabaseName("UX_WhatsAppFlowRegistrations_Purpose");
+            entity.HasIndex(e => e.EndpointKey).IsUnique().HasDatabaseName("UX_WhatsAppFlowRegistrations_EndpointKey");
+            entity.HasOne(e => e.Connection).WithMany().HasForeignKey(e => e.ConnectionId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

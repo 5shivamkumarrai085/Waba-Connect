@@ -88,7 +88,7 @@ public class WebhookController : ControllerBase
     [HttpPost]
     [AllowAnonymous]
     [RequestSizeLimit(2 * 1024 * 1024)]
-    public async Task<IActionResult> ReceiveWebhook(CancellationToken ct)
+    public async Task<IActionResult> ReceiveWebhook([FromServices] QueueSignal inboundSignal, CancellationToken ct)
     {
         using var buffer = new MemoryStream();
         await Request.Body.CopyToAsync(buffer, ct);
@@ -124,9 +124,14 @@ public class WebhookController : ControllerBase
                 QueueName = QueueNames.WhatsAppWebhook,
                 Payload = JsonSerializer.Serialize(new WhatsAppWebhookJob(text, DateTime.UtcNow)),
                 IdempotencyKey = idempotencyKey,
+                // One customer's deliveries are handled one at a time, in order, on any instance.
+                PartitionKey = WhatsAppWebhookPartition.For(text),
                 Priority = 10
             }
         }, ct);
+
+        // Start on it now rather than at the worker's next poll.
+        inboundSignal.Pulse();
 
         return Ok();
     }

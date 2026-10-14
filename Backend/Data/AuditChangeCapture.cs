@@ -39,7 +39,18 @@ internal static class AuditChangeCapture
         nameof(LoginAttempt),
         nameof(HealthLog),
         nameof(ConversationState),
-        nameof(ChatMessage)
+        nameof(ChatMessage),
+
+        // Send Money runtime rows. High-churn customer state with its own append-only history
+        // (TransferOrderEvent) — and the beneficiary and key rows hold values that are encrypted
+        // at rest, which a diff would otherwise write to the audit table in plaintext.
+        nameof(RemittanceSession),
+        nameof(OtpChallenge),
+        nameof(FxQuote),
+        nameof(RemittanceBeneficiary),
+        nameof(TransferOrder),
+        nameof(TransferOrderEvent),
+        nameof(WhatsAppFlowEncryptionKey)
     };
 
     /// <summary>

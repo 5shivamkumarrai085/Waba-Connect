@@ -1,0 +1,317 @@
+{
+  "version": "7.3",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "VERIFY_IDENTITY": ["TRANSFER_DETAILS"],
+    "TRANSFER_DETAILS": ["BENEFICIARY"],
+    "BENEFICIARY": ["COMPLIANCE"],
+    "COMPLIANCE": ["REVIEW_CONFIRM"],
+    "REVIEW_CONFIRM": []
+  },
+  "screens": [
+    {
+      "id": "VERIFY_IDENTITY",
+      "title": "Verify mobile number",
+      "data": {
+        "phone_display": { "type": "string", "__example__": "+60123456789" },
+        "otp_hint": { "type": "string", "__example__": "Enter the 6-digit code sent to your WhatsApp number." },
+        "otp_required": { "type": "boolean", "__example__": true },
+        "dev_hint": { "type": "string", "__example__": "Development code: 884912" },
+        "dev_hint_visible": { "type": "boolean", "__example__": false }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Step 1 of 5 · Verify it's you" },
+          { "type": "TextBody", "text": "${data.otp_hint}" },
+          { "type": "TextBody", "text": "${data.phone_display}", "font-weight": "bold" },
+          {
+            "type": "TextInput",
+            "name": "otp",
+            "label": "Verification code",
+            "input-type": "passcode",
+            "required": "${data.otp_required}",
+            "min-chars": 4,
+            "max-chars": 8,
+            "helper-text": "Never share this code with anyone."
+          },
+          { "type": "TextCaption", "text": "${data.dev_hint}", "visible": "${data.dev_hint_visible}" },
+          {
+            "type": "EmbeddedLink",
+            "text": "Resend code",
+            "on-click-action": { "name": "data_exchange", "payload": { "op": "resend_otp" } }
+          },
+          {
+            "type": "Footer",
+            "label": "Verify & continue",
+            "on-click-action": { "name": "data_exchange", "payload": { "op": "verify_otp", "otp": "${form.otp}" } }
+          }
+        ]
+      }
+    },
+    {
+      "id": "TRANSFER_DETAILS",
+      "title": "Country, rate & amount",
+      "data": {
+        "countries": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" } } },
+          "__example__": [ { "id": "1", "title": "Indonesia (IDR)", "description": "Send from MYR" } ]
+        },
+        "selected_country": { "type": "string", "__example__": "1" },
+        "payout_methods": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" } } },
+          "__example__": [ { "id": "1", "title": "Bank Transfer", "description": "Instant / within 15 mins" } ]
+        },
+        "selected_method": { "type": "string", "__example__": "1" },
+        "limits_text": { "type": "string", "__example__": "Send MYR 20.00 to MYR 20,000.00" },
+        "amount": { "type": "string", "__example__": "500" },
+        "amount_helper": { "type": "string", "__example__": "Amount in MYR" },
+        "quote_ready": { "type": "boolean", "__example__": true },
+        "quote_prompt": { "type": "string", "__example__": "Tap Calculate to see the rate and fees." },
+        "rate_line": { "type": "string", "__example__": "Guaranteed rate: 1 MYR = 3,585.5 IDR" },
+        "fee_line": { "type": "string", "__example__": "Transfer fee: MYR 4.00 (PROMO)" },
+        "receive_line": { "type": "string", "__example__": "Recipient gets: IDR 1,792,750" },
+        "total_line": { "type": "string", "__example__": "Total to pay: MYR 504.00" },
+        "expiry_line": { "type": "string", "__example__": "Rate guaranteed for 15 minutes." },
+        "footer_label": { "type": "string", "__example__": "Calculate" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Step 2 of 5 · Where and how much" },
+          {
+            "type": "Dropdown",
+            "name": "country",
+            "label": "Destination country",
+            "required": true,
+            "data-source": "${data.countries}",
+            "init-value": "${data.selected_country}",
+            "on-select-action": { "name": "data_exchange", "payload": { "op": "select_country", "country": "${form.country}", "amount": "${form.amount}" } }
+          },
+          {
+            "type": "Dropdown",
+            "name": "method",
+            "label": "Delivery method",
+            "required": true,
+            "data-source": "${data.payout_methods}",
+            "init-value": "${data.selected_method}",
+            "on-select-action": { "name": "data_exchange", "payload": { "op": "select_method", "country": "${form.country}", "method": "${form.method}", "amount": "${form.amount}" } }
+          },
+          { "type": "TextCaption", "text": "${data.limits_text}" },
+          {
+            "type": "TextInput",
+            "name": "amount",
+            "label": "You send",
+            "input-type": "number",
+            "required": true,
+            "init-value": "${data.amount}",
+            "helper-text": "${data.amount_helper}"
+          },
+          {
+            "type": "If",
+            "condition": "${data.quote_ready}",
+            "then": [
+              { "type": "TextBody", "text": "${data.rate_line}", "font-weight": "bold" },
+              { "type": "TextBody", "text": "${data.fee_line}" },
+              { "type": "TextBody", "text": "${data.receive_line}" },
+              { "type": "TextBody", "text": "${data.total_line}", "font-weight": "bold" },
+              { "type": "TextCaption", "text": "${data.expiry_line}" }
+            ],
+            "else": [
+              { "type": "TextCaption", "text": "${data.quote_prompt}" }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "${data.footer_label}",
+            "on-click-action": { "name": "data_exchange", "payload": { "op": "quote_or_continue", "country": "${form.country}", "method": "${form.method}", "amount": "${form.amount}" } }
+          }
+        ]
+      }
+    },
+    {
+      "id": "BENEFICIARY",
+      "title": "Select beneficiary",
+      "data": {
+        "beneficiaries": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" } } },
+          "__example__": [ { "id": "12", "title": "Siti Rahmawati", "description": "Bank Central Asia · ****8234" }, { "id": "new", "title": "Add a new recipient" } ]
+        },
+        "selected_beneficiary": { "type": "string", "__example__": "12" },
+        "new_visible": { "type": "boolean", "__example__": false },
+        "institutions": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" } } },
+          "__example__": [ { "id": "BCA", "title": "Bank Central Asia (BCA)" } ]
+        },
+        "institution_visible": { "type": "boolean", "__example__": false },
+        "institution_required": { "type": "boolean", "__example__": false },
+        "relationships": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" } } },
+          "__example__": [ { "id": "family", "title": "Family / Spouse" } ]
+        },
+        "relationship_visible": { "type": "boolean", "__example__": false },
+        "relationship_required": { "type": "boolean", "__example__": false },
+        "f1_label": { "type": "string", "__example__": "Account number" },
+        "f1_visible": { "type": "boolean", "__example__": false },
+        "f1_required": { "type": "boolean", "__example__": false },
+        "f1_helper": { "type": "string", "__example__": "10 digits" },
+        "f1_max": { "type": "number", "__example__": 34 },
+        "f2_label": { "type": "string", "__example__": "Field 2" },
+        "f2_visible": { "type": "boolean", "__example__": false },
+        "f2_required": { "type": "boolean", "__example__": false },
+        "f2_helper": { "type": "string", "__example__": "Optional" },
+        "f2_max": { "type": "number", "__example__": 80 },
+        "f3_label": { "type": "string", "__example__": "Field 3" },
+        "f3_visible": { "type": "boolean", "__example__": false },
+        "f3_required": { "type": "boolean", "__example__": false },
+        "f3_helper": { "type": "string", "__example__": "Optional" },
+        "f3_max": { "type": "number", "__example__": 80 },
+        "f4_label": { "type": "string", "__example__": "Field 4" },
+        "f4_visible": { "type": "boolean", "__example__": false },
+        "f4_required": { "type": "boolean", "__example__": false },
+        "f4_helper": { "type": "string", "__example__": "Optional" },
+        "f4_max": { "type": "number", "__example__": 80 },
+        "f5_label": { "type": "string", "__example__": "Field 5" },
+        "f5_visible": { "type": "boolean", "__example__": false },
+        "f5_required": { "type": "boolean", "__example__": false },
+        "f5_helper": { "type": "string", "__example__": "Optional" },
+        "f5_max": { "type": "number", "__example__": 80 },
+        "f6_label": { "type": "string", "__example__": "Field 6" },
+        "f6_visible": { "type": "boolean", "__example__": false },
+        "f6_required": { "type": "boolean", "__example__": false },
+        "f6_helper": { "type": "string", "__example__": "Optional" },
+        "f6_max": { "type": "number", "__example__": 80 }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Step 3 of 5 · Who receives it" },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "beneficiary",
+            "label": "Send to",
+            "required": true,
+            "data-source": "${data.beneficiaries}",
+            "init-value": "${data.selected_beneficiary}",
+            "on-select-action": { "name": "data_exchange", "payload": { "op": "select_beneficiary", "beneficiary": "${form.beneficiary}" } }
+          },
+          { "type": "TextInput", "name": "full_name", "label": "Recipient full name", "input-type": "text", "max-chars": 80, "required": "${data.new_visible}", "visible": "${data.new_visible}" },
+          { "type": "Dropdown", "name": "institution", "label": "Bank / provider", "data-source": "${data.institutions}", "required": "${data.institution_required}", "visible": "${data.institution_visible}" },
+          { "type": "TextInput", "name": "f1", "label": "${data.f1_label}", "input-type": "text", "required": "${data.f1_required}", "visible": "${data.f1_visible}", "helper-text": "${data.f1_helper}", "max-chars": "${data.f1_max}" },
+          { "type": "TextInput", "name": "f2", "label": "${data.f2_label}", "input-type": "text", "required": "${data.f2_required}", "visible": "${data.f2_visible}", "helper-text": "${data.f2_helper}", "max-chars": "${data.f2_max}" },
+          { "type": "TextInput", "name": "f3", "label": "${data.f3_label}", "input-type": "text", "required": "${data.f3_required}", "visible": "${data.f3_visible}", "helper-text": "${data.f3_helper}", "max-chars": "${data.f3_max}" },
+          { "type": "TextInput", "name": "f4", "label": "${data.f4_label}", "input-type": "text", "required": "${data.f4_required}", "visible": "${data.f4_visible}", "helper-text": "${data.f4_helper}", "max-chars": "${data.f4_max}" },
+          { "type": "TextInput", "name": "f5", "label": "${data.f5_label}", "input-type": "text", "required": "${data.f5_required}", "visible": "${data.f5_visible}", "helper-text": "${data.f5_helper}", "max-chars": "${data.f5_max}" },
+          { "type": "TextInput", "name": "f6", "label": "${data.f6_label}", "input-type": "text", "required": "${data.f6_required}", "visible": "${data.f6_visible}", "helper-text": "${data.f6_helper}", "max-chars": "${data.f6_max}" },
+          { "type": "Dropdown", "name": "relationship", "label": "Relationship", "data-source": "${data.relationships}", "required": "${data.relationship_required}", "visible": "${data.relationship_visible}" },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "op": "save_beneficiary",
+                "beneficiary": "${form.beneficiary}",
+                "full_name": "${form.full_name}",
+                "institution": "${form.institution}",
+                "relationship": "${form.relationship}",
+                "f1": "${form.f1}", "f2": "${form.f2}", "f3": "${form.f3}",
+                "f4": "${form.f4}", "f5": "${form.f5}", "f6": "${form.f6}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "COMPLIANCE",
+      "title": "Transfer details",
+      "data": {
+        "source_of_funds": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" } } },
+          "__example__": [ { "id": "salary", "title": "Salary / Employment" } ]
+        },
+        "purposes": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" } } },
+          "__example__": [ { "id": "family_support", "title": "Family maintenance" } ]
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Step 4 of 5 · Regulatory details" },
+          { "type": "TextBody", "text": "Required under anti-money-laundering regulations." },
+          { "type": "Dropdown", "name": "source_of_funds", "label": "Source of funds", "required": true, "data-source": "${data.source_of_funds}" },
+          { "type": "Dropdown", "name": "purpose", "label": "Purpose of transfer", "required": true, "data-source": "${data.purposes}" },
+          { "type": "TextInput", "name": "remarks", "label": "Remarks (optional)", "input-type": "text", "required": false, "max-chars": 80 },
+          {
+            "type": "Footer",
+            "label": "Review & pay",
+            "on-click-action": { "name": "data_exchange", "payload": { "op": "save_compliance", "source_of_funds": "${form.source_of_funds}", "purpose": "${form.purpose}", "remarks": "${form.remarks}" } }
+          }
+        ]
+      }
+    },
+    {
+      "id": "REVIEW_CONFIRM",
+      "title": "Confirm & pay",
+      "terminal": true,
+      "data": {
+        "recipient_line": { "type": "string", "__example__": "Recipient: Siti Rahmawati" },
+        "bank_line": { "type": "string", "__example__": "Bank: Bank Central Asia (BCA) · ****8234" },
+        "service_line": { "type": "string", "__example__": "Service: Bank Transfer" },
+        "send_line": { "type": "string", "__example__": "You send: MYR 500.00" },
+        "rate_line": { "type": "string", "__example__": "Rate: 1 MYR = 3,585.5 IDR" },
+        "receive_line": { "type": "string", "__example__": "Recipient gets: IDR 1,792,750" },
+        "fee_line": { "type": "string", "__example__": "Transfer fee: MYR 4.00 (PROMO)" },
+        "total_line": { "type": "string", "__example__": "Total payable: MYR 504.00" },
+        "expiry_line": { "type": "string", "__example__": "Rate guaranteed for 15 more minutes." },
+        "notice_text": { "type": "string", "__example__": "The rate was refreshed. Please review it." },
+        "notice_visible": { "type": "boolean", "__example__": false },
+        "payment_methods": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" }, "metadata": { "type": "string" } } },
+          "__example__": [ { "id": "FPX", "title": "FPX Online Banking", "description": "Pay with Maybank2u, CIMB Clicks, Public Bank and more.", "metadata": "INSTANT" } ]
+        },
+        "selected_payment": { "type": "string", "__example__": "FPX" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextHeading", "text": "Step 5 of 5 · Transfer summary" },
+          { "type": "TextBody", "text": "${data.notice_text}", "font-weight": "bold", "visible": "${data.notice_visible}" },
+          { "type": "TextBody", "text": "${data.recipient_line}" },
+          { "type": "TextBody", "text": "${data.bank_line}" },
+          { "type": "TextBody", "text": "${data.service_line}" },
+          { "type": "TextBody", "text": "${data.send_line}" },
+          { "type": "TextBody", "text": "${data.rate_line}" },
+          { "type": "TextBody", "text": "${data.receive_line}", "font-weight": "bold" },
+          { "type": "TextBody", "text": "${data.fee_line}" },
+          { "type": "TextBody", "text": "${data.total_line}", "font-weight": "bold" },
+          { "type": "TextCaption", "text": "${data.expiry_line}" },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "payment_method",
+            "label": "Payment method",
+            "required": true,
+            "data-source": "${data.payment_methods}",
+            "init-value": "${data.selected_payment}"
+          },
+          { "type": "TextCaption", "text": "You'll pay on our payment partner's secure page. We never ask for your banking password or OTP in WhatsApp." },
+          {
+            "type": "Footer",
+            "label": "Confirm & submit transfer",
+            "on-click-action": { "name": "data_exchange", "payload": { "op": "confirm", "payment_method": "${form.payment_method}" } }
+          }
+        ]
+      }
+    }
+  ]
+}

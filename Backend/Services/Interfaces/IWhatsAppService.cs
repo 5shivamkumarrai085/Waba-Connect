@@ -67,7 +67,8 @@ public interface IWhatsAppService
     /// <summary>
     /// Processes an incoming webhook payload for delivery status updates.
     /// </summary>
-    Task ProcessWebhookAsync(WhatsAppWebhookPayload payload);
+    /// <param name="isRetry">The delivery was processed before (a queue retry): side effects that must happen once, such as forwarding to the re-send webhook, are skipped.</param>
+    Task ProcessWebhookAsync(WhatsAppWebhookPayload payload, bool isRetry = false);
 
     /// <summary>
     /// Attempts to match and trigger template bots for incoming message keyword.
@@ -105,6 +106,9 @@ public class WhatsAppSendResult
     /// previously this was computed only to build a log message and then discarded.
     /// </summary>
     public int? HttpStatusCode { get; set; }
+
+    /// <summary>Meta's <c>error.code</c> when the send was refused (131047 outside the 24-hour window, 139000-series for Flows…).</summary>
+    public int? MetaErrorCode { get; set; }
 
     // The single-argument factories are kept so the ~20 existing call sites compile unchanged.
     public static WhatsAppSendResult Sent(string? messageId) => new()

@@ -26,6 +26,8 @@ public class BotRouterService : IBotRouterService
     private readonly ILogger<BotRouterService> _logger;
 
     private readonly IOmniSettingsService _settings;
+    private readonly IFlowLoaderService _flowLoader;
+    private readonly HotPathCache _cache;
 
     public BotRouterService(
         AppDbContext dbContext,
@@ -36,8 +38,12 @@ public class BotRouterService : IBotRouterService
         MessageBotExecutor messageBotExecutor,
         IConfiguration configuration,
         ILogger<BotRouterService> logger,
-        IOmniSettingsService settings)
+        IOmniSettingsService settings,
+        IFlowLoaderService flowLoader,
+        HotPathCache cache)
     {
+        _flowLoader = flowLoader;
+        _cache = cache;
         _dbContext = dbContext;
         _flowExecutionService = flowExecutionService;
         _whatsAppService = whatsAppService;
@@ -70,11 +76,15 @@ public class BotRouterService : IBotRouterService
             return false;
         }
 
+        // Every open flow session of this customer in one query: the ones on other connections are
+        // closed below, the one on this connection is the flow they are in.
+        var openStates = await _dbContext.ConversationStates
+            .Where(s => s.PhoneNumber == normalizedPhone && s.Status == "Active")
+            .ToListAsync();
+
         if (connectionId.HasValue)
         {
-            var staleStates = await _dbContext.ConversationStates
-                .Where(s => s.PhoneNumber == normalizedPhone && s.Status == "Active" && s.ConnectionId != connectionId.Value)
-                .ToListAsync();
+            var staleStates = openStates.Where(s => s.ConnectionId != connectionId.Value).ToList();
 
             if (staleStates.Count > 0)
             {
@@ -93,15 +103,16 @@ public class BotRouterService : IBotRouterService
             .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone && s.IsActive && 
                 (connectionId.HasValue ? s.ConnectionId == connectionId.Value : s.ConnectionId == null));
 
-        var botFlowState = await _dbContext.ConversationStates
-            .FirstOrDefaultAsync(s => s.PhoneNumber == normalizedPhone && s.Status == "Active" && 
-                (connectionId.HasValue ? s.ConnectionId == connectionId.Value : s.ConnectionId == null));
+        var botFlowState = openStates
+            .Where(s => s.Status == "Active" && (connectionId.HasValue ? s.ConnectionId == connectionId.Value : s.ConnectionId == null))
+            .OrderByDescending(s => s.UpdatedAt).ThenByDescending(s => s.Id)
+            .FirstOrDefault();
 
         bool isBotFlowAiStop = false;
         if (botFlowState != null)
         {
-            var currentNode = await _dbContext.FlowNodes
-                .FirstOrDefaultAsync(n => n.FlowId == botFlowState.FlowId && n.NodeId == botFlowState.CurrentNodeId);
+            var currentNode = (await _flowLoader.GetNodesForFlowAsync(botFlowState.FlowId))
+                .FirstOrDefault(n => n.NodeId == botFlowState.CurrentNodeId);
             
             if (currentNode != null && string.Equals(currentNode.NodeType, "AI Personal Assistant", StringComparison.OrdinalIgnoreCase))
             {
@@ -225,9 +236,11 @@ public class BotRouterService : IBotRouterService
 
         // 3. Message Bot Keyword Matching
         _logger.LogDebug("Evaluating Message Bot triggers for phone {Phone}", normalizedPhone);
-        var activeBots = await _dbContext.MessageBots
-            .Where(b => b.IsActive && (b.ConnectionId == null || b.ConnectionId == connectionId))
-            .ToListAsync();
+        // Read for every message, changed only when a bot is saved: cached (read-only) until then.
+        var activeBots = await _cache.GetOrLoadAsync(HotPathCache.Bots, $"message-bots:{connectionId}", () =>
+            _dbContext.MessageBots.AsNoTracking()
+                .Where(b => b.IsActive && (b.ConnectionId == null || b.ConnectionId == connectionId))
+                .ToListAsync());
 
         MessageBot? matchedBot = null;
 

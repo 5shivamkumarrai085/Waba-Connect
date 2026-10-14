@@ -115,6 +115,20 @@ public class IncomingInteractive
     
     [JsonPropertyName("list_reply")]
     public InteractiveReply? ListReply { get; set; }
+
+    /// <summary>A WhatsApp Flow was completed (interactive type "nfm_reply").</summary>
+    [JsonPropertyName("nfm_reply")]
+    public InteractiveFlowReply? NfmReply { get; set; }
+}
+
+public class InteractiveFlowReply
+{
+    public string? Name { get; set; }
+    public string? Body { get; set; }
+
+    /// <summary>JSON text: the params the Flow endpoint returned with its SUCCESS screen.</summary>
+    [JsonPropertyName("response_json")]
+    public string? ResponseJson { get; set; }
 }
 
 public class InteractiveReply

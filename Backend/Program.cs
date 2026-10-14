@@ -113,13 +113,17 @@ if (string.IsNullOrWhiteSpace(connectionString))
 
 var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(connectionString);
 // Versioned so a session from a build on another queue contract shows up as foreign in
-// pg_stat_activity (QueueHealthCheck); every build used to report the same name.
-dataSourceBuilder.ConnectionStringBuilder.ApplicationName ??= $"WabaConnect/{WhatsAppCampaignApi.Services.Queue.QueueNames.ContractVersion}";
+// pg_stat_activity (QueueHealthCheck); every build used to report the same name. The inbound
+// contract and the commit are included because two builds on the same queue contract can still
+// answer customers differently.
+dataSourceBuilder.ConnectionStringBuilder.ApplicationName ??= WhatsAppCampaignApi.Helpers.BuildIdentity.ApplicationName;
 var npgsqlDataSource = dataSourceBuilder.Build();
 builder.Services.AddSingleton(npgsqlDataSource);
 
-builder.Services.AddDbContextFactory<AppDbContext>(options =>
+builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
 {
+    // A save of bot, connection or Send Money configuration clears the matching hot-path cache.
+    options.AddInterceptors(sp.GetRequiredService<HotPathCacheInvalidator>());
     options.UseNpgsql(npgsqlDataSource, npgsql =>
     {
         // Retries transient failures (dropped connection, failover, serialization conflict) with
@@ -134,9 +138,10 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
     // database is a remote Neon instance, so every extra round trip costs ~250 ms of pure
     // network latency. Setting it globally made every list endpoint 2-3x slower.
     //
-    // The three queries that genuinely include two collections at the same level opt in with
-    // an explicit .AsSplitQuery(): CampaignService.GetByIdAsync, its scheduler equivalent, and
-    // RoleService.GetByIdAsync.
+    // The queries that genuinely include two collections at the same level opt in with an
+    // explicit .AsSplitQuery(): CampaignService.GetByIdAsync, its scheduler equivalent,
+    // RoleService.GetByIdAsync, and Send Money's payout-method load (recipient fields + banks) in
+    // SendMoneyFlowHandler.BeneficiaryScreenAsync and BeneficiaryService.CreateAsync.
     //
     // In Development a query that includes two collections without opting in throws rather
     // than silently returning a cartesian product, so a future one cannot slip through.
@@ -184,6 +189,11 @@ builder.Services.AddScoped<ITemplateBotService, TemplateBotService>();
 builder.Services.AddScoped<IBotFlowService, BotFlowService>();
 builder.Services.AddScoped<IFlowLoaderService, FlowLoaderService>();
 builder.Services.AddScoped<IConversationStateService, ConversationStateService>();
+builder.Services.AddScoped<IBotSessionCleanup, BotSessionCleanup>();
+// Inbound wake-up and the read-mostly cache the bot path uses on every message.
+builder.Services.AddSingleton<WhatsAppCampaignApi.Services.Queue.QueueSignal>();
+builder.Services.AddSingleton<HotPathCache>();
+builder.Services.AddSingleton<HotPathCacheInvalidator>();
 builder.Services.AddScoped<IFlowExecutionService, FlowExecutionService>();
 
 // Register Node Executors
@@ -196,6 +206,7 @@ builder.Services.AddScoped<INodeExecutor, LocationNodeExecutor>();
 builder.Services.AddScoped<INodeExecutor, ContactCardNodeExecutor>();
 builder.Services.AddScoped<INodeExecutor, AIAssistantExecutor>();
 builder.Services.AddScoped<INodeExecutor, CallToActionExecutor>();
+builder.Services.AddScoped<INodeExecutor, WhatsAppCampaignApi.Executors.WhatsAppFlowNodeExecutor>();
 
 builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 builder.Services.AddHostedService<CredentialEncryptionMigrator>();
@@ -263,7 +274,7 @@ switch (queueTransport.ToLowerInvariant())
 // Email background workers only run when the channel is switched on. A half-configured
 // deployment should do nothing rather than accept campaigns it cannot send.
 // Queue housekeeping serves every queue (WhatsApp too), so it always runs.
-builder.Services.AddHostedService<JobQueueMaintenanceWorker>();
+builder.Services.AddWorker<JobQueueMaintenanceWorker>(builder.Configuration);
 
 if (builder.Configuration.GetValue("Email:Enabled", false))
 {
@@ -271,15 +282,15 @@ if (builder.Configuration.GetValue("Email:Enabled", false))
     // Two stages rather than one worker doing both: expansion is a database operation that
     // either works or does not, while dispatch is hundreds of independent network calls each
     // needing its own retry. Both are safe to run on every instance concurrently.
-    builder.Services.AddHostedService<CampaignExpansionWorker>();
-    builder.Services.AddHostedService<EmailDispatchWorker>();
+    builder.Services.AddWorker<CampaignExpansionWorker>(builder.Configuration);
+    builder.Services.AddWorker<EmailDispatchWorker>(builder.Configuration);
 
     // IMAP polling for inbound replies. Only when explicitly enabled — a connection with no
     // IMAP settings configured simply has nothing to poll, but the worker itself must be running
     // so it picks up newly-configured mailboxes without a restart.
     if (builder.Configuration.GetValue("Email:Inbound:Enabled", false))
     {
-        builder.Services.AddHostedService<ImapPollingWorker>();
+        builder.Services.AddWorker<ImapPollingWorker>(builder.Configuration);
     }
 }
 
@@ -377,33 +388,82 @@ builder.Services.AddHttpClient<IAiProvider, OpenAiProvider>();
 builder.Services.AddScoped<MessageBotExecutor>();
 builder.Services.AddScoped<IBotRouterService, BotRouterService>();
 
-builder.Services.AddHttpClient<IWhatsAppService, WhatsAppCloudApiService>();
+// 30 s, not the 100 s default: a hung Graph call used to hold a customer's bot turn (and its queue
+// lease) for well over a minute. No automatic retry here on purpose: re-POSTing a message after a
+// timeout can deliver it twice; the queues retry whole jobs instead.
+builder.Services.AddHttpClient<IWhatsAppService, WhatsAppCloudApiService>(client => client.Timeout = TimeSpan.FromSeconds(30));
 
 // Meta webhook: verified and stored by the controller, processed here. Always on — inbound
 // WhatsApp does not depend on the email channel being enabled.
 builder.Services.AddScoped<WhatsAppCampaignApi.Services.WhatsApp.IWhatsAppWebhookSignatureVerifier, WhatsAppCampaignApi.Services.WhatsApp.WhatsAppWebhookSignatureVerifier>();
-builder.Services.AddHostedService<WhatsAppCampaignApi.Services.WhatsApp.WhatsAppWebhookWorker>();
+builder.Services.AddWorker<WhatsAppCampaignApi.Services.WhatsApp.WhatsAppWebhookWorker>(builder.Configuration);
+
+// ---- Send Money (remittance) over WhatsApp Flows ---------------------------------------------
+// Adapters are registered against their interfaces and chosen by name — Remittance:*:Provider for
+// exchange rates and OTP, the configuration rows for payment and payout — so a real provider is
+// one more registration here. The "Mock" ones are development-only; the guard below refuses to
+// start Production with any of them.
+builder.Services.AddOptions<WhatsAppCampaignApi.Models.Options.RemittanceOptions>()
+    .Bind(builder.Configuration.GetSection(WhatsAppCampaignApi.Models.Options.RemittanceOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+WhatsAppCampaignApi.Services.Remittance.RemittanceStartupGuard.Validate(builder.Configuration, builder.Environment);
+
+builder.Services.AddHttpClient<WhatsAppCampaignApi.Services.Remittance.Providers.IExchangeRateProvider, WhatsAppCampaignApi.Services.Remittance.Providers.ExchangeRateApiProvider>();
+builder.Services.AddHttpClient<WhatsAppCampaignApi.Services.Remittance.Providers.IExchangeRateProvider, WhatsAppCampaignApi.Services.Remittance.Providers.FrankfurterProvider>();
+// The mocks exist only in Development: elsewhere "Mock" is not a provider at all, so it can be
+// neither saved on a payment/payout method nor reached by a customer.
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.Providers.IOtpProvider, WhatsAppCampaignApi.Services.Remittance.Providers.MockOtpProvider>();
+    builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.Providers.IPaymentProvider, WhatsAppCampaignApi.Services.Remittance.Providers.MockPaymentProvider>();
+    builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.Providers.IPayoutProvider, WhatsAppCampaignApi.Services.Remittance.Providers.MockPayoutProvider>();
+}
+builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Remittance.RemittanceProviderCheck>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.Providers.IRemittanceProviderRegistry, WhatsAppCampaignApi.Services.Remittance.Providers.RemittanceProviderRegistry>();
+
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.IExchangeRateService, WhatsAppCampaignApi.Services.Remittance.ExchangeRateService>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.IOtpService, WhatsAppCampaignApi.Services.Remittance.OtpService>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.IQuoteService, WhatsAppCampaignApi.Services.Remittance.QuoteService>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.IBeneficiaryService, WhatsAppCampaignApi.Services.Remittance.BeneficiaryService>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.IRemittanceNotifier, WhatsAppCampaignApi.Services.Remittance.RemittanceNotifier>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.ITransferOrderService, WhatsAppCampaignApi.Services.Remittance.TransferOrderService>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.IOrderCreatedNotification, WhatsAppCampaignApi.Services.Remittance.OrderCreatedNotification>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.IRemittanceSessionService, WhatsAppCampaignApi.Services.Remittance.RemittanceSessionService>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.IRemittanceCallbackIngestion, WhatsAppCampaignApi.Services.Remittance.RemittanceCallbackIngestion>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.Remittance.IRemittanceAdminService, WhatsAppCampaignApi.Services.Remittance.RemittanceAdminService>();
+builder.Services.AddWorker<WhatsAppCampaignApi.Services.Remittance.RemittanceQueueWorker>(builder.Configuration);
+builder.Services.AddWorker<WhatsAppCampaignApi.Services.Remittance.RemittanceMaintenanceWorker>(builder.Configuration);
+builder.Services.AddWorker<WhatsAppCampaignApi.Services.Remittance.ExchangeRateRefresher>(builder.Configuration);
+
+// WhatsApp Flows: the encrypted data-exchange endpoint, per-connection set-up, launching, completion.
+builder.Services.AddHttpClient<WhatsAppCampaignApi.Services.WhatsApp.Flows.IWhatsAppFlowsApiClient, WhatsAppCampaignApi.Services.WhatsApp.Flows.WhatsAppFlowsApiClient>(client => client.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.WhatsApp.Flows.IFlowScreenHandler, WhatsAppCampaignApi.Services.Remittance.SendMoneyFlowHandler>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.WhatsApp.Flows.IWhatsAppFlowEndpoint, WhatsAppCampaignApi.Services.WhatsApp.Flows.WhatsAppFlowEndpoint>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.WhatsApp.Flows.IWhatsAppFlowsService, WhatsAppCampaignApi.Services.WhatsApp.Flows.WhatsAppFlowsService>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.WhatsApp.Flows.IWhatsAppFlowLauncher, WhatsAppCampaignApi.Services.WhatsApp.Flows.WhatsAppFlowLauncher>();
+builder.Services.AddScoped<WhatsAppCampaignApi.Services.WhatsApp.Flows.IWhatsAppFlowCompletionHandler, WhatsAppCampaignApi.Services.WhatsApp.Flows.WhatsAppFlowCompletionHandler>();
 
 // WhatsApp campaigns: durable queue delivery (expansion + multi-loop sender), in place of the
 // in-memory Task.Run loop that did not survive a restart or a second instance.
 builder.Services.AddOptions<WhatsAppCampaignApi.Services.WhatsApp.WhatsAppDispatchOptions>()
     .Bind(builder.Configuration.GetSection(WhatsAppCampaignApi.Services.WhatsApp.WhatsAppDispatchOptions.SectionName));
 builder.Services.AddScoped<WhatsAppCampaignApi.Services.WhatsApp.IWhatsAppCampaignDispatcher, WhatsAppCampaignApi.Services.WhatsApp.WhatsAppCampaignDispatcher>();
-builder.Services.AddHostedService<WhatsAppCampaignApi.Services.WhatsApp.WhatsAppCampaignExpansionWorker>();
-builder.Services.AddHostedService<WhatsAppCampaignApi.Services.WhatsApp.WhatsAppCampaignSendWorker>();
-builder.Services.AddHostedService<CampaignSchedulerService>();
+builder.Services.AddWorker<WhatsAppCampaignApi.Services.WhatsApp.WhatsAppCampaignExpansionWorker>(builder.Configuration);
+builder.Services.AddWorker<WhatsAppCampaignApi.Services.WhatsApp.WhatsAppCampaignSendWorker>(builder.Configuration);
+builder.Services.AddWorker<CampaignSchedulerService>(builder.Configuration);
 
 // Safety net for chat conversation rows. They are created when a contact is created; this
 // catches anything that path misses (notably contacts that predate a newly added connection).
-builder.Services.AddHostedService<ChatConversationReconcilerService>();
+builder.Services.AddWorker<ChatConversationReconcilerService>(builder.Configuration);
 
 // Refreshes templates from Meta on a schedule, so reading the template list never waits on an
 // outbound HTTPS call.
-builder.Services.AddHostedService<TemplateSyncBackgroundService>();
+builder.Services.AddWorker<TemplateSyncBackgroundService>(builder.Configuration);
 
 // Auto Clear Chat History. Reads its own setting each run, so the toggle takes effect at the next
 // sweep rather than at the next restart.
-builder.Services.AddHostedService<ChatHistoryCleanupService>();
+builder.Services.AddWorker<ChatHistoryCleanupService>(builder.Configuration);
 
 // Authentication, RBAC and auditing
 builder.Services.AddScoped<IPermissionResolver, PermissionResolver>();
@@ -440,11 +500,11 @@ builder.Services.AddScoped<IDeliverabilityService, DeliverabilityService>();
 // Typed client: one pooled handler; the probe caches its verdict, so this costs one request per few minutes.
 builder.Services.AddHttpClient<IPublicEndpointProbe, PublicEndpointProbe>();
 builder.Services.AddScoped<WhatsAppCampaignApi.Services.Campaigns.IAbTestService, WhatsAppCampaignApi.Services.Campaigns.AbTestService>();
-builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Campaigns.AbTestWinnerWorker>();
+builder.Services.AddWorker<WhatsAppCampaignApi.Services.Campaigns.AbTestWinnerWorker>(builder.Configuration);
 builder.Services.AddScoped<WhatsAppCampaignApi.Services.Campaigns.IFollowUpService, WhatsAppCampaignApi.Services.Campaigns.FollowUpService>();
-builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Campaigns.FollowUpWorker>();
+builder.Services.AddWorker<WhatsAppCampaignApi.Services.Campaigns.FollowUpWorker>(builder.Configuration);
 builder.Services.AddScoped<WhatsAppCampaignApi.Services.Chat.IConversationOperations, WhatsAppCampaignApi.Services.Chat.ConversationOperations>();
-builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Chat.ChatSlaWorker>();
+builder.Services.AddWorker<WhatsAppCampaignApi.Services.Chat.ChatSlaWorker>(builder.Configuration);
 
 // Outbound webhooks: signed (HMAC-SHA256), queued and retried, and never allowed to reach the
 // server's own network: the guard runs when a URL is saved and again on every connection.
@@ -466,11 +526,11 @@ builder.Services.AddSingleton<WhatsAppCampaignApi.Services.Integrations.WebhookE
 builder.Services.AddSingleton<WhatsAppCampaignApi.Services.Integrations.IWebhookEmitter>(sp => sp.GetRequiredService<WhatsAppCampaignApi.Services.Integrations.WebhookEmitter>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WhatsAppCampaignApi.Services.Integrations.WebhookEmitter>());
 builder.Services.AddScoped<WhatsAppCampaignApi.Services.Integrations.IWebhookSubscriptionService, WhatsAppCampaignApi.Services.Integrations.WebhookSubscriptionService>();
-builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Integrations.WebhookDeliveryWorker>();
+builder.Services.AddWorker<WhatsAppCampaignApi.Services.Integrations.WebhookDeliveryWorker>(builder.Configuration);
 
 // Saved reports emailed on a timetable, each run under its owner's access.
 builder.Services.AddScoped<WhatsAppCampaignApi.Services.Integrations.IReportScheduleService, WhatsAppCampaignApi.Services.Integrations.ReportScheduleService>();
-builder.Services.AddHostedService<WhatsAppCampaignApi.Services.Integrations.ReportScheduleWorker>();
+builder.Services.AddWorker<WhatsAppCampaignApi.Services.Integrations.ReportScheduleWorker>(builder.Configuration);
 builder.Services.AddScoped<IConnectionService, ConnectionService>();
 builder.Services.AddScoped<IWabaRepository, WabaRepository>();
 builder.Services.AddScoped<IBusinessRepository, BusinessRepository>();

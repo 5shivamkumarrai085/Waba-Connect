@@ -77,6 +77,13 @@ public class ChatMessage
     /// <summary>Null when a message is removed by something other than a signed-in user.</summary>
     public int? DeletedByUserId { get; set; }
 
+    /// <summary>
+    /// Incoming messages: when the automated handling (consent keyword, bot reply or Flow
+    /// completion) finished. Null on a message stored by an attempt that failed part-way, which a
+    /// retry of the same delivery then completes instead of skipping.
+    /// </summary>
+    public DateTime? AutomationHandledAt { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

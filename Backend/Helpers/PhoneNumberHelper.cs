@@ -162,4 +162,15 @@ public static class PhoneNumberHelper
         if (string.IsNullOrWhiteSpace(e164Phone)) return string.Empty;
         return e164Phone.StartsWith("+") ? e164Phone.Substring(1) : e164Phone;
     }
+
+    /// <summary>
+    /// For logs: only the last four digits ("********2677"). Enough to match a complaint to a log
+    /// line, without the logs becoming a list of customers' numbers.
+    /// </summary>
+    public static string Mask(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) return "(none)";
+        var trimmed = phone.Trim();
+        return trimmed.Length <= 4 ? "****" : new string('*', trimmed.Length - 4) + trimmed[^4..];
+    }
 }

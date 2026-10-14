@@ -48,6 +48,7 @@ public class ContactCardNodeExecutor : INodeExecutor
             // Ignore parse errors
         }
 
+        WhatsAppSendResult? sent = null;
         if (contacts.Any())
         {
             var metaContacts = contacts.Select(c => new
@@ -90,16 +91,13 @@ public class ContactCardNodeExecutor : INodeExecutor
                 var phoneAcc = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == state.ConnectionId.Value);
                 resolvedPhoneId = phoneAcc?.PhoneNumberId;
             }
-            await _whatsAppService.SendCustomPayloadAsync(state.PhoneNumber, payload, resolvedPhoneId, state.ConnectionId);
+            sent = await _whatsAppService.SendCustomPayloadAsync(state.PhoneNumber, payload, resolvedPhoneId, state.ConnectionId);
         }
 
         var nextEdge = outgoingEdges.FirstOrDefault(e => e.Source == node.NodeId);
-        if (nextEdge == null)
-        {
-            return NodeExecutionResult.Complete();
-        }
-
-        return NodeExecutionResult.Next(nextEdge.Target);
+        var result = nextEdge == null ? NodeExecutionResult.Complete() : NodeExecutionResult.Next(nextEdge.Target);
+        result.SentByExecutor = sent;
+        return result;
     }
 
     private class ContactItem

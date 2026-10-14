@@ -104,6 +104,9 @@ public static class PermissionCatalog
             ("Assign", "Assign conversations")
         }),
         new("CannedReply", "Canned Reply", "Support", Crud),
+        // Customers' Send Money transfers. View only: an order's payment status changes only on
+        // the payment provider's verified callback, never from this screen.
+        new("Transfer", "Transfers", "Support", ViewOnly),
 
         // ---- Connections ----------------------------------------------------------
         // Deliberately not plain CRUD — connecting a WABA account is an OAuth handshake, not a
@@ -157,6 +160,8 @@ public static class PermissionCatalog
         new("Source",        "Source",         "Setup", Crud),
         new("AiPrompt",      "Ai Prompt",      "Setup", Crud),
         new("Webhook",       "Webhook",        "Setup", new[] { (View, "View"), ("Manage", "Create, edit, test and replay") }),
+        // Send Money configuration: what customers may send where, at what fee, paid how.
+        new("Remittance",    "Send Money",     "Setup", new[] { (View, "View"), ("Manage", "Edit countries, payout methods, fees and pick-lists") }),
         new("Language",      "Language",       "Setup", new[]
         {
             (View, "View"), (Create, "Create"), (Edit, "Edit"), (Delete, "Delete"),

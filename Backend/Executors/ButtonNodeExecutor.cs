@@ -141,10 +141,11 @@ public class ButtonNodeExecutor : INodeExecutor
             var phoneAcc = await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.ConnectionId == state.ConnectionId.Value);
             resolvedPhoneId = phoneAcc?.PhoneNumberId;
         }
-        await _whatsAppService.SendCustomPayloadAsync(state.PhoneNumber, payload, resolvedPhoneId, state.ConnectionId);
+        var sent = await _whatsAppService.SendCustomPayloadAsync(state.PhoneNumber, payload, resolvedPhoneId, state.ConnectionId);
 
         var paused = NodeExecutionResult.Pause(node.NodeId);
         paused.CollectVariables = MenuRetryPolicy.Counter(node.NodeId, retryCount);
+        paused.SentByExecutor = sent;
         return paused;
     }
 

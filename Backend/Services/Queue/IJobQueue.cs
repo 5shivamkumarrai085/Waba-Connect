@@ -132,6 +132,15 @@ public sealed record QueueClaimRequest
 
     /// <summary>Overrides the configured per-partition fairness cap.</summary>
     public int? PerPartitionCap { get; init; }
+
+    /// <summary>
+    /// Strict order within a partition, across every instance: only the oldest unfinished job of
+    /// a partition can be claimed, and not while another job of that partition is leased. Used for
+    /// inbound messages (partition = one customer on one number), so a customer's messages are
+    /// handled one at a time and in the order they arrived. Jobs without a partition key are
+    /// independent of each other.
+    /// </summary>
+    public bool OrderedPerPartition { get; init; }
 }
 
 /// <summary>An exclusive, time-limited claim on one job.</summary>

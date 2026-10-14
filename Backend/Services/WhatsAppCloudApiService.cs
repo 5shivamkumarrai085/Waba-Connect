@@ -42,9 +42,14 @@ public class WhatsAppCloudApiService : IWhatsAppService
     private readonly IEventPublisher _eventPublisher;
     private readonly IFileStorage _fileStorage;
     private readonly Microsoft.Extensions.Caching.Memory.IMemoryCache _cache;
+    private readonly HotPathCache _hotPath;
 
     private string ApiVersion => _configuration["WhatsApp:ApiVersion"] ?? "v21.0";
-    private string BaseUrl => $"https://graph.facebook.com/{ApiVersion}";
+    /// <summary>
+    /// Meta's Graph API, overridable (<c>WhatsApp:GraphBaseUrl</c>) only so a load test can point
+    /// sends at a stub instead of messaging real numbers. Leave unset everywhere else.
+    /// </summary>
+    private string BaseUrl => $"{(_configuration["WhatsApp:GraphBaseUrl"] ?? "https://graph.facebook.com").TrimEnd('/')}/{ApiVersion}";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -62,8 +67,10 @@ public class WhatsAppCloudApiService : IWhatsAppService
         IInboxNotifier inboxNotifier,
         IEventPublisher eventPublisher,
         IFileStorage fileStorage,
-        Microsoft.Extensions.Caching.Memory.IMemoryCache cache)
+        Microsoft.Extensions.Caching.Memory.IMemoryCache cache,
+        HotPathCache hotPath)
     {
+        _hotPath = hotPath;
         _httpClient = httpClient;
         _configuration = configuration;
         _dbContext = dbContext;
@@ -76,7 +83,25 @@ public class WhatsAppCloudApiService : IWhatsAppService
         _cache = cache;
     }
 
-    private async Task<(string AccessToken, string PhoneNumberId, string BusinessAccountId)> GetActiveConfigAsync(string? requestedPhoneNumberId = null, int? connectionId = null)
+    /// <summary>
+    /// The credentials and number to send with. Cached for a minute per (connection, number): it
+    /// used to cost three to six queries on every single message sent. A rejected token drops the
+    /// cache (see <see cref="ForgetConfigOnAuthFailure"/>), and saving a connection invalidates it.
+    /// </summary>
+    private Task<(string AccessToken, string PhoneNumberId, string BusinessAccountId)> GetActiveConfigAsync(string? requestedPhoneNumberId = null, int? connectionId = null) =>
+        _hotPath.GetOrLoadAsync(HotPathCache.Connections, $"send:{connectionId}:{requestedPhoneNumberId}",
+            () => LoadActiveConfigAsync(requestedPhoneNumberId, connectionId));
+
+    /// <summary>Meta refusing our token (HTTP 401, or error code 190) means the cached credentials may be stale.</summary>
+    private void ForgetConfigOnAuthFailure(System.Net.HttpStatusCode status, string responseBody)
+    {
+        if (status == System.Net.HttpStatusCode.Unauthorized || ExtractMetaErrorCode(responseBody) == 190)
+        {
+            _hotPath.Invalidate(HotPathCache.Connections);
+        }
+    }
+
+    private async Task<(string AccessToken, string PhoneNumberId, string BusinessAccountId)> LoadActiveConfigAsync(string? requestedPhoneNumberId, int? connectionId)
     {
         WabaConfiguration? config = null;
 
@@ -222,6 +247,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
             if (!response.IsSuccessStatusCode)
             {
+                ForgetConfigOnAuthFailure(response.StatusCode, responseBody);
                 _logger.LogError(
                     "Failed to send WhatsApp message. Status: {Status}, Response: {Response}",
                     response.StatusCode, responseBody);
@@ -286,6 +312,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
             if (!response.IsSuccessStatusCode)
             {
+                ForgetConfigOnAuthFailure(response.StatusCode, responseBody);
                 var errorMessage = ExtractMetaErrorMessage(responseBody)
                     ?? $"WhatsApp API rejected the message with status {response.StatusCode}.";
 
@@ -636,7 +663,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
     }
 
     /// <inheritdoc />
-    public async Task ProcessWebhookAsync(WhatsAppWebhookPayload payload)
+    public async Task ProcessWebhookAsync(WhatsAppWebhookPayload payload, bool isRetry = false)
     {
         if (payload.Entry == null) return;
 
@@ -676,10 +703,32 @@ public class WhatsAppCloudApiService : IWhatsAppService
                         await ProcessIncomingMessageAsync(
                             incomingMessage,
                             contactName,
-                            change.Value.Metadata?.PhoneNumberId);
+                            change.Value.Metadata?.PhoneNumberId,
+                            isRetry);
                     }
                 }
             }
+        }
+
+        // Forwarded once, on the first attempt, and before any retry is requested below: statuses
+        // for messages another system sent on this number never become known here, and that
+        // system still needs its callbacks. Detached so a slow customer endpoint cannot hold up
+        // the queue; the forwarder never throws and takes its own scope.
+        if (!isRetry)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    var forwarder = scope.ServiceProvider.GetRequiredService<IWebhookForwarder>();
+                    await forwarder.ForwardAsync(payload);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Webhook forwarding task failed.");
+                }
+            });
         }
 
         if (unknownStatuses.Count > 0)
@@ -688,37 +737,49 @@ public class WhatsAppCloudApiService : IWhatsAppService
             // so the caller can retry this payload to pick up the statuses that raced their send.
             throw new WhatsAppStatusNotYetKnownException(string.Join(",", unknownStatuses));
         }
-
-        // Forwarded on a detached task so a slow customer endpoint cannot hold up the 200 owed to
-        // Meta. The forwarder never throws, and takes its own scope because this one ends with the
-        // request.
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var forwarder = scope.ServiceProvider.GetRequiredService<IWebhookForwarder>();
-                await forwarder.ForwardAsync(payload);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Webhook forwarding task failed.");
-            }
-        });
     }
 
     /// <summary>
     /// Processes a single inbound WhatsApp customer message and stores it in chat history.
     /// </summary>
-    private async Task ProcessIncomingMessageAsync(IncomingMessage incomingMessage, string? contactName, string? fromPhoneNumberId)
+    private async Task ProcessIncomingMessageAsync(IncomingMessage incomingMessage, string? contactName, string? fromPhoneNumberId, bool isRetry)
     {
         if (string.IsNullOrWhiteSpace(incomingMessage.Id)) return;
-
-        var exists = await _dbContext.ChatMessages.AnyAsync(m => m.WhatsAppMessageId == incomingMessage.Id);
-        if (exists) return;
+        var timer = System.Diagnostics.Stopwatch.StartNew();
 
         var normalizedPhone = PhoneNumberHelper.NormalizePhoneNumber(incomingMessage.From);
         if (string.IsNullOrWhiteSpace(normalizedPhone)) return;
+
+        // Query filters ignored: a stored message of a soft-deleted contact is still stored, and
+        // missing it here used to re-run the whole ingestion (and undelete the contact).
+        var stored = await _dbContext.ChatMessages.IgnoreQueryFilters().AsNoTracking()
+            .Where(m => m.WhatsAppMessageId == incomingMessage.Id)
+            .Select(m => new { m.Id, m.ContactId, m.ConversationId, m.ConnectionId, m.Text, m.CreatedAt, m.AutomationHandledAt })
+            .FirstOrDefaultAsync();
+        if (stored is not null)
+        {
+            // A retry of our own job, shortly after it stored the message, whose automated reply
+            // never finished (the attempt failed part-way): finish that part now. Anything else is a
+            // redelivery of a message already handled, possibly by another build, and is left alone.
+            if (isRetry && stored.AutomationHandledAt is null && stored.ContactId is { } storedContactId
+                && stored.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
+            {
+                var storedPhone = await _dbContext.Contacts.IgnoreQueryFilters().AsNoTracking()
+                    .Where(c => c.Id == storedContactId).Select(c => c.Phone).FirstOrDefaultAsync();
+                if (storedPhone is not null)
+                {
+                    var storedFlowReply = incomingMessage.Type == "interactive" && incomingMessage.Interactive?.Type == "nfm_reply"
+                        ? incomingMessage.Interactive.NfmReply
+                        : null;
+                    await RunAutomationAsync(new InboundTurn(
+                        stored.Id, storedContactId, storedPhone, stored.ConversationId, stored.ConnectionId, normalizedPhone,
+                        stored.Text, storedFlowReply is not null, storedFlowReply?.ResponseJson, fromPhoneNumberId, incomingMessage.Id));
+                    // The failed attempt may not have reached the bookkeeping either; it is safe to repeat.
+                    await InboundBookkeepingAsync(stored.ConversationId, stored.ConnectionId);
+                }
+            }
+            return;
+        }
 
         var contact = await _dbContext.Contacts
             .IgnoreQueryFilters()
@@ -787,8 +848,10 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
         // Never "the first phone of any connection": a message without a phone_number_id cannot be
         // attributed, and guessing would file a customer's message under another bank's number.
+        // Which of our numbers the message came in on: the same few rows for every message, cached.
         var account = !string.IsNullOrWhiteSpace(fromPhoneNumberId)
-            ? await _dbContext.WabaPhoneNumbers.FirstOrDefaultAsync(p => p.PhoneNumberId == fromPhoneNumberId)
+            ? await _hotPath.GetOrLoadAsync(HotPathCache.Connections, $"phone:{fromPhoneNumberId}", () =>
+                _dbContext.WabaPhoneNumbers.AsNoTracking().FirstOrDefaultAsync(p => p.PhoneNumberId == fromPhoneNumberId))
             : null;
 
         var connectionId = account?.ConnectionId;
@@ -876,7 +939,17 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
         var text = incomingMessage.Text?.Body;
 
-        if (incomingMessage.Type == "interactive" && incomingMessage.Interactive != null)
+        // A completed WhatsApp Flow. Its answers belong to the Flow's own handler, not to the bots.
+        var flowReply = incomingMessage.Type == "interactive" && incomingMessage.Interactive?.Type == "nfm_reply"
+            ? incomingMessage.Interactive.NfmReply
+            : null;
+
+        if (flowReply is not null)
+        {
+            // '|' separates the card's fields, so it cannot appear inside one.
+            text = $"[FlowReply|Flow: {(string.IsNullOrWhiteSpace(flowReply.Name) ? "flow" : flowReply.Name.Replace('|', '/'))}|Text: {(string.IsNullOrWhiteSpace(flowReply.Body) ? "Submitted" : flowReply.Body.Replace('|', '/'))}]";
+        }
+        else if (incomingMessage.Type == "interactive" && incomingMessage.Interactive != null)
         {
             var interactive = incomingMessage.Interactive;
             if (interactive.Type == "button_reply" && interactive.ButtonReply != null)
@@ -905,7 +978,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
         conversation.LastMessageText = text;
         conversation.LastMessageAt = DateTime.UtcNow;
 
-        _dbContext.ChatMessages.Add(new ChatMessage
+        var inbound = new ChatMessage
         {
             Conversation = conversation,
             ContactId = contact.Id,
@@ -914,7 +987,8 @@ public class WhatsAppCloudApiService : IWhatsAppService
             Direction = ChatMessageDirection.Incoming,
             Status = ChatMessageStatus.Received,
             Text = text
-        });
+        };
+        _dbContext.ChatMessages.Add(inbound);
 
         try
         {
@@ -924,7 +998,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
         {
             // Meta delivered the same message twice concurrently and the other delivery stored it
             // first; the unique index on the WhatsApp id is what caught it. Anything else is real.
-            if (await _dbContext.ChatMessages.AsNoTracking().AnyAsync(m => m.WhatsAppMessageId == incomingMessage.Id)) return;
+            if (await _dbContext.ChatMessages.IgnoreQueryFilters().AsNoTracking().AnyAsync(m => m.WhatsAppMessageId == incomingMessage.Id)) return;
             throw;
         }
 
@@ -935,85 +1009,162 @@ public class WhatsAppCloudApiService : IWhatsAppService
             .Where(c => c.Id == unreadConversationId)
             .ExecuteUpdateAsync(u => u.SetProperty(c => c.UnreadCount, c => c.UnreadCount + 1));
 
-        await _inboxNotifier.MessageReceivedAsync(conversation.Id, connectionId);
+        var storedMs = timer.ElapsedMilliseconds;
 
-        // Reopen / SLA clock / routing. Never allowed to break message ingestion.
+        // The customer's reply first, the inbox bookkeeping after: the bots do not read assignment
+        // or SLA state, and the bookkeeping is several round trips the customer used to wait for.
+        // The finally still files the message for agents if the automation throws (the job is
+        // then retried, and the retry finishes only the automation).
         try
         {
-            using var opsScope = _scopeFactory.CreateScope();
-            await opsScope.ServiceProvider.GetRequiredService<Chat.IConversationOperations>().OnInboundAsync(conversation.Id);
+            await RunAutomationAsync(new InboundTurn(
+                inbound.Id, contact.Id, contact.Phone, conversation.Id, connectionId, normalizedPhone,
+                text, flowReply is not null, flowReply?.ResponseJson, fromPhoneNumberId, incomingMessage.Id));
+        }
+        finally
+        {
+            var repliedMs = timer.ElapsedMilliseconds;
+            await InboundBookkeepingAsync(conversation.Id, connectionId);
+            _logger.LogInformation(
+                "Inbound message on connection {ConnectionId}: stored in {StoredMs} ms, automated reply done at {RepliedMs} ms, bookkeeping done at {TotalMs} ms.",
+                connectionId, storedMs, repliedMs, timer.ElapsedMilliseconds);
+        }
+    }
+
+    /// <summary>Inbox side of a new message: live push to agents, then reopen / SLA clock / routing. Never fails the message.</summary>
+    private async Task InboundBookkeepingAsync(int conversationId, int? connectionId)
+    {
+        try
+        {
+            await _inboxNotifier.MessageReceivedAsync(conversationId, connectionId);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Conversation {ConversationId}: inbound bookkeeping (SLA/routing) failed.", conversation.Id);
+            _logger.LogWarning(ex, "Conversation {ConversationId}: live inbox update failed.", conversationId);
         }
 
-        // Consent keywords (STOP / START, configurable). Recorded with the message as proof and
-        // confirmed to the customer; the keyword is not passed on to a bot, so nobody who just
-        // opted out receives an automated reply.
-        using (var consentScope = _scopeFactory.CreateScope())
+        try
         {
-            var consent = consentScope.ServiceProvider.GetRequiredService<Compliance.IConsentService>();
-            var changed = await consent.TryApplyWhatsAppKeywordAsync(contact.Id, text, incomingMessage.Id);
-            if (changed is { } consentStatus)
-            {
-                var settings = consentScope.ServiceProvider.GetRequiredService<IOmniSettingsService>();
-                var reply = consentStatus == ConsentStatus.OptedOut
-                    ? await settings.GetValueAsync("compliance.optOutReply")
-                    : await settings.GetValueAsync("compliance.optInReply");
-                reply = string.IsNullOrWhiteSpace(reply)
-                    ? consentStatus == ConsentStatus.OptedOut
-                        ? "You have been unsubscribed from our WhatsApp messages. Reply START to subscribe again."
-                        : "You are subscribed to our WhatsApp messages. Reply STOP to unsubscribe."
-                    : reply;
+            using var opsScope = _scopeFactory.CreateScope();
+            await opsScope.ServiceProvider.GetRequiredService<Chat.IConversationOperations>().OnInboundAsync(conversationId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Conversation {ConversationId}: inbound bookkeeping (SLA/routing) failed.", conversationId);
+        }
+    }
 
-                try
-                {
-                    await SendTextMessageAsync(contact.Phone, reply, fromPhoneNumberId, connectionId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Could not confirm the consent change to contact {ContactId}.", contact.Id);
-                }
-                return;
+    /// <summary>What the automated handling of one stored incoming message needs.</summary>
+    private sealed record InboundTurn(
+        int MessageRowId,
+        int ContactId,
+        string ContactPhone,
+        int ConversationId,
+        int? ConnectionId,
+        string NormalizedPhone,
+        string Text,
+        bool IsFlowReply,
+        string? FlowResponseJson,
+        string? FromPhoneNumberId,
+        string WhatsAppMessageId);
+
+    /// <summary>
+    /// The automated answer to one incoming message: a WhatsApp Flow completion, a consent keyword,
+    /// or the bot router. Runs inside the webhook job rather than on a detached task, so a crash or
+    /// restart retries it instead of losing the reply, and the job's ordered claim keeps one
+    /// customer's turns one at a time across every instance. Exceptions propagate so the job is
+    /// retried; the message is marked handled only once its turn has finished.
+    /// </summary>
+    private async Task RunAutomationAsync(InboundTurn turn)
+    {
+        // Also serialised inside this process (status jobs and Flow callbacks share it).
+        using var gate = await ConversationGate.EnterAsync(turn.NormalizedPhone)
+            ?? throw new TimeoutException("The previous automated reply to this customer is still running; the message will be retried.");
+
+        if (turn.IsFlowReply)
+        {
+            // A completed WhatsApp Flow: its answers belong to the Flow's own handler, not to the bots.
+            using var scope = _scopeFactory.CreateScope();
+            var completion = scope.ServiceProvider.GetRequiredService<WhatsApp.Flows.IWhatsAppFlowCompletionHandler>();
+            await completion.HandleAsync(turn.NormalizedPhone, turn.ConnectionId, turn.FlowResponseJson, CancellationToken.None);
+        }
+        else if (!await TryHandleConsentKeywordAsync(turn))
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var dbContact = await dbContext.Contacts.FindAsync(turn.ContactId);
+            if (dbContact != null)
+            {
+                var router = scope.ServiceProvider.GetRequiredService<IBotRouterService>();
+                await router.RouteMessageAsync(turn.NormalizedPhone, turn.Text, dbContact, turn.ConnectionId);
             }
         }
 
-        // Start flow execution asynchronously.
-        //
-        // Detached so Meta gets its 200 immediately, but serialised per customer: a bot turn reads
-        // the conversation state, decides, and writes the next state, and two of those interleaving
-        // on one person corrupted the conversation — duplicate greetings, menus answering the wrong
-        // message, and a "stop" undone by a task still running from the message before it.
-        _ = Task.Run(async () =>
+        await _dbContext.ChatMessages.IgnoreQueryFilters()
+            .Where(m => m.Id == turn.MessageRowId)
+            .ExecuteUpdateAsync(u => u.SetProperty(m => m.AutomationHandledAt, DateTime.UtcNow));
+    }
+
+    /// <summary>
+    /// Consent keywords (STOP / START, configurable). Recorded with the message as proof and
+    /// confirmed to the customer; the keyword is not passed on to a bot, so nobody who just opted
+    /// out receives an automated reply. Returns false when the text is not a consent keyword.
+    /// </summary>
+    private async Task<bool> TryHandleConsentKeywordAsync(InboundTurn turn)
+    {
+        using var consentScope = _scopeFactory.CreateScope();
+        var consent = consentScope.ServiceProvider.GetRequiredService<Compliance.IConsentService>();
+        var changed = await consent.TryApplyWhatsAppKeywordAsync(turn.ContactId, turn.Text, turn.WhatsAppMessageId);
+        if (changed is not { } consentStatus) return false;
+
+        var settings = consentScope.ServiceProvider.GetRequiredService<IOmniSettingsService>();
+        var reply = consentStatus == ConsentStatus.OptedOut
+            ? await settings.GetValueAsync("compliance.optOutReply")
+            : await settings.GetValueAsync("compliance.optInReply");
+        reply = string.IsNullOrWhiteSpace(reply)
+            ? consentStatus == ConsentStatus.OptedOut
+                ? "You have been unsubscribed from our WhatsApp messages. Reply START to subscribe again."
+                : "You are subscribed to our WhatsApp messages. Reply STOP to unsubscribe."
+            : reply;
+
+        // Whatever the customer was in the middle of is over, both ways: after STOP a menu must not
+        // pick up again later, and after START they start fresh rather than landing in a menu that
+        // was waiting from before (which swallowed their next message). START also lifts a Stop Bot
+        // suppression, so bots answer them again. STOP itself only covers marketing: a customer who
+        // writes in afterwards is still answered.
+        var cleanup = consentScope.ServiceProvider.GetRequiredService<IBotSessionCleanup>();
+        var closed = await cleanup.EndAutomationAsync(turn.NormalizedPhone);
+        var lifted = consentStatus == ConsentStatus.OptedIn ? await cleanup.LiftSuppressionsAsync(turn.NormalizedPhone) : 0;
+        _logger.LogInformation(
+            "Consent keyword from contact {ContactId}: {Status}; closed {Closed} bot session(s), lifted {Lifted} suppression(s).",
+            turn.ContactId, consentStatus, closed, lifted);
+
+        try
         {
-            using var turn = await ConversationGate.EnterAsync(normalizedPhone);
+            var sent = await SendTextMessageAsync(turn.ContactPhone, reply, turn.FromPhoneNumberId, turn.ConnectionId);
 
-            if (turn is null)
+            // Filed in the thread like any reply, so the agent sees it and WhatsApp's delivery
+            // statuses for it find their message instead of being dead-lettered.
+            _dbContext.ChatMessages.Add(new ChatMessage
             {
-                _logger.LogWarning(
-                    "Timed out waiting for the previous bot turn for {Phone}; skipping this message rather than running two at once.",
-                    normalizedPhone);
-                return;
-            }
-
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                
-                // Fetch contact using the new scoped dbContext to avoid cross-context tracking and disposed context issues
-                var dbContact = await dbContext.Contacts.FindAsync(contact.Id);
-                if (dbContact == null) return;
-
-                var routerService = scope.ServiceProvider.GetRequiredService<IBotRouterService>();
-                await routerService.RouteMessageAsync(normalizedPhone, text, dbContact, connectionId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error routing incoming message in background task for phone {Phone}", normalizedPhone);
-            }
-        });
+                ConversationId = turn.ConversationId,
+                ContactId = turn.ContactId,
+                ConnectionId = turn.ConnectionId,
+                WhatsAppMessageId = sent.Success ? sent.MessageId : null,
+                Direction = ChatMessageDirection.Outgoing,
+                Status = sent.Success ? ChatMessageStatus.Sent : ChatMessageStatus.Failed,
+                ErrorMessage = sent.Success ? null : sent.ErrorMessage,
+                Text = reply,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not confirm the consent change to contact {ContactId}.", turn.ContactId);
+        }
+        return true;
     }
 
     /// <summary>
@@ -1270,6 +1421,23 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
     private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
 
+    /// <summary>Meta's numeric <c>error.code</c>, or null.</summary>
+    private static int? ExtractMetaErrorCode(string responseBody)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(responseBody);
+            return doc.RootElement.TryGetProperty("error", out var error)
+                   && error.TryGetProperty("code", out var code) && code.TryGetInt32(out var value)
+                ? value
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private static string? ExtractMetaErrorMessage(string responseBody)
     {
         if (string.IsNullOrWhiteSpace(responseBody)) return null;
@@ -1521,6 +1689,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
             if (!response.IsSuccessStatusCode)
             {
+                ForgetConfigOnAuthFailure(response.StatusCode, responseBody);
                 _logger.LogError(
                     "Failed to send WhatsApp media message. Status: {Status}, Response: {Response}",
                     response.StatusCode, responseBody);
@@ -1566,7 +1735,7 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            _logger.LogInformation("Sending custom WhatsApp payload to {Phone}", whatsAppPhone);
+            _logger.LogInformation("Sending custom WhatsApp payload to {Phone}", PhoneNumberHelper.Mask(whatsAppPhone));
 
             var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/{finalPhoneNumberId}/messages")
             {
@@ -1579,10 +1748,13 @@ public class WhatsAppCloudApiService : IWhatsAppService
 
             if (!response.IsSuccessStatusCode)
             {
+                ForgetConfigOnAuthFailure(response.StatusCode, responseBody);
                 _logger.LogError("Failed to send WhatsApp custom message. Status: {Status}, Response: {Response}", response.StatusCode, responseBody);
                 var errorMessage = ExtractMetaErrorMessage(responseBody)
                     ?? $"WhatsApp API rejected custom message with status {response.StatusCode}.";
-                return WhatsAppSendResult.Failed(errorMessage);
+                var failed = WhatsAppSendResult.Failed(errorMessage, (int)response.StatusCode);
+                failed.MetaErrorCode = ExtractMetaErrorCode(responseBody);
+                return failed;
             }
 
             using var doc = JsonDocument.Parse(responseBody);
@@ -1747,11 +1919,13 @@ public class WhatsAppCloudApiService : IWhatsAppService
         {
             _logger.LogInformation("TryTriggerTemplateBotAsync called for phone {Phone}, text '{Text}', connectionId {ConnectionId}", normalizedPhone, incomingText, connectionId);
 
-            var activeTemplateBots = await _dbContext.TemplateBots
-                .Where(b => b.IsActive && (b.ConnectionId == null || b.ConnectionId == connectionId))
-                .Include(b => b.Template)
-                .Include(b => b.Variables)
-                .ToListAsync();
+            // Read for every message, changed only when a bot or template is saved: cached (read-only).
+            var activeTemplateBots = await _hotPath.GetOrLoadAsync(HotPathCache.Bots, $"template-bots:{connectionId}", () =>
+                _dbContext.TemplateBots.AsNoTracking()
+                    .Where(b => b.IsActive && (b.ConnectionId == null || b.ConnectionId == connectionId))
+                    .Include(b => b.Template)
+                    .Include(b => b.Variables)
+                    .ToListAsync());
 
             _logger.LogInformation("Found {Count} active template bots", activeTemplateBots.Count);
 

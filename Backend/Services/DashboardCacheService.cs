@@ -333,36 +333,22 @@ public class DashboardCacheService : IDashboardCacheService
 
         foreach (var channel in Enum.GetValues<MessageChannel>())
         {
-            var forChannel = rows.Where(r => r.Channel == channel).ToList();
-            int CountOf(MessageStatus status) => forChannel.Where(r => r.Status == status).Sum(r => r.Count);
-
-            var isEmail = channel == MessageChannel.Email;
-            var read = isEmail
-                ? forChannel.Where(r => r.IsOpened || r.Status == MessageStatus.Read).Sum(r => r.Count)
-                : CountOf(MessageStatus.Read);
-            var delivered = isEmail
-                ? (CountOf(MessageStatus.Sent) + CountOf(MessageStatus.Delivered) + read)
-                : (CountOf(MessageStatus.Delivered) + read);
-            var failed = CountOf(MessageStatus.Failed)
-                       + CountOf(MessageStatus.Bounced)
-                       + CountOf(MessageStatus.Complained);
-            var suppressed = CountOf(MessageStatus.Suppressed);
-            var pending = CountOf(MessageStatus.Pending);
-            var messages = forChannel.Where(r => r.Status != MessageStatus.Suppressed).Sum(r => r.Count);
+            var counts = CountChannelMessages(channel,
+                rows.Where(r => r.Channel == channel).Select(r => new ChannelStatusCount(r.Status, r.IsOpened, r.Count)));
 
             var replies = repliesByChannel.TryGetValue(channel, out var replyCount) ? replyCount : 0;
 
             perChannel.Add(new ChannelBreakdownRow(
                 Channel: channel.ToString(),
-                Messages: messages,
-                Delivered: delivered,
-                Failed: failed,
-                Read: read,
-                Pending: pending,
-                Suppressed: suppressed,
+                Messages: counts.Messages,
+                Delivered: counts.Delivered,
+                Failed: counts.Failed,
+                Read: counts.Read,
+                Pending: counts.Pending,
+                Suppressed: counts.Suppressed,
                 Replies: replies,
-                DeliveryRate: messages > 0 ? Math.Round((double)delivered / messages * 100, 1) : 0,
-                ReplyRate: messages > 0 ? Math.Round((double)replies / messages * 100, 1) : 0,
+                DeliveryRate: counts.Messages > 0 ? Math.Round((double)counts.Delivered / counts.Messages * 100, 1) : 0,
+                ReplyRate: counts.Messages > 0 ? Math.Round((double)replies / counts.Messages * 100, 1) : 0,
                 SharePercent: 0));
         }
 
@@ -374,6 +360,36 @@ public class DashboardCacheService : IDashboardCacheService
                 SharePercent = grandTotal > 0 ? Math.Round((double)r.Messages / grandTotal * 100, 1) : 0
             })
             .ToList();
+    }
+
+    /// <summary>Recipients of one channel in one status, split by whether the email was opened.</summary>
+    public sealed record ChannelStatusCount(MessageStatus Status, bool IsOpened, int Count);
+
+    public sealed record ChannelMessageCounts(int Messages, int Delivered, int Failed, int Read, int Pending, int Suppressed);
+
+    /// <summary>One channel's dashboard counts from its recipients grouped by status.</summary>
+    public static ChannelMessageCounts CountChannelMessages(MessageChannel channel, IEnumerable<ChannelStatusCount> statusCounts)
+    {
+        var forChannel = statusCounts.ToList();
+        int CountOf(MessageStatus status) => forChannel.Where(r => r.Status == status).Sum(r => r.Count);
+
+        var isEmail = channel == MessageChannel.Email;
+        var read = isEmail
+            ? forChannel.Where(r => r.IsOpened || r.Status == MessageStatus.Read).Sum(r => r.Count)
+            : CountOf(MessageStatus.Read);
+        // By status alone. An opened email keeps its Sent or Delivered status, so adding the opened
+        // ones on top counted each of them twice and pushed the delivery rate past 100%. Email has
+        // no delivery receipt, so accepted-by-the-mail-server (Sent) is its delivered.
+        var delivered = CountOf(MessageStatus.Delivered) + CountOf(MessageStatus.Read)
+                      + (isEmail ? CountOf(MessageStatus.Sent) : 0);
+        var failed = CountOf(MessageStatus.Failed)
+                   + CountOf(MessageStatus.Bounced)
+                   + CountOf(MessageStatus.Complained);
+        var suppressed = CountOf(MessageStatus.Suppressed);
+        var pending = CountOf(MessageStatus.Pending);
+        var messages = forChannel.Where(r => r.Status != MessageStatus.Suppressed).Sum(r => r.Count);
+
+        return new ChannelMessageCounts(messages, delivered, failed, read, pending, suppressed);
     }
 
     private async Task<CoreCounts> GetCoreCountsAsync(DateTime? currentCutoff, int[]? scope)

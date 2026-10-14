@@ -223,7 +223,7 @@ public class PostgresJobQueue : IJobQueue
             """;
 
         await using var connection = await OpenAsync(ct);
-        await using var command = new NpgsqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(request.OrderedPerPartition ? OrderedClaimSql : sql, connection);
         command.Parameters.AddWithValue("queue", request.QueueName);
         command.Parameters.AddWithValue("per_partition_cap", perPartitionCap);
         command.Parameters.AddWithValue("batch_size", batchSize);
@@ -259,6 +259,61 @@ public class PostgresJobQueue : IJobQueue
 
         return leases;
     }
+
+    /// <summary>
+    /// The claim for <see cref="QueueClaimRequest.OrderedPerPartition"/>.
+    ///
+    /// heads  — the oldest unfinished (Pending or Leased) job of every partition. A job without a
+    ///          partition key is its own partition.
+    /// ready  — the heads that may run now: pending and due, or holding a lease that expired. A
+    ///          head with a live lease blocks its partition, which is what keeps one customer's
+    ///          messages strictly one at a time; a head waiting on a retry delay blocks it too, so a
+    ///          failed message is never overtaken by the next one.
+    /// picked — row locks with SKIP LOCKED and the claimability re-check, as in the fair claim.
+    /// </summary>
+    private const string OrderedClaimSql = """
+        WITH heads AS (
+            SELECT DISTINCT ON (COALESCE("PartitionKey", 'job:' || "Id"::text))
+                   "Id", "AvailableAt", "Status", "LeaseExpiresAt", "Attempt", "MaxAttempts"
+              FROM "JobQueue"
+             WHERE "QueueName" = @queue
+               AND "Status" IN ('Pending', 'Leased')
+             ORDER BY COALESCE("PartitionKey", 'job:' || "Id"::text), "Id"
+        ),
+        ready AS (
+            SELECT h."Id"
+              FROM heads h
+             WHERE h."AvailableAt" <= now()
+               AND (h."Status" = 'Pending'
+                    OR (h."Status" = 'Leased' AND h."LeaseExpiresAt" IS NOT NULL AND h."LeaseExpiresAt" < now()
+                        AND h."Attempt" < h."MaxAttempts"))
+             ORDER BY h."AvailableAt", h."Id"
+             LIMIT @batch_size
+        ),
+        picked AS (
+            SELECT j."Id"
+              FROM "JobQueue" j
+             WHERE j."Id" IN (SELECT "Id" FROM ready)
+               AND j."AvailableAt" <= now()
+               AND (j."Status" = 'Pending'
+                    OR (j."Status" = 'Leased' AND j."LeaseExpiresAt" IS NOT NULL AND j."LeaseExpiresAt" < now()
+                        AND j."Attempt" < j."MaxAttempts"))
+             ORDER BY j."AvailableAt", j."Id"
+             FOR UPDATE SKIP LOCKED
+             LIMIT @batch_size
+        )
+        UPDATE "JobQueue" j
+           SET "Status"         = 'Leased',
+               "LeaseToken"     = @token,
+               "LeasedBy"       = @worker,
+               "LeaseExpiresAt" = now() + make_interval(secs => @visibility_seconds),
+               "Attempt"        = j."Attempt" + 1,
+               "UpdatedAt"      = now()
+          FROM picked p
+         WHERE j."Id" = p."Id"
+        RETURNING j."Id", j."LeaseToken", j."QueueName", j."Payload", j."Attempt",
+                  j."MaxAttempts", j."PartitionKey", j."IdempotencyKey", j."LeaseExpiresAt"
+        """;
 
     public async Task<bool> CompleteAsync(QueueLease lease, CancellationToken ct = default)
     {

@@ -117,6 +117,7 @@ public static class EncryptionKeyGuard
                 UNION ALL SELECT 'EmailConfigurations', "Id", 'ImapPasswordEncrypted', "ImapPasswordEncrypted" FROM "EmailConfigurations"
                 UNION ALL SELECT 'WabaConfigurations', "Id", 'AccessToken', "AccessToken" FROM "WabaConfigurations"
                 UNION ALL SELECT 'WabaConfigurations', "Id", 'FacebookAppSecret', "FacebookAppSecret" FROM "WabaConfigurations"
+                UNION ALL SELECT 'WhatsAppFlowEncryptionKeys', "Id", 'PrivateKeyPem', "PrivateKeyPem" FROM "WhatsAppFlowEncryptionKeys"
             ) s
             WHERE "Value" LIKE 'enc:v2:%'
             """).ToListAsync(ct);

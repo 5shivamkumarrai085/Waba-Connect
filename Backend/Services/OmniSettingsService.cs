@@ -495,9 +495,10 @@ public class OmniSettingsService : IOmniSettingsService
 
         var values = rows.ToDictionary(r => r.Key, r => r.Value, StringComparer.OrdinalIgnoreCase);
 
-        // No expiry: the cache is dropped when a section is saved, which is the only thing that can
-        // make it stale. A timeout would only add a window where a saved setting is ignored.
-        _cache.Set(CacheKey, values);
+        // Dropped when a section is saved on this instance, and expires after a minute so a save
+        // made on another instance (several share one database) reaches this one too. Without the
+        // expiry, the other instances kept the old settings until they restarted.
+        _cache.Set(CacheKey, values, TimeSpan.FromMinutes(1));
 
         return values;
     }

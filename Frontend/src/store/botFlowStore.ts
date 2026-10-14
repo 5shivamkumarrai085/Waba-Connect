@@ -93,7 +93,14 @@ export const useBotFlowStore = create<BotFlowStoreState>((set, get) => ({
 
   updateFlow: async (id, name, description, flowData, connectionId) => {
     try {
-      const flow = await botFlowService.updateBotFlow(id, { name, description, flowData, connectionId: connectionId ?? undefined })
+      // connectionId is sent only when the caller passed one: null means "all connections",
+      // leaving it out keeps the flow's current connection.
+      const flow = await botFlowService.updateBotFlow(id, {
+        name,
+        description,
+        flowData,
+        ...(connectionId !== undefined ? { connectionId } : {})
+      })
       get().fetchFlows()
       useDashboardStore.getState().loadDashboardData(false)
       if (get().currentFlow?.id === id) {

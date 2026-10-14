@@ -47,6 +47,8 @@ import {
   UserRound,
   X,
   Camera,
+  Workflow,
+  ArrowLeftRight,
   ThumbsUp,
   SlidersHorizontal
 } from 'lucide-react'
@@ -94,6 +96,20 @@ const EMOJIS = [
 // Chat had the only working copy of this logic. It now lives in utils/mediaUrl so avatars and
 // any future backend-served media resolve the same way instead of each site re-deriving it.
 const getFullMediaUrl = resolveMediaUrl
+
+/** Reads "[Kind|Key: value|Key: value]" — the form the server logs structured messages in — for one of `kinds`. */
+const parseRichCard = (text: string, kinds: string[]): { kind: string; fields: Record<string, string> } | null => {
+  if (!text.startsWith('[') || !text.endsWith(']')) return null
+  const parts = text.slice(1, -1).split('|')
+  const kind = parts[0]
+  if (!kinds.includes(kind)) return null
+  const fields: Record<string, string> = {}
+  for (const part of parts.slice(1)) {
+    const idx = part.indexOf(':')
+    if (idx > 0) fields[part.substring(0, idx).trim()] = part.substring(idx + 1).trim()
+  }
+  return { kind, fields }
+}
 
 export const Chat: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -907,6 +923,45 @@ export const Chat: React.FC = () => {
             {phone && <div><dt>Phone</dt><dd>{phone}</dd></div>}
             {email && <div><dt>Email</dt><dd>{email}</dd></div>}
           </dl>
+        </div>
+      );
+    }
+
+    // Send Money: the Flow invitation, the customer's submitted Flow, and transfer updates.
+    const card = parseRichCard(text, ['FlowSent', 'FlowReply', 'Transfer']);
+    if (card) {
+      const f = card.fields;
+      if (card.kind === 'FlowSent' || card.kind === 'FlowReply') {
+        return (
+          <div className="chat-rich-card">
+            <div className="chat-rich-card-head has-divider">
+              <span className="chat-rich-card-icon" aria-hidden="true"><Workflow size={16} /></span>
+              <div className="chat-rich-card-title">
+                <span>{f['Flow'] || 'WhatsApp Flow'}</span>
+                <small>{card.kind === 'FlowSent' ? 'Form sent' : 'Form submitted'}</small>
+              </div>
+            </div>
+            {f['Text'] && <p className="chat-rich-card-text">{f['Text']}</p>}
+            {card.kind === 'FlowSent' && f['CTA'] && <span className="chat-rich-card-action" aria-hidden="true">{f['CTA']}</span>}
+          </div>
+        );
+      }
+      const link = f['Link'] && /^https?:\/\//i.test(f['Link']) ? f['Link'] : null;
+      return (
+        <div className="chat-rich-card">
+          <div className="chat-rich-card-head has-divider">
+            <span className="chat-rich-card-icon" aria-hidden="true"><ArrowLeftRight size={16} /></span>
+            <div className="chat-rich-card-title">
+              <span>{f['Status'] || 'Transfer'}</span>
+              {f['Ref'] && <small translate="no">{f['Ref']}</small>}
+            </div>
+          </div>
+          <dl className="chat-rich-card-details">
+            {f['Amount'] && <div><dt>Total</dt><dd>{f['Amount']}</dd></div>}
+            {f['Receive'] && <div><dt>Recipient gets</dt><dd>{f['Receive']}</dd></div>}
+            {f['Detail'] && <div><dt>Detail</dt><dd>{f['Detail']}</dd></div>}
+          </dl>
+          {link && <a className="chat-rich-card-action" href={link} target="_blank" rel="noopener noreferrer">Payment page</a>}
         </div>
       );
     }

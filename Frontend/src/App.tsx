@@ -57,6 +57,8 @@ const SetupAiPromptsList = lazy(() => import('./pages/Setup/AiPrompts/AiPromptsL
 const SetupCannedRepliesList = lazy(() => import('./pages/Setup/CannedReplies/CannedRepliesList').then(m => ({ default: m.CannedRepliesList })))
 const SetupEmailTemplatesList = lazy(() => import('./pages/Setup/EmailTemplates/EmailTemplatesList').then(m => ({ default: m.EmailTemplatesList })))
 const SetupWebhooks = lazy(() => import('./pages/Setup/Webhooks/WebhooksList').then(m => ({ default: m.WebhooksList })))
+const SetupSendMoney = lazy(() => import('./pages/Setup/SendMoney/SendMoneySetup').then(m => ({ default: m.SendMoneySetup })))
+const TransfersList = lazy(() => import('./pages/Transfers/TransfersList').then(m => ({ default: m.TransfersList })))
 const SetupSystemLogs = lazy(() => import('./pages/Setup/SystemLogs/SystemLogs').then(m => ({ default: m.SystemLogs })))
 
 // Reusable Loading Fallback
@@ -215,6 +217,7 @@ const App: React.FC = () => {
             {/* The designer both reads and saves a flow, so viewing it needs the edit grant. */}
             <Route path="/bot-flow/designer/:id" element={<Guarded permission="BotFlow.Edit"><BotFlowDesigner /></Guarded>} />
             <Route path="/chat" element={<Guarded permission="Chat.View"><Chat /></Guarded>} />
+            <Route path="/transfers" element={<Guarded permission="Transfer.View"><TransfersList /></Guarded>} />
             {/* System Settings belongs to the host app, not OmniConnect. The route survives only
                 to redirect bookmarks; the sidebar item is gone. */}
             <Route path="/system-settings" element={<Navigate to="/omniconnect-settings" replace />} />
@@ -243,6 +246,7 @@ const App: React.FC = () => {
               <Route path="email-templates" element={<Guarded permission="EmailTemplate.View"><SetupEmailTemplatesList /></Guarded>} />
               <Route path="system-logs" element={<Guarded permission="SystemLog.View"><SetupSystemLogs /></Guarded>} />
               <Route path="webhooks" element={<Guarded permission="Webhook.View"><SetupWebhooks /></Guarded>} />
+              <Route path="send-money" element={<Guarded permission="Remittance.View"><SetupSendMoney /></Guarded>} />
 
               <Route path="connection-access/user" element={<Guarded permission="ConnectionAccess.View"><UserPermissionsList /></Guarded>} />
               <Route path="connection-access/department" element={<Guarded permission="ConnectionAccess.View"><DepartmentPermissionsList /></Guarded>} />

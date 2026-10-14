@@ -1,0 +1,1580 @@
+{
+  "info": {
+    "_postman_id": "9b9f7ec6-9c3c-4f5a-924e-208c8e857f4a",
+    "name": "WABA Connect — Send Money (WhatsApp Flows)",
+    "description": "End-to-end Send Money journey without a phone: seed demo data, start a session, walk every Flow screen, create the order, pay through the mock gateway's signed callback and complete the payout. Run the folders in order. Requires a Development backend with Remittance:Enabled and Remittance:DevTools:Enabled. See docs/remittance/SEND_MONEY_WALKTHROUGH.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Sign in",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Bearer token for the admin endpoints (Setup › Send Money, Transfers).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('signed in', () => pm.expect(body.data.token).to.be.a('string'));",
+                  "pm.environment.set('token', body.data.token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Configuration",
+      "item": [
+        {
+          "name": "Seed Malaysian demo data (dev)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/remittance/seed-demo",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "remittance",
+                "seed-demo"
+              ]
+            },
+            "description": "Idempotent. MYR → IDR, PHP, INR, BDT, SGD, VND with payout methods, recipient fields, banks, fees, regulatory lists, FPX and Pay-at-Counter, and the 'Send Money' bot flow."
+          }
+        },
+        {
+          "name": "Reference (providers, lists, limits)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/remittance/reference",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "remittance",
+                "reference"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Countries",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/remittance/corridors",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "remittance",
+                "corridors"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const list = pm.response.json().data;",
+                  "const id = list.find(c => c.destinationCurrency === 'IDR') || list[0];",
+                  "pm.test('has countries', () => pm.expect(list.length).to.be.above(0));",
+                  "pm.environment.set('corridorId', id.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Payout methods of the country",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/remittance/corridors/{{corridorId}}/payout-methods",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "remittance",
+                "corridors",
+                "{{corridorId}}",
+                "payout-methods"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const list = pm.response.json().data;",
+                  "const bank = list.find(m => m.code === 'BANK_TRANSFER') || list[0];",
+                  "pm.environment.set('methodId', bank.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Recipient fields of the method",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/remittance/payout-methods/{{methodId}}/fields",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "remittance",
+                "payout-methods",
+                "{{methodId}}",
+                "fields"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Banks of the method",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/remittance/payout-methods/{{methodId}}/institutions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "remittance",
+                "payout-methods",
+                "{{methodId}}",
+                "institutions"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Live rate preview",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/remittance/corridors/{{corridorId}}/rate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "remittance",
+                "corridors",
+                "{{corridorId}}",
+                "rate"
+              ]
+            },
+            "description": "Calls the configured exchange-rate provider. ok=false with an error when no fresh rate is available — never an invented one."
+          }
+        },
+        {
+          "name": "Payment methods",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/remittance/payment-methods",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "remittance",
+                "payment-methods"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Flow journey (plaintext harness)",
+      "description": "The same handler the encrypted Meta endpoint uses, without encryption.",
+      "item": [
+        {
+          "name": "Start session (dev)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/remittance/sessions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "remittance",
+                "sessions"
+              ]
+            },
+            "description": "What the bot's WhatsApp Flow node does, minus sending the message. Creates the contact if needed.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"{{testPhone}}\",\n  \"name\": \"Postman Tester\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json().data;",
+                  "pm.environment.set('flowToken', d.flowToken);",
+                  "pm.environment.set('endpointKey', d.endpointKey);",
+                  "pm.environment.set('connectionId', d.connectionId);",
+                  "pm.test('token issued', () => pm.expect(d.flowToken).to.match(/^sm_/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "INIT → verify screen (OTP issued)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "The mock OTP provider delivers nothing; with Remittance:Otp:Mock:ExposeCodeInFlow the code appears as a development hint.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"INIT\",\n  \"flow_token\": \"{{flowToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('opens VERIFY_IDENTITY', () => pm.expect(body.screen).to.eql('VERIFY_IDENTITY'));",
+                  "if (body.data && body.data.error_message) console.log('error_message:', body.data.error_message);",
+                  "const hint = body.data.dev_hint || '';",
+                  "const m = hint.match(/\\d{6}/);",
+                  "if (m) pm.environment.set('otp', m[0]);",
+                  "pm.test('mock OTP exposed in Development', () => pm.expect(m).to.not.be.null);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Skip ahead without verifying (refused)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "Server-side enforcement: every later action requires a verified session.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"data_exchange\",\n  \"flow_token\": \"{{flowToken}}\",\n  \"screen\": \"TRANSFER_DETAILS\",\n  \"data\": {\n    \"op\": \"quote_or_continue\",\n    \"country\": \"{{corridorId}}\",\n    \"method\": \"{{methodId}}\",\n    \"amount\": \"500\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('opens VERIFY_IDENTITY', () => pm.expect(body.screen).to.eql('VERIFY_IDENTITY'));",
+                  "if (body.data && body.data.error_message) console.log('error_message:', body.data.error_message);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"data_exchange\",\n  \"flow_token\": \"{{flowToken}}\",\n  \"screen\": \"VERIFY_IDENTITY\",\n  \"data\": {\n    \"op\": \"verify_otp\",\n    \"otp\": \"{{otp}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('opens TRANSFER_DETAILS', () => pm.expect(body.screen).to.eql('TRANSFER_DETAILS'));",
+                  "if (body.data && body.data.error_message) console.log('error_message:', body.data.error_message);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Select country",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"data_exchange\",\n  \"flow_token\": \"{{flowToken}}\",\n  \"screen\": \"TRANSFER_DETAILS\",\n  \"data\": {\n    \"op\": \"select_country\",\n    \"country\": \"{{corridorId}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('opens TRANSFER_DETAILS', () => pm.expect(body.screen).to.eql('TRANSFER_DETAILS'));",
+                  "if (body.data && body.data.error_message) console.log('error_message:', body.data.error_message);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Calculate (quote)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"data_exchange\",\n  \"flow_token\": \"{{flowToken}}\",\n  \"screen\": \"TRANSFER_DETAILS\",\n  \"data\": {\n    \"op\": \"quote_or_continue\",\n    \"country\": \"{{corridorId}}\",\n    \"method\": \"{{methodId}}\",\n    \"amount\": \"500\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('opens TRANSFER_DETAILS', () => pm.expect(body.screen).to.eql('TRANSFER_DETAILS'));",
+                  "if (body.data && body.data.error_message) console.log('error_message:', body.data.error_message);",
+                  "pm.test('quote shown', () => pm.expect(body.data.quote_ready).to.eql(true));",
+                  "console.log(body.data.rate_line, '|', body.data.fee_line, '|', body.data.receive_line, '|', body.data.total_line);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Continue → beneficiary",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"data_exchange\",\n  \"flow_token\": \"{{flowToken}}\",\n  \"screen\": \"TRANSFER_DETAILS\",\n  \"data\": {\n    \"op\": \"quote_or_continue\",\n    \"country\": \"{{corridorId}}\",\n    \"method\": \"{{methodId}}\",\n    \"amount\": \"500\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('opens BENEFICIARY', () => pm.expect(body.screen).to.eql('BENEFICIARY'));",
+                  "if (body.data && body.data.error_message) console.log('error_message:', body.data.error_message);",
+                  "const banks = body.data.institutions || [];",
+                  "if (banks.length) pm.environment.set('institutionCode', banks[0].id);",
+                  "const rel = body.data.relationships || [];",
+                  "if (rel.length) pm.environment.set('relationshipCode', rel[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save recipient — invalid account (refused)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"data_exchange\",\n  \"flow_token\": \"{{flowToken}}\",\n  \"screen\": \"BENEFICIARY\",\n  \"data\": {\n    \"op\": \"save_beneficiary\",\n    \"beneficiary\": \"new\",\n    \"full_name\": \"Siti Rahma\",\n    \"institution\": \"{{institutionCode}}\",\n    \"relationship\": \"{{relationshipCode}}\",\n    \"f1\": \"12ab\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('opens BENEFICIARY', () => pm.expect(body.screen).to.eql('BENEFICIARY'));",
+                  "if (body.data && body.data.error_message) console.log('error_message:', body.data.error_message);",
+                  "pm.test('explains the problem', () => pm.expect(body.data.error_message).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save recipient",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "f1..f6 are the payout method's recipient fields in slot order (see the fields request).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"data_exchange\",\n  \"flow_token\": \"{{flowToken}}\",\n  \"screen\": \"BENEFICIARY\",\n  \"data\": {\n    \"op\": \"save_beneficiary\",\n    \"beneficiary\": \"new\",\n    \"full_name\": \"Siti Rahma\",\n    \"institution\": \"{{institutionCode}}\",\n    \"relationship\": \"{{relationshipCode}}\",\n    \"f1\": \"8204918234\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('opens COMPLIANCE', () => pm.expect(body.screen).to.eql('COMPLIANCE'));",
+                  "if (body.data && body.data.error_message) console.log('error_message:', body.data.error_message);",
+                  "pm.environment.set('fundsCode', body.data.source_of_funds[0].id);",
+                  "pm.environment.set('purposeCode', body.data.purposes[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Regulatory details",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"data_exchange\",\n  \"flow_token\": \"{{flowToken}}\",\n  \"screen\": \"COMPLIANCE\",\n  \"data\": {\n    \"op\": \"save_compliance\",\n    \"source_of_funds\": \"{{fundsCode}}\",\n    \"purpose\": \"{{purposeCode}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('opens REVIEW_CONFIRM', () => pm.expect(body.screen).to.eql('REVIEW_CONFIRM'));",
+                  "if (body.data && body.data.error_message) console.log('error_message:', body.data.error_message);",
+                  "console.log(body.data.total_line, '|', body.data.receive_line);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm with FPX → order created",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "Creates the order (AwaitingPayment / Pending) and starts the payment with the provider. Never marks it paid.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"data_exchange\",\n  \"flow_token\": \"{{flowToken}}\",\n  \"screen\": \"REVIEW_CONFIRM\",\n  \"data\": {\n    \"op\": \"confirm\",\n    \"payment_method\": \"FPX\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('Flow completes', () => pm.expect(body.screen).to.eql('SUCCESS'));",
+                  "const ref = body.data.extension_message_response.params.order_reference;",
+                  "pm.environment.set('orderReference', ref);",
+                  "pm.test('reference like IR-MY123456', () => pm.expect(ref).to.match(/^IR-[A-Z]{2}\\d{6}$/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm again (idempotent)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"data_exchange\",\n  \"flow_token\": \"{{flowToken}}\",\n  \"screen\": \"REVIEW_CONFIRM\",\n  \"data\": {\n    \"op\": \"confirm\",\n    \"payment_method\": \"FPX\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('same order', () => pm.expect(body.data.extension_message_response.params.order_reference).to.eql(pm.environment.get('orderReference')));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Encrypted endpoint (as Meta calls it)",
+      "item": [
+        {
+          "name": "Encrypt a ping like Meta (dev)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/encrypt-request",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "encrypt-request"
+              ]
+            },
+            "description": "RSA-OAEP-SHA256 wraps a fresh AES-128 key; the payload is AES-GCM with a 16-byte IV — exactly Meta's scheme.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"ping\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json();",
+                  "pm.environment.set('encryptedBody', d.body);",
+                  "pm.environment.set('flowSignature', d.signature || '');",
+                  "pm.environment.set('aesKey', d.aesKey);",
+                  "pm.environment.set('iv', d.iv);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST encrypted request to the real endpoint",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Hub-Signature-256",
+                "value": "{{flowSignature}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/webhook/whatsapp-flows/{{endpointKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "webhook",
+                "whatsapp-flows",
+                "{{endpointKey}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{{encryptedBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, Base64 text', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('encryptedResponse', pm.response.text());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Decrypt the answer (dev)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/decrypt-response",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "decrypt-response"
+              ]
+            },
+            "description": "The response is encrypted with the bit-flipped IV.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"response\": \"{{encryptedResponse}}\",\n  \"aesKey\": \"{{aesKey}}\",\n  \"iv\": \"{{iv}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('active', () => pm.expect(pm.response.json().data.status).to.eql('active'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tampered body → 421",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/webhook/whatsapp-flows/{{endpointKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "webhook",
+                "whatsapp-flows",
+                "{{endpointKey}}"
+              ]
+            },
+            "description": "432 instead when a signature is required (Production, or a configured app secret with a wrong header).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"encrypted_flow_data\": \"AAAA\", \"encrypted_aes_key\": \"AAAA\", \"initial_vector\": \"AAAAAAAAAAAAAAAAAAAAAA==\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('421 makes WhatsApp refetch the key', () => pm.expect(pm.response.code).to.be.oneOf([421, 432]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Payment and payout",
+      "item": [
+        {
+          "name": "Find the order",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/remittance/orders?search={{orderReference}}&page=1&pageSize=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "remittance",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "{{orderReference}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const o = pm.response.json().data.items[0];",
+                  "pm.environment.set('orderId', o.id);",
+                  "pm.test('awaiting payment, payment pending', () => { pm.expect(o.orderStatus).to.eql('AwaitingPayment'); pm.expect(o.paymentStatus).to.eql('Pending'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Order detail (payment id, timeline)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/remittance/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "remittance",
+                "orders",
+                "{{orderId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json().data;",
+                  "pm.environment.set('paymentId', d.providerPaymentId);",
+                  "console.log('Checkout page:', d.paymentUrl);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unsigned payment callback (refused)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/webhook/payments/Mock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "webhook",
+                "payments",
+                "Mock"
+              ]
+            },
+            "description": "Payment can only change through a provider callback whose signature verifies.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"evt_postman_unsigned\",\n  \"type\": \"payment.succeeded\",\n  \"objectId\": \"{{paymentId}}\",\n  \"amount\": 500.0,\n  \"currency\": \"MYR\",\n  \"created\": \"2026-10-12T00:00:00Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mock gateway: customer pays (signed callback)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/mock-payments/{{paymentId}}/simulate?outcome=succeeded",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "mock-payments",
+                "{{paymentId}}",
+                "simulate"
+              ],
+              "query": [
+                {
+                  "key": "outcome",
+                  "value": "succeeded"
+                }
+              ]
+            },
+            "description": "What the checkout page's button does: builds the gateway's callback, signs it and sends it through the same verification as /api/webhook/payments/Mock. The queue worker then applies it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('callback accepted', () => pm.expect(pm.response.json().success).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Order is Paid → Processing (waits 8 s)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/remittance/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "remittance",
+                "orders",
+                "{{orderId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "setTimeout(() => {}, 8000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json().data;",
+                  "pm.test('payment succeeded', () => pm.expect(d.order.paymentStatus).to.eql('Succeeded'));",
+                  "pm.test('order paid or processing', () => pm.expect(d.order.orderStatus).to.be.oneOf(['Paid', 'Processing']));",
+                  "if (d.payoutReference) pm.environment.set('payoutReference', d.payoutReference);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mock payout partner: delivered",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/mock-payouts/{{payoutReference}}/simulate?outcome=completed",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "mock-payouts",
+                "{{payoutReference}}",
+                "simulate"
+              ],
+              "query": [
+                {
+                  "key": "outcome",
+                  "value": "completed"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Order is Completed (waits 8 s)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/remittance/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "remittance",
+                "orders",
+                "{{orderId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "setTimeout(() => {}, 8000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('completed', () => pm.expect(pm.response.json().data.order.orderStatus).to.eql('Completed'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. More negative checks",
+      "item": [
+        {
+          "name": "Finished session cannot reopen (427)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"INIT\",\n  \"flow_token\": \"{{flowToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('427', () => pm.response.to.have.status(427));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown flow token (427)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/whatsapp-flows/{{endpointKey}}/exchange",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "whatsapp-flows",
+                "{{endpointKey}}",
+                "exchange"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": \"3.0\",\n  \"action\": \"INIT\",\n  \"flow_token\": \"sm_not-a-real-token\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('427', () => pm.response.to.have.status(427));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign a callback body (dev)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dev/remittance/sign-callback",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dev",
+                "remittance",
+                "sign-callback"
+              ]
+            },
+            "description": "Then call /api/webhook/payments/Mock with header X-Mock-Signature and the same body; change one character to see 401.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"payment\",\n  \"body\": \"{\\\"id\\\":\\\"evt_postman_1\\\",\\\"type\\\":\\\"payment.failed\\\",\\\"objectId\\\":\\\"{{paymentId}}\\\",\\\"created\\\":\\\"2026-10-12T00:00:00Z\\\"}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('mockSignature', pm.response.json().value);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

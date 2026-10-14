@@ -267,6 +267,7 @@
 .node-header-bar.text-message { background-color: var(--primary); }
 .node-header-bar.button-message { background-color: #10b981; }
 .node-header-bar.call-to-action { background-color: #f97316; }
+.node-header-bar.whatsapp-flow { background-color: #15803d; }
 .node-header-bar.media-message { background-color: #ec4899; }
 .node-header-bar.list-message { background-color: #ec4899; }
 .node-header-bar.location { background-color: #06b6d4; }
@@ -813,6 +814,9 @@
 .call-to-action + .react-flow__handle,
 .react-flow__node[data-type="callToAction"] .react-flow__handle { border-color: #f97316 !important; }
 .react-flow__node[data-type="callToAction"] .react-flow__handle:hover { background-color: #f97316 !important; }
+
+.react-flow__node[data-type="whatsAppFlow"] .react-flow__handle { border-color: #15803d !important; }
+.react-flow__node[data-type="whatsAppFlow"] .react-flow__handle:hover { background-color: #15803d !important; }
 
 .list-message + .react-flow__handle,
 .react-flow__node[data-type="listMessage"] .react-flow__handle { border-color: #ec4899 !important; }

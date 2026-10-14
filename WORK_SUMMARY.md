@@ -684,6 +684,11 @@ Nothing on the page is a fixed list: tabs, sort orders, statuses, filters and th
 
 Results: no horizontal scroll at either width, and Send is in view on the phone.
 
+### 9. Dashboard "Delivered" above 100% (found 2026-10-05)
+
+- **Cause:** the per-channel breakdown counted an opened email twice in Delivered, once as sent and once as opened. It only showed once opens started being recorded (18 messages, 14 sent, 6 opened → "20 delivered, 111.1%").
+- **Fix:** Delivered is counted by status alone (`DashboardCacheService.CountChannelMessages`). Phase 23 pins it: delivered can never exceed messages.
+
 ### Round 5 migrations, endpoints and tests
 
 - **Migrations (applied, inspected):**

@@ -182,6 +182,9 @@
 @media (max-width: 1200px) {
   .setup-shell {
     flex-direction: column;
+    /* Stacked, flex-start would size the content column to its widest table instead of the
+       screen, pushing pages past the right edge; stretch keeps it at the shell's width. */
+    align-items: stretch;
     gap: 16px;
   }
 

@@ -517,3 +517,51 @@
 
 /* .qr-modal-footer / .btn-qr-modal-close removed — the Close button now
    comes from the shared <Modal> shell's footer prop (.oc-dialog-btn). */
+
+/* WhatsApp Flows card (Send Money set-up per connection) */
+.wf-muted { margin: 2px 0 0; font-size: 12px; line-height: 1.55; color: var(--text-muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.wf-muted code, .wf-bad-text code { font-family: var(--font-mono); font-size: 11px; }
+.wf-error, .wf-bad-text { margin: 4px 0 0; font-size: 12px; line-height: 1.55; color: var(--omni-color-danger-text); }
+.wf-ok { color: var(--omni-color-success, #10b981); flex: none; margin-top: 2px; }
+.wf-bad { color: var(--omni-color-danger, #dc2626); flex: none; margin-top: 2px; }
+.wf-todo { color: var(--text-light); flex: none; margin-top: 2px; }
+
+.wf-steps { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
+.wf-steps > li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 10px; }
+.wf-steps strong { font-size: 13px; color: var(--text-main); }
+
+.wf-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.wf-endpoint { margin: 10px 0 0; }
+
+.wf-validation {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--omni-color-danger-border);
+  border-radius: var(--radius-sm);
+  background: var(--omni-color-danger-bg);
+  color: var(--omni-color-danger-text);
+  font-size: 12px;
+}
+.wf-validation p { margin: 0 0 4px; font-weight: 600; }
+.wf-validation ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+
+.wf-test { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-light); }
+.wf-link-flow { margin-top: 14px; }
+.wf-link-flow .wf-muted { margin-top: 6px; }
+
+.wf-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.wf-link:hover:not(:disabled) { text-decoration: underline; }
+.wf-link:disabled { color: var(--text-light); cursor: not-allowed; }
+.wf-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
+
+.wf-spin { animation: wf-spin 0.9s linear infinite; }
+@keyframes wf-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .wf-spin { animation: none; } }

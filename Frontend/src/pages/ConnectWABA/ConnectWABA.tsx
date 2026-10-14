@@ -15,6 +15,7 @@ import { QrCode, HelpCircle, Key, Send, Globe, Link2, Unlink, RefreshCw, XCircle
 import './ConnectWABA.css'
 import Can from '../../components/Can/Can'
 import usePermission from '../../hooks/usePermission'
+import { WhatsAppFlowsCard } from './WhatsAppFlowsCard'
 
 const formatIssuedAt = (dateStr?: string) => {
   if (!dateStr) return ''
@@ -104,8 +105,12 @@ export const ConnectWABA: React.FC = () => {
     sendTestMessage,
     verifyWebhook,
     refreshHealth,
-    updateMessageLimit
+    updateMessageLimit,
+    activeConnectionId
   } = useWabaStore()
+
+  // WhatsApp Flows are configured per connection; the store resolves which one this page shows.
+  const flowsConnectionId = connectionId ?? activeConnectionId ?? null
 
   const [testNumber, setTestNumber] = useState<string>('')
   const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false)
@@ -614,6 +619,11 @@ export const ConnectWABA: React.FC = () => {
                 onRefresh={canConfigure ? handleRefreshHealth : undefined}
               />
             </div>
+            {flowsConnectionId !== null && (
+              <div className="margin-top-20">
+                <WhatsAppFlowsCard connectionId={flowsConnectionId} />
+              </div>
+            )}
           </div>
         </div>
       )}

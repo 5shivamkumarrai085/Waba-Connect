@@ -278,8 +278,12 @@ public static class Phase22_Round4Tests
             }
 
             run.Section("The job queue contract");
-            run.Check("every queue name carries the contract version, so an older build cannot take its jobs",
-                QueueNames.All.All(q => q.EndsWith("." + QueueNames.ContractVersion)), string.Join(", ", QueueNames.All));
+            // The inbound WhatsApp queue is versioned on its own (InboundContractVersion), because
+            // whichever build takes a customer's message decides the reply.
+            run.Check("every queue name carries its contract version, so an older build cannot take its jobs",
+                QueueNames.All.All(q => q == QueueNames.WhatsAppWebhook
+                    ? q.EndsWith("." + QueueNames.InboundContractVersion)
+                    : q.EndsWith("." + QueueNames.ContractVersion)), string.Join(", ", QueueNames.All));
 
             run.Section("An unusable connection holds the campaign instead of failing recipients");
             await HoldAsync(harness, run);

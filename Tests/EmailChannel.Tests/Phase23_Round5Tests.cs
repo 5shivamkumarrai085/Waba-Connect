@@ -76,6 +76,7 @@ public static class Phase23_Round5Tests
         await ThreadingAsync(harness, run);
         await ActorAsync(harness, run);
         await InboxCountsAsync(harness, run);
+        DashboardChannelCounts(run);
     }
 
     /// <summary>One email campaign with one sent recipient, built directly so each check controls its own events.</summary>
@@ -578,5 +579,42 @@ public static class Phase23_Round5Tests
                 await db.ChatConversations.Where(c => ids.Contains(c.Id)).ExecuteDeleteAsync();
             }
         });
+    }
+
+    private static void DashboardChannelCounts(TestRun run)
+    {
+        run.Section("Dashboard: per-channel message counts");
+        // 18 emails: 6 opened, 8 sent and not opened, 4 failed. An opened email is still one email.
+        var email = DashboardCacheService.CountChannelMessages(MessageChannel.Email,
+        [
+            new(MessageStatus.Sent, IsOpened: true, Count: 6),
+            new(MessageStatus.Sent, IsOpened: false, Count: 8),
+            new(MessageStatus.Failed, IsOpened: false, Count: 4)
+        ]);
+        run.Check("an opened email is counted as delivered once, not twice", email.Delivered == 14, email.Delivered.ToString());
+        run.Check("delivered never exceeds the messages sent", email.Delivered <= email.Messages, $"{email.Delivered} of {email.Messages}");
+        run.Check("opened emails are the read count", email.Read == 6, email.Read.ToString());
+        run.Check("failed emails are counted", email.Failed == 4 && email.Messages == 18, $"{email.Failed} failed of {email.Messages}");
+
+        var mixed = DashboardCacheService.CountChannelMessages(MessageChannel.Email,
+        [
+            new(MessageStatus.Delivered, IsOpened: true, Count: 2),
+            new(MessageStatus.Read, IsOpened: true, Count: 1),
+            new(MessageStatus.Read, IsOpened: false, Count: 1),
+            new(MessageStatus.Suppressed, IsOpened: false, Count: 3),
+            new(MessageStatus.Pending, IsOpened: false, Count: 5)
+        ]);
+        run.Check("suppressed recipients are not messages; pending ones are, undelivered",
+            mixed.Messages == 9 && mixed.Delivered == 4 && mixed.Read == 4 && mixed.Suppressed == 3 && mixed.Pending == 5,
+            $"messages {mixed.Messages}, delivered {mixed.Delivered}, read {mixed.Read}");
+
+        var whatsapp = DashboardCacheService.CountChannelMessages(MessageChannel.WhatsApp,
+        [
+            new(MessageStatus.Sent, IsOpened: false, Count: 3),
+            new(MessageStatus.Delivered, IsOpened: false, Count: 4),
+            new(MessageStatus.Read, IsOpened: false, Count: 2)
+        ]);
+        run.Check("WhatsApp counts delivered and read receipts, not merely sent", whatsapp.Delivered == 6 && whatsapp.Read == 2 && whatsapp.Messages == 9,
+            $"delivered {whatsapp.Delivered}, read {whatsapp.Read}");
     }
 }

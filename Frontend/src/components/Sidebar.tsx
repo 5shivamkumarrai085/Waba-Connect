@@ -20,7 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
-  X, Filter } from 'lucide-react'
+  X, Filter, ArrowLeftRight } from 'lucide-react'
 import usePermission from '../hooks/usePermission'
 
 interface MenuItem {
@@ -80,6 +80,7 @@ export const Sidebar: React.FC = () => {
       '/templates': () => import('../pages/Templates/TemplatesList'),
       '/bulk-campaigns': () => import('../pages/BulkCampaign/BulkCampaign'),
       '/chat': () => import('../pages/Chat/Chat'),
+      '/transfers': () => import('../pages/Transfers/TransfersList'),
       '/template-bot': () => import('../pages/TemplateBot/TemplateBotList'),
       '/bot-flow': () => import('../pages/BotFlow/BotFlowList'),
       '/message-bot': () => import('../pages/MessageBot/MessageBotList'),
@@ -127,6 +128,7 @@ export const Sidebar: React.FC = () => {
       title: 'Support',
       items: [
         { name: 'Chat', path: '/chat', icon: MessageCircle, permission: 'Chat.View' },
+        { name: 'Transfers', path: '/transfers', icon: ArrowLeftRight, permission: 'Transfer.View' },
       ]
     },
     // The former Admin section (User Permissions / Dept Permissions) now lives inside Setup as

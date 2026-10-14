@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Integration tests for Send Money over WhatsApp Flows.
+
+    A console runner like EmailChannel.Tests, for the same reason: the risk is in the real
+    services against the real database — the encrypted Flow endpoint, OTP attempt counting,
+    idempotent order creation, callback de-duplication — not in anything a mock could show.
+
+    Run from the repository root (stop the backend first; its queue workers would take the jobs):
+      dotnet run (project Tests/Remittance.Tests)
+      dotnet run (project Tests/Remittance.Tests), then the phase numbers, e.g. 3 4
+
+    Rows are prefixed "zz-remittest" (contacts, connections) or use the fake sending country "ZZ",
+    and are removed before and after the run. External HTTP providers (exchange rates, WhatsApp)
+    are replaced by in-process fakes; one optional phase calls the real exchange-rate API.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Remittance.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Backend\WhatsAppCampaignApi.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.*" />
+  </ItemGroup>
+
+</Project>

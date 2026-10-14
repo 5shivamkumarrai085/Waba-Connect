@@ -20,7 +20,8 @@ import {
   Image as ImageIcon, 
   User, 
   Bot,
-  FileText
+  FileText,
+  Workflow
 } from 'lucide-react'
 import { 
   ReactFlow, 
@@ -38,9 +39,11 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { botFlowService } from '../../services/botFlow/botFlowService'
+import { remittanceService, type FlowPurpose } from '../../services/remittance/remittanceService'
 import { templateBotService } from '../../services/templateBot/templateBotService'
 import { useBotFlowCanvasStore } from './botFlowCanvasStore'
 import { toast } from 'react-hot-toast'
+import { getErrorMessage } from '../../utils/errorHelper'
 import './BotFlowDesigner.css'
 
 // ==========================================
@@ -635,6 +638,122 @@ const CallToActionNode = ({ id, data, selected }: any) => {
             <div className="preview-cta-button">
               {btnText.trim() ? btnText : 'Click Here'}
             </div>
+          </div>
+        </div>
+      </div>
+
+      <Handle type="target" position={Position.Left} id="input" className="canvas-node-port port-input" />
+      <Handle type="source" position={Position.Right} id="output" className="canvas-node-port port-output" />
+    </div>
+  )
+}
+
+// ==========================================
+// 4b. WHATSAPP FLOW NODE
+// Opens a native WhatsApp Flow (e.g. Send Money). The Flow's screens and options come from the
+// server; the node only sets the invitation message and which Flow to open.
+// ==========================================
+const WhatsAppFlowNode = ({ id, data, selected }: any) => {
+  const updateNodeData = useBotFlowCanvasStore(state => state.updateNodeData)
+  const isCollapsed = data.isCollapsed || false
+  const [purposes, setPurposes] = useState<FlowPurpose[] | null>(null)
+  const [purposeError, setPurposeError] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    remittanceService.reference()
+      .then(r => { if (active) setPurposes(r.flowPurposes) })
+      .catch(() => { if (active) setPurposeError(true) })
+    return () => { active = false }
+  }, [])
+
+  const purpose: string = data.flowPurpose || purposes?.[0]?.value || ''
+  const headerText: string = data.headerText || ''
+  const bodyText: string = data.bodyText || ''
+  const footerText: string = data.footerText || ''
+  const ctaText: string = data.ctaText || ''
+
+  // A new node takes the first Flow the server offers, so a saved node always names one.
+  useEffect(() => {
+    if (!data.flowPurpose && purposes?.[0]) updateNodeData(id, { flowPurpose: purposes[0].value })
+  }, [data.flowPurpose, purposes, id, updateNodeData])
+
+  const errors: string[] = []
+  if (!bodyText.trim()) errors.push('Message text is required')
+  if (!ctaText.trim()) errors.push('Button text is required')
+  if (ctaText.length > 30) errors.push('Button text can be at most 30 characters')
+  if (headerText.length > 60) errors.push('Header can be at most 60 characters')
+  if (footerText.length > 60) errors.push('Footer can be at most 60 characters')
+
+  return (
+    <div className={`node-card-wrapper ${selected ? 'selected' : ''} ${errors.length > 0 ? 'invalid' : ''}`} style={{ width: '300px' }}>
+      <NodeHeader
+        id={id}
+        title="WhatsApp Flow"
+        icon={<Workflow size={14} />}
+        isCollapsed={isCollapsed}
+        hasErrors={errors.length > 0}
+        errorText="Required fields missing"
+        headerClass="whatsapp-flow"
+      />
+
+      <div className="node-body-container" style={{ display: isCollapsed ? 'none' : 'flex', flexDirection: 'column', gap: '12px' }}>
+        <ValidationPanel errors={errors} />
+
+        <div className="node-input-fields">
+          <label htmlFor={`${id}-purpose`}>Flow *</label>
+          {purposeError ? (
+            <span className="input-error-msg">Flows could not be loaded.</span>
+          ) : (
+            <select id={`${id}-purpose`} value={purpose} disabled={!purposes} onChange={(e) => updateNodeData(id, { flowPurpose: e.target.value })}>
+              {!purposes && <option value="">Loading…</option>}
+              {purposes?.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          )}
+        </div>
+
+        <div className="node-input-fields">
+          <label>Header (Optional)</label>
+          <input type="text" placeholder="International Remittance" value={headerText} maxLength={60}
+            onChange={(e) => updateNodeData(id, { headerText: e.target.value })} />
+        </div>
+
+        <div className="node-input-fields">
+          <label className={!bodyText.trim() ? 'error-label' : ''}>Message Text *</label>
+          <textarea
+            className={!bodyText.trim() ? 'error-input' : ''}
+            value={bodyText}
+            placeholder="Send money abroad in a few taps, with a guaranteed rate."
+            onChange={(e) => updateNodeData(id, { bodyText: e.target.value })}
+            maxLength={1024}
+            rows={3}
+          />
+          <div className="character-counter">{bodyText.length}/1024</div>
+        </div>
+
+        <div className="node-input-fields">
+          <label className={!ctaText.trim() || ctaText.length > 30 ? 'error-label' : ''}>Button Text *</label>
+          <input
+            className={!ctaText.trim() || ctaText.length > 30 ? 'error-input' : ''}
+            type="text" placeholder="Click Here to Send Money" value={ctaText} maxLength={40}
+            onChange={(e) => updateNodeData(id, { ctaText: e.target.value })}
+          />
+          <div className="character-counter">{ctaText.length}/30</div>
+        </div>
+
+        <div className="node-input-fields">
+          <label>Footer (Optional)</label>
+          <input type="text" placeholder="Powered by WhatsApp Flows" value={footerText} maxLength={60}
+            onChange={(e) => updateNodeData(id, { footerText: e.target.value })} />
+        </div>
+
+        <div className="preview-container">
+          <span className="preview-label">Preview:</span>
+          <div className="whatsapp-preview-card">
+            {headerText.trim() && <div className="preview-header">{headerText}</div>}
+            <div className="preview-body">{bodyText.trim() ? bodyText : 'Your message will appear here'}</div>
+            {footerText.trim() && <div className="preview-footer">{footerText}</div>}
+            <div className="preview-cta-button">{ctaText.trim() ? ctaText : 'Open'}</div>
           </div>
         </div>
       </div>
@@ -1543,6 +1662,7 @@ const typeMapping: Record<string, string> = {
   'Text Message': 'textMessage',
   'Button Message': 'buttonMessage',
   'Call to Action': 'callToAction',
+  'WhatsApp Flow': 'whatsAppFlow',
   'List Message': 'listMessage',
   'Media Message': 'mediaMessage',
   'Location': 'location',
@@ -1559,6 +1679,7 @@ const nodeTypes = {
   textMessage: TextMessageNode,
   buttonMessage: ButtonMessageNode,
   callToAction: CallToActionNode,
+  whatsAppFlow: WhatsAppFlowNode,
   listMessage: ListMessageNode,
   mediaMessage: MediaMessageNode,
   location: LocationNode,
@@ -1638,7 +1759,8 @@ const DesignerFlow = () => {
 
   const [flowName, setFlowName] = useState('')
   const [flowDesc, setFlowDesc] = useState('')
-  const [isActive, setIsActive] = useState(true)
+  // Off until the server says otherwise, so a save after a failed load can't switch a flow on.
+  const [isActive, setIsActive] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
   const { screenToFlowPosition } = useReactFlow()
@@ -1732,7 +1854,8 @@ const DesignerFlow = () => {
       })
       toast.success('Flow saved successfully!')
     } catch (err) {
-      toast.error('Failed to save flow configuration.')
+      // The server explains what is wrong (e.g. a Start Trigger with no keywords).
+      toast.error(getErrorMessage(err, 'Failed to save flow configuration.'))
     } finally {
       setIsSaving(false)
     }
@@ -1804,6 +1927,13 @@ const DesignerFlow = () => {
                   onDragStart={(e) => e.dataTransfer.setData('application/reactflow', 'Call to Action')}
                 >
                   🔗 Call To Action
+                </div>
+                <div
+                  className="draggable-node-item"
+                  draggable
+                  onDragStart={(e) => e.dataTransfer.setData('application/reactflow', 'WhatsApp Flow')}
+                >
+                  🧾 WhatsApp Flow
                 </div>
               </div>
             </div>

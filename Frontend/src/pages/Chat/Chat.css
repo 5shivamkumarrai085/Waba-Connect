@@ -1749,6 +1749,7 @@
 .chat-rich-card-details div { display: flex; gap: var(--space-xs); }
 .chat-rich-card-details dt { font-weight: 700; }
 .chat-rich-card-details dd { margin: 0; overflow-wrap: anywhere; }
+.chat-rich-card-text { margin: 0; color: var(--text-body-strong); font-size: var(--text-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Empty-state illustration: drawn from tokens so it follows the theme. */
 .chat-empty-state-illustration .ces-phone { fill: var(--omni-color-border); stroke: var(--omni-color-text-muted); }

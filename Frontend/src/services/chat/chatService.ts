@@ -84,6 +84,12 @@ export const chatService = {
    * How many conversations each inbox tab holds, keyed by the tab's value, under the same search,
    * connection, channel and status as the list. Throws, so a failed refresh keeps the old counts.
    */
+  /** The contact's conversations on every channel and connection the agent can see, newest first. */
+  getContactConversations: async (contactId: number): Promise<Conversation[]> => {
+    const response = await apiClient.get(`/Chat/contacts/${contactId}/conversations`)
+    return response.data?.data ?? []
+  },
+
   getConversationCounts: async (
     search?: string,
     connectionId?: number,

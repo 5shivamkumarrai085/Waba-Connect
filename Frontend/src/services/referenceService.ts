@@ -81,6 +81,12 @@ export interface ChatOptions {
   maxReplyButtons: number
   maxReplyButtonLength: number
   maxInteractiveBodyLength: number
+  /** The inbox's channels, in order; unavailable ones are shown as coming soon. */
+  channels: { key: string; label: string; available: boolean }[]
+  /** Conversations per page in the inbox list; the first is the default. */
+  listPageSizes: number[]
+  /** Hours a WhatsApp free-form reply is allowed after the customer's last message. */
+  serviceWindowHours: number
 }
 
 export interface WebhookEventTypeOption {

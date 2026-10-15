@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Outlet, Navigate, useLocation } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
+import { MotionConfig } from 'framer-motion'
 import { PageLayout } from './components/PageLayout'
 import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary'
 import { RequireAuth } from './components/RequireAuth'
@@ -132,13 +133,15 @@ const SetupHome: React.FC = () => {
 
 const App: React.FC = () => {
   return (
+    // reducedMotion="user": every framer-motion animation honours the system's reduce-motion
+    // setting (the CSS kill-switch in index.css only reaches CSS animations).
+    <MotionConfig reducedMotion="user">
     <BrowserRouter>
       <Toaster
         position="top-right"
-        containerStyle={{ zIndex: 999999 }}
+        containerStyle={{ zIndex: 'var(--z-toast)' }}
         toastOptions={{
           duration: 3000,
-          style: { zIndex: 999999 },
           error: {
             duration: 4000
           },
@@ -258,6 +261,7 @@ const App: React.FC = () => {
         </Routes>
       </Suspense>
     </BrowserRouter>
+    </MotionConfig>
   )
 }
 

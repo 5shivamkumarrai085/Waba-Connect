@@ -14,17 +14,22 @@
   display: flex;
   align-items: flex-end;
   gap: var(--space-xs);
-  padding: 0 var(--space-sm) 0 var(--space-xl);
-  border-bottom: 1px solid var(--border-color);
+  padding: 0 var(--space-2xs) 0 var(--space-lg);
+  border-bottom: 1px solid var(--line);
   min-height: 52px;
 }
 
+/* Four tabs in a narrow pane: they scroll sideways rather than slide under the close button. */
 .ccp-tabs {
   display: flex;
-  gap: var(--space-xl);
+  gap: var(--space-base);
   flex: 1;
   min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+
+.ccp-tabs::-webkit-scrollbar { display: none; }
 
 .ccp-tab {
   padding: var(--space-lg) 0 var(--space-md);
@@ -44,7 +49,7 @@
 .ccp-tab.is-active { color: var(--primary); border-bottom-color: var(--primary); }
 .ccp-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
 
-.ccp-close { align-self: center; }
+.ccp-close { align-self: center; flex-shrink: 0; width: 30px; height: 30px; }
 
 .ccp-body {
   flex: 1 1 auto;
@@ -94,11 +99,9 @@
 
 .ccp-section-title {
   margin: 0;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--ink-muted);
 }
 
 .ccp-muted {
@@ -173,6 +176,125 @@
   background: var(--bg-subtle);
   font-size: var(--text-sm);
   color: var(--text-main);
+}
+
+/* Editable tags: the remove button sits inside the chip; new tags are typed below the list. */
+.ccp-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3xs);
+}
+
+.ccp-tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: calc(var(--space-2xs) * -1);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ccp-tag-remove:hover:not(:disabled) { background: var(--bg-hover); color: var(--omni-color-danger); }
+.ccp-tag-remove:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.ccp-tag-remove:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ccp-tag-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  margin-top: var(--space-sm);
+}
+
+.ccp-tag-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font: inherit;
+  font-size: var(--text-body);
+  color: var(--ink);
+}
+
+.ccp-tag-input:focus { outline: none; border-color: var(--primary); box-shadow: var(--focus-ring); }
+
+/* The contact's other conversations (other channels and connections), newest first. */
+.ccp-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ccp-recent-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  margin: 0 calc(var(--space-sm) * -1);
+  width: calc(100% + var(--space-sm) * 2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.ccp-recent-item:hover:not(:disabled) { background: var(--row-hover); }
+.ccp-recent-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.ccp-recent-item:disabled { cursor: default; }
+
+.ccp-recent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--canvas);
+}
+
+.ccp-recent-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
+  flex: 1;
+  min-width: 0;
+}
+
+.ccp-recent-title {
+  font-size: var(--text-body);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccp-recent-meta {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccp-recent-time {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .ccp-status {
@@ -373,6 +495,12 @@
   .ccp { width: 100%; flex-basis: auto; border-left: 0; }
 }
 
+/* Docked, the thread header's details toggle closes the pane; the close button is only needed
+   when the pane overlays the conversation, and the tabs get its room. */
+@container chat-layout (min-width: 1000px) {
+  .ccp-close { display: none; }
+}
+
 @container chat-layout (min-width: 1000px) and (max-width: 1279px) {
   .ccp { width: 288px; flex-basis: 288px; }
 }
@@ -383,6 +511,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ccp { animation: none; }
-  .ccp-action, .ccp-mini-btn { transition: none; }
+  .ccp-action, .ccp-mini-btn, .ccp-recent-item { transition: none; }
   .ccp-action:active, .ccp-mini-btn:active { transform: none; }
 }

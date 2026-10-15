@@ -39,6 +39,8 @@ export interface Conversation {
   firstResponseDueAt?: string | null
   slaBreached?: boolean
   resolveDueAt?: string | null
+  /** WhatsApp: until when a free-form reply is allowed (server-computed); null if never opened. */
+  serviceWindowEndsAt?: string | null
 }
 
 export interface Message {

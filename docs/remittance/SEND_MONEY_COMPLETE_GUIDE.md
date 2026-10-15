@@ -606,6 +606,30 @@ On a phone (Connection RMA), "send money" sometimes returned the "hi" menu. Afte
 **Saving a flow** in the designer no longer unbinds it from its connection or switches it on. An
 active flow whose Start Trigger has no keywords is refused.
 
+### 6.11 Replies took 10–15 seconds (14 Oct 2026)
+
+**Measured cause:** database round trips, not the queue or Meta.
+- From this PC, one query to the Neon database takes about **280 ms**.
+- One incoming message made about **45 queries, one after another**.
+- 45 × 280 ms ≈ 12.6 s, which matches the delay we saw.
+
+**Fix:**
+- **Cache read-mostly configuration** for 60 seconds (`HotPathCache`): active bot flows and their
+  steps, Message/Template Bots, a connection's send credentials and numbers, the Send Money
+  catalogue and Flow registration. A save clears the matching part at once
+  (`HotPathCacheInvalidator`, an EF save interceptor); other servers catch up within a minute.
+- **Fewer writes:** bot log rows are written with the turn, and the contact, conversation and
+  number are resolved once per turn.
+- **Reply first:** the customer's reply is sent before the inbox bookkeeping (SLA, routing, live
+  update).
+- **No poll wait:** the webhook endpoint wakes the inbound worker immediately (`QueueSignal`).
+
+**Watch:** every message logs `Inbound webhook job …: waited X ms in the queue, processed in Y ms`
+and `Inbound message …: stored in …, automated reply done at …`.
+
+**The real fix for production:** run the backend in the **same region as the database**. Round
+trips then drop from ~280 ms to ~1–2 ms, and a reply takes well under a second.
+
 ### 6.10 Money safety and production guard (audit, 14 Oct 2026)
 - **Paying twice is impossible:**
   - a payout is claimed (`Paid → Submitting`) before the provider is called;

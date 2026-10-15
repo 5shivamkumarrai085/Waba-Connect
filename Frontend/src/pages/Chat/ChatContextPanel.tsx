@@ -4,6 +4,9 @@ import toast from 'react-hot-toast'
 import {
   CheckCircle2, Copy, ExternalLink, Mail, MessageSquare, Pencil, Phone, Plus, RotateCcw, Trash2, X
 } from 'lucide-react'
+import { chatService } from '../../services/chat/chatService'
+import { channelIcon } from './components/ChannelPicker'
+import { messagePreview } from './components/RichMessage'
 import { Avatar } from '../../components/Avatar/Avatar'
 import Can from '../../components/Can/Can'
 import { ConfirmationModal } from '../../components/Modal/ConfirmationModal'
@@ -20,11 +23,11 @@ import type { AuditLogModel } from '../../types/reporting'
 import { formatAbsoluteDateTime, formatRelativeTime } from '../../utils/dateHelper'
 import { badgeStyleFor, type ResolvedLookup } from '../../utils/lookupColors'
 import { ContactTypeBadge } from './ContactTypeBadge'
-import { ConversationStatusBadge, SlaChip } from './ConversationOwnerControls'
+import { ConversationOwnerSelect, ConversationStatusBadge, SlaChip } from './ConversationOwnerControls'
 import { statusToggleFor, toggleConversationStatus } from './conversationStatus'
 import './ChatContextPanel.css'
 
-type PanelTab = 'customer' | 'conversation' | 'activity'
+type PanelTab = 'customer' | 'conversation' | 'notes' | 'activity'
 
 interface ContactNote {
   id: number
@@ -42,6 +45,8 @@ interface ChatContextPanelProps {
   onNewEmail?: () => void
   /** Opens the WhatsApp template picker. Absent where that is not possible. */
   onStartWhatsApp?: () => void
+  /** Opens one of the contact's other conversations (another channel or connection). */
+  onOpenConversation?: (conversation: Conversation) => void
 }
 
 /** Audit entries per page in the Activity tab. */
@@ -74,7 +79,7 @@ const DetailRow: React.FC<{ label: string; children?: React.ReactNode }> = ({ la
  * conversation, and the audit log — so it matches the Contacts and Audit Log pages exactly.
  */
 export const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
-  conversation, typeMap, onClose, onChanged, onNewEmail, onStartWhatsApp
+  conversation, typeMap, onClose, onChanged, onNewEmail, onStartWhatsApp, onOpenConversation
 }) => {
   const { has } = usePermission()
   const canSeeActivity = has('ActivityLog.View')
@@ -85,6 +90,7 @@ export const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
   const tabs = useMemo<{ key: PanelTab; label: string }[]>(() => [
     { key: 'customer', label: 'Customer' },
     { key: 'conversation', label: 'Conversation' },
+    { key: 'notes', label: 'Notes' },
     ...(canSeeActivity ? [{ key: 'activity' as const, label: 'Activity' }] : [])
   ], [canSeeActivity])
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
@@ -111,6 +117,39 @@ export const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
       .catch(() => { if (active) setContactState('unavailable') })
     return () => { active = false }
   }, [conversation.contactId])
+
+  // ── Tags (edited in place; saved through PATCH /Contacts/{id}/tags) ──────────
+  const canEditContact = has('Contact.Edit')
+  const [tagDraft, setTagDraft] = useState('')
+  const [savingTags, setSavingTags] = useState(false)
+  const [tagOverride, setTagOverride] = useState<string[] | null>(null)
+  useEffect(() => { setTagOverride(null); setTagDraft('') }, [conversation.contactId])
+
+  const saveTags = async (next: string[]) => {
+    setSavingTags(true)
+    const previous = tagOverride
+    setTagOverride(next)
+    try {
+      await contactService.setTags(conversation.contactId, next)
+    } catch (error: unknown) {
+      setTagOverride(previous)
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(message || 'The tags could not be saved. Try again.')
+    } finally {
+      setSavingTags(false)
+    }
+  }
+
+  // ── The contact's other conversations ─────────────────────────────────────
+  const [recent, setRecent] = useState<Conversation[] | null>(null)
+  useEffect(() => {
+    let active = true
+    setRecent(null)
+    chatService.getContactConversations(conversation.contactId)
+      .then(list => { if (active) setRecent(list.filter(c => c.id !== conversation.id)) })
+      .catch(() => { if (active) setRecent([]) })
+    return () => { active = false }
+  }, [conversation.contactId, conversation.id])
 
   // ── Notes ─────────────────────────────────────────────────────────────────
   const [notes, setNotes] = useState<ContactNote[]>([])
@@ -205,7 +244,14 @@ export const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
   const email = contact?.email ?? conversation.email ?? null
   const phone = contact?.phone ?? conversation.phone ?? null
   const location = [contact?.city, contact?.state, contact?.country].filter(Boolean).join(', ')
-  const tags = (contact?.tags ?? '').split(',').map(t => t.trim()).filter(Boolean)
+  const tags = tagOverride ?? (contact?.tags ?? '').split(',').map(t => t.trim()).filter(Boolean)
+  const addTag = () => {
+    const value = tagDraft.trim()
+    if (!value) return
+    setTagDraft('')
+    if (tags.some(t => t.toLowerCase() === value.toLowerCase())) return
+    void saveTags([...tags, value])
+  }
   const groups = contact?.groups ?? (conversation.contactGroups ?? []).map((name, i) => ({ id: -i - 1, name, color: null }))
 
   return (
@@ -289,9 +335,42 @@ export const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
             </section>
 
             <section className="ccp-section">
+              <h3 className="ccp-section-title">Assigned agent</h3>
+              <ConversationOwnerSelect conversation={conversation} onChanged={onChanged} />
+            </section>
+
+            <section className="ccp-section" aria-busy={savingTags || undefined}>
               <h3 className="ccp-section-title">Tags</h3>
-              {tags.length === 0 ? <p className="ccp-muted">No tags</p> : (
-                <ul className="ccp-chips">{tags.map(tag => <li key={tag} className="ccp-chip">{tag}</li>)}</ul>
+              {tags.length === 0 && !canEditContact && <p className="ccp-muted">No tags</p>}
+              {tags.length > 0 && (
+                <ul className="ccp-chips">
+                  {tags.map(tag => (
+                    <li key={tag} className="ccp-chip ccp-tag">
+                      {tag}
+                      {canEditContact && (
+                        <button type="button" className="ccp-tag-remove" aria-label={`Remove tag ${tag}`}
+                          disabled={savingTags} onClick={() => void saveTags(tags.filter(t => t !== tag))}>
+                          <X size={11} aria-hidden="true" />
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {canEditContact && (
+                <form className="ccp-tag-form" onSubmit={e => { e.preventDefault(); addTag() }}>
+                  <input
+                    className="ccp-tag-input"
+                    aria-label="Add a tag"
+                    placeholder="Add a tag"
+                    value={tagDraft}
+                    maxLength={40}
+                    onChange={e => setTagDraft(e.target.value.replace(/,/g, ''))}
+                  />
+                  <button type="submit" className="ccp-mini-btn" aria-label="Add tag" disabled={!tagDraft.trim() || savingTags}>
+                    <Plus size={14} aria-hidden="true" />
+                  </button>
+                </form>
               )}
             </section>
 
@@ -304,6 +383,69 @@ export const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
               )}
             </section>
 
+            <section className="ccp-section">
+              <h3 className="ccp-section-title">Recent conversations</h3>
+              {recent === null ? <p className="ccp-muted">Loading…</p> : recent.length === 0 ? (
+                <p className="ccp-muted">No other conversations</p>
+              ) : (
+                <ul className="ccp-recent">
+                  {recent.map(item => {
+                    const key = normalizeChannel(item.channel)
+                    return (
+                      <li key={item.id}>
+                        <button type="button" className="ccp-recent-item" onClick={() => onOpenConversation?.(item)}
+                          disabled={!onOpenConversation}>
+                          <span className="ccp-recent-icon" aria-hidden="true">{channelIcon(key, 14)}</span>
+                          <span className="ccp-recent-text">
+                            <span className="ccp-recent-title">{messagePreview(item.lastMessage) || 'No messages yet'}</span>
+                            <span className="ccp-recent-meta">
+                              {[CHANNELS.find(c => c.key === key)?.label ?? item.channel, item.connectionName, labelOf(chatOptions.data?.conversationStatuses, item.conversationStatus ?? 'Open')]
+                                .filter(Boolean).join(' · ')}
+                            </span>
+                          </span>
+                          {item.lastMessageAt && (
+                            <time className="ccp-recent-time" dateTime={item.lastMessageAt} title={formatAbsoluteDateTime(item.lastMessageAt)}>
+                              {formatRelativeTime(item.lastMessageAt)}
+                            </time>
+                          )}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </section>
+          </>
+        )}
+
+        {tab === 'conversation' && (
+          <>
+            <section className="ccp-section">
+              <h3 className="ccp-section-title">Status</h3>
+              <div className="ccp-status">
+                <ConversationStatusBadge conversation={conversation} />
+                <SlaChip conversation={conversation} />
+              </div>
+              <p className="ccp-muted">{chatOptions.data?.conversationStatuses.find(s => s.value === status)?.description}</p>
+            </section>
+            <section className="ccp-section">
+              <h3 className="ccp-section-title">Details</h3>
+              <dl className="ccp-list">
+                <DetailRow label="Assigned to">{conversation.assignedUserName ?? 'Unassigned'}</DetailRow>
+                <DetailRow label="Channel">{channelLabel}</DetailRow>
+                <DetailRow label="Connection">{conversation.connectionName}</DetailRow>
+                <DetailRow label="Status">{labelOf(chatOptions.data?.conversationStatuses, status)}</DetailRow>
+                <DetailRow label="Unread">{conversation.unreadCount > 0 ? new Intl.NumberFormat().format(conversation.unreadCount) : 'None'}</DetailRow>
+                <DetailRow label="First reply due">{conversation.firstResponseDueAt ? formatAbsoluteDateTime(conversation.firstResponseDueAt) : null}</DetailRow>
+                <DetailRow label="Resolve by">{conversation.resolveDueAt ? formatAbsoluteDateTime(conversation.resolveDueAt) : null}</DetailRow>
+                <DetailRow label="Last activity">{conversation.lastMessageAt ? formatAbsoluteDateTime(conversation.lastMessageAt) : conversation.lastMessageTime}</DetailRow>
+              </dl>
+            </section>
+          </>
+        )}
+
+        {tab === 'notes' && (
+          <>
             <section className="ccp-section">
               <div className="ccp-section-head">
                 <h3 className="ccp-section-title">Notes</h3>
@@ -351,32 +493,6 @@ export const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
                   ))}
                 </ul>
               )}
-            </section>
-          </>
-        )}
-
-        {tab === 'conversation' && (
-          <>
-            <section className="ccp-section">
-              <h3 className="ccp-section-title">Status</h3>
-              <div className="ccp-status">
-                <ConversationStatusBadge conversation={conversation} />
-                <SlaChip conversation={conversation} />
-              </div>
-              <p className="ccp-muted">{chatOptions.data?.conversationStatuses.find(s => s.value === status)?.description}</p>
-            </section>
-            <section className="ccp-section">
-              <h3 className="ccp-section-title">Details</h3>
-              <dl className="ccp-list">
-                <DetailRow label="Assigned to">{conversation.assignedUserName ?? 'Unassigned'}</DetailRow>
-                <DetailRow label="Channel">{channelLabel}</DetailRow>
-                <DetailRow label="Connection">{conversation.connectionName}</DetailRow>
-                <DetailRow label="Status">{labelOf(chatOptions.data?.conversationStatuses, status)}</DetailRow>
-                <DetailRow label="Unread">{conversation.unreadCount > 0 ? new Intl.NumberFormat().format(conversation.unreadCount) : 'None'}</DetailRow>
-                <DetailRow label="First reply due">{conversation.firstResponseDueAt ? formatAbsoluteDateTime(conversation.firstResponseDueAt) : null}</DetailRow>
-                <DetailRow label="Resolve by">{conversation.resolveDueAt ? formatAbsoluteDateTime(conversation.resolveDueAt) : null}</DetailRow>
-                <DetailRow label="Last activity">{conversation.lastMessageAt ? formatAbsoluteDateTime(conversation.lastMessageAt) : conversation.lastMessageTime}</DetailRow>
-              </dl>
             </section>
           </>
         )}
@@ -445,9 +561,9 @@ export const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
 
       <ConfirmationModal
         isOpen={noteToDelete !== null}
-        title="Delete Note"
+        title="Delete note"
         message="Delete this note? It is removed for everyone and cannot be recovered."
-        confirmText="Delete Note"
+        confirmText="Delete note"
         cancelText="Cancel"
         onConfirm={() => { if (noteToDelete !== null) void deleteNote(noteToDelete) }}
         onCancel={() => setNoteToDelete(null)}

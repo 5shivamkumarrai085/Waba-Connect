@@ -13,35 +13,18 @@ import {
   Users,
   ShieldCheck,
   Sliders,
-  Layers,
-  KeyRound,
-  LogOut
+  Layers
 } from 'lucide-react'
 import { fadeScale, transitions } from '../utils/motion'
-import { Menu, MenuItem, MenuSeparator, MenuLabel } from './Menu/Menu'
-import useAuthStore from '../store/authStore'
-import { resolveMediaUrl } from '../utils/mediaUrl'
+import { AccountMenu } from './AccountMenu'
 import usePermission from '../hooks/usePermission'
 
 export const Header: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const user = useAuthStore((state) => state.user)
-  const logout = useAuthStore((state) => state.logout)
-
   const [showQuickCreate, setShowQuickCreate] = useState(false)
-  const [showAccountMenu, setShowAccountMenu] = useState(false)
   const quickCreateRef = useRef<HTMLDivElement>(null)
-
-  const handleLogout = async () => {
-    await logout()
-    navigate('/login', { replace: true })
-  }
-
-  const initials = user
-    ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || user.email[0].toUpperCase()
-    : ''
 
   // Close dropdown on outside click or Escape key
   useEffect(() => {
@@ -148,7 +131,7 @@ export const Header: React.FC = () => {
                         initial={{ opacity: 0, x: 8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: index * 0.03, duration: 0.15 }}
-                        whileHover={{ x: 4, backgroundColor: '#f1f5f9' }}
+                        whileHover={{ x: 4, backgroundColor: 'var(--bg-hover)' }}
                       >
                         <Icon size={18} className="quick-create-icon" />
                         <span>{item.label}</span>
@@ -160,42 +143,7 @@ export const Header: React.FC = () => {
             </AnimatePresence>
           </div>
 
-          {user && (
-            <Menu
-              open={showAccountMenu}
-              onOpenChange={setShowAccountMenu}
-              align="end"
-              offset={8}
-              ariaLabel="Account menu"
-              trigger={(props) => (
-                <button
-                  {...props}
-                  type="button"
-                  className="header-avatar-btn"
-                  aria-label={`Account menu for ${user.fullName}`}
-                >
-                  {user.profileImageUrl
-                    ? <img src={resolveMediaUrl(user.profileImageUrl)} alt="" className="header-avatar-img" />
-                    : <span className="header-avatar-initials">{initials}</span>}
-                </button>
-              )}
-            >
-              <MenuLabel>
-                <span className="header-account-name">{user.fullName}</span>
-                <span className="header-account-email">{user.email}</span>
-                {user.roleName && <span className="header-account-role">{user.roleName}</span>}
-              </MenuLabel>
-              <MenuSeparator />
-              <MenuItem onSelect={() => navigate('/change-password')}>
-                <KeyRound size={15} />
-                <span>Change password</span>
-              </MenuItem>
-              <MenuItem destructive onSelect={handleLogout}>
-                <LogOut size={15} />
-                <span>Sign out</span>
-              </MenuItem>
-            </Menu>
-          )}
+          <AccountMenu />
         </div>
       </div>
     </header>

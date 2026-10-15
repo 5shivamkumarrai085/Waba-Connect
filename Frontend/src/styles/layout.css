@@ -413,6 +413,29 @@
   }
 }
 
+/* Full-bleed page (set by useFullBleed): everything beside the sidebar, exactly the viewport's
+   height, no padding or width cap. The page scrolls its own regions, never the document. Doubled
+   class so it wins over the padding in the media query above. */
+.main-content:has(> .page-container--full-bleed) {
+  height: 100dvh;
+  min-height: 0;
+}
+
+.page-container.page-container--full-bleed {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  max-width: none;
+  min-height: 0;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.header-avatar-btn.header-avatar-btn--sm {
+  width: 32px;
+  height: 32px;
+}
+
 /* Header Specific Classes */
 .header-back-btn {
   border: 1px solid var(--border-color);

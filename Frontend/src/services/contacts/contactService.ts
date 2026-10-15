@@ -219,6 +219,11 @@ export const contactService = {
     return mapContact(response.data?.data)
   },
 
+  /** Replaces the contact's tags only; the rest of the record is untouched. */
+  setTags: async (id: number, tags: string[]): Promise<void> => {
+    await apiClient.patch(`/Contacts/${id}/tags`, { tags })
+  },
+
   updateContact: async (id: number, form: ContactFormModel): Promise<Contact> => {
     let formattedPhone = form.phone.replace(/[^0-9+]/g, '')
     if (!formattedPhone.startsWith('+')) {

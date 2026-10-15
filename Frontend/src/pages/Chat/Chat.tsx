@@ -1,6 +1,4 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { useAnchoredPosition } from '../../hooks/useAnchoredPosition'
 import { ReplyButtonsPopover } from './ReplyButtonsPopover'
 import useReference from '../../hooks/useReference'
 import { referenceService, labelOf } from '../../services/referenceService'
@@ -9,8 +7,7 @@ import { statusToggleFor, toggleConversationStatus } from './conversationStatus'
 import { ChatContextPanel } from './ChatContextPanel'
 import { ContactTypeBadge } from './ContactTypeBadge'
 import { useAuthStore } from '../../store/authStore'
-import { motion } from 'framer-motion'
-import { pageTransitionProps } from '../../utils/motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { aiReplyService, type CannedReply } from '../../services/setup/aiReplyService'
@@ -18,18 +15,14 @@ import {
   AlertCircle,
   AlertTriangle,
   Check,
-  CheckCheck,
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
-  Clock3,
   Copy,
   FileText,
   Link2,
   Lock,
-  MapPin,
   Mail,
   MessageCircle,
   MessageSquare,
@@ -46,10 +39,6 @@ import {
   Trash2,
   UserRound,
   X,
-  Camera,
-  Workflow,
-  ArrowLeftRight,
-  ThumbsUp,
   SlidersHorizontal
 } from 'lucide-react'
 import { formatAbsoluteDateTime } from '../../utils/dateHelper'
@@ -69,8 +58,18 @@ import { realtimeService } from '../../services/campaigns/campaignHubService'
 import { useConnectionStore } from '../../store/connectionStore'
 import { campaignService } from '../../services/campaigns/campaignService'
 import { InitiateChatModal } from '../../components/Modal/InitiateChatModal'
-import type { Message } from '../../types/chat'
+import type { Conversation, Message } from '../../types/chat'
 import './Chat.css'
+import { useFullBleed } from '../../hooks/useFullBleed'
+import { useDocumentTitle } from '../../components/ui'
+import { AccountMenu } from '../../components/AccountMenu'
+import { ChannelPicker } from './components/ChannelPicker'
+import { RichMessage, messagePreview } from './components/RichMessage'
+import { MessageStatus } from './components/MessageStatus'
+import { startsNewDay, formatDayDivider } from './chatFormat'
+import { QUICK_EMOJIS } from './data/emojis'
+import { useServiceWindow } from './hooks/useServiceWindow'
+import { CONVERSATION_PAGE_SIZE } from '../../services/chat/chatService'
 import Can from '../../components/Can/Can'
 import usePermission from '../../hooks/usePermission'
 import { resolveMediaUrl } from '../../utils/mediaUrl'
@@ -80,38 +79,10 @@ import type { ContactType } from '../../types/contacts'
 import { matchesSearch } from '../../utils/smartSearch'
 import { SearchableSelect } from '../../components/SearchableSelect/SearchableSelect'
 
-const EMOJIS = [
-  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇',
-  '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚',
-  '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🥸',
-  '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️',
-  '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡',
-  '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓',
-  '🤗', '🤔', '🫣', '🤭', '🫢', '🫡', '🤫', '🫠', '✍️', '👍',
-  '👎', '👊', '✊', '🤛', '🤜', '👏', '🙌', '👐', '🤝', '🙏',
-  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔',
-  '🔥', '✨', '🎉', '🚀', '💡', '💯', '💬', '📞', '🔔', '🔒'
-]
-
-// Chat had the only working copy of this logic. It now lives in utils/mediaUrl so avatars and
-// any future backend-served media resolve the same way instead of each site re-deriving it.
-const getFullMediaUrl = resolveMediaUrl
-
-/** Reads "[Kind|Key: value|Key: value]" — the form the server logs structured messages in — for one of `kinds`. */
-const parseRichCard = (text: string, kinds: string[]): { kind: string; fields: Record<string, string> } | null => {
-  if (!text.startsWith('[') || !text.endsWith(']')) return null
-  const parts = text.slice(1, -1).split('|')
-  const kind = parts[0]
-  if (!kinds.includes(kind)) return null
-  const fields: Record<string, string> = {}
-  for (const part of parts.slice(1)) {
-    const idx = part.indexOf(':')
-    if (idx > 0) fields[part.substring(0, idx).trim()] = part.substring(idx + 1).trim()
-  }
-  return { kind, fields }
-}
-
 export const Chat: React.FC = () => {
+  // The inbox takes the whole space beside the sidebar: no top header, no page padding.
+  useFullBleed()
+  useDocumentTitle('Inbox')
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const { has } = usePermission()
@@ -339,19 +310,9 @@ export const Chat: React.FC = () => {
   const [messageText, setMessageText] = useState('')
   const messagesContainerRef = useRef<HTMLDivElement>(null)
 
-  // The inbox fills the viewport below wherever it starts. A fixed "100dvh - 240px" guessed the
-  // header and hero height; when they were taller the panel overflowed and pushed the email
-  // composer's Send button below the fold.
+  // Measured only for its width (whether the details panel can dock); the page itself fills
+  // the full-bleed container, so no top offset is needed any more.
   const layoutRef = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    const measure = () => {
-      const el = layoutRef.current
-      if (el) el.style.setProperty('--chat-layout-top', `${Math.round(el.getBoundingClientRect().top + window.scrollY)}px`)
-    }
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const prevMessagesCountRef = useRef(0)
   const prevActiveConvIdRef = useRef<number | null>(null)
@@ -547,6 +508,27 @@ export const Chat: React.FC = () => {
   // ?contactId= naturally re-arms the guard with no separate reset effect needed.
   const consumedContactIdRef = useRef<number>(0)
 
+  // Opening one of the contact's other conversations from the details panel. If it is not in the
+  // list on screen (another channel or connection), the inbox switches to where it lives and
+  // narrows the search to the contact; the conversation opens as soon as it is listed.
+  const [pendingOpenId, setPendingOpenId] = useState<number | null>(null)
+  const openConversationAnywhere = (target: Conversation) => {
+    if (conversations.some(c => c.id === target.id)) {
+      void selectConversation(target.id)
+      return
+    }
+    const key = normalizeChannel(target.channel)
+    if (key) setChannelFilter(key)
+    if (target.connectionId) setSelectedConnectionId(target.connectionId)
+    setSidebarSearchQuery((key === 'email' ? target.email : target.phone) || target.name)
+    setPendingOpenId(target.id)
+  }
+  useEffect(() => {
+    if (pendingOpenId == null || !conversations.some(c => c.id === pendingOpenId)) return
+    void selectConversation(pendingOpenId)
+    setPendingOpenId(null)
+  }, [conversations, pendingOpenId, selectConversation])
+
   useEffect(() => {
     if (!requestedContactId || conversations.length === 0) return
     if (consumedContactIdRef.current === requestedContactId) return
@@ -666,7 +648,11 @@ export const Chat: React.FC = () => {
   }
 
   const [conversationPage, setConversationPage] = useState(1)
-  const [conversationPageSize, setConversationPageSize] = useState(CONVERSATION_LIST_PAGE_SIZES[0])
+  // Page sizes come from the server's chat options (the first is the default); until they load,
+  // the list shows one page of what the server returns per request.
+  const listPageSizes = chatOptions.data?.listPageSizes ?? []
+  const [chosenPageSize, setConversationPageSize] = useState<number | null>(null)
+  const conversationPageSize = chosenPageSize ?? listPageSizes[0] ?? CONVERSATION_PAGE_SIZE
 
   // The server applies every filter, so the list is shown as loaded. When the active tab's count
   // is known it is the total; otherwise the footer says how many are loaded and whether more exist.
@@ -740,8 +726,12 @@ export const Chat: React.FC = () => {
     } catch {
       // As above.
     }
-    const width = layoutRef.current?.getBoundingClientRect().width ?? 0
-    if (width >= DETAILS_PANEL_DOCK_MIN_WIDTH) setShowDetails(true)
+    // The docking width is defined once, in Chat.css (--details-dock-min), next to the
+    // container query that uses it.
+    const el = layoutRef.current
+    if (!el) return
+    const dockMin = Number.parseFloat(getComputedStyle(el).getPropertyValue('--details-dock-min')) || 0
+    if (el.getBoundingClientRect().width >= dockMin) setShowDetails(true)
   }, [])
   const setDetailsOpen = (open: boolean) => {
     setShowDetails(open)
@@ -774,35 +764,8 @@ export const Chat: React.FC = () => {
     return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (whole, key: string) => values[key.toLowerCase()] || whole)
   }
 
-  const lastActiveMessage = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]
-      if (m.type === 'incoming' || (m.type === 'outgoing' && m.isTemplate && m.status !== 'failed')) {
-        return m
-      }
-    }
-    return null
-  }, [messages])
-
-  const windowStatus = useMemo(() => {
-    if (!lastActiveMessage) return { active: false, text: 'No messages yet' }
-
-    const lastTime = new Date(lastActiveMessage.createdAt).getTime()
-    const limit = lastTime + 24 * 60 * 60 * 1000
-    const now = Date.now()
-    const remainingMs = limit - now
-
-    if (remainingMs <= 0) {
-      return { active: false, text: 'Reply window closed' }
-    }
-
-    const hours = Math.floor(remainingMs / (60 * 60 * 1000))
-    const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000))
-    return {
-      active: true,
-      text: `Reply window: ${hours}h ${minutes}m left`
-    }
-  }, [lastActiveMessage])
+  // WhatsApp's 24-hour customer service window, decided by the server and counted down here.
+  const windowStatus = useServiceWindow(activeConversation?.serviceWindowEndsAt)
 
   // Message search inside the open conversation. The text is what gets highlighted, but an
   // attachment is found by its filename and a failed send by its error -- neither of which lives
@@ -831,143 +794,6 @@ export const Chat: React.FC = () => {
       toast.error('The conversation could not be deleted. Try again.')
     }
   }
-
-  const renderMessageText = (text: string, search: string) => {
-    let cleanText = text
-    const attachmentRegex = /\[Attachment:[^\]]+\]\s*/g
-    if (cleanText.match(attachmentRegex)) {
-      cleanText = cleanText.replace(attachmentRegex, '')
-    }
-
-    if (!search.trim()) return cleanText
-
-    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const parts = cleanText.split(new RegExp(`(${escaped})`, 'gi'))
-    return (
-      <>
-        {parts.map((part, i) =>
-          part.toLowerCase() === search.toLowerCase()
-            ? <mark key={i} className="search-highlight">{part}</mark>
-            : part
-        )}
-      </>
-    )
-  }
-
-  const renderRichMessageContent = (text: string, searchQuery: string) => {
-    if (!text) return '';
-
-    if (text.startsWith('[Location|') && text.endsWith(']')) {
-      const parts = text.slice(10, -1).split('|');
-      const locationData: Record<string, string> = {};
-      parts.forEach(p => {
-        const idx = p.indexOf(':');
-        if (idx !== -1) {
-          const key = p.substring(0, idx).trim();
-          const val = p.substring(idx + 1).trim();
-          locationData[key] = val;
-        }
-      });
-
-      const name = locationData['Name'] || 'Location Shared';
-      const addr = locationData['Addr'] || '';
-      const lat = locationData['Lat'] || '';
-      const lng = locationData['Lng'] || '';
-      const mapUrl = (lat && lng)
-        ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
-        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + ' ' + addr)}`;
-
-      return (
-        <div className="chat-rich-card">
-          <div className="chat-rich-card-head">
-            <span className="chat-rich-card-icon" aria-hidden="true"><MapPin size={16} /></span>
-            <div className="chat-rich-card-title">
-              <span>{name}</span>
-              {addr && <small>{addr}</small>}
-            </div>
-          </div>
-          <a className="chat-rich-card-action" href={mapUrl} target="_blank" rel="noopener noreferrer">
-            View on Google Maps
-          </a>
-        </div>
-      );
-    }
-
-    if (text.startsWith('[ContactCard|') && text.endsWith(']')) {
-      const parts = text.slice(13, -1).split('|');
-      const contactData: Record<string, string> = {};
-      parts.forEach(p => {
-        const idx = p.indexOf(':');
-        if (idx !== -1) {
-          const key = p.substring(0, idx).trim();
-          const val = p.substring(idx + 1).trim();
-          contactData[key] = val;
-        }
-      });
-
-      const name = contactData['Name'] || 'Contact Shared';
-      const phone = contactData['Phone'] || '';
-      const email = contactData['Email'] || '';
-      const org = contactData['Org'] || '';
-
-      return (
-        <div className="chat-rich-card">
-          <div className="chat-rich-card-head has-divider">
-            <span className="chat-rich-card-icon" aria-hidden="true"><UserRound size={16} /></span>
-            <div className="chat-rich-card-title">
-              <span>{name}</span>
-              {org && org.trim() !== '-' && <small>{org}</small>}
-            </div>
-          </div>
-          <dl className="chat-rich-card-details">
-            {phone && <div><dt>Phone</dt><dd>{phone}</dd></div>}
-            {email && <div><dt>Email</dt><dd>{email}</dd></div>}
-          </dl>
-        </div>
-      );
-    }
-
-    // Send Money: the Flow invitation, the customer's submitted Flow, and transfer updates.
-    const card = parseRichCard(text, ['FlowSent', 'FlowReply', 'Transfer']);
-    if (card) {
-      const f = card.fields;
-      if (card.kind === 'FlowSent' || card.kind === 'FlowReply') {
-        return (
-          <div className="chat-rich-card">
-            <div className="chat-rich-card-head has-divider">
-              <span className="chat-rich-card-icon" aria-hidden="true"><Workflow size={16} /></span>
-              <div className="chat-rich-card-title">
-                <span>{f['Flow'] || 'WhatsApp Flow'}</span>
-                <small>{card.kind === 'FlowSent' ? 'Form sent' : 'Form submitted'}</small>
-              </div>
-            </div>
-            {f['Text'] && <p className="chat-rich-card-text">{f['Text']}</p>}
-            {card.kind === 'FlowSent' && f['CTA'] && <span className="chat-rich-card-action" aria-hidden="true">{f['CTA']}</span>}
-          </div>
-        );
-      }
-      const link = f['Link'] && /^https?:\/\//i.test(f['Link']) ? f['Link'] : null;
-      return (
-        <div className="chat-rich-card">
-          <div className="chat-rich-card-head has-divider">
-            <span className="chat-rich-card-icon" aria-hidden="true"><ArrowLeftRight size={16} /></span>
-            <div className="chat-rich-card-title">
-              <span>{f['Status'] || 'Transfer'}</span>
-              {f['Ref'] && <small translate="no">{f['Ref']}</small>}
-            </div>
-          </div>
-          <dl className="chat-rich-card-details">
-            {f['Amount'] && <div><dt>Total</dt><dd>{f['Amount']}</dd></div>}
-            {f['Receive'] && <div><dt>Recipient gets</dt><dd>{f['Receive']}</dd></div>}
-            {f['Detail'] && <div><dt>Detail</dt><dd>{f['Detail']}</dd></div>}
-          </dl>
-          {link && <a className="chat-rich-card-action" href={link} target="_blank" rel="noopener noreferrer">Payment page</a>}
-        </div>
-      );
-    }
-
-    return renderMessageText(text, searchQuery);
-  };
 
   const sendCurrentMessage = async () => {
     const text = messageText.trim()
@@ -1164,23 +990,6 @@ export const Chat: React.FC = () => {
     })
   }
 
-  const EmptyStateIllustration = () => (
-    <svg className="chat-empty-state-illustration" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <rect className="ces-phone" x="65" y="20" width="70" height="140" rx="12" strokeWidth="3" />
-      <line className="ces-phone-detail" x1="90" y1="26" x2="110" y2="26" strokeWidth="2" strokeLinecap="round" />
-      <circle className="ces-phone-button" cx="100" cy="150" r="5" />
-      <rect className="ces-bubble-out" x="25" y="50" width="35" height="15" rx="6" />
-      <rect className="ces-bubble-out-line" x="30" y="55" width="20" height="2" rx="1" />
-      <rect className="ces-bubble-out-line" x="30" y="60" width="10" height="2" rx="1" />
-      <line className="ces-bubble-out-tail" x1="57" y1="62" x2="65" y2="65" />
-      <rect className="ces-bubble-in" x="140" y="80" width="35" height="15" rx="6" />
-      <rect className="ces-bubble-in-line" x="145" y="85" width="20" height="2" rx="1" />
-      <rect className="ces-bubble-in-line" x="145" y="90" width="15" height="2" rx="1" />
-      <line className="ces-bubble-in-tail" x1="140" y1="92" x2="135" y2="95" />
-    </svg>
-  )
-
-
   // Taken from the conversation, not from the header filter: on "All Channels" both kinds of
   // thread are in the list, and how a thread renders is a property of the thread.
   const isEmailThread =
@@ -1215,82 +1024,50 @@ export const Chat: React.FC = () => {
   const canInitiate = has('Chat.InitiateChat')
 
   return (
-    <motion.div className="chat-page" {...pageTransitionProps}>
+    <div className="chat-page">
       {/*
-        The channel selector belongs to the page, not to the conversation list. It governs both
-        panes — which threads are listed *and* which composer the thread shows. Unavailable
-        channels are listed but disabled: it answers "does this product do SMS?" honestly.
+        One slim strip for what governs the whole inbox: which channel and connection are shown,
+        which number or address replies go out from, and the agent's account. The channel picker
+        belongs here, not to the list: it decides both the list and the composer.
       */}
-      <div className="chat-page-header omni-page-hero">
-        <div className="chat-page-heading">
-          <h1>Omnichannel Inbox</h1>
-          <p>Manage customer conversations across all your communication channels in one place.</p>
-        </div>
-
-        <div className="chat-page-tools">
-          <div className="chat-page-channel">
-            <span className="chat-page-channel-label">Channel</span>
-            <ChannelPicker
-              value={channelFilter}
-              onChange={(value) => {
-                setChannelFilter(value.startsWith('__unavailable_') ? ALL_CHANNELS : value)
-              }}
-            />
-          </div>
-          {showsEmail && canSend && (
-            <button
-              type="button"
-              className="chat-new-email-btn"
-              onClick={startNewEmail}
-              disabled={!canStartNewEmail}
-              title={canStartNewEmail ? 'Write a new email to this contact' : 'Open an email conversation to write a new email'}
-            >
-              <Plus size={15} aria-hidden="true" />
-              New Email
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* On narrow screens one pane shows at a time: the list, or the open conversation. */}
-      <div ref={layoutRef} className={`chat-container-layout${activeConversation ? ' has-active' : ''}`}>
-      <div className="chat-sidebar">
-        <div className="chat-sidebar-header">
-          {/* Connection picker — hidden in ALL_CHANNELS mode where the list spans all connections */}
+      <header className="chat-topbar">
+        <h1 className="sr-only">Inbox</h1>
+        <div className="chat-topbar-scope">
+          <ChannelPicker
+            value={channelFilter}
+            onChange={(value) => {
+              setChannelFilter(value.startsWith('__unavailable_') ? ALL_CHANNELS : value)
+            }}
+          />
           {channelFilter !== ALL_CHANNELS && (
-          <div className="chat-connection-select-wrapper">
-            <span className="chat-sidebar-field-label">Active Connection</span>
-            <SearchableSelect
-              label="Active connection"
-              placeholder={
-                channelConnections.length === 0
-                  ? (isEmailChannel ? 'No email connections' : 'Select a connection')
-                  : 'Select a connection'
-              }
-              hideAllOption
-              className="chat-connection-select"
-              value={selectedConnectionId != null ? String(selectedConnectionId) : ''}
-              options={channelConnections.map((conn) => ({
-                value: String(conn.id),
-                label: conn.label,
-                keywords: conn.keywords
-              }))}
-              onChange={(val) => setSelectedConnectionId(val ? Number(val) : null)}
-            />
-          </div>
-          )}
-
-          {/* From/Sender row — only shown when a specific connection is selected */}
-          {channelFilter !== ALL_CHANNELS && (
-          <div className="chat-account-display-row">
-            <div className="chat-dropdown-full">
-              <span className="chat-sidebar-field-label">{isEmailConnectionSelected ? 'From' : 'Sender line'}</span>
+            <div className="chat-topbar-field">
               <SearchableSelect
-                label={isEmailConnectionSelected ? 'From address' : 'Sender line'}
+                label="Connection"
+                placeholder={
+                  channelConnections.length === 0
+                    ? (isEmailChannel ? 'No email connections' : 'No connections')
+                    : 'Choose a connection'
+                }
+                hideAllOption
+                className="chat-connection-select"
+                value={selectedConnectionId != null ? String(selectedConnectionId) : ''}
+                options={channelConnections.map((conn) => ({
+                  value: String(conn.id),
+                  label: conn.label,
+                  keywords: conn.keywords
+                }))}
+                onChange={(val) => setSelectedConnectionId(val ? Number(val) : null)}
+              />
+            </div>
+          )}
+          {channelFilter !== ALL_CHANNELS && (
+            <div className="chat-topbar-field">
+              <SearchableSelect
+                label={isEmailConnectionSelected ? 'From address' : 'Sending number'}
                 placeholder={
                   senderOptions.length === 0
-                    ? (isEmailConnectionSelected ? 'No verified senders' : 'No WABA numbers connected')
-                    : (isEmailConnectionSelected ? 'Select a from address' : 'Select a sender line')
+                    ? (isEmailConnectionSelected ? 'No verified senders' : 'No numbers connected')
+                    : (isEmailConnectionSelected ? 'Choose a from address' : 'Choose a number')
                 }
                 hideAllOption
                 disabled={senderOptions.length === 0}
@@ -1299,13 +1076,35 @@ export const Chat: React.FC = () => {
                 onChange={setFromNumber}
               />
             </div>
-            <button type="button" className="chat-icon-btn chat-refresh-btn" aria-label="Refresh conversations" title="Refresh conversations"
-              onClick={refreshInbox} disabled={isLoadingConversations}>
-              <RefreshCw size={16} aria-hidden="true" className={isLoadingConversations ? 'is-spinning' : undefined} />
-            </button>
-          </div>
           )}
+          <button type="button" className="chat-icon-btn chat-refresh-btn" aria-label="Refresh conversations" title="Refresh conversations"
+            onClick={refreshInbox} disabled={isLoadingConversations}>
+            <RefreshCw size={16} aria-hidden="true" className={isLoadingConversations ? 'is-spinning' : undefined} />
+          </button>
+        </div>
 
+        <div className="chat-topbar-actions">
+          {showsEmail && canSend && (
+            <button
+              type="button"
+              className="chat-new-email-btn"
+              onClick={startNewEmail}
+              disabled={!canStartNewEmail}
+              title={canStartNewEmail ? 'Write a new email to this contact' : 'Open an email conversation to write a new email'}
+              aria-label="New email"
+            >
+              <Plus size={15} aria-hidden="true" />
+              <span className="chat-new-email-label">New email</span>
+            </button>
+          )}
+          <AccountMenu size="sm" />
+        </div>
+      </header>
+
+      {/* On narrow screens one pane shows at a time: the list, or the open conversation. */}
+      <div ref={layoutRef} className={`chat-container-layout${activeConversation ? ' has-active' : ''}`}>
+      <div className="chat-sidebar">
+        <div className="chat-sidebar-header">
           <div className="chat-search-row">
             <SearchBar
               value={sidebarSearchQuery}
@@ -1330,12 +1129,6 @@ export const Chat: React.FC = () => {
               <SlidersHorizontal size={16} aria-hidden="true" />
               {activeFilterCount > 0 && <span className="chat-filter-count" aria-hidden="true">{activeFilterCount}</span>}
             </button>
-            {channelFilter === ALL_CHANNELS && (
-              <button type="button" className="chat-icon-btn chat-refresh-btn" aria-label="Refresh conversations" title="Refresh conversations"
-                onClick={refreshInbox} disabled={isLoadingConversations}>
-                <RefreshCw size={16} aria-hidden="true" className={isLoadingConversations ? 'is-spinning' : undefined} />
-              </button>
-            )}
           </div>
 
           {showFilters && (
@@ -1372,7 +1165,7 @@ export const Chat: React.FC = () => {
                   value={conversationPageSize}
                   onChange={(e) => { setConversationPageSize(Number(e.target.value)); setConversationPage(1) }}
                 >
-                  {CONVERSATION_LIST_PAGE_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+                  {listPageSizes.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               {activeFilterCount > 0 && (
@@ -1445,8 +1238,12 @@ export const Chat: React.FC = () => {
               const channelKey = normalizeChannel(conversation.channel)
               const state = conversation.conversationStatus ?? 'Open'
               return (
-                <button
+                <motion.button
                   key={conversation.id}
+                  // A conversation that gets a new message slides to its new place instead of
+                  // jumping there, so the agent sees what moved.
+                  layout="position"
+                  transition={ROW_REORDER}
                   type="button"
                   className={`conversation-item ${isActive ? 'active' : ''}${conversation.unreadCount > 0 ? ' is-unread' : ''}`}
                   aria-current={isActive ? 'true' : undefined}
@@ -1467,7 +1264,7 @@ export const Chat: React.FC = () => {
                       <span className="conversation-time">{conversation.lastMessageTime}</span>
                     </div>
                     <div className="conversation-msg-preview-row">
-                      <span className="conversation-preview-text">{conversation.lastMessage || 'No messages yet'}</span>
+                      <span className="conversation-preview-text">{messagePreview(conversation.lastMessage) || 'No messages yet'}</span>
                       {conversation.unreadCount > 0 && (
                         <span className="unread-count-bubble" aria-label={`${conversation.unreadCount} unread`}>
                           {conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}
@@ -1487,7 +1284,7 @@ export const Chat: React.FC = () => {
                       )}
                     </div>
                   </div>
-                </button>
+                </motion.button>
               )
             })
           )})()}
@@ -1566,7 +1363,15 @@ export const Chat: React.FC = () => {
             </div>
           </div>
         ) : activeConversation ? (
-          <div className="chat-window-inner-layout">
+          <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={activeConversation.id}
+            className="chat-window-inner-layout"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={THREAD_SWITCH}
+          >
             <div className="chat-window-header">
               <div className="chat-header-user-info">
                 <button type="button" className="chat-icon-btn chat-mobile-back" aria-label="Back to conversations"
@@ -1664,9 +1469,9 @@ export const Chat: React.FC = () => {
                   </span>
                   <SlaChip conversation={activeConversation} />
                   {!isEmailThread && (
-                    <span className={`chat-window-chip${windowStatus.active ? ' is-open' : ' is-closed'}`}
-                      title="WhatsApp allows free-form replies for 24 hours after the customer last wrote.">
-                      <Clock size={11} aria-hidden="true" />{windowStatus.text}
+                    <span className={`chat-window-chip${windowStatus.open ? (windowStatus.closingSoon ? ' is-soon' : ' is-open') : ' is-closed'}`}
+                      title={`WhatsApp allows free-form replies for ${chatOptions.data?.serviceWindowHours ?? 24} hours after the customer last wrote.`}>
+                      <Clock size={11} aria-hidden="true" />{windowStatus.label}
                     </span>
                   )}
                 </div>
@@ -1705,7 +1510,8 @@ export const Chat: React.FC = () => {
                   </div>
                 )}
 
-                <div ref={messagesContainerRef} className={`chat-messages-container${isEmailThread ? ' email-mode' : ''}`}>
+                <div ref={messagesContainerRef} className={`chat-messages-container${isEmailThread ? ' email-mode' : ''}`}
+                  data-channel={activeChannelKey ?? undefined}>
                   {threadError && (
                     <div className="chat-thread-error" role="status">
                       <AlertCircle size={14} />
@@ -1755,7 +1561,7 @@ export const Chat: React.FC = () => {
                           </button>
                         )
                       }
-                      const showDateDivider = shouldShowDateDivider(message, previous)
+                      const showDateDivider = startsNewDay(message, previous)
 
                       const isSelected = selectedMessageIds.includes(message.id)
 
@@ -1771,7 +1577,7 @@ export const Chat: React.FC = () => {
                           onClick={selectionMode ? () => toggleMessageSelected(message.id) : undefined}
                         >
                           {showDateDivider && (
-                            <div className="chat-date-divider">{formatDateDivider(message.createdAt)}</div>
+                            <div className="chat-date-divider"><span>{formatDayDivider(message.createdAt)}</span></div>
                           )}
 
                           {selectionMode && (
@@ -1791,22 +1597,22 @@ export const Chat: React.FC = () => {
                               <div className="chat-bubble-media-wrapper">
                                 {message.mediaType === 'image' && (
                                   <img
-                                    src={getFullMediaUrl(message.mediaUrl)}
+                                    src={resolveMediaUrl(message.mediaUrl)}
                                     alt={message.mediaFileName || 'Image'}
                                     className="chat-bubble-media-image"
-                                    onClick={() => window.open(getFullMediaUrl(message.mediaUrl) || undefined, '_blank')}
+                                    onClick={() => window.open(resolveMediaUrl(message.mediaUrl) || undefined, '_blank')}
                                   />
                                 )}
                                 {message.mediaType === 'video' && (
                                   <video
-                                    src={getFullMediaUrl(message.mediaUrl)}
+                                    src={resolveMediaUrl(message.mediaUrl)}
                                     controls
                                     className="chat-bubble-media-video"
                                   />
                                 )}
                                 {message.mediaType === 'document' && (
                                   <a
-                                    href={getFullMediaUrl(message.mediaUrl)}
+                                    href={resolveMediaUrl(message.mediaUrl)}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="chat-bubble-media-document-card"
@@ -1814,10 +1620,10 @@ export const Chat: React.FC = () => {
                                     <FileText size={24} className="document-card-icon" />
                                     <div className="document-card-info">
                                       <span className="document-card-name" title={message.mediaFileName || undefined}>
-                                        {message.mediaFileName || 'document.pdf'}
+                                        {message.mediaFileName || 'Document'}
                                       </span>
                                       <span className="document-card-size">
-                                        Click to View/Download
+                                        Open document
                                       </span>
                                     </div>
                                   </a>
@@ -1825,22 +1631,11 @@ export const Chat: React.FC = () => {
                               </div>
                             )}
 
-                            {(!message.mediaUrl || (message.text && message.text.replace(/\[Attachment:[^\]]+\]\s*/g, '').trim().length > 0)) && (
-                              <p className="chat-bubble-text-outgoing">
-                                {renderRichMessageContent(message.text, msgSearchQuery)}
-                              </p>
-                            )}
+                            <RichMessage text={message.text} search={msgSearchQuery} />
 
                             <div className="chat-bubble-time-row">
                               <span className="conversation-time">{message.time}</span>
-                              {message.type === 'outgoing' && (
-                                <span
-                                  className={`chat-bubble-status-icon ${getMessageStatusClass(message.status)}`}
-                                  title={getMessageStatusTitle(message)}
-                                >
-                                  {getStatusIcon(message)}
-                                </span>
-                              )}
+                              {message.type === 'outgoing' && <MessageStatus message={message} />}
                             </div>
                           </div>
                           )}
@@ -1877,14 +1672,14 @@ export const Chat: React.FC = () => {
                       <span>You have read-only access to this conversation.</span>
                     </div>
                   ) : null
-                ) : !isEmailThread && !windowStatus.active ? (
+                ) : !isEmailThread && !windowStatus.open ? (
                   <div className="chat-window-limit-banner">
                     <div className="chat-window-limit-left">
                       <AlertTriangle size={20} className="chat-window-limit-icon" />
                       <div className="chat-window-limit-text-group">
-                        <span className="chat-window-limit-title">24 hours limit</span>
+                        <span className="chat-window-limit-title">Reply window closed</span>
                         <span className="chat-window-limit-description">
-                          WhatsApp blocks messages 24 hours after the customer last replied.
+                          WhatsApp only allows free-form replies within {chatOptions.data?.serviceWindowHours ?? 24} hours of the customer's last message. Send an approved template to restart the conversation.
                         </span>
                       </div>
                     </div>
@@ -1895,7 +1690,7 @@ export const Chat: React.FC = () => {
                         onClick={handleOpenTemplateModal}
                       >
                         <MessageSquare size={16} />
-                        <span>Initiate Chat</span>
+                        <span>Send template</span>
                       </button>
                     </Can>
                   </div>
@@ -1924,7 +1719,7 @@ export const Chat: React.FC = () => {
                         ref={textareaRef}
                         className="chat-composer-textarea"
                         rows={1}
-                        placeholder={`Message to ${activeConversation.name} - Shift + Enter for newline`}
+                        placeholder={`Reply to ${activeConversation.name}…  (Shift + Enter for a new line, / for canned replies)`}
                         value={messageText}
                         onChange={(e) => setMessageText(e.target.value)}
                         onKeyDown={handleKeyDown}
@@ -1954,7 +1749,7 @@ export const Chat: React.FC = () => {
                           </button>
                           {showEmojiPicker && (
                             <div className="emoji-picker-popover">
-                              {EMOJIS.map(emoji => (
+                              {QUICK_EMOJIS.map(emoji => (
                                 <button key={emoji} type="button" className="emoji-btn" onClick={() => insertEmoji(emoji)}>
                                   {emoji}
                                 </button>
@@ -2020,10 +1815,10 @@ export const Chat: React.FC = () => {
                           </button>
                           {showCannedReplies && (
                             <div className="canned-replies-popover">
-                              <div className="canned-replies-head">Canned Replies</div>
+                              <div className="canned-replies-head">Canned replies</div>
                               {cannedReplies.length === 0 ? (
                                 <div className="canned-replies-empty">
-                                  No canned replies yet. Add them under Setup → Canned Reply.
+                                  No canned replies yet. Add them in Setup › Canned replies.
                                 </div>
                               ) : (
                                 <div className="canned-replies-list">
@@ -2048,13 +1843,13 @@ export const Chat: React.FC = () => {
                         </div>
 
                         {uploadingMedia && (
-                          <span className="upload-loading-indicator">Uploading media...</span>
+                          <span className="upload-loading-indicator" role="status">Uploading…</span>
                         )}
                       </div>
 
                       <button
                         type="submit"
-                        className="chat-composer-voice-btn"
+                        className="chat-composer-send-btn"
                         aria-label="Send message"
                         disabled={(!messageText.trim() && !uploadingMedia) || isSending}
                       >
@@ -2080,11 +1875,12 @@ export const Chat: React.FC = () => {
                 void refreshActiveMessages()
               }}
             />
-          </div>
+          </motion.div>
+          </AnimatePresence>
         ) : (
           <div className="chat-empty-state-container">
             <EmptyStateIllustration />
-            <span className="chat-empty-state-text">Select a conversation to start</span>
+            <span className="chat-empty-state-text">Choose a conversation to read and reply</span>
           </div>
         )}
       </div>
@@ -2097,6 +1893,7 @@ export const Chat: React.FC = () => {
           onChanged={() => void loadConversations()}
           onNewEmail={canStartNewEmail ? startNewEmail : undefined}
           onStartWhatsApp={!isEmailThread && canInitiate ? handleOpenTemplateModal : undefined}
+          onOpenConversation={openConversationAnywhere}
         />
       )}
 
@@ -2186,27 +1983,19 @@ export const Chat: React.FC = () => {
         showWarningIcon={true}
       />
       </div>
-
-    </motion.div>
+    </div>
   )
 }
 
-/**
- * Polling cadences, named rather than sprinkled as literals.
- *
- * The open conversation is a small indexed read, so it can stay near-live (1 s). The
- * conversation list joins contacts, groups and connections for every row, so it ticks at 5 s.
- * The old 15 s inbox cadence meant a sent email could take 15 s to appear — tightened to 5 s
- * here so the inbox preview updates quickly without hammering the server.
- */
+/** A row moving to its new place in the list; quick enough not to delay reading. */
+const ROW_REORDER = { type: 'tween', ease: [0.23, 1, 0.32, 1], duration: 0.28 } as const
+/** Switching conversation: a short crossfade so the new thread is clearly a different one. */
+const THREAD_SWITCH = { duration: 0.16, ease: 'easeOut' } as const
+
 /** Only while the real-time connection is down; normally the server pushes changes. */
 const FALLBACK_POLL_MS = 20_000
-/** Conversations per page in the list; the first is the default. */
-const CONVERSATION_LIST_PAGE_SIZES = [8, 15, 25, 50]
 /** Where the details panel's open/closed choice is remembered. */
 const DETAILS_PANEL_STORAGE_KEY = 'chat.detailsPanel'
-/** Inbox width from which the details panel docks beside the thread (the chat-layout container query in Chat.css). */
-const DETAILS_PANEL_DOCK_MIN_WIDTH = 1000
 const ACCOUNT_RETRY_MS = 5000
 const ACCOUNT_RETRY_LIMIT = 6
 
@@ -2216,236 +2005,21 @@ const getBubbleClass = (message: Message) => {
   return 'chat-bubble-outgoing'
 }
 
-const getMessageStatusClass = (status?: string) => {
-  if (status === 'failed') return 'red-warning'
-  if (status === 'read') return 'blue-ticks'
-  if (status === 'sending') return 'pending-clock'
-  if (status === 'pending') return 'pending-clock'
-  return 'sent-ticks'
-}
-
-const getStatusIcon = (message: Message) => {
-  switch (message.status) {
-    case 'failed':
-      return <AlertCircle size={12} />
-    case 'sending':
-      return <Clock3 size={12} />
-    case 'pending':
-      return <Clock3 size={12} />
-    case 'sent':
-      return <Check size={12} />
-    case 'delivered':
-    case 'read':
-      return <CheckCheck size={12} />
-    default:
-      return <Clock3 size={12} />
-  }
-}
-
-const getMessageStatusTitle = (message: Message) => {
-  switch (message.status) {
-    case 'sending':
-      return 'Sending to Meta...'
-    case 'pending':
-      return message.whatsAppMessageId
-        ? 'Accepted by Meta. Waiting for WhatsApp delivery webhook.'
-        : 'Waiting for Meta response.'
-    case 'sent':
-      return 'Sent by Meta.'
-    case 'delivered':
-      return 'Delivered on WhatsApp.'
-    case 'read':
-      return 'Read on WhatsApp.'
-    case 'failed':
-      return message.errorMessage || 'Message failed.'
-    default:
-      return 'Message status pending.'
-  }
-}
-
-const shouldShowDateDivider = (message: Message, previous?: Message) => {
-  if (!previous) return true
-  return new Date(message.createdAt).toDateString() !== new Date(previous.createdAt).toDateString()
-}
-
-const formatDateDivider = (value: string) => {
-  return new Intl.DateTimeFormat('en', {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric'
-  }).format(new Date(value))
-}
-
 export default Chat
 
-/* ──────────────────────────────────────────────────────────────────────────────
-   ChannelPicker — custom dropdown matching Image 3.
-
-   Shows "All Channels" on top (with a checkmark when active), then each available
-   channel with its icon, then a divider + "Coming Soon" section for planned ones.
-   ────────────────────────────────────────────────────────────────────────────── */
-
-const CHANNEL_ICON_MAP: Record<string, React.ReactNode> = {
-  whatsapp: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" fill="#25D366"/>
-      <path d="M12 0C5.373 0 0 5.373 0 12c0 2.128.557 4.122 1.528 5.855L0 24l6.345-1.498A11.956 11.956 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.92 0-3.722-.497-5.28-1.37l-.379-.215-3.766.888.934-3.65-.248-.396A9.935 9.935 0 012 12c0-5.514 4.486-10 10-10s10 4.486 10 10-4.486 10-10 10z" fill="#25D366"/>
-    </svg>
-  ),
-  email: <Mail size={15} color="var(--channel-email)" />,
-  sms: <MessageSquare size={15} color="var(--channel-sms, #8b5cf6)" />,
-  instagram: <Camera size={15} color="var(--channel-instagram, #e1306c)" />,
-  facebook: <ThumbsUp size={15} color="var(--channel-facebook, #1877f2)" />,
-}
-
-/**
- * The inbox's channel filter. The menu renders in a portal, positioned against the trigger in
- * viewport coordinates: the page banner clips its contents (overflow: hidden, for its decorative
- * circles), and a menu inside it was cut off at the banner's edge whatever its z-index. Arrow keys
- * move between options, Enter or Space picks one, Escape closes and returns focus to the button.
- */
-const ChannelPicker: React.FC<{
-  value: string
-  onChange: (value: string) => void
-}> = ({ value, onChange }) => {
-  const [open, setOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const position = useAnchoredPosition(triggerRef, menuRef, open, { side: 'bottom', align: 'end', offset: 6 })
-
-  const activeLabel = value === ALL_CHANNELS
-    ? 'All Channels'
-    : CHANNELS.find(c => c.key === value)?.label ?? value
-
-  const activeIcon = value !== ALL_CHANNELS && CHANNEL_ICON_MAP[value]
-    ? CHANNEL_ICON_MAP[value]
-    : null
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node
-      if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  // Focus the selected option when the menu opens, so the keyboard starts where the value is.
-  useEffect(() => {
-    if (!open) return
-    const frame = requestAnimationFrame(() => {
-      const options = menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)')
-      const selected = menuRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')
-      ;(selected ?? options?.[0])?.focus()
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [open])
-
-  const available = CHANNELS.filter(c => c.available)
-  const planned = CHANNELS.filter(c => !c.available)
-
-  const close = (restoreFocus = true) => {
-    setOpen(false)
-    if (restoreFocus) triggerRef.current?.focus()
-  }
-
-  const select = (v: string) => {
-    onChange(v)
-    close()
-  }
-
-  const onMenuKeyDown = (e: React.KeyboardEvent) => {
-    const options = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [])
-    const index = options.indexOf(document.activeElement as HTMLButtonElement)
-    if (e.key === 'Escape') { e.preventDefault(); close() }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); options[(index + 1) % options.length]?.focus() }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); options[(index - 1 + options.length) % options.length]?.focus() }
-    else if (e.key === 'Home') { e.preventDefault(); options[0]?.focus() }
-    else if (e.key === 'End') { e.preventDefault(); options[options.length - 1]?.focus() }
-    else if (e.key === 'Tab') close(false)
-  }
-
-  return (
-    <div className="channel-picker">
-      <button
-        ref={triggerRef}
-        type="button"
-        className={`channel-picker-trigger${open ? ' open' : ''}`}
-        onClick={() => setOpen(o => !o)}
-        onKeyDown={e => { if (e.key === 'ArrowDown' && !open) { e.preventDefault(); setOpen(true) } }}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={`Channel: ${activeLabel}`}
-      >
-        <span className="channel-picker-icon-wrap" aria-hidden="true">
-          {activeIcon ?? <MessageCircle size={15} />}
-        </span>
-        <span className="channel-picker-label">{activeLabel}</span>
-        <ChevronDown size={14} className="channel-picker-caret" aria-hidden="true" />
-      </button>
-
-      {open && createPortal(
-        <div
-          ref={menuRef}
-          className="channel-picker-menu is-floating"
-          role="listbox"
-          aria-label="Channel"
-          onKeyDown={onMenuKeyDown}
-          style={position ? { top: position.top, left: position.left, maxHeight: position.maxHeight, transformOrigin: position.transformOrigin } : { visibility: 'hidden' }}
-        >
-          <button
-            type="button"
-            role="option"
-            aria-selected={value === ALL_CHANNELS}
-            className={`channel-picker-item${value === ALL_CHANNELS ? ' selected' : ''}`}
-            onClick={() => select(ALL_CHANNELS)}
-          >
-            <span className="channel-picker-item-icon" aria-hidden="true"><MessageCircle size={15} /></span>
-            <span className="channel-picker-item-label">All Channels</span>
-            {value === ALL_CHANNELS && <Check size={14} className="channel-picker-check" aria-hidden="true" />}
-          </button>
-
-          {available.map(ch => (
-            <button
-              key={ch.key}
-              type="button"
-              role="option"
-              aria-selected={value === ch.key}
-              className={`channel-picker-item${value === ch.key ? ' selected' : ''}`}
-              onClick={() => select(ch.key)}
-            >
-              <span className="channel-picker-item-icon" aria-hidden="true">{CHANNEL_ICON_MAP[ch.key]}</span>
-              <span className="channel-picker-item-label">{ch.label}</span>
-              {value === ch.key && <Check size={14} className="channel-picker-check" aria-hidden="true" />}
-            </button>
-          ))}
-
-          {planned.length > 0 && (
-            <>
-              <div className="channel-picker-divider" role="presentation">
-                <span>Coming Soon</span>
-              </div>
-              {planned.map(ch => (
-                <button
-                  key={ch.key}
-                  type="button"
-                  role="option"
-                  aria-selected={false}
-                  aria-disabled="true"
-                  className="channel-picker-item disabled"
-                  disabled
-                >
-                  <span className="channel-picker-item-icon" aria-hidden="true">{CHANNEL_ICON_MAP[ch.key]}</span>
-                  <span className="channel-picker-item-label">{ch.label}</span>
-                  <span className="channel-picker-coming-soon">Soon</span>
-                </button>
-              ))}
-            </>
-          )}
-        </div>,
-        document.body
-      )}
-    </div>
-  )
-}
+/** The empty thread: a phone with two bubbles, drawn in the theme's colours (see Chat.css). */
+const EmptyStateIllustration: React.FC = () => (
+  <svg className="chat-empty-state-illustration" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect className="ces-phone" x="65" y="20" width="70" height="140" rx="12" strokeWidth="3" />
+    <line className="ces-phone-detail" x1="90" y1="26" x2="110" y2="26" strokeWidth="2" strokeLinecap="round" />
+    <circle className="ces-phone-button" cx="100" cy="150" r="5" />
+    <rect className="ces-bubble-out" x="25" y="50" width="35" height="15" rx="6" />
+    <rect className="ces-bubble-out-line" x="30" y="55" width="20" height="2" rx="1" />
+    <rect className="ces-bubble-out-line" x="30" y="60" width="10" height="2" rx="1" />
+    <line className="ces-bubble-out-tail" x1="57" y1="62" x2="65" y2="65" />
+    <rect className="ces-bubble-in" x="140" y="80" width="35" height="15" rx="6" />
+    <rect className="ces-bubble-in-line" x="145" y="85" width="20" height="2" rx="1" />
+    <rect className="ces-bubble-in-line" x="145" y="90" width="15" height="2" rx="1" />
+    <line className="ces-bubble-in-tail" x1="140" y1="92" x2="135" y2="95" />
+  </svg>
+)

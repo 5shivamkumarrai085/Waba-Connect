@@ -534,6 +534,24 @@
   --font-body: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
+  /* Workspace surfaces (inbox and future full-height tools).
+     One canvas with hairline dividers instead of floating cards; the channel tints mark which
+     channel an outgoing message went on. */
+  --canvas: #f5f7fa;
+  --surface: #ffffff;
+  --line: #e4e8ee;
+  --ink: #0f1b2d;
+  --ink-muted: #5b6678;
+  --bubble-in: #ffffff;
+  --bubble-out-whatsapp: #e8f7ee;
+  --bubble-out-whatsapp-line: #cdefd9;
+  --bubble-out-email: #eef3ff;
+  --bubble-out-email-line: #d9e3ff;
+  --row-selected: #edf3ff;
+  --row-hover: #f7f9fc;
+  --scrollbar-thumb: #c9d1dc;
+  --scrollbar-thumb-hover: #9aa6b6;
+
   /* Layout and Spacing */
   --sidebar-width: 240px;      /* Host rail width */
   --sidebar-collapsed-width: 70px;
@@ -819,20 +837,22 @@ a {
   color: inherit;
 }
 
-/* Scrollbar Styles */
+/* Scrollbar: thin and neutral, wide enough to grab (3px was hard to hit). */
 ::-webkit-scrollbar {
-  width: 3px;
-  height: 5px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background-color: rgb(var(--color-primary-200, 225, 224, 251)) !important;
+  background-color: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background-color: rgb(var(--color-primary-400, 135, 130, 237)) !important;
+  background-color: var(--scrollbar-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
   border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #bac4d8;
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /* ─── CSS Animations (kept for non-Motion usage) ─── */
@@ -878,11 +898,11 @@ a {
   box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
 }
 
-/* Input focus glow */
+/* Input focus glow: the brand focus ring (it used to be an off-brand indigo). */
 .form-control:focus, select:focus, textarea:focus {
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
-  border-color: #60a5fa !important;
-  transition: all 0.2s ease !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.18) !important;
+  border-color: var(--primary) !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
 }
 
 /* ─── Accessibility: Reduced Motion ─── */

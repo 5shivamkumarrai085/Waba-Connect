@@ -70,6 +70,13 @@
     padding: 20px 16px !important;
   }
 
+  /* A full-bleed page keeps no padding here either; it leaves room for the floating menu
+     button itself (see --hamburger-clearance). */
+  .page-container.page-container--full-bleed {
+    padding: 0 !important;
+    --hamburger-clearance: 64px;
+  }
+
   /* Body scroll lock */
   body.sidebar-open {
     overflow: hidden !important;

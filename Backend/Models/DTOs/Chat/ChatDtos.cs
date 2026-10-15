@@ -60,6 +60,13 @@ public class ChatConversationResponse
     public DateTime ContactCreatedAt { get; set; }
     public List<string> ContactGroups { get; set; } = [];
     public bool ContactIsActive { get; set; }
+
+    /// <summary>
+    /// WhatsApp only: until when a free-form reply is allowed (24 hours after the customer's last
+    /// message, Meta's customer service window). Null when the customer has never written, or for
+    /// channels without such a window. Decided here so every client applies the same rule.
+    /// </summary>
+    public DateTime? ServiceWindowEndsAt { get; set; }
 }
 
 public class ChatMessageResponse

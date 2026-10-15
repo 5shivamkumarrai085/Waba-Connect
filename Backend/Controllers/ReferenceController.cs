@@ -124,7 +124,10 @@ public class ReferenceController : ControllerBase
         assigneeFilters = ChatCatalog.AssigneeFilters,
         maxReplyButtons = ChatCatalog.MaxReplyButtons,
         maxReplyButtonLength = ChatCatalog.MaxReplyButtonLength,
-        maxInteractiveBodyLength = ChatCatalog.MaxInteractiveBodyLength
+        maxInteractiveBodyLength = ChatCatalog.MaxInteractiveBodyLength,
+        channels = ChatCatalog.Channels,
+        listPageSizes = ChatCatalog.ListPageSizes,
+        serviceWindowHours = ChatCatalog.ServiceWindowHours
     });
 
     // Catalogue data changes only with a deploy: the browser may reuse it for ten minutes.

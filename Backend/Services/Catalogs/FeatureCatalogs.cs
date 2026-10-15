@@ -221,6 +221,27 @@ public static class ChatCatalog
     public const int MaxReplyButtons = 3;
     public const int MaxReplyButtonLength = 20;
     public const int MaxInteractiveBodyLength = 1024;
+
+    /// <summary>Meta's customer service window: free-form WhatsApp replies are allowed this long after the customer's last message.</summary>
+    public const int ServiceWindowHours = 24;
+
+    /// <summary>Conversations per page in the inbox list. The first is the default.</summary>
+    public static readonly int[] ListPageSizes = [20, 10, 30, 50];
+
+    /// <summary>How many of a contact's other conversations the details panel lists.</summary>
+    public const int RecentConversationsLimit = 5;
+
+    /// <summary>A messaging channel the inbox can show. Unavailable ones are listed as coming soon.</summary>
+    public sealed record ChannelOption(string Key, string Label, bool Available);
+
+    public static readonly ChannelOption[] Channels =
+    [
+        new("whatsapp", "WhatsApp", true),
+        new("email", "Email", true),
+        new("sms", "SMS", false),
+        new("instagram", "Instagram", false),
+        new("facebook", "Facebook Messenger", false)
+    ];
 }
 
 /// <summary>Outbound webhook delivery log.</summary>

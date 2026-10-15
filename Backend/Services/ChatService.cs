@@ -201,6 +201,32 @@ public class ChatService : IChatService
     }
 
     /// <summary>
+    /// A contact's conversations across channels and connections, newest first, under the same
+    /// visibility rules as the inbox (an agent only sees conversations on connections they may
+    /// access). Feeds the details panel's "Recent conversations".
+    /// </summary>
+    public async Task<List<ChatConversationResponse>> GetContactConversationsAsync(int contactId, int limit = ChatCatalog.RecentConversationsLimit)
+    {
+        limit = Math.Clamp(limit, 1, ChatPaging.MaxConversationPageSize);
+        var query = _dbContext.ChatConversations
+            .AsNoTracking()
+            .Include(c => c.Connection)
+            .Include(c => c.Contact)
+            .Include(c => c.WabaPhoneNumber)
+            .Include(c => c.AssignedUser)
+            .Where(c => c.ContactId == contactId);
+
+        query = await FilterConversationsAsync(query, search: null, connectionId: null, channel: null, state: "all", assignee: null);
+
+        var conversations = await query
+            .OrderByDescending(c => c.LastMessageAt ?? c.UpdatedAt)
+            .ThenByDescending(c => c.Id)
+            .Take(limit)
+            .ToListAsync();
+        return conversations.Select(MapConversation).ToList();
+    }
+
+    /// <summary>
     /// How many conversations the inbox's quick views (All, Unread, Mine) hold, under the same
     /// visibility, channel, connection, status and search as the list — so a count always
     /// matches what clicking it shows. One grouped query, not three.
@@ -1033,7 +1059,10 @@ public class ChatService : IChatService
             AssignedUserName = conversation.AssignedUser is { } agent ? $"{agent.FirstName} {agent.LastName}".Trim() : null,
             FirstResponseDueAt = conversation.FirstRespondedAt is null ? conversation.FirstResponseDueAt : null,
             SlaBreached = conversation.SlaBreachedAt is not null && conversation.FirstRespondedAt is null,
-            ResolveDueAt = conversation.ResolvedAt is null ? conversation.ResolveDueAt : null
+            ResolveDueAt = conversation.ResolvedAt is null ? conversation.ResolveDueAt : null,
+            ServiceWindowEndsAt = conversation.Channel == MessageChannel.WhatsApp && conversation.LastInboundAt is { } lastInbound
+                ? DateTime.SpecifyKind(lastInbound, DateTimeKind.Utc).AddHours(ChatCatalog.ServiceWindowHours)
+                : null
         };
     }
 

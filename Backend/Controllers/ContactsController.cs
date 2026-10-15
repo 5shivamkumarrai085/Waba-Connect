@@ -149,6 +149,17 @@ public class ContactsController : ControllerBase
         return Ok(new ApiResponse { Success = true, Message = "Contacts deleted successfully." });
     }
 
+    public sealed record SetTagsRequest(List<string> Tags);
+
+    /// <summary>Replaces the contact's tags only (the inbox details panel edits them in place).</summary>
+    [HttpPatch("{id:int}/tags")]
+    [RequiresPermission("Contact.Edit")]
+    public async Task<ActionResult<ApiResponse<ContactResponse>>> SetTags(int id, [FromBody] SetTagsRequest request)
+    {
+        var data = await _contactService.SetTagsAsync(id, request.Tags ?? []);
+        return Ok(new ApiResponse<ContactResponse> { Success = true, Data = data, Message = "Tags saved." });
+    }
+
     [HttpPatch("{id}/toggle-active")]
     [RequiresPermission("Contact.Edit")]
     public async Task<ActionResult<ApiResponse<ContactResponse>>> ToggleActive(int id)

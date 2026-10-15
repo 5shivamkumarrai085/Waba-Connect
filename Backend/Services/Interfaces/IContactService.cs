@@ -57,6 +57,12 @@ public interface IContactService
     Task<ContactResponse> ToggleActiveAsync(int id);
 
     /// <summary>
+    /// Replaces a contact's tags (and nothing else), so the inbox can edit them without sending the
+    /// whole contact back. Tags are trimmed, de-duplicated (case-insensitive) and capped.
+    /// </summary>
+    Task<ContactResponse> SetTagsAsync(int id, IReadOnlyCollection<string> tags);
+
+    /// <summary>
     /// Gets contacts by a list of IDs.
     /// </summary>
     Task<List<ContactResponse>> GetByIdsAsync(List<int> ids);

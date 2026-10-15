@@ -18,6 +18,9 @@ public interface IChatService
     /// <summary>Counts per inbox quick view (keyed by ChatCatalog.QuickViews values) under the same filters as the list.</summary>
     Task<IReadOnlyDictionary<string, int>> GetConversationCountsAsync(string? search = null, int? connectionId = null, string? channel = null, string? state = null);
 
+    /// <summary>A contact's conversations (all channels and connections the caller may see), newest first.</summary>
+    Task<List<ChatConversationResponse>> GetContactConversationsAsync(int contactId, int limit = WhatsAppCampaignApi.Services.Catalogs.ChatCatalog.RecentConversationsLimit);
+
     Task<ChatPage<ChatConversationResponse>> GetConversationsAsync(
         string? search = null,
         string? filter = null,

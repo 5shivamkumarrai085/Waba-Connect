@@ -460,6 +460,39 @@ public class ContactService : IContactService
         return await GetByIdAsync(contact.Id);
     }
 
+    /// <summary>Most tags one contact may carry, and the longest tag; beyond this a tag is a note.</summary>
+    public const int MaxTags = 30;
+    public const int MaxTagLength = 40;
+
+    public async Task<ContactResponse> SetTagsAsync(int id, IReadOnlyCollection<string> tags)
+    {
+        var cleaned = tags
+            .Select(t => (t ?? string.Empty).Trim())
+            .Where(t => t.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (cleaned.Any(t => t.Length > MaxTagLength))
+            throw new ArgumentException($"A tag can be at most {MaxTagLength} characters.");
+        if (cleaned.Any(t => t.Contains(',')))
+            throw new ArgumentException("A tag cannot contain a comma.");
+        if (cleaned.Count > MaxTags)
+            throw new ArgumentException($"A contact can have at most {MaxTags} tags.");
+
+        var contact = await _dbContext.Contacts.FirstOrDefaultAsync(c => c.Id == id)
+            ?? throw new KeyNotFoundException($"Contact with ID {id} not found.");
+
+        var before = contact.Tags ?? string.Empty;
+        contact.Tags = cleaned.Count == 0 ? null : string.Join(", ", cleaned);
+        await _dbContext.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            "Contact.TagsChanged", "Data",
+            $"Changed the tags of contact \"{contact.Name}\" from \"{before}\" to \"{contact.Tags ?? string.Empty}\".",
+            "Contact", contact.Id.ToString());
+
+        return await GetByIdAsync(contact.Id);
+    }
+
     private static ContactResponse MapToResponse(Contact c)
     {
         return new ContactResponse

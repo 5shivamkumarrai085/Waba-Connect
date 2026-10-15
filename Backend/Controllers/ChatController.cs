@@ -34,6 +34,16 @@ public class ChatController : ControllerBase
         return Ok(new ApiResponse<List<ChatAccountResponse>> { Success = true, Data = data });
     }
 
+    /// <summary>The contact's recent conversations on every channel and connection the caller can see (the details panel).</summary>
+    [HttpGet("contacts/{contactId:int}/conversations")]
+    [RequiresPermission("Chat.View")]
+    public async Task<ActionResult<ApiResponse<List<ChatConversationResponse>>>> GetContactConversations(int contactId, [FromQuery] int? limit = null) =>
+        Ok(new ApiResponse<List<ChatConversationResponse>>
+        {
+            Success = true,
+            Data = await _chatService.GetContactConversationsAsync(contactId, limit ?? WhatsAppCampaignApi.Services.Catalogs.ChatCatalog.RecentConversationsLimit)
+        });
+
     /// <summary>Counts for the inbox quick views, under the same filters the list uses (search, connection, channel, status).</summary>
     [HttpGet("conversations/counts")]
     [RequiresPermission("Chat.View")]

@@ -51,8 +51,40 @@ public static class QueueNames
     /// <summary>Delivers one WhatsApp template message to one recipient.</summary>
     public const string WhatsAppSend = "wa-send." + ContractVersion;
 
-    /// <summary>One verified Meta webhook delivery, stored before it is acknowledged.</summary>
-    public const string WhatsAppWebhook = "wa-webhook." + InboundContractVersion;
+    /// <summary>
+    /// One verified Meta webhook delivery, stored before it is acknowledged. The webhook writes to
+    /// this queue and the inbound worker reads it, so a deployment with an inbound queue group
+    /// (<see cref="UseInboundQueueGroup"/>) only ever answers the messages it received itself.
+    /// </summary>
+    public static string WhatsAppWebhook { get; private set; } = InboundQueueName(null);
+
+    /// <summary>Longest group suffix kept in a queue name.</summary>
+    private const int MaxInboundGroupLength = 32;
+
+    /// <summary>
+    /// The inbound queue for a group: the shared queue when there is none, otherwise its own queue
+    /// (lower case letters, digits and hyphens). Several deployments sharing one database — a
+    /// developer's PC, a teammate's, the hosted server — otherwise all claim each other's customer
+    /// messages, and whichever wins decides the reply with its own code and settings.
+    /// </summary>
+    public static string InboundQueueName(string? group)
+    {
+        var shared = "wa-webhook." + InboundContractVersion;
+        if (string.IsNullOrWhiteSpace(group)) return shared;
+
+        var safe = new System.Text.StringBuilder();
+        foreach (var c in group.Trim().ToLowerInvariant())
+        {
+            if (char.IsAsciiLetterOrDigit(c)) safe.Append(c);
+            else if (safe.Length > 0 && safe[^1] != '-') safe.Append('-');
+        }
+        var suffix = safe.ToString().Trim('-');
+        if (suffix.Length > MaxInboundGroupLength) suffix = suffix[..MaxInboundGroupLength].TrimEnd('-');
+        return suffix.Length == 0 ? shared : $"{shared}.{suffix}";
+    }
+
+    /// <summary>Selects this process's inbound queue group (WhatsApp:Inbound:QueueGroup). Called once at startup.</summary>
+    public static void UseInboundQueueGroup(string? group) => WhatsAppWebhook = InboundQueueName(group);
 
     /// <summary>One signed event to one outbound webhook subscription.</summary>
     public const string WebhookOut = "webhook-out." + ContractVersion;
@@ -64,5 +96,5 @@ public static class QueueNames
     public const string RemittancePayout = "remit-payout." + ContractVersion;
 
     /// <summary>Every queue, for the monitoring endpoint and the maintenance sweep.</summary>
-    public static readonly string[] All = [CampaignExpansion, EmailSend, WhatsAppCampaignExpansion, WhatsAppSend, WhatsAppWebhook, WebhookOut, RemittanceCallback, RemittancePayout];
+    public static string[] All => [CampaignExpansion, EmailSend, WhatsAppCampaignExpansion, WhatsAppSend, WhatsAppWebhook, WebhookOut, RemittanceCallback, RemittancePayout];
 }

@@ -282,8 +282,30 @@ public static class Phase22_Round4Tests
             // whichever build takes a customer's message decides the reply.
             run.Check("every queue name carries its contract version, so an older build cannot take its jobs",
                 QueueNames.All.All(q => q == QueueNames.WhatsAppWebhook
-                    ? q.EndsWith("." + QueueNames.InboundContractVersion)
+                    ? q.StartsWith("wa-webhook." + QueueNames.InboundContractVersion)
                     : q.EndsWith("." + QueueNames.ContractVersion)), string.Join(", ", QueueNames.All));
+
+            // A deployment can keep the inbound messages it received to itself (WhatsApp:Inbound:QueueGroup),
+            // so another build sharing the database cannot answer them with different code or settings.
+            var defaultInbound = "wa-webhook." + QueueNames.InboundContractVersion;
+            run.Check("no inbound queue group means the shared inbound queue",
+                QueueNames.InboundQueueName(null) == defaultInbound && QueueNames.InboundQueueName("  ") == defaultInbound);
+            run.Check("an inbound queue group gets its own queue, in a safe spelling",
+                QueueNames.InboundQueueName("Ashok PC!") == defaultInbound + ".ashok-pc", QueueNames.InboundQueueName("Ashok PC!"));
+            run.Check("a long inbound queue group is shortened",
+                QueueNames.InboundQueueName(new string('a', 80)).Length == defaultInbound.Length + 1 + 32);
+            QueueNames.UseInboundQueueGroup("unit-test");
+            try
+            {
+                run.Check("the configured group is what the webhook writes and the worker reads, and is monitored",
+                    QueueNames.WhatsAppWebhook == defaultInbound + ".unit-test" && QueueNames.All.Contains(QueueNames.WhatsAppWebhook),
+                    QueueNames.WhatsAppWebhook);
+            }
+            finally
+            {
+                QueueNames.UseInboundQueueGroup(null);
+            }
+            run.Check("clearing the group returns to the shared inbound queue", QueueNames.WhatsAppWebhook == defaultInbound);
 
             run.Section("An unusable connection holds the campaign instead of failing recipients");
             await HoldAsync(harness, run);

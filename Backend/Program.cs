@@ -39,6 +39,11 @@ var builder = WebApplication.CreateBuilder(args);
 StartupConfiguration.AddDeveloperSecrets(builder, args);
 StartupConfiguration.RequireSecrets(builder.Configuration, builder.Environment);
 
+// Optional: answer only the WhatsApp messages this deployment received. Empty (the default) keeps
+// the shared inbound queue; a developer PC sharing the hosted database sets its own group so the
+// hosted server and teammates' machines stop answering the messages that reach it via ngrok.
+QueueNames.UseInboundQueueGroup(builder.Configuration["WhatsApp:Inbound:QueueGroup"]);
+
 // The unsubscribe signing key, derived when nobody configured one.
 //
 // This key signs the one-click unsubscribe tokens in outgoing mail. It has to be secret, and it

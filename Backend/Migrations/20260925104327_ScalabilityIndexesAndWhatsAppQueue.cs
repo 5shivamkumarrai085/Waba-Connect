@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -93,6 +93,16 @@ namespace WhatsAppCampaignApi.Migrations
 
             // Case-insensitive email lookups (inbound reply threading, suppression, search).
             migrationBuilder.Sql("""
+                ALTER TABLE "Contacts" ADD COLUMN IF NOT EXISTS "Email" character varying(200);
+                ALTER TABLE "Contacts" ADD COLUMN IF NOT EXISTS "Address" character varying(500);
+                ALTER TABLE "Contacts" ADD COLUMN IF NOT EXISTS "City" character varying(100);
+                ALTER TABLE "Contacts" ADD COLUMN IF NOT EXISTS "Company" character varying(200);
+                ALTER TABLE "Contacts" ADD COLUMN IF NOT EXISTS "Country" character varying(100);
+                ALTER TABLE "Contacts" ADD COLUMN IF NOT EXISTS "Description" character varying(2000);
+                ALTER TABLE "Contacts" ADD COLUMN IF NOT EXISTS "State" character varying(100);
+                ALTER TABLE "Contacts" ADD COLUMN IF NOT EXISTS "Website" character varying(500);
+                ALTER TABLE "Contacts" ADD COLUMN IF NOT EXISTS "ZipCode" character varying(20);
+
                 CREATE INDEX IF NOT EXISTS ix_contacts_email_lower ON "Contacts" (lower("Email")) WHERE "Email" IS NOT NULL;
                 """);
 

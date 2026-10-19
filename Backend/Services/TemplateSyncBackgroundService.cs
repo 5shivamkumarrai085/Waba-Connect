@@ -54,8 +54,22 @@ public class TemplateSyncBackgroundService : BackgroundService
             // One instance at a time: every instance calling Meta for the same templates only
             // spends rate limit. Skipped (counted as success) while another instance runs it.
             var succeeded = true;
-            await WhatsAppCampaignApi.Services.Queue.LeaderLock.TryRunAsync(_dataSource, "template-sync",
-                async () => succeeded = await RunOnceAsync(stoppingToken), stoppingToken);
+            try
+            {
+                await WhatsAppCampaignApi.Services.Queue.LeaderLock.TryRunAsync(_dataSource, "template-sync",
+                    async () => succeeded = await RunOnceAsync(stoppingToken), stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                // Taking the lock opens a connection outside RunOnceAsync's handler. A database
+                // outage (or Neon's quota refusal) escaping here stops the whole host.
+                _logger.LogError(ex, "Template sync could not take its leader lock; will retry with backoff.");
+                succeeded = false;
+            }
 
             // Exponential backoff on failure so a Meta outage doesn't turn into a retry storm,
             // reset the moment a run succeeds.

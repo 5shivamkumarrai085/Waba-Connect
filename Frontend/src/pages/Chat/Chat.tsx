@@ -1677,9 +1677,12 @@ export const Chat: React.FC = () => {
                     <div className="chat-window-limit-left">
                       <AlertTriangle size={20} className="chat-window-limit-icon" />
                       <div className="chat-window-limit-text-group">
-                        <span className="chat-window-limit-title">Reply window closed</span>
+                        <span className="chat-window-limit-title">
+                          {activeConversation?.serviceWindowEndsAt ? 'Reply window closed' : 'Waiting for the customer to write'}
+                        </span>
+                        {/* Sending a template does not open the window: only the customer's reply does. */}
                         <span className="chat-window-limit-description">
-                          WhatsApp only allows free-form replies within {chatOptions.data?.serviceWindowHours ?? 24} hours of the customer's last message. Send an approved template to restart the conversation.
+                          WhatsApp only allows free-form replies within {chatOptions.data?.serviceWindowHours ?? 24} hours of the customer's last message. You can send an approved template now; the reply box opens as soon as the customer responds.
                         </span>
                       </div>
                     </div>

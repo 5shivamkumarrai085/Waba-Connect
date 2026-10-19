@@ -25,7 +25,7 @@ export const resolveMediaUrl = (url: string | null | undefined): string => {
     return url
   }
 
-  const base = apiClient.defaults.baseURL || 'http://localhost:5155/api'
+  const base = apiClient.defaults.baseURL || 'https://waba-connect-api-wnir.onrender.com/api'
   const staticRoot = base.replace(/\/api\/?$/, '')
 
   return `${staticRoot}${url.startsWith('/') ? '' : '/'}${url}`

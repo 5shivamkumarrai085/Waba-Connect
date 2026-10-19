@@ -208,7 +208,10 @@ export const useCampaignStore = create<CampaignStoreState>((set, get) => ({
   
   loadCampaigns: async () => {
     const s = get()
-    set({ isLoading: true })
+    const hasCache = s.campaigns.length > 0
+    if (!hasCache) {
+      set({ isLoading: true })
+    }
     try {
       const page = await campaignService.getCampaignsPage({
         page: s.currentPage,

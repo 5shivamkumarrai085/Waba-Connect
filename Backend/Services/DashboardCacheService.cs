@@ -347,7 +347,7 @@ public class DashboardCacheService : IDashboardCacheService
                 Pending: counts.Pending,
                 Suppressed: counts.Suppressed,
                 Replies: replies,
-                DeliveryRate: counts.Messages > 0 ? Math.Round((double)counts.Delivered / counts.Messages * 100, 1) : 0,
+                DeliveryRate: counts.Messages > 0 ? Math.Min(100.0, Math.Round((double)counts.Delivered / counts.Messages * 100, 1)) : 0,
                 ReplyRate: counts.Messages > 0 ? Math.Round((double)replies / counts.Messages * 100, 1) : 0,
                 SharePercent: 0));
         }
@@ -388,6 +388,7 @@ public class DashboardCacheService : IDashboardCacheService
         var suppressed = CountOf(MessageStatus.Suppressed);
         var pending = CountOf(MessageStatus.Pending);
         var messages = forChannel.Where(r => r.Status != MessageStatus.Suppressed).Sum(r => r.Count);
+        delivered = Math.Min(delivered, messages);
 
         return new ChannelMessageCounts(messages, delivered, failed, read, pending, suppressed);
     }

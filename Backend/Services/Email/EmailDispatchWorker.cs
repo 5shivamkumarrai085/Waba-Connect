@@ -754,7 +754,7 @@ public class EmailDispatchWorker : BackgroundService
         if (trackingEnabled && detail.TrackOpens && !string.IsNullOrEmpty(recipient.TrackingId))
         {
             var openUrl = trackingService.BuildOpenUrl(recipient.TrackingId);
-            var pixelTag = $"<img src=\"{openUrl}\" width=\"1\" height=\"1\" alt=\"\" style=\"display:none;max-height:0;overflow:hidden;mso-hide:all;\" />";
+            var pixelTag = $"<img src=\"{openUrl}\" width=\"1\" height=\"1\" border=\"0\" alt=\"\" style=\"display:block;width:1px;min-width:1px;height:1px;min-height:1px;border:0;outline:none;\" />";
             if (!string.IsNullOrWhiteSpace(body))
             {
                 body = body.Contains("</body>", StringComparison.OrdinalIgnoreCase)

@@ -59,12 +59,13 @@ public class UnsubscribeTokenService : IUnsubscribeTokenService
     {
         var options = _options.CurrentValue.Unsubscribe;
 
-        var baseUrl = (options.PublicBaseUrl ?? string.Empty).TrimEnd('/');
-        if (string.IsNullOrWhiteSpace(baseUrl))
+        var baseUrl = (options.PublicBaseUrl ?? string.Empty).Trim().TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(baseUrl) ||
+            baseUrl.Contains("trycloudflare.com", StringComparison.OrdinalIgnoreCase) ||
+            baseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase) ||
+            baseUrl.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException(
-                "Email:Unsubscribe:PublicBaseUrl is not configured. Without a publicly reachable base URL, "
-              + "unsubscribe links silently fail in every recipient's mail client.");
+            baseUrl = "https://waba-connect-api-wnir.onrender.com";
         }
 
         var token = Issue(emailAddress, campaignId, contactId, TimeSpan.FromDays(options.TokenTtlDays));

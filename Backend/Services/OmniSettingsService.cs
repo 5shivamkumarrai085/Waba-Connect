@@ -105,7 +105,9 @@ public class OmniSettingsService : IOmniSettingsService
             Max = field.Max,
             Options = field.OptionSource is not null && options.TryGetValue(field.OptionSource, out var list)
                 ? list
-                : new List<OmniSettingsOptionDto>()
+                : field.Options.Count > 0
+                    ? field.Options.Select(o => new OmniSettingsOptionDto { Value = o.Value, Label = o.Label }).ToList()
+                    : new List<OmniSettingsOptionDto>()
         };
 
         if (field.IsSecret)
@@ -134,7 +136,7 @@ public class OmniSettingsService : IOmniSettingsService
         "toggle" => bool.TryParse(raw, out var flag) && flag,
         "number" => int.TryParse(raw, out var number) ? number : (int?)null,
         "tags" or "multiselect" => DeserializeList(raw),
-        _ => raw
+        _ => raw ?? (field.Key == "chatRouting.strategy" ? "off" : raw)
     };
 
     private static List<string> DeserializeList(string? raw)
@@ -426,9 +428,12 @@ public class OmniSettingsService : IOmniSettingsService
             // A select may only hold something its own option list offers. Without this, a stale
             // form could store a status that was deleted, and the feature reading that setting
             // would fail later, far from the change that caused it.
-            if (field.Type == "select" && field.OptionSource is not null
-                && options.TryGetValue(field.OptionSource, out var allowed) && allowed.Count > 0
-                && !allowed.Any(o => string.Equals(o.Value, value, StringComparison.OrdinalIgnoreCase)))
+            var selectAllowed = field.OptionSource is not null && options.TryGetValue(field.OptionSource, out var allowed)
+                ? allowed
+                : field.Options;
+
+            if (field.Type == "select" && selectAllowed.Count > 0
+                && !selectAllowed.Any(o => string.Equals(o.Value, value, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new InvalidOperationException($"\"{value}\" is not a valid choice for \"{field.Label}\".");
             }

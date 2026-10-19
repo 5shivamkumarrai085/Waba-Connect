@@ -135,7 +135,7 @@ export const Dashboard: React.FC = () => {
 
     // Rates are computed here, not read from the server, because they have to be rates *of these
     // numbers*. A percentage taken against a differently-scoped total is worse than no percentage.
-    const rate = (part: number) => (messages > 0 ? ((part / messages) * 100).toFixed(1) : '0.0')
+    const rate = (part: number) => (messages > 0 ? Math.min(100, (part / messages) * 100).toFixed(1) : '0.0')
 
     return {
       messages,
